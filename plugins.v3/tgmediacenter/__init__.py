@@ -30,7 +30,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -299,14 +299,34 @@ class TgMediaCenter(_PluginBase):
         return [SubscribeSeen]
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """返回插件定时服务定义（订阅服务周期同步）。"""
+        """返回插件定时服务定义（订阅服务周期同步）。
+
+        注意：宿主把 ``trigger`` 原样传给 apscheduler 的 ``add_job(trigger=...)``，
+        只接受 ``cron``/``interval``/``date`` 字符串或 Trigger **对象**——
+        传 cron 表达式字符串会报「No trigger by the name ...」，必须转成
+        ``CronTrigger.from_crontab(...)``。
+        """
         if not self._enabled() or not self._subscribe or not self._subscribe.enabled():
             return []
+        cron_expr = str(self._config.get("subscribe_cron") or "0 */6 * * *").strip()
+        trigger = cron_expr
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+
+            trigger = CronTrigger.from_crontab(cron_expr)
+        except Exception as err:  # pragma: no cover - 表达式非法时退化为默认周期
+            logger.warning(f"[TgMediaCenter] 订阅服务 cron 表达式非法（{cron_expr}），使用默认每天 13 点：{err}")
+            try:
+                from apscheduler.triggers.cron import CronTrigger
+
+                trigger = CronTrigger.from_crontab("0 13 * * *")
+            except Exception:  # pragma: no cover
+                trigger = "cron"
         return [
             {
                 "id": "subscribe_sync",
                 "name": "订阅服务同步",
-                "trigger": self._config.get("subscribe_cron") or "0 */6 * * *",
+                "trigger": trigger,
                 "func": self._run_subscribe_sync,
                 "kwargs": {},
             }

@@ -238,6 +238,14 @@ class SubscribeSyncRequest(BaseModel):
     dry_run: bool = Field(default=False, description="仅解析不建订阅")
 
 
+class SubscribeResultItem(BaseModel):
+    """单条订阅源处理结果。"""
+
+    title: str = ""
+    ok: bool = False
+    message: str = ""
+
+
 class SubscribeSyncResult(BaseModel):
     """一次同步的结果汇总。"""
 
@@ -248,7 +256,7 @@ class SubscribeSyncResult(BaseModel):
     failed: int = 0
     remaining: int = 0
     message: str = ""
-    results: List[Pan115PushItemResult] = Field(default_factory=list)
+    results: List[SubscribeResultItem] = Field(default_factory=list)
 
 
 API_RESPONSE_MODELS: Dict[str, type] = {

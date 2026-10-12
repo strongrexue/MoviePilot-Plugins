@@ -3,7 +3,7 @@
     "name": "TG媒体中心",
     "description": "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。",
     "labels": "工具,媒体",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "icon": "tgmediacenter.png",
     "author": "strongrexue",
     "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v1.3.3": "[1]修复订阅服务定时注册失败（No trigger by the name 0/6）：cron 表达式须转为 CronTrigger.from_crontab 对象再交给宿主调度器，服务注册失败曾连带影响插件后台初始化;[2]修复抓取结果列表不显示媒体名（订阅结果误用 115 的结果模型，title 字段被丢弃）",
       "v1.3.2": "[1]修复「最近抓取结果」解析/抓取后不实时刷新（sync 结果实时写入 last_result）;[2]总览卡片改为显示表单实时勾选数，并提示勾选后需保存配置",
       "v1.3.1": "[1]修复豆瓣 RSS 拉取报「An asyncio.Future... required」：RssHelper.parse 是同步方法，误包进 run_sync 导致返回值被当协程;[2]修复 MP 榜单真实抓取失败：建订阅改用同步版 SubscribeChain.add（宿主同步插件标准用法），不再经自定义事件循环调用 async_add",
       "v1.3.0": "【P3 订阅服务】[1]新增订阅服务：MP 榜单（TMDB 流行趋势/热门电影/热门剧集、Bangumi 每日放送，走宿主 API）与豆瓣榜单（15 个，走 RSSHub）双通道;[2]命中后自动创建宿主订阅（全局去重表，跨源只处理一次）;[3]评分下限过滤;[4]前端双 Tab（MP 榜单/豆瓣榜单），各带立即抓取与最近结果;[5]定时同步服务",

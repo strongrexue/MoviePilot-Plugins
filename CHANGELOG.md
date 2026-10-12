@@ -55,6 +55,11 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.3.3（P3 修复：定时服务注册 / 结果列表标题）
+
+- **服务注册失败（No trigger by the name "0/6"）**：宿主把 get_service 的 trigger 原样传给 apscheduler，cron 表达式字符串不被接受；改为 CronTrigger.from_crontab 对象（该失败曾连带影响插件后台初始化，TG 重连/刷新不可用）。
+- **抓取结果列表不显示媒体名**：订阅结果误用 115 的结果模型（target 字段），title 被丢弃；改为独立 SubscribeResultItem 模型。
+
 ## v1.3.2（P3 修复：抓取结果实时刷新）
 
 - 解析/抓取后「最近抓取结果」不更新：sync 接口返回的结果实时写入 last_result，列表立即显示每条命中/跳过原因。

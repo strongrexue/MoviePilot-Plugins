@@ -55,6 +55,11 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.3.1（P3 修复：同步/异步误用）
+
+- **豆瓣 RSS 拉取失败**（An asyncio.Future... required）：`RssHelper.parse` 是同步方法，误包进 run_sync。
+- **MP 榜单真实抓取失败**：建订阅改用同步版 `SubscribeChain.add`（宿主同步插件标准用法），async_add 留给宿主异步 API 层。
+
 ## v1.3.0（P3 订阅服务）
 
 - **双通道订阅**：MP 榜单（TMDB 流行趋势/热门电影/热门剧集、Bangumi 每日放送）走宿主 API 零配置；豆瓣榜单 15 个走 RSSHub。

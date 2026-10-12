@@ -16,7 +16,6 @@ from typing import Any, List, Optional
 from app.sdk.logging import logger
 
 from ..core.subscribe_sources import SourceDef, rss_url
-from ..utils import run_sync
 
 
 def _to_float(value: Any) -> float:
@@ -80,7 +79,12 @@ def _normalize_item(item: dict, source: SourceDef) -> Optional[dict]:
 
 
 def fetch_douban_source(source: SourceDef, rsshub_base: str, *, proxy: bool = False) -> List[dict]:
-    """拉取一个豆瓣榜单源，返回统一条目列表。"""
+    """拉取一个豆瓣榜单源，返回统一条目列表。
+
+    注意：``RssHelper().parse`` 是**同步方法**（V3 宿主源码如此），不要包进 run_sync——
+    包了会把返回的 list 当协程送进事件循环，报
+    「An asyncio.Future, a coroutine or an awaitable is required」。
+    """
     url = rss_url(source, rsshub_base)
     try:
         from app.sdk.network import RssHelper
@@ -88,7 +92,7 @@ def fetch_douban_source(source: SourceDef, rsshub_base: str, *, proxy: bool = Fa
         logger.error(f"无法加载宿主 RssHelper：{err}")
         return []
     try:
-        items = run_sync(lambda: RssHelper().parse(url, proxy=proxy, timeout=20))
+        items = RssHelper().parse(url, proxy=proxy, timeout=20)
     except Exception as err:  # pragma: no cover - 网络/解析异常
         logger.warning(f"拉取豆瓣 RSS 失败 {url}：{err}")
         return []

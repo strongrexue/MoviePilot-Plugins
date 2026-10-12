@@ -19,7 +19,6 @@ from app.sdk.logging import logger
 
 from ..core import subscribe_sources as sources_lib
 from ..services import douban_source, mp_source
-from ..utils import run_sync
 
 # 最近抓取结果缓存键（插件数据）
 _STATE_KEY = "subscribe_state"
@@ -150,7 +149,12 @@ class SubscribeModule:
     # ------------------------------------------------------------------ 建订阅
 
     def _subscribe(self, item: dict) -> tuple[bool, str, str, str]:
-        """建宿主订阅，返回 ``(成功, 说明, media_source, media_id)``。"""
+        """建宿主订阅，返回 ``(成功, 说明, media_source, media_id)``。
+
+        用**同步版 ``add()``** 直接调用——宿主同步插件（如豆瓣榜单订阅）的标准用法；
+        ``async_add`` 是给宿主异步 API 层用的，放到我们自己起的事件循环里会和
+        宿主的 DB 会话/运行时状态打架。
+        """
         from app.chain.subscribe import SubscribeChain
         from app.schemas.types import MediaSource, MediaType
 
@@ -181,18 +185,15 @@ class SubscribeModule:
             media_id = str(item["bangumi_id"])
 
         try:
-            subscribe_id, message = run_sync(
-                lambda: SubscribeChain().async_add(
-                    title=title,
-                    year=year,
-                    mtype=mtype,
-                    media_source=media_source,
-                    media_id=media_id,
-                    exist_ok=True,
-                    message=True,
-                    username="订阅服务",
-                ),
-                timeout=60,
+            subscribe_id, message = SubscribeChain().add(
+                title=title,
+                year=year,
+                mtype=mtype,
+                media_source=media_source,
+                media_id=media_id,
+                exist_ok=True,
+                message=True,
+                username="订阅服务",
             )
         except Exception as err:  # pragma: no cover
             return False, f"建订阅异常：{err}", str(media_source) if media_source else "", media_id

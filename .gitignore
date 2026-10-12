@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Node / 前端
+node_modules/
+.pnpm-store/
+
+# 插件运行时产物（不提交）
+*.session
+*.session-journal
+*.log
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 说明：plugins.v3/<id>/dist/ 属于发布产物，必须提交，不要加入忽略。

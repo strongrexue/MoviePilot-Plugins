@@ -1,0 +1,92 @@
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import federation from '@originjs/vite-plugin-federation'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+/**
+ * 联邦产物清理：删除 index.html 与主程序共享样式，避免污染宿主页面。
+ * 同时压缩 remoteEntry.js 的行尾空白，保证构建产物稳定可比对。
+ */
+function cleanFederationArtifacts() {
+  let outputDir
+  return {
+    name: 'clean-federation-artifacts',
+    configResolved(config) {
+      outputDir = resolve(config.root, config.build.outDir)
+    },
+    closeBundle() {
+      if (!outputDir) return
+      rmSync(resolve(outputDir, 'index.html'), { force: true })
+      rmSync(resolve(outputDir, 'assets/__federation_shared_vuetify'), {
+        recursive: true,
+        force: true,
+      })
+      const remoteEntryPath = resolve(outputDir, 'assets/remoteEntry.js')
+      if (existsSync(remoteEntryPath)) {
+        const remoteEntry = readFileSync(remoteEntryPath, 'utf8').replace(/[ \t]+(?=\r?$)/gm, '')
+        writeFileSync(remoteEntryPath, remoteEntry, 'utf8')
+      }
+    },
+  }
+}
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    federation({
+      name: 'TgMediaCenter',
+      filename: 'remoteEntry.js',
+      exposes: {
+        './Config': './src/components/Config.vue',
+        './Page': './src/components/Page.vue',
+        './Dashboard': './src/components/Dashboard.vue',
+      },
+      shared: {
+        vue: { requiredVersion: false, generate: false, singleton: true },
+        vuetify: { requiredVersion: false, generate: false, singleton: true },
+        'vuetify/styles': { requiredVersion: false, generate: false, singleton: true },
+      },
+      format: 'esm',
+    }),
+    cleanFederationArtifacts(),
+  ],
+  build: {
+    target: 'esnext',
+    minify: false,
+    cssCodeSplit: true,
+    emptyOutDir: false,
+  },
+  css: {
+    postcss: {
+      plugins: [
+        {
+          postcssPlugin: 'internal:charset-removal',
+          AtRule: {
+            charset: atRule => {
+              if (atRule.name === 'charset') atRule.remove()
+            },
+          },
+        },
+        {
+          // 联邦插件不得把 Vuetify / MDI 的全局样式打进产物。
+          postcssPlugin: 'vuetify-filter',
+          Root(root) {
+            const sourcePath = root.source?.input?.file?.replaceAll('\\', '/') || ''
+            if (sourcePath.includes('/node_modules/vuetify/') ||
+                sourcePath.includes('/node_modules/@mdi/')) {
+              root.nodes = []
+              return
+            }
+            root.walkRules(rule => {
+              if (rule.selector &&
+                  (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
+                rule.remove()
+              }
+            })
+          },
+        },
+      ],
+    },
+  },
+})

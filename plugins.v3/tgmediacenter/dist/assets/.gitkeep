@@ -1,0 +1,1 @@
+# 联邦构建产物目录；执行 pnpm build 后由 vite 写入 remoteEntry.js 与各组件产物。

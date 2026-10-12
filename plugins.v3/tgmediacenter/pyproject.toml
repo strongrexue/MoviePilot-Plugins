@@ -1,0 +1,7 @@
+[project]
+name = "moviepilot-plugin-tgmediacenter"
+dynamic = ["version"]
+requires-python = ">=3.14"
+dependencies = [
+    "telethon>=1.36.0",
+]

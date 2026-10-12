@@ -263,14 +263,48 @@ async function refreshDialogs() {
   }
 }
 
+async function reconnect() {
+  if (busy.value) return
+  busy.value = 'connect'
+  setMessage('正在连接 Telegram（可能需要十几秒）…')
+  try {
+    const info = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/connect', {}, { timeoutMs: 32000 }))
+    status.value = info
+    if (info?.authorized) {
+      loginStage.value = 'idle'
+      sent.value = null
+      setMessage('已连接并处于登录状态')
+    } else {
+      setMessage('已连接，但当前未登录：请发送验证码登录', false)
+    }
+    await loadStatus()
+  } catch (err) {
+    setMessage(err?.message || '连接 Telegram 失败', false)
+  } finally {
+    busy.value = ''
+  }
+}
+
 const chips = computed(() => {
   const info = status.value || {}
+  const connection = info.connected
+    ? { text: 'TG 已连接', color: 'success' }
+    : info.running
+      ? { text: 'TG 连接断开', color: 'error' }
+      : { text: 'TG 未启动', color: 'default' }
   return [
     { text: info.telethon_available ? 'telethon 已安装' : 'telethon 未安装', color: info.telethon_available ? 'success' : 'error' },
     { text: info.api_configured ? 'API 凭证已填' : 'API 凭证未填', color: info.api_configured ? 'success' : 'warning' },
     { text: info.session_present ? '会话已保存' : '无会话', color: info.session_present ? 'success' : 'default' },
+    connection,
     { text: info.authorized ? '已登录' : '未登录', color: info.authorized ? 'success' : 'warning' },
   ]
+})
+
+/** 会话已保存但客户端没连上：提示自愈路径，避免误以为"登录丢了"。 */
+const needsReconnect = computed(() => {
+  const info = status.value || {}
+  return Boolean(info.api_configured && info.session_present && !info.connected && !statusLoading.value)
 })
 
 onMounted(async () => {
@@ -292,9 +326,14 @@ onUnmounted(() => {
           {{ chip.text }}
         </VChip>
       </div>
-      <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="statusLoading" @click="loadStatus">
-        刷新状态
-      </VBtn>
+      <div class="tg-status-actions">
+        <VBtn size="small" variant="text" prepend-icon="mdi-connection" :loading="busy === 'connect'" @click="reconnect">
+          重连
+        </VBtn>
+        <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="statusLoading" @click="loadStatus">
+          刷新状态
+        </VBtn>
+      </div>
     </div>
 
     <VAlert v-if="versionMismatch" type="warning" variant="tonal" density="comfortable" class="tg-message">
@@ -401,91 +440,124 @@ onUnmounted(() => {
     <VCard flat class="tg-card">
       <VCardTitle class="text-subtitle-2">登录向导</VCardTitle>
       <VCardText>
-        <VAlert
-          v-if="sent && loginStage !== 'idle'"
-          type="info"
-          variant="tonal"
-          density="comfortable"
-          class="tg-message"
-        >
-          验证码{{ sent.delivery_text }}
-          <span v-if="sent.phone_masked"> · {{ sent.phone_masked }}</span>
-          <span v-if="resendIn > 0"> · {{ resendIn }} 秒后可重新发送</span>
-        </VAlert>
-        <div class="tg-wizard">
-          <VBtn
-            color="primary"
-            variant="flat"
-            :loading="busy === 'send_code'"
-            :disabled="sendDisabled"
-            prepend-icon="mdi-send-outline"
-            @click="sendCode"
-          >
-            {{ sendLabel }}
-          </VBtn>
-          <VTextField
-            v-model="code"
-            label="验证码"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="tg-wizard-input"
-            :disabled="loginStage === 'need_password'"
-          />
-          <VBtn
-            color="success"
-            variant="flat"
-            :loading="busy === 'sign_in'"
-            prepend-icon="mdi-login-variant"
-            @click="signIn"
-          >
-            登录
-          </VBtn>
-        </div>
-        <div v-if="loginStage === 'need_password'" class="tg-wizard tg-wizard-password">
-          <VTextField
-            v-model="password"
-            type="password"
-            label="两步验证密码"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="tg-wizard-input"
-          />
-          <VBtn
-            color="warning"
-            variant="flat"
-            :loading="busy === 'sign_in'"
-            prepend-icon="mdi-shield-key-outline"
-            @click="signIn"
-          >
-            提交两步验证
-          </VBtn>
-        </div>
-        <div class="tg-wizard-actions">
-          <VBtn
+        <!-- 已授权：收起验证码输入与登录按钮，只保留状态与操作（对齐 MA 的"已授权"形态） -->
+        <template v-if="status?.authorized">
+          <div class="tg-authorized">
+            <VChip color="success" variant="tonal" prepend-icon="mdi-account-check-outline" label>
+              Telegram 客户端 已授权
+            </VChip>
+            <span v-if="status?.me" class="tg-authorized-name">
+              {{ status.me.name || status.me.username }}
+              <span v-if="status.me.username">（@{{ status.me.username }}）</span>
+            </span>
+          </div>
+          <div class="tg-wizard-actions">
+            <VBtn
+              variant="tonal"
+              :loading="busy === 'refresh'"
+              :disabled="Boolean(busy) && busy !== 'refresh'"
+              prepend-icon="mdi-account-multiple-outline"
+              @click="refreshDialogs"
+            >
+              刷新对话列表
+            </VBtn>
+            <VBtn
+              variant="text"
+              color="error"
+              :loading="busy === 'logout'"
+              prepend-icon="mdi-logout"
+              @click="logout"
+            >
+              退出登录
+            </VBtn>
+          </div>
+          <div class="tg-hint">
+            已登录状态下不需要验证码。如需更换账号，请先「退出登录」。
+          </div>
+        </template>
+
+        <template v-else>
+          <VAlert v-if="needsReconnect" type="warning" variant="tonal" density="comfortable" class="tg-message">
+            会话已保存，但 TG 客户端当前未连接：插件已在后台自动重连，约 10 秒后点「刷新状态」；
+            也可点右上角「重连」立即重试。
+          </VAlert>
+          <VAlert
+            v-if="sent && loginStage !== 'idle'"
+            type="info"
             variant="tonal"
-            :loading="busy === 'refresh'"
-            :disabled="Boolean(busy) && busy !== 'refresh'"
-            prepend-icon="mdi-account-multiple-outline"
-            @click="refreshDialogs"
+            density="comfortable"
+            class="tg-message"
           >
-            刷新对话列表
-          </VBtn>
-          <VBtn
-            variant="text"
-            color="error"
-            :loading="busy === 'logout'"
-            prepend-icon="mdi-logout"
-            @click="logout"
-          >
-            退出登录
-          </VBtn>
-        </div>
-        <div class="tg-hint">
-          凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送；
-          刷新页面不会丢失已发出的验证码，直接输入即可。
-        </div>
+            验证码{{ sent.delivery_text }}
+            <span v-if="sent.phone_masked"> · {{ sent.phone_masked }}</span>
+            <span v-if="resendIn > 0"> · {{ resendIn }} 秒后可重新发送</span>
+          </VAlert>
+          <div class="tg-wizard">
+            <VBtn
+              color="primary"
+              variant="flat"
+              :loading="busy === 'send_code'"
+              :disabled="sendDisabled"
+              prepend-icon="mdi-send-outline"
+              @click="sendCode"
+            >
+              {{ sendLabel }}
+            </VBtn>
+            <VTextField
+              v-model="code"
+              label="验证码"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="tg-wizard-input"
+              :disabled="loginStage === 'need_password'"
+            />
+            <VBtn
+              color="success"
+              variant="flat"
+              :loading="busy === 'sign_in'"
+              prepend-icon="mdi-login-variant"
+              @click="signIn"
+            >
+              登录
+            </VBtn>
+          </div>
+          <div v-if="loginStage === 'need_password'" class="tg-wizard tg-wizard-password">
+            <VTextField
+              v-model="password"
+              type="password"
+              label="两步验证密码"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="tg-wizard-input"
+            />
+            <VBtn
+              color="warning"
+              variant="flat"
+              :loading="busy === 'sign_in'"
+              prepend-icon="mdi-shield-key-outline"
+              @click="signIn"
+            >
+              提交两步验证
+            </VBtn>
+          </div>
+          <div class="tg-wizard-actions">
+            <VBtn
+              variant="tonal"
+              :loading="busy === 'refresh'"
+              :disabled="Boolean(busy) && busy !== 'refresh'"
+              prepend-icon="mdi-account-multiple-outline"
+              @click="refreshDialogs"
+            >
+              刷新对话列表
+            </VBtn>
+          </div>
+          <div class="tg-hint">
+            凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送；
+            刷新页面不会丢失已发出的验证码，直接输入即可。
+          </div>
+        </template>
       </VCardText>
     </VCard>
 
@@ -497,6 +569,9 @@ onUnmounted(() => {
 .tg-pane { display: flex; flex-direction: column; gap: 12px; }
 .tg-status-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .tg-status-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.tg-status-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.tg-authorized { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tg-authorized-name { font-size: 13px; color: rgba(var(--v-theme-on-surface), 0.75); }
 .tg-account,
 .tg-message { font-size: 13px; }
 .tg-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }

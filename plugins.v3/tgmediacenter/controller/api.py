@@ -33,6 +33,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/telegram/sign_in", plugin.api_telegram_sign_in, ["POST"], "完成 Telegram 登录或两步验证"),
         ("/telegram/logout", plugin.api_telegram_logout, ["POST"], "退出 Telegram 登录"),
         ("/telegram/dialogs", plugin.api_telegram_dialogs, ["GET"], "获取缓存的对话列表"),
+        ("/telegram/connect", plugin.api_telegram_connect, ["POST"], "连接 / 重连 TG 客户端"),
         ("/telegram/refresh_dialogs", plugin.api_telegram_refresh_dialogs, ["POST"], "刷新并返回对话列表"),
     ]
     return [
@@ -83,7 +84,23 @@ def api_status(plugin):
     """返回插件与 TG 凭证状态。"""
     module = _credentials(plugin)
     data = _invoke(lambda: module.status())
+    # 已配置凭证但客户端没连上（例如刚升级插件、连接掉线）：顺手在后台安排一次连接，
+    # 不阻塞本次响应；下次刷新状态即可看到真实结果。
+    if data.get("api_configured") and not data.get("connected"):
+        schedule = getattr(plugin, "ensure_background_connect", None)
+        if callable(schedule):
+            try:
+                schedule()
+            except Exception as err:  # pragma: no cover - 自愈属增强能力
+                logger.debug(f"安排后台 TG 连接失败：{err}")
     return _envelope(api_schemas.TgStatusData.model_validate(data))
+
+
+def api_telegram_connect(plugin):
+    """连接 / 重连 TG 客户端（同步执行，受同步接口的网关超时约束）。"""
+    module = _credentials(plugin)
+    data = _invoke(lambda: module.connect_now())
+    return _envelope(api_schemas.TgStatusData.model_validate(data), message="TG 客户端已连接")
 
 
 def api_telegram_send_code(plugin, request: api_schemas.TgSendCodeRequest):

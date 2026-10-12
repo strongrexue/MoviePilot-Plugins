@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.1.4';
+const FRONTEND_VERSION = '1.1.5';
 
 /** 复制文本到剪贴板：优先 Clipboard API，失败回退到临时 textarea。 */
 async function copyText(text) {
@@ -388,17 +388,25 @@ const {renderList:_renderList$1,Fragment:_Fragment$1,openBlock:_openBlock$1,crea
 const _hoisted_1$1 = { class: "tg-pane" };
 const _hoisted_2$1 = { class: "tg-status-head" };
 const _hoisted_3$1 = { class: "tg-status-chips" };
-const _hoisted_4$1 = { key: 0 };
-const _hoisted_5 = ["title"];
-const _hoisted_6 = { key: 2 };
-const _hoisted_7 = { key: 0 };
-const _hoisted_8 = { key: 1 };
-const _hoisted_9 = { class: "tg-wizard" };
-const _hoisted_10 = {
-  key: 1,
+const _hoisted_4$1 = { class: "tg-status-actions" };
+const _hoisted_5 = { key: 0 };
+const _hoisted_6 = ["title"];
+const _hoisted_7 = { key: 2 };
+const _hoisted_8 = { class: "tg-authorized" };
+const _hoisted_9 = {
+  key: 0,
+  class: "tg-authorized-name"
+};
+const _hoisted_10 = { key: 0 };
+const _hoisted_11 = { class: "tg-wizard-actions" };
+const _hoisted_12 = { key: 0 };
+const _hoisted_13 = { key: 1 };
+const _hoisted_14 = { class: "tg-wizard" };
+const _hoisted_15 = {
+  key: 2,
   class: "tg-wizard tg-wizard-password"
 };
-const _hoisted_11 = { class: "tg-wizard-actions" };
+const _hoisted_16 = { class: "tg-wizard-actions" };
 
 const {computed: computed$1,onMounted: onMounted$1,onUnmounted,ref: ref$2} = await importShared('vue');
 
@@ -667,14 +675,48 @@ async function refreshDialogs() {
   }
 }
 
+async function reconnect() {
+  if (busy.value) return
+  busy.value = 'connect';
+  setMessage('正在连接 Telegram（可能需要十几秒）…');
+  try {
+    const info = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/connect', {}, { timeoutMs: 32000 }));
+    status.value = info;
+    if (info?.authorized) {
+      loginStage.value = 'idle';
+      sent.value = null;
+      setMessage('已连接并处于登录状态');
+    } else {
+      setMessage('已连接，但当前未登录：请发送验证码登录', false);
+    }
+    await loadStatus();
+  } catch (err) {
+    setMessage(err?.message || '连接 Telegram 失败', false);
+  } finally {
+    busy.value = '';
+  }
+}
+
 const chips = computed$1(() => {
   const info = status.value || {};
+  const connection = info.connected
+    ? { text: 'TG 已连接', color: 'success' }
+    : info.running
+      ? { text: 'TG 连接断开', color: 'error' }
+      : { text: 'TG 未启动', color: 'default' };
   return [
     { text: info.telethon_available ? 'telethon 已安装' : 'telethon 未安装', color: info.telethon_available ? 'success' : 'error' },
     { text: info.api_configured ? 'API 凭证已填' : 'API 凭证未填', color: info.api_configured ? 'success' : 'warning' },
     { text: info.session_present ? '会话已保存' : '无会话', color: info.session_present ? 'success' : 'default' },
+    connection,
     { text: info.authorized ? '已登录' : '未登录', color: info.authorized ? 'success' : 'warning' },
   ]
+});
+
+/** 会话已保存但客户端没连上：提示自愈路径，避免误以为"登录丢了"。 */
+const needsReconnect = computed$1(() => {
+  const info = status.value || {};
+  return Boolean(info.api_configured && info.session_present && !info.connected && !statusLoading.value)
 });
 
 onMounted$1(async () => {
@@ -717,18 +759,32 @@ return (_ctx, _cache) => {
           }, 1032, ["color"]))
         }), 128))
       ]),
-      _createVNode$1(_component_VBtn, {
-        size: "small",
-        variant: "text",
-        "prepend-icon": "mdi-refresh",
-        loading: statusLoading.value,
-        onClick: loadStatus
-      }, {
-        default: _withCtx$1(() => [...(_cache[10] || (_cache[10] = [
-          _createTextVNode$1(" 刷新状态 ", -1)
-        ]))]),
-        _: 1
-      }, 8, ["loading"])
+      _createElementVNode$1("div", _hoisted_4$1, [
+        _createVNode$1(_component_VBtn, {
+          size: "small",
+          variant: "text",
+          "prepend-icon": "mdi-connection",
+          loading: busy.value === 'connect',
+          onClick: reconnect
+        }, {
+          default: _withCtx$1(() => [...(_cache[10] || (_cache[10] = [
+            _createTextVNode$1(" 重连 ", -1)
+          ]))]),
+          _: 1
+        }, 8, ["loading"]),
+        _createVNode$1(_component_VBtn, {
+          size: "small",
+          variant: "text",
+          "prepend-icon": "mdi-refresh",
+          loading: statusLoading.value,
+          onClick: loadStatus
+        }, {
+          default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
+            _createTextVNode$1(" 刷新状态 ", -1)
+          ]))]),
+          _: 1
+        }, 8, ["loading"])
+      ])
     ]),
     (versionMismatch.value)
       ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
@@ -755,7 +811,7 @@ return (_ctx, _cache) => {
           default: _withCtx$1(() => [
             _createTextVNode$1(" 已登录：" + _toDisplayString$1(status.value.me.name || status.value.me.username) + " ", 1),
             (status.value.me.username)
-              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_4$1, "（@" + _toDisplayString$1(status.value.me.username) + "）", 1))
+              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_5, "（@" + _toDisplayString$1(status.value.me.username) + "）", 1))
               : _createCommentVNode$1("", true),
             (status.value.me.phone)
               ? (_openBlock$1(), _createElementBlock$1("span", {
@@ -769,11 +825,11 @@ return (_ctx, _cache) => {
                     icon: reveal.value.phone ? 'mdi-eye-off-outline' : 'mdi-eye-outline',
                     size: "14"
                   }, null, 8, ["icon"])
-                ], 8, _hoisted_5))
+                ], 8, _hoisted_6))
               : _createCommentVNode$1("", true),
             _createElementVNode$1("span", null, " · 对话缓存 " + _toDisplayString$1(status.value.dialog_count) + " 条", 1),
             (status.value.dialogs_updated_at)
-              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_6, " · 更新于 " + _toDisplayString$1(status.value.dialogs_updated_at), 1))
+              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_7, " · 更新于 " + _toDisplayString$1(status.value.dialogs_updated_at), 1))
               : _createCommentVNode$1("", true)
           ]),
           _: 1
@@ -799,7 +855,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
+          default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
             _createTextVNode$1("API 凭证", -1)
           ]))]),
           _: 1
@@ -928,7 +984,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
-            _cache[12] || (_cache[12] = _createElementVNode$1("div", { class: "tg-hint" }, " API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。 API Hash 默认打码，点右侧眼睛可查看。 ", -1))
+            _cache[13] || (_cache[13] = _createElementVNode$1("div", { class: "tg-hint" }, " API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。 API Hash 默认打码，点右侧眼睛可查看。 ", -1))
           ]),
           _: 1
         })
@@ -941,123 +997,178 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
+          default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
             _createTextVNode$1("登录向导", -1)
           ]))]),
           _: 1
         }),
         _createVNode$1(_component_VCardText, null, {
           default: _withCtx$1(() => [
-            (sent.value && loginStage.value !== 'idle')
-              ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
-                  key: 0,
-                  type: "info",
-                  variant: "tonal",
-                  density: "comfortable",
-                  class: "tg-message"
-                }, {
-                  default: _withCtx$1(() => [
-                    _createTextVNode$1(" 验证码" + _toDisplayString$1(sent.value.delivery_text) + " ", 1),
-                    (sent.value.phone_masked)
-                      ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_7, " · " + _toDisplayString$1(sent.value.phone_masked), 1))
-                      : _createCommentVNode$1("", true),
-                    (resendIn.value > 0)
-                      ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_8, " · " + _toDisplayString$1(resendIn.value) + " 秒后可重新发送", 1))
+            (status.value?.authorized)
+              ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 0 }, [
+                  _createElementVNode$1("div", _hoisted_8, [
+                    _createVNode$1(_component_VChip, {
+                      color: "success",
+                      variant: "tonal",
+                      "prepend-icon": "mdi-account-check-outline",
+                      label: ""
+                    }, {
+                      default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
+                        _createTextVNode$1(" Telegram 客户端 已授权 ", -1)
+                      ]))]),
+                      _: 1
+                    }),
+                    (status.value?.me)
+                      ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_9, [
+                          _createTextVNode$1(_toDisplayString$1(status.value.me.name || status.value.me.username) + " ", 1),
+                          (status.value.me.username)
+                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_10, "（@" + _toDisplayString$1(status.value.me.username) + "）", 1))
+                            : _createCommentVNode$1("", true)
+                        ]))
                       : _createCommentVNode$1("", true)
                   ]),
-                  _: 1
-                }))
-              : _createCommentVNode$1("", true),
-            _createElementVNode$1("div", _hoisted_9, [
-              _createVNode$1(_component_VBtn, {
-                color: "primary",
-                variant: "flat",
-                loading: busy.value === 'send_code',
-                disabled: sendDisabled.value,
-                "prepend-icon": "mdi-send-outline",
-                onClick: sendCode
-              }, {
-                default: _withCtx$1(() => [
-                  _createTextVNode$1(_toDisplayString$1(sendLabel.value), 1)
-                ]),
-                _: 1
-              }, 8, ["loading", "disabled"]),
-              _createVNode$1(_component_VTextField, {
-                modelValue: code.value,
-                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((code).value = $event)),
-                label: "验证码",
-                density: "compact",
-                variant: "outlined",
-                "hide-details": "",
-                class: "tg-wizard-input",
-                disabled: loginStage.value === 'need_password'
-              }, null, 8, ["modelValue", "disabled"]),
-              _createVNode$1(_component_VBtn, {
-                color: "success",
-                variant: "flat",
-                loading: busy.value === 'sign_in',
-                "prepend-icon": "mdi-login-variant",
-                onClick: signIn
-              }, {
-                default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
-                  _createTextVNode$1(" 登录 ", -1)
-                ]))]),
-                _: 1
-              }, 8, ["loading"])
-            ]),
-            (loginStage.value === 'need_password')
-              ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_10, [
-                  _createVNode$1(_component_VTextField, {
-                    modelValue: password.value,
-                    "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((password).value = $event)),
-                    type: "password",
-                    label: "两步验证密码",
-                    density: "compact",
-                    variant: "outlined",
-                    "hide-details": "",
-                    class: "tg-wizard-input"
-                  }, null, 8, ["modelValue"]),
-                  _createVNode$1(_component_VBtn, {
-                    color: "warning",
-                    variant: "flat",
-                    loading: busy.value === 'sign_in',
-                    "prepend-icon": "mdi-shield-key-outline",
-                    onClick: signIn
-                  }, {
-                    default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
-                      _createTextVNode$1(" 提交两步验证 ", -1)
-                    ]))]),
-                    _: 1
-                  }, 8, ["loading"])
-                ]))
-              : _createCommentVNode$1("", true),
-            _createElementVNode$1("div", _hoisted_11, [
-              _createVNode$1(_component_VBtn, {
-                variant: "tonal",
-                loading: busy.value === 'refresh',
-                disabled: Boolean(busy.value) && busy.value !== 'refresh',
-                "prepend-icon": "mdi-account-multiple-outline",
-                onClick: refreshDialogs
-              }, {
-                default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
-                  _createTextVNode$1(" 刷新对话列表 ", -1)
-                ]))]),
-                _: 1
-              }, 8, ["loading", "disabled"]),
-              _createVNode$1(_component_VBtn, {
-                variant: "text",
-                color: "error",
-                loading: busy.value === 'logout',
-                "prepend-icon": "mdi-logout",
-                onClick: logout
-              }, {
-                default: _withCtx$1(() => [...(_cache[17] || (_cache[17] = [
-                  _createTextVNode$1(" 退出登录 ", -1)
-                ]))]),
-                _: 1
-              }, 8, ["loading"])
-            ]),
-            _cache[18] || (_cache[18] = _createElementVNode$1("div", { class: "tg-hint" }, " 凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送； 刷新页面不会丢失已发出的验证码，直接输入即可。 ", -1))
+                  _createElementVNode$1("div", _hoisted_11, [
+                    _createVNode$1(_component_VBtn, {
+                      variant: "tonal",
+                      loading: busy.value === 'refresh',
+                      disabled: Boolean(busy.value) && busy.value !== 'refresh',
+                      "prepend-icon": "mdi-account-multiple-outline",
+                      onClick: refreshDialogs
+                    }, {
+                      default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
+                        _createTextVNode$1(" 刷新对话列表 ", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["loading", "disabled"]),
+                    _createVNode$1(_component_VBtn, {
+                      variant: "text",
+                      color: "error",
+                      loading: busy.value === 'logout',
+                      "prepend-icon": "mdi-logout",
+                      onClick: logout
+                    }, {
+                      default: _withCtx$1(() => [...(_cache[17] || (_cache[17] = [
+                        _createTextVNode$1(" 退出登录 ", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["loading"])
+                  ]),
+                  _cache[18] || (_cache[18] = _createElementVNode$1("div", { class: "tg-hint" }, " 已登录状态下不需要验证码。如需更换账号，请先「退出登录」。 ", -1))
+                ], 64))
+              : (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 1 }, [
+                  (needsReconnect.value)
+                    ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                        key: 0,
+                        type: "warning",
+                        variant: "tonal",
+                        density: "comfortable",
+                        class: "tg-message"
+                      }, {
+                        default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
+                          _createTextVNode$1(" 会话已保存，但 TG 客户端当前未连接：插件已在后台自动重连，约 10 秒后点「刷新状态」； 也可点右上角「重连」立即重试。 ", -1)
+                        ]))]),
+                        _: 1
+                      }))
+                    : _createCommentVNode$1("", true),
+                  (sent.value && loginStage.value !== 'idle')
+                    ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                        key: 1,
+                        type: "info",
+                        variant: "tonal",
+                        density: "comfortable",
+                        class: "tg-message"
+                      }, {
+                        default: _withCtx$1(() => [
+                          _createTextVNode$1(" 验证码" + _toDisplayString$1(sent.value.delivery_text) + " ", 1),
+                          (sent.value.phone_masked)
+                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_12, " · " + _toDisplayString$1(sent.value.phone_masked), 1))
+                            : _createCommentVNode$1("", true),
+                          (resendIn.value > 0)
+                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_13, " · " + _toDisplayString$1(resendIn.value) + " 秒后可重新发送", 1))
+                            : _createCommentVNode$1("", true)
+                        ]),
+                        _: 1
+                      }))
+                    : _createCommentVNode$1("", true),
+                  _createElementVNode$1("div", _hoisted_14, [
+                    _createVNode$1(_component_VBtn, {
+                      color: "primary",
+                      variant: "flat",
+                      loading: busy.value === 'send_code',
+                      disabled: sendDisabled.value,
+                      "prepend-icon": "mdi-send-outline",
+                      onClick: sendCode
+                    }, {
+                      default: _withCtx$1(() => [
+                        _createTextVNode$1(_toDisplayString$1(sendLabel.value), 1)
+                      ]),
+                      _: 1
+                    }, 8, ["loading", "disabled"]),
+                    _createVNode$1(_component_VTextField, {
+                      modelValue: code.value,
+                      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((code).value = $event)),
+                      label: "验证码",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": "",
+                      class: "tg-wizard-input",
+                      disabled: loginStage.value === 'need_password'
+                    }, null, 8, ["modelValue", "disabled"]),
+                    _createVNode$1(_component_VBtn, {
+                      color: "success",
+                      variant: "flat",
+                      loading: busy.value === 'sign_in',
+                      "prepend-icon": "mdi-login-variant",
+                      onClick: signIn
+                    }, {
+                      default: _withCtx$1(() => [...(_cache[20] || (_cache[20] = [
+                        _createTextVNode$1(" 登录 ", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["loading"])
+                  ]),
+                  (loginStage.value === 'need_password')
+                    ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_15, [
+                        _createVNode$1(_component_VTextField, {
+                          modelValue: password.value,
+                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((password).value = $event)),
+                          type: "password",
+                          label: "两步验证密码",
+                          density: "compact",
+                          variant: "outlined",
+                          "hide-details": "",
+                          class: "tg-wizard-input"
+                        }, null, 8, ["modelValue"]),
+                        _createVNode$1(_component_VBtn, {
+                          color: "warning",
+                          variant: "flat",
+                          loading: busy.value === 'sign_in',
+                          "prepend-icon": "mdi-shield-key-outline",
+                          onClick: signIn
+                        }, {
+                          default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
+                            _createTextVNode$1(" 提交两步验证 ", -1)
+                          ]))]),
+                          _: 1
+                        }, 8, ["loading"])
+                      ]))
+                    : _createCommentVNode$1("", true),
+                  _createElementVNode$1("div", _hoisted_16, [
+                    _createVNode$1(_component_VBtn, {
+                      variant: "tonal",
+                      loading: busy.value === 'refresh',
+                      disabled: Boolean(busy.value) && busy.value !== 'refresh',
+                      "prepend-icon": "mdi-account-multiple-outline",
+                      onClick: refreshDialogs
+                    }, {
+                      default: _withCtx$1(() => [...(_cache[22] || (_cache[22] = [
+                        _createTextVNode$1(" 刷新对话列表 ", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["loading", "disabled"])
+                  ]),
+                  _cache[23] || (_cache[23] = _createElementVNode$1("div", { class: "tg-hint" }, " 凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送； 刷新页面不会丢失已发出的验证码，直接输入即可。 ", -1))
+                ], 64))
           ]),
           _: 1
         })
@@ -1073,7 +1184,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-7e6b2d63"]]);
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-4b710ef6"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

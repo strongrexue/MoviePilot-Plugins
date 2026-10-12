@@ -119,6 +119,9 @@ class _StubPlugin:
     def api_telegram_dialogs(self):
         ...
 
+    def api_telegram_connect(self):
+        ...
+
     def api_telegram_refresh_dialogs(self):
         ...
 
@@ -133,6 +136,7 @@ def test_api_routes_contract():
         "/telegram/sign_in",
         "/telegram/logout",
         "/telegram/dialogs",
+        "/telegram/connect",
         "/telegram/refresh_dialogs",
     }
     for route in routes:
@@ -357,6 +361,82 @@ def test_status_reports_session_from_data():
     assert module.status()["session_present"] is True
     module = CredentialsModule(_StubCredPlugin())
     assert module.status()["session_present"] is False
+
+
+# --------------------------------------------------------------------- 断线自愈
+
+
+def test_is_disconnected_error():
+    """连接断开类错误要能被识别（供"重连后重试"决策）。"""
+    assert tg.is_disconnected_error(ConnectionError("Cannot send requests while disconnected"))
+    assert tg.is_disconnected_error(RuntimeError("Cannot send requests while disconnected"))
+    assert not tg.is_disconnected_error(RuntimeError("PHONE_CODE_INVALID"))
+    assert not tg.is_disconnected_error(ValueError("手机号不能为空"))
+
+
+async def _dummy_coro():
+    return "ignored"
+
+
+class _FakeRuntime:
+    """桩运行时：首次调用抛断线错误，重连后成功。"""
+
+    def __init__(self, fail_times: int = 1, reconnect_ok: bool = True):
+        self.calls = 0
+        self.reconnects = 0
+        self._fail_times = fail_times
+        self._reconnect_ok = reconnect_ok
+
+    def call(self, coro, timeout=30):
+        if hasattr(coro, "close"):
+            coro.close()
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise ConnectionError("Cannot send requests while disconnected")
+        return "ok"
+
+    def ensure_connected(self, timeout=12):
+        self.reconnects += 1
+        return self._reconnect_ok
+
+
+def test_call_tg_retries_after_disconnect():
+    """连接断开后应重连并重试一次。
+
+    回归保护：真机出现过 "发送验证码失败：Cannot send requests while disconnected"
+    —— 运行时线程活着但网络层已断开，此时直接发请求必然失败。
+    """
+    runtime = _FakeRuntime()
+    module = CredentialsModule(_StubCredPlugin())
+    assert module._call_tg(runtime, _dummy_coro, timeout=5) == "ok"
+    assert runtime.calls == 2
+    assert runtime.reconnects == 1
+
+
+def test_call_tg_gives_up_when_reconnect_fails():
+    """重连失败时不再重试，把断线错误抛给上层翻译。"""
+    runtime = _FakeRuntime(fail_times=2, reconnect_ok=False)
+    module = CredentialsModule(_StubCredPlugin())
+    with pytest.raises(ConnectionError):
+        module._call_tg(runtime, _dummy_coro, timeout=5)
+    assert runtime.calls == 1
+
+
+def test_call_tg_does_not_retry_other_errors():
+    """非断线错误应原样抛出，不做重试。"""
+    class _Runtime:
+        calls = 0
+
+        def call(self, coro, timeout=30):
+            if hasattr(coro, "close"):
+                coro.close()
+            _Runtime.calls += 1
+            raise tg.TelegramOperationError("验证码错误")
+
+    module = CredentialsModule(_StubCredPlugin())
+    with pytest.raises(tg.TelegramOperationError):
+        module._call_tg(_Runtime(), _dummy_coro, timeout=5)
+    assert _Runtime.calls == 1
 
 
 # --------------------------------------------------------------------- 响应模型

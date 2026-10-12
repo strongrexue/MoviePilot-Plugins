@@ -109,7 +109,13 @@ class CredentialsModule:
 
         runtime = self._runtime
         if runtime is not None and runtime.is_running():
-            return runtime
+            # 线程活着不等于连接可用：网络层随时可能掉线，这里顺手补一次连接，
+            # 否则后续请求会直接抛 "Cannot send requests while disconnected"。
+            if runtime.ensure_connected(timeout=10):
+                return runtime
+            logger.warning(f"[{getattr(self._plugin, '__class__').__name__}] TG 连接不可用，重建运行时")
+            self._runtime = None
+            runtime.stop()
 
         runtime = TelegramRuntime(
             api_id=self._cfg("tg_api_id"),
@@ -127,6 +133,28 @@ class CredentialsModule:
             )
         self._runtime = runtime
         return runtime
+
+    def _call_tg(self, runtime: TelegramRuntime, factory, *, timeout: int, retries: int = 1) -> Any:
+        """在运行时上执行 TG 调用；遇到"连接已断开"时重连并重试一次。
+
+        :param factory: 返回协程的可调用对象（协程不可重复使用，必须现造）
+        """
+        attempt = 0
+        while True:
+            try:
+                return runtime.call(factory(), timeout=timeout)
+            except Exception as err:
+                if attempt >= retries or not tg.is_disconnected_error(err):
+                    raise
+                attempt += 1
+                logger.warning(f"[{getattr(self._plugin, '__class__').__name__}] TG 连接已断开，重连后重试")
+                if not runtime.ensure_connected(timeout=12):
+                    raise
+
+    def connect_now(self) -> dict:
+        """手动触发一次连接（供界面的「重连」按钮使用），返回最新状态。"""
+        self.ensure_runtime(connect_timeout=25)
+        return self.status()
 
     def _resolve_proxy(self) -> Optional[dict]:
         """继承宿主代理配置（settings.PROXY），转成 Telethon 需要的结构。"""
@@ -233,7 +261,7 @@ class CredentialsModule:
         # 否则前端收到 502 而后端其实把码发出去了，体验极差。
         runtime = self.ensure_runtime(connect_timeout=20)
         try:
-            result = runtime.call(tg.send_code(runtime.client, normalized), timeout=25)
+            result = self._call_tg(runtime, lambda: tg.send_code(runtime.client, normalized), timeout=25)
         except (FutureTimeoutError, TimeoutError) as err:
             raise tg.TelegramOperationError(
                 "请求验证码超时：Telegram 响应过慢（代理可能不稳定）。"
@@ -295,8 +323,9 @@ class CredentialsModule:
         effective_phone = str(phone or pending.get("phone") or self._cfg("tg_phone", "")).strip()
 
         try:
-            result = runtime.call(
-                tg.sign_in(
+            result = self._call_tg(
+                runtime,
+                lambda: tg.sign_in(
                     runtime.client,
                     phone=effective_phone,
                     code=str(code or "").strip(),
@@ -369,7 +398,11 @@ class CredentialsModule:
             raise tg.TelegramOperationError("TG 运行时未运行，请先建立连接后重试")
 
         try:
-            dialogs = runtime.call(tg.fetch_dialogs(runtime.client, limit=_DIALOG_LIMIT), timeout=40)
+            dialogs = self._call_tg(
+                runtime,
+                lambda: tg.fetch_dialogs(runtime.client, limit=_DIALOG_LIMIT),
+                timeout=40,
+            )
         except (FutureTimeoutError, TimeoutError) as err:
             raise tg.TelegramOperationError(
                 "拉取对话列表超时（40 秒）：账号对话较多或 Telegram/代理响应过慢，请稍后重试"

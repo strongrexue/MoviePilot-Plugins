@@ -99,6 +99,41 @@ class TelegramRuntime:
         except Exception:
             return False
 
+    def ensure_connected(self, timeout: int = 12) -> bool:
+        """确保客户端处于连接状态；已断开时尝试重连。
+
+        ``start()`` 只保证"线程活着 + 客户端对象已创建"，网络层随时可能掉线
+        （代理抖动、Telegram 主动断开）。此时若直接发请求，Telethon 会抛
+        ``Cannot send requests while disconnected`` —— 用户看到的就是这个英文报错。
+        所以每次真要发请求前，都应先过一遍这里。
+        """
+        client = self.client
+        if client is None:
+            return False
+        if self.is_connected():
+            return True
+
+        with self._lock:
+            loop = self._loop
+        if loop is None or loop.is_closed():
+            return False
+
+        try:
+            logger.info(f"[{self._plugin_id}] TG 连接已断开，正在重连")
+            self.call(self._reconnect(client), timeout=max(5, int(timeout)))
+        except Exception as err:
+            logger.warning(f"[{self._plugin_id}] TG 重连失败：{err}")
+            return False
+        return self.is_connected()
+
+    async def _reconnect(self, client: Any) -> None:
+        """先断开再连接：直接 connect() 对"自认为已连接"的陈旧句柄可能空转。"""
+        try:
+            await client.disconnect()
+        except Exception:  # pragma: no cover - 断开失败不影响后续连接
+            pass
+        await client.connect()
+
     def current_session_string(self) -> str:
         """导出当前 StringSession，用于持久化；不可用时返回空串。"""
         client = self.client
@@ -263,17 +298,27 @@ class TelegramRuntime:
             logger.debug(f"[{self._plugin_id}] 启动保活任务失败：{err}")
 
     async def _keep_alive(self) -> Any:
-        """周期性探活；连接掉线时尝试恢复。"""
+        """周期性探活；连接掉线时尝试恢复。
+
+        探活只看本地连接标志（不发网络请求，开销可忽略），因此把检查间隔压到
+        最长 30 秒，让掉线能尽快自愈，而不是等到用户点按钮时才发现是断的。
+        """
+        interval = max(10, min(int(self._keep_alive_seconds or 60), 30))
         while True:
-            await asyncio.sleep(self._keep_alive_seconds)
+            await asyncio.sleep(interval)
             client = self.client
             if client is None:
                 return
             try:
                 if not client.is_connected():
-                    logger.info(f"[{self._plugin_id}] TG 连接已断开，尝试重连")
+                    logger.info(f"[{self._plugin_id}] 探活发现 TG 连接已断开，尝试重连")
+                    try:
+                        await client.disconnect()
+                    except Exception:  # pragma: no cover - 陈旧句柄断开可能报错
+                        pass
                     await client.connect()
+                    logger.info(f"[{self._plugin_id}] TG 重连完成")
             except asyncio.CancelledError:
                 raise
             except Exception as err:
-                logger.warning(f"[{self._plugin_id}] TG 保活失败：{err}")
+                logger.warning(f"[{self._plugin_id}] TG 保活重连失败（下轮继续尝试）：{err}")

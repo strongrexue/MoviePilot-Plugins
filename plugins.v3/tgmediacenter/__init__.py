@@ -6,6 +6,7 @@
 - 待实现：115 网盘、自定义豆瓣源、TG 资源监控、历史消息缓存、TG 通用转发。
 """
 from typing import Any, Dict, List, Optional, Tuple
+import time
 
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
@@ -27,7 +28,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.1.4"
+    plugin_version = "1.1.5"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -97,7 +98,7 @@ class TgMediaCenter(_PluginBase):
         if self._enabled() and self._credentials.api_configured():
             self._schedule_connect()
 
-    def _schedule_connect(self) -> None:
+    def _schedule_connect(self, delay_seconds: int = 5) -> None:
         """让宿主调度器在稍后建立 TG 连接。"""
         add_once = getattr(scheduler_sdk, "add_plugin_once_job", None) if scheduler_sdk else None
         if add_once is None:
@@ -109,10 +110,23 @@ class TgMediaCenter(_PluginBase):
                 "telegram_connect",
                 self._ensure_telegram_runtime,
                 "TG媒体中心 TG 客户端连接",
-                delay_seconds=5,
+                delay_seconds=delay_seconds,
             )
         except Exception as err:  # pragma: no cover - 调度失败不影响其余能力
             logger.warning(f"[TgMediaCenter] 安排 TG 连接任务失败：{err}")
+
+    def ensure_background_connect(self) -> None:
+        """在后台安排一次 TG 连接（去抖：30 秒内只调度一次）。
+
+        用于"会话已保存但客户端未连接"的自愈：打开配置页或点刷新状态即触发，
+        不阻塞接口返回。连接在后台线程完成，下次刷新状态即可看到已登录。
+        """
+        now = time.time()
+        requested_at = float(getattr(self, "_connect_requested_at", 0.0) or 0.0)
+        if now - requested_at < 30:
+            return
+        self._connect_requested_at = now
+        self._schedule_connect(delay_seconds=1)
 
     def _ensure_telegram_runtime(self) -> None:
         """一次性任务入口：建立运行时并连接。
@@ -214,6 +228,10 @@ class TgMediaCenter(_PluginBase):
     def api_telegram_dialogs(self):
         """返回缓存的对话列表。"""
         return api_controller.api_telegram_dialogs(self)
+
+    def api_telegram_connect(self):
+        """连接 / 重连 TG 客户端。"""
+        return api_controller.api_telegram_connect(self)
 
     def api_telegram_refresh_dialogs(self):
         """刷新并返回对话列表。"""

@@ -107,5 +107,6 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/telegram/sign_in": TgAuthResult,
     "/telegram/logout": TgAuthResult,
     "/telegram/dialogs": TgDialogsData,
+    "/telegram/connect": TgStatusData,
     "/telegram/refresh_dialogs": TgDialogsData,
 }

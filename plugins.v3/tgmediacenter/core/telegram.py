@@ -69,6 +69,24 @@ def _flood_message(err: BaseException) -> str:
     return "操作过于频繁，请稍后再试"
 
 
+def is_disconnected_error(err: BaseException) -> bool:
+    """判断是否"客户端已断开"类错误。
+
+    客户端未连接时发请求，Telethon 会抛
+    ``ConnectionError('Cannot send requests while disconnected')``。
+    该文案随版本可能变化，因此同时看异常类型与关键词，供上层决定"重连后重试"。
+    """
+    if isinstance(err, ConnectionError):
+        return True
+    text = str(err).lower()
+    return "while disconnected" in text or "not connected to telegram" in text
+
+
+def _connection_message() -> str:
+    """连接断开时的统一提示。"""
+    return "与 Telegram 的连接已断开：插件正在自动重连，请等待约 10 秒后重试"
+
+
 # ---------------------------------------------------------------------- 发码辅助
 
 
@@ -103,6 +121,8 @@ def delivery_channel(sent: Any) -> str:
 
 def _translate_send_code_error(err: BaseException) -> TelegramOperationError:
     """把发码阶段的 Telethon 异常翻译成可操作的提示。"""
+    if is_disconnected_error(err):
+        return TelegramOperationError(_connection_message())
     if _is_error(err, "PhoneNumberInvalidError"):
         return TelegramOperationError("手机号无效，请检查国家码格式（例如 +8613800138000）")
     if _is_error(err, "ApiIdInvalidError"):
@@ -222,6 +242,8 @@ async def sign_in(
     except Exception as err:
         if _is_error(err, "SessionPasswordNeededError"):
             return {"authorized": False, "need_password": True, "message": "该账号启用了两步验证，请输入密码"}
+        if is_disconnected_error(err):
+            raise TelegramOperationError(_connection_message()) from err
         if _is_error(err, "PhoneCodeInvalidError"):
             raise TelegramOperationError("验证码错误") from err
         if _is_error(err, "PhoneCodeExpiredError"):
@@ -243,6 +265,8 @@ async def fetch_dialogs(client, limit: int = 500) -> list[dict]:
             except Exception as err:  # pragma: no cover - 单条异常不影响整体
                 logger.debug(f"跳过异常对话：{err}")
     except Exception as err:
+        if is_disconnected_error(err):
+            raise TelegramOperationError(_connection_message()) from err
         if _is_error(err, "FloodWaitError"):
             raise TelegramOperationError(_flood_message(err)) from err
         raise TelegramOperationError(f"读取对话列表失败：{err}") from err

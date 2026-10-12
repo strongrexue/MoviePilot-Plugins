@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.1.6';
+const FRONTEND_VERSION = '1.1.7';
 
 const {resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,withCtx:_withCtx$3,openBlock:_openBlock$3,createBlock:_createBlock$3} = await importShared('vue');
 
@@ -467,14 +467,15 @@ const _hoisted_9 = {
 };
 const _hoisted_10 = { key: 0 };
 const _hoisted_11 = { class: "tg-wizard-actions" };
-const _hoisted_12 = { key: 0 };
-const _hoisted_13 = { key: 1 };
-const _hoisted_14 = { class: "tg-wizard" };
-const _hoisted_15 = {
+const _hoisted_12 = { class: "tg-hint" };
+const _hoisted_13 = { key: 0 };
+const _hoisted_14 = { key: 1 };
+const _hoisted_15 = { class: "tg-wizard" };
+const _hoisted_16 = {
   key: 2,
   class: "tg-wizard tg-wizard-password"
 };
-const _hoisted_16 = { class: "tg-wizard-actions" };
+const _hoisted_17 = { class: "tg-wizard-actions" };
 
 const {computed: computed$1,onMounted: onMounted$1,onUnmounted,ref: ref$2} = await importShared('vue');
 
@@ -686,16 +687,15 @@ async function signIn() {
       password.value = '';
       sent.value = null;
       startCountdown(0);
-      setMessage('登录成功，正在拉取对话列表（首次可能较慢）…');
       await loadStatus();
-      try {
-        const count = await fetchDialogs();
-        setMessage(`登录成功，已缓存 ${count} 个对话`);
-      } catch (err) {
-        // 登录本身已成功，拉取失败不应让人误以为没登录
-        setMessage(`登录成功，但拉取对话列表失败：${err?.message || '未知错误'}。可稍后点「刷新对话列表」重试`, false);
-      }
-      await loadStatus();
+      // 首次登录**不再自动拉取**对话列表：改由用户手动点「刷新对话列表」。
+      // 拉取要遍历账号全部对话，放在登录流程里会让人以为"登录卡住了"，
+      // 而且登录本身已经成功，不该被后续动作拖住。
+      setMessage(
+        dialogs.value.length
+          ? `登录成功，已复用本地缓存的 ${dialogs.value.length} 个对话；如需更新请点「刷新对话列表」`
+          : '登录成功。请点「刷新对话列表」拉取群组 / 频道（后续配置监控与转发规则会用到）',
+      );
     } else {
       setMessage(result?.message || '登录未完成', false);
     }
@@ -1099,7 +1099,14 @@ return (_ctx, _cache) => {
                       _: 1
                     }, 8, ["loading"])
                   ]),
-                  _cache[17] || (_cache[17] = _createElementVNode$1("div", { class: "tg-hint" }, " 已登录状态下不需要验证码。如需更换账号，请先「退出登录」。 ", -1))
+                  _createElementVNode$1("div", _hoisted_12, [
+                    _cache[17] || (_cache[17] = _createTextVNode$1(" 已登录状态下不需要验证码。如需更换账号，请先「退出登录」。 ", -1)),
+                    (!dialogs.value.length)
+                      ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 0 }, [
+                          _createTextVNode$1(" 尚未拉取对话列表：请点一次「刷新对话列表」（登录后不会自动拉取）。 ")
+                        ], 64))
+                      : _createCommentVNode$1("", true)
+                  ])
                 ], 64))
               : (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 1 }, [
                   (needsReconnect.value)
@@ -1127,16 +1134,16 @@ return (_ctx, _cache) => {
                         default: _withCtx$1(() => [
                           _createTextVNode$1(" 验证码" + _toDisplayString$1(sent.value.delivery_text) + " ", 1),
                           (sent.value.phone_masked)
-                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_12, " · " + _toDisplayString$1(sent.value.phone_masked), 1))
+                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_13, " · " + _toDisplayString$1(sent.value.phone_masked), 1))
                             : _createCommentVNode$1("", true),
                           (resendIn.value > 0)
-                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_13, " · " + _toDisplayString$1(resendIn.value) + " 秒后可重新发送", 1))
+                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_14, " · " + _toDisplayString$1(resendIn.value) + " 秒后可重新发送", 1))
                             : _createCommentVNode$1("", true)
                         ]),
                         _: 1
                       }))
                     : _createCommentVNode$1("", true),
-                  _createElementVNode$1("div", _hoisted_14, [
+                  _createElementVNode$1("div", _hoisted_15, [
                     _createVNode$1(_component_VBtn, {
                       color: "primary",
                       variant: "flat",
@@ -1174,7 +1181,7 @@ return (_ctx, _cache) => {
                     }, 8, ["loading"])
                   ]),
                   (loginStage.value === 'need_password')
-                    ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_15, [
+                    ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_16, [
                         _createVNode$1(_component_VTextField, {
                           modelValue: password.value,
                           "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((password).value = $event)),
@@ -1199,7 +1206,7 @@ return (_ctx, _cache) => {
                         }, 8, ["loading"])
                       ]))
                     : _createCommentVNode$1("", true),
-                  _createElementVNode$1("div", _hoisted_16, [
+                  _createElementVNode$1("div", _hoisted_17, [
                     _createVNode$1(_component_VBtn, {
                       variant: "tonal",
                       loading: busy.value === 'refresh',
@@ -1230,7 +1237,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-965c0a43"]]);
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-8ddbb2a0"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

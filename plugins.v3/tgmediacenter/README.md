@@ -66,6 +66,7 @@ Vue 联邦远程组件，暴露 `./Config`、`./Page`、`./Dashboard` 三个入�
 
 `iter_dialogs` 要遍历账号全部对话（上限 800 条），经代理时可能耗时较久：
 
+- **登录后不会自动拉取**（v1.1.7 起）：请手动点「刷新对话列表」，登录本身已经是完整成功状态；
 - 后端预算"连接 10 秒 + 拉取 40 秒"、前端接口上限 58 秒，超时会给出明确原因而不是一直转圈；
 - 若提示"TG 运行时已停止（可能插件被重载）"，说明拉取过程中插件被重载（例如你同时点了
   「保存配置」），点一次「刷新对话列表」重试即可；
@@ -143,5 +144,5 @@ python ../../../.github/scripts/check_federation_css.py
 
 ## 版本
 
-当前 `1.1.6`。版本号需与 `package.v3.json` 的 `version`、`history` 最新键以及前端
+当前 `1.1.7`。版本号需与 `package.v3.json` 的 `version`、`history` 最新键以及前端
 `src/components/version.js` 的 `FRONTEND_VERSION` 保持一致（后两者分别由门禁脚本与单测校验）。

@@ -207,16 +207,15 @@ async function signIn() {
       password.value = ''
       sent.value = null
       startCountdown(0)
-      setMessage('登录成功，正在拉取对话列表（首次可能较慢）…')
       await loadStatus()
-      try {
-        const count = await fetchDialogs()
-        setMessage(`登录成功，已缓存 ${count} 个对话`)
-      } catch (err) {
-        // 登录本身已成功，拉取失败不应让人误以为没登录
-        setMessage(`登录成功，但拉取对话列表失败：${err?.message || '未知错误'}。可稍后点「刷新对话列表」重试`, false)
-      }
-      await loadStatus()
+      // 首次登录**不再自动拉取**对话列表：改由用户手动点「刷新对话列表」。
+      // 拉取要遍历账号全部对话，放在登录流程里会让人以为"登录卡住了"，
+      // 而且登录本身已经成功，不该被后续动作拖住。
+      setMessage(
+        dialogs.value.length
+          ? `登录成功，已复用本地缓存的 ${dialogs.value.length} 个对话；如需更新请点「刷新对话列表」`
+          : '登录成功。请点「刷新对话列表」拉取群组 / 频道（后续配置监控与转发规则会用到）',
+      )
     } else {
       setMessage(result?.message || '登录未完成', false)
     }
@@ -449,6 +448,9 @@ onUnmounted(() => {
           </div>
           <div class="tg-hint">
             已登录状态下不需要验证码。如需更换账号，请先「退出登录」。
+            <template v-if="!dialogs.length">
+              尚未拉取对话列表：请点一次「刷新对话列表」（登录后不会自动拉取）。
+            </template>
           </div>
         </template>
 

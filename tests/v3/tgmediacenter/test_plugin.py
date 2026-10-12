@@ -10,7 +10,7 @@ from app.plugins.tgmediacenter import TgMediaCenter
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "TG媒体中心"
-    assert TgMediaCenter.plugin_version == "1.1.0"
+    assert TgMediaCenter.plugin_version == "1.1.1"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 

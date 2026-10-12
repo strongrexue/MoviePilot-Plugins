@@ -53,6 +53,22 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.1.1（P1 修复）
+
+真机验证发现的两个缺陷修复：
+
+- **前端**：`ConfigTgPane.vue` 未声明 `code` / `password` 两个响应式变量，
+  点击「登录」时抛 `ReferenceError: code is not defined`，导致验证码已收到却登录不上。
+- **后端**：`TelegramRuntime.telethon_available` 以 `@property` 暴露，在**类上**访问得到的是
+  property 对象而非布尔值，塞进响应模型后 `/status` 校验失败（表现为四个状态徽章全部显示否定态，
+  误报"telethon 未安装"）。改为静态方法，并新增回归测试。
+
+顺带加固：
+
+- `status()` 逐项兜底，任何子项查询失败不再让整个状态接口失败。
+- 未保存凭证时，前端给出可操作提示（"请先点击保存配置"），而不是让人猜。
+- 登录成功后自动拉取对话列表。
+
 ## v1.1.0（P1 TG 核心凭证）
 
 新增能力：

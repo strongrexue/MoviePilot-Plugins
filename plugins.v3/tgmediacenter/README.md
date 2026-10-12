@@ -48,4 +48,4 @@ python ../../../.github/scripts/check_federation_css.py
 
 ## 版本
 
-当前 `1.1.0`。版本号需与 `package.v3.json` 的 `version` 及 `history` 最新键保持一致。
+当前 `1.1.1`。版本号需与 `package.v3.json` 的 `version` 及 `history` 最新键保持一致。

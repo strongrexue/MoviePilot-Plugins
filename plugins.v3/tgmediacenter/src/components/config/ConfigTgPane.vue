@@ -14,6 +14,8 @@ const busy = ref('')
 const message = ref('')
 const messageOk = ref(true)
 const loginStage = ref('idle') // idle | code_sent | need_password
+const code = ref('')
+const password = ref('')
 const dialogs = ref([])
 
 const form = computed(() => props.config.form)
@@ -50,6 +52,13 @@ async function sendCode() {
   try {
     const phone = String(form.value.tg_phone || '').trim()
     if (!phone) throw new Error('请先填写手机号（包含国家码）')
+    if (!form.value.tg_api_id || !form.value.tg_api_hash) {
+      throw new Error('请先填写 API ID 与 API Hash')
+    }
+    // 后端读取的是已保存的配置，未保存时直接给出可操作提示
+    if (status.value && status.value.api_configured === false) {
+      throw new Error('凭证尚未保存：请先点击底部「保存配置」，再发送验证码')
+    }
     const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/send_code', { phone }))
     loginStage.value = result?.need_password ? 'need_password' : 'code_sent'
     setMessage(result?.message || '验证码已发送')
@@ -77,8 +86,9 @@ async function signIn() {
       loginStage.value = 'idle'
       code.value = ''
       password.value = ''
-      setMessage(result?.message || '登录成功')
-      await Promise.all([loadStatus(), loadDialogs()])
+      setMessage('登录成功，正在拉取对话列表…')
+      await loadStatus()
+      await refreshDialogs()
     } else {
       setMessage(result?.message || '登录未完成', false)
     }

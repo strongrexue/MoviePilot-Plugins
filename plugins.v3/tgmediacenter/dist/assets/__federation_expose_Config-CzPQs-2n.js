@@ -38,6 +38,8 @@ const busy = ref$2('');
 const message = ref$2('');
 const messageOk = ref$2(true);
 const loginStage = ref$2('idle'); // idle | code_sent | need_password
+const code = ref$2('');
+const password = ref$2('');
 const dialogs = ref$2([]);
 
 const form = computed$1(() => props.config.form);
@@ -74,6 +76,13 @@ async function sendCode() {
   try {
     const phone = String(form.value.tg_phone || '').trim();
     if (!phone) throw new Error('请先填写手机号（包含国家码）')
+    if (!form.value.tg_api_id || !form.value.tg_api_hash) {
+      throw new Error('请先填写 API ID 与 API Hash')
+    }
+    // 后端读取的是已保存的配置，未保存时直接给出可操作提示
+    if (status.value && status.value.api_configured === false) {
+      throw new Error('凭证尚未保存：请先点击底部「保存配置」，再发送验证码')
+    }
     const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/send_code', { phone }));
     loginStage.value = result?.need_password ? 'need_password' : 'code_sent';
     setMessage(result?.message || '验证码已发送');
@@ -101,8 +110,9 @@ async function signIn() {
       loginStage.value = 'idle';
       code.value = '';
       password.value = '';
-      setMessage(result?.message || '登录成功');
-      await Promise.all([loadStatus(), loadDialogs()]);
+      setMessage('登录成功，正在拉取对话列表…');
+      await loadStatus();
+      await refreshDialogs();
     } else {
       setMessage(result?.message || '登录未完成', false);
     }
@@ -397,8 +407,8 @@ return (_ctx, _cache) => {
                 _: 1
               }, 8, ["loading"]),
               _createVNode$1(_component_VTextField, {
-                modelValue: _ctx.code,
-                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((_ctx.code) = $event)),
+                modelValue: code.value,
+                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((code).value = $event)),
                 label: "验证码",
                 density: "compact",
                 variant: "outlined",
@@ -422,8 +432,8 @@ return (_ctx, _cache) => {
             (loginStage.value === 'need_password')
               ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_8, [
                   _createVNode$1(_component_VTextField, {
-                    modelValue: _ctx.password,
-                    "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((_ctx.password) = $event)),
+                    modelValue: password.value,
+                    "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((password).value = $event)),
                     type: "password",
                     label: "两步验证密码",
                     density: "compact",
@@ -482,7 +492,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b6581f7d"]]);
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-3185c3ac"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

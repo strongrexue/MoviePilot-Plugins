@@ -66,9 +66,13 @@ class TelegramRuntime:
         except (TypeError, ValueError):
             return None
 
-    @property
-    def telethon_available(self) -> bool:
-        """当前环境是否具备 telethon 依赖。"""
+    @staticmethod
+    def telethon_available() -> bool:
+        """当前环境是否具备 telethon 依赖。
+
+        以静态方法暴露：``@property`` 在类上访问会得到 property 对象而不是布尔值，
+        容易在组装响应时静默出错。
+        """
         return TELETHON_AVAILABLE
 
     @property

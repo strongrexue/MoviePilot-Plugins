@@ -92,7 +92,10 @@ class CredentialsModule:
     # ------------------------------------------------------------------ 状态
 
     def status(self) -> dict:
-        """汇总 TG 凭证与运行时状态，供前端展示。"""
+        """汇总 TG 凭证与运行时状态，供前端展示。
+
+        任何子项查询失败都不应让整个状态接口失败，因此逐项兜底。
+        """
         runtime = self._runtime
         running = bool(runtime and runtime.is_running())
         connected = bool(runtime and runtime.is_connected())
@@ -111,10 +114,19 @@ class CredentialsModule:
                 except Exception as err:
                     logger.debug(f"查询 TG 账号信息失败：{err}")
 
-        dialogs = self.cached_dialogs()
+        try:
+            dialogs = self.cached_dialogs()
+        except Exception as err:  # pragma: no cover - 读取本地缓存异常不应影响状态
+            logger.debug(f"读取对话缓存失败：{err}")
+            dialogs = []
+        try:
+            dialogs_updated_at = str(self._plugin.get_data(_DIALOGS_AT_KEY) or "")
+        except Exception:  # pragma: no cover
+            dialogs_updated_at = ""
+
         return {
             "enabled": bool(self._plugin.get_state()),
-            "telethon_available": TelegramRuntime.telethon_available,
+            "telethon_available": TelegramRuntime.telethon_available(),
             "api_configured": bool(self._cfg("tg_api_id") and self._cfg("tg_api_hash")),
             "session_present": bool(str(self._cfg("tg_session_string", "") or "").strip()),
             "running": running,
@@ -123,7 +135,7 @@ class CredentialsModule:
             "me": me,
             "phone_masked": mask_secret(self._cfg("tg_phone", "")),
             "dialog_count": len(dialogs),
-            "dialogs_updated_at": str(self._plugin.get_data(_DIALOGS_AT_KEY) or ""),
+            "dialogs_updated_at": dialogs_updated_at,
             "user_cooldown_seconds": int(self._cfg("tg_user_cooldown_seconds", 5) or 5),
             "keep_alive_seconds": int(self._cfg("tg_keep_alive_seconds", 60) or 60),
             "aggregation_window_seconds": float(self._cfg("tg_aggregation_window_seconds", 3.0) or 3.0),

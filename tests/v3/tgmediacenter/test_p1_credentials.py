@@ -4,6 +4,7 @@
 需要网络的登录流程不做自动化测试，改由真实加载验证（见设计文档 P1 验收）。
 """
 from app.plugins.tgmediacenter.controller import api as api_controller
+from app.plugins.tgmediacenter.core.runtime import TelegramRuntime
 from app.plugins.tgmediacenter.utils import (
     mask_secret,
     normalize_dialog,
@@ -128,3 +129,33 @@ def test_api_routes_contract():
         assert route["response_model"] is not None
         assert route["methods"]
         assert route["summary"]
+
+
+# --------------------------------------------------------------------- 运行时
+
+
+def test_telethon_available_is_boolean():
+    """依赖可用性必须以布尔值暴露。
+
+    回归保护：早期实现用 @property，在类上访问会拿到 property 对象，
+    被塞进响应模型后导致 /status 校验失败。
+    """
+    value = TelegramRuntime.telethon_available()
+    assert isinstance(value, bool)
+
+
+def test_runtime_requires_credentials(tmp_path):
+    """缺少凭证时不应启动运行时，也不应抛异常。"""
+    runtime = TelegramRuntime(api_id=None, api_hash="", session_string="")
+    assert runtime.credentials_ready is False
+    assert runtime.start() is False
+    assert runtime.is_running() is False
+    runtime.stop()
+
+
+def test_runtime_api_id_normalization():
+    """api_id 需要归一为整数，非法值视为缺失。"""
+    assert TelegramRuntime(api_id="12345", api_hash="x").credentials_ready is True
+    assert TelegramRuntime(api_id="  678 ", api_hash="x")._api_id == 678
+    assert TelegramRuntime(api_id="abc", api_hash="x").credentials_ready is False
+    assert TelegramRuntime(api_id="", api_hash="x").credentials_ready is False

@@ -27,7 +27,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.1.2"
+    plugin_version = "1.1.3"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -58,6 +58,21 @@ class TgMediaCenter(_PluginBase):
         self._config = merged
         self.update_config(merged)
 
+    def drop_config(self, *keys: str) -> None:
+        """从配置中移除指定键。
+
+        用于把**后端自管状态**从用户配置里迁出：前端配置表单会整份回写配置，
+        留在配置里的自管状态（如 TG 会话串）会被覆盖丢失。
+        """
+        merged = dict(self._config)
+        removed = [key for key in keys if key in merged]
+        if not removed:
+            return
+        for key in removed:
+            merged.pop(key, None)
+        self._config = merged
+        self.update_config(merged)
+
     def _enabled(self) -> bool:
         """当前配置是否已启用插件。"""
         return bool(self._config.get("enabled"))
@@ -73,9 +88,11 @@ class TgMediaCenter(_PluginBase):
         self._config = merged
 
         self._credentials = CredentialsModule(self)
+        # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
+        self._credentials.migrate_session_from_config()
 
         # 建立连接是网络操作，交给一次性任务执行，不阻塞插件加载。
-        if self._enabled() and self._config.get("tg_session_string"):
+        if self._enabled() and self._credentials.session_string():
             self._schedule_connect()
 
     def _schedule_connect(self) -> None:
@@ -127,6 +144,7 @@ class TgMediaCenter(_PluginBase):
             "tg_api_id": "",
             "tg_api_hash": "",
             "tg_phone": "",
+            # 仅用于从旧版本迁移；实际会话串保存在插件数据中（配置会被整份覆盖）
             "tg_session_string": "",
             "tg_user_cooldown_seconds": 5,
             "tg_keep_alive_seconds": 60,

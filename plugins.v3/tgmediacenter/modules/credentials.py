@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime
 from typing import Any, Optional
 
@@ -25,6 +26,9 @@ from ..utils import (
 _PENDING_KEY = "pending_login"
 _DIALOGS_KEY = "dialogs"
 _DIALOGS_AT_KEY = "dialogs_updated_at"
+# 会话串存在**插件数据**里，不放配置：宿主「保存配置」是整份覆盖，
+# 前端表单不含此字段，一旦回写就会把会话清空。
+_SESSION_KEY = "tg_session_string"
 _DIALOG_LIMIT = 800
 
 
@@ -47,6 +51,42 @@ class CredentialsModule:
         value = self._config.get(key)
         return default if value is None else value
 
+    # ------------------------------------------------------------------ 会话存储
+
+    def _session_from_data(self) -> str:
+        """只读取插件数据里的会话串（不回退配置）。"""
+        try:
+            data = self._plugin.get_data(_SESSION_KEY)
+        except Exception as err:  # pragma: no cover - 读取失败按未登录处理
+            logger.debug(f"读取 TG 会话失败：{err}")
+            return ""
+        return data.strip() if isinstance(data, str) else ""
+
+    def session_string(self) -> str:
+        """读取已登录会话串（以插件数据为准，兼容旧版本的配置存储）。"""
+        return self._session_from_data() or str(self._cfg("tg_session_string", "") or "").strip()
+
+    def migrate_session_from_config(self) -> None:
+        """把旧版本存在配置里的会话串迁到插件数据，并从配置中移除。
+
+        配置会被「保存配置」整份覆盖（前端表单不含会话串，回写即清空），
+        数据则不受影响 —— 这是会话丢失问题的根治手段。
+        """
+        legacy = str(self._cfg("tg_session_string", "") or "").strip()
+        if not legacy:
+            return
+        # 注意：这里必须只看数据，不能走 session_string()（它会回退到配置），
+        # 否则条件恒为假 → 只删配置键而不落数据，等于把会话直接丢掉。
+        if not self._session_from_data():
+            self._plugin.save_data(_SESSION_KEY, legacy)
+            logger.info(f"[{getattr(self._plugin, '__class__').__name__}] 已把 TG 会话从配置迁移到插件数据")
+        drop = getattr(self._plugin, "drop_config", None)
+        if callable(drop):
+            try:
+                drop("tg_session_string")
+            except Exception as err:  # pragma: no cover - 清理失败不影响会话可用
+                logger.debug(f"从配置中移除旧会话字段失败：{err}")
+
     # ------------------------------------------------------------------ 运行时
 
     def ensure_runtime(self) -> Optional[TelegramRuntime]:
@@ -63,7 +103,7 @@ class CredentialsModule:
         runtime = TelegramRuntime(
             api_id=api_id,
             api_hash=api_hash,
-            session_string=self._cfg("tg_session_string", ""),
+            session_string=self.session_string(),
             proxy=self._resolve_proxy(),
             keep_alive_seconds=int(self._cfg("tg_keep_alive_seconds", 60) or 60),
             plugin_id=getattr(self._plugin, "__class__").__name__,
@@ -138,7 +178,7 @@ class CredentialsModule:
             "enabled": bool(self._plugin.get_state()),
             "telethon_available": TelegramRuntime.telethon_available(),
             "api_configured": bool(self._cfg("tg_api_id") and self._cfg("tg_api_hash")),
-            "session_present": bool(str(self._cfg("tg_session_string", "") or "").strip()),
+            "session_present": bool(self.session_string()),
             "running": running,
             "connected": connected,
             "authorized": authorized,
@@ -251,10 +291,9 @@ class CredentialsModule:
             session_string = runtime.current_session_string()
             if not session_string:
                 raise tg.TelegramOperationError("登录成功但会话导出失败，请重试")
-            self._plugin.save_config(
-                tg_session_string=session_string,
-                tg_phone=effective_phone,
-            )
+            # 会话写入插件数据：配置会被「保存配置」整份覆盖，不能放配置里
+            self._plugin.save_data(_SESSION_KEY, session_string)
+            self._plugin.save_config(tg_phone=effective_phone)
             runtime.update_session_string(session_string)
             self._me = None
             self._plugin.del_data(_PENDING_KEY)
@@ -275,7 +314,13 @@ class CredentialsModule:
             except Exception as err:
                 logger.warning(f"TG 注销请求失败，仍将清除本地会话：{err}")
         self.stop()
-        self._plugin.save_config(tg_session_string="")
+        self._plugin.del_data(_SESSION_KEY)
+        drop = getattr(self._plugin, "drop_config", None)
+        if callable(drop):
+            try:
+                drop("tg_session_string")
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"清除旧会话配置字段失败：{err}")
         self._plugin.del_data(_PENDING_KEY)
         return {"authorized": False, "need_password": False, "message": "已退出登录"}
 
@@ -289,11 +334,29 @@ class CredentialsModule:
         return self._dialogs
 
     def refresh_dialogs(self) -> list[dict]:
-        """从 Telegram 重新拉取对话列表并缓存。"""
+        """从 Telegram 重新拉取对话列表并缓存。
+
+        拉取要遍历账号全部对话，经代理时可能耗时较久，因此给足超时（120 秒）；
+        但绝不无限等待——超时/运行时被停掉都要给出明确原因，否则界面只会一直转圈。
+        """
         runtime = self.ensure_runtime()
         if runtime is None:
             raise tg.TelegramOperationError("TG 客户端未就绪，无法刷新对话列表")
-        dialogs = runtime.call(tg.fetch_dialogs(runtime.client, limit=_DIALOG_LIMIT), timeout=60)
+        if not runtime.is_running():
+            raise tg.TelegramOperationError("TG 运行时未运行，请先建立连接后重试")
+
+        try:
+            dialogs = runtime.call(tg.fetch_dialogs(runtime.client, limit=_DIALOG_LIMIT), timeout=120)
+        except (FutureTimeoutError, TimeoutError) as err:
+            raise tg.TelegramOperationError(
+                "拉取对话列表超时：Telegram 响应过慢或代理不稳定，请稍后重试"
+            ) from err
+        except RuntimeError as err:
+            # 运行中被停止（例如插件被重新加载）
+            raise tg.TelegramOperationError(
+                "TG 运行时已停止（可能插件被重载），请重新点「刷新对话列表」"
+            ) from err
+
         self._dialogs = dialogs
         self._plugin.save_data(_DIALOGS_KEY, dialogs)
         self._plugin.save_data(_DIALOGS_AT_KEY, datetime.now().isoformat(timespec="seconds"))

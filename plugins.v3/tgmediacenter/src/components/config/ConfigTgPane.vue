@@ -21,6 +21,8 @@ const dialogs = ref([])
 const sent = ref(null)
 // 距离允许重新发送验证码的剩余秒数
 const resendIn = ref(0)
+// 隐私字段是否明文显示（默认打码，点击眼睛可看）
+const reveal = ref({ apiHash: false, phone: false })
 let countdownId = null
 
 const form = computed(() => props.config.form)
@@ -35,6 +37,14 @@ const sendDisabled = computed(() => Boolean(busy.value) || resendIn.value > 0)
 function setMessage(text, ok = true) {
   message.value = text || ''
   messageOk.value = ok
+}
+
+/** 打码敏感值：保留首尾片段便于核对。 */
+function maskValue(value, keep = 4) {
+  const text = String(value || '')
+  if (!text) return ''
+  if (text.length <= keep * 2) return '*'.repeat(text.length)
+  return `${text.slice(0, keep)}${'*'.repeat(6)}${text.slice(-keep)}`
 }
 
 function startCountdown(seconds) {
@@ -91,6 +101,25 @@ async function loadDialogs() {
   }
 }
 
+/**
+ * 实际拉取对话列表。
+ *
+ * 注意：这里**不做 busy 重入判断**。登录成功后紧接着调用它时，外层 busy 仍为 'sign_in'，
+ * 若在此处 return 会让请求被静默丢弃（界面永远停在"正在拉取…"）。
+ * 重入保护放在按钮处理器 refreshDialogs 里。
+ */
+async function fetchDialogs() {
+  const data = unwrap(await postPluginApi(
+    props.api,
+    props.pluginId,
+    'telegram/refresh_dialogs',
+    {},
+    { timeoutMs: 130000 },
+  ))
+  dialogs.value = data?.dialogs || []
+  return dialogs.value.length
+}
+
 async function sendCode() {
   if (busy.value) return
   if (resendIn.value > 0) {
@@ -135,7 +164,7 @@ async function signIn() {
       phone: String(form.value.tg_phone || '').trim(),
       code: String(code.value || '').trim(),
       password: String(password.value || '').trim(),
-    }))
+    }, { timeoutMs: 60000 }))
     if (result?.need_password) {
       loginStage.value = 'need_password'
       setMessage(result?.message || '请输入两步验证密码', false)
@@ -145,9 +174,16 @@ async function signIn() {
       password.value = ''
       sent.value = null
       startCountdown(0)
-      setMessage('登录成功，正在拉取对话列表…')
+      setMessage('登录成功，正在拉取对话列表（首次可能较慢）…')
       await loadStatus()
-      await refreshDialogs()
+      try {
+        const count = await fetchDialogs()
+        setMessage(`登录成功，已缓存 ${count} 个对话`)
+      } catch (err) {
+        // 登录本身已成功，拉取失败不应让人误以为没登录
+        setMessage(`登录成功，但拉取对话列表失败：${err?.message || '未知错误'}。可稍后点「刷新对话列表」重试`, false)
+      }
+      await loadStatus()
     } else {
       setMessage(result?.message || '登录未完成', false)
     }
@@ -180,11 +216,10 @@ async function logout() {
 async function refreshDialogs() {
   if (busy.value) return
   busy.value = 'refresh'
-  setMessage('')
+  setMessage('正在拉取对话列表（首次可能较慢，请稍候）…')
   try {
-    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/refresh_dialogs', {}))
-    dialogs.value = data?.dialogs || []
-    setMessage(`对话列表已刷新，共 ${dialogs.value.length} 条`)
+    const count = await fetchDialogs()
+    setMessage(count > 0 ? `对话列表已刷新，共 ${count} 条` : '拉取完成，但该账号没有可取用的对话', count > 0)
     await loadStatus()
   } catch (err) {
     setMessage(err?.message || '刷新对话列表失败', false)
@@ -230,7 +265,11 @@ onUnmounted(() => {
     <VAlert v-if="status?.me" type="success" variant="tonal" density="comfortable" class="tg-account">
       已登录：{{ status.me.name || status.me.username }}
       <span v-if="status.me.username">（@{{ status.me.username }}）</span>
-      <span v-if="status.me.phone"> · {{ status.me.phone }}</span>
+      <span v-if="status.me.phone" class="tg-secret" :title="reveal.phone ? '点击隐藏' : '点击显示'"
+            @click="reveal.phone = !reveal.phone">
+        · {{ reveal.phone ? status.me.phone : maskValue(status.me.phone) }}
+        <VIcon :icon="reveal.phone ? 'mdi-eye-off-outline' : 'mdi-eye-outline'" size="14" />
+      </span>
       <span> · 对话缓存 {{ status.dialog_count }} 条</span>
       <span v-if="status.dialogs_updated_at"> · 更新于 {{ status.dialogs_updated_at }}</span>
     </VAlert>
@@ -251,7 +290,25 @@ onUnmounted(() => {
             <VTextField v-model="form.tg_api_id" label="API ID" density="compact" variant="outlined" hide-details />
           </VCol>
           <VCol cols="12" md="6">
-            <VTextField v-model="form.tg_api_hash" label="API Hash" density="compact" variant="outlined" hide-details />
+            <VTextField
+              v-model="form.tg_api_hash"
+              :type="reveal.apiHash ? 'text' : 'password'"
+              label="API Hash"
+              density="compact"
+              variant="outlined"
+              hide-details
+              autocomplete="off"
+            >
+              <template #append-inner>
+                <VIcon
+                  :icon="reveal.apiHash ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+                  size="18"
+                  class="tg-reveal"
+                  :title="reveal.apiHash ? '隐藏' : '显示'"
+                  @click="reveal.apiHash = !reveal.apiHash"
+                />
+              </template>
+            </VTextField>
           </VCol>
           <VCol cols="12" md="6">
             <VTextField
@@ -297,6 +354,7 @@ onUnmounted(() => {
         </VRow>
         <div class="tg-hint">
           API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。
+          API Hash 默认打码，点右侧眼睛可查看。
         </div>
       </VCardText>
     </VCard>
@@ -369,6 +427,7 @@ onUnmounted(() => {
           <VBtn
             variant="tonal"
             :loading="busy === 'refresh'"
+            :disabled="Boolean(busy) && busy !== 'refresh'"
             prepend-icon="mdi-account-multiple-outline"
             @click="refreshDialogs"
           >
@@ -388,8 +447,13 @@ onUnmounted(() => {
           凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送；
           刷新页面不会丢失已发出的验证码，直接输入即可。
         </div>
-        <div class="tg-hint">已缓存 {{ dialogs.length }} 个对话。登录后请点一次「刷新对话列表」，
-          资源监控与转发规则的频道下拉会用到它。</div>
+        <div class="tg-hint">
+          已缓存 {{ dialogs.length }} 个对话。
+          <template v-if="status?.authorized && dialogs.length === 0">
+            尚未拉取成功，点一次「刷新对话列表」（首次可能较慢）。
+          </template>
+          <template v-else>资源监控与转发规则的频道下拉会用到它。</template>
+        </div>
       </VCardText>
     </VCard>
   </div>
@@ -407,4 +471,7 @@ onUnmounted(() => {
 .tg-wizard-input { flex: 1 1 200px; min-width: 160px; }
 .tg-wizard-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .tg-hint { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6; }
+.tg-secret { cursor: pointer; user-select: none; }
+.tg-reveal { cursor: pointer; opacity: 0.7; }
+.tg-reveal:hover { opacity: 1; }
 </style>

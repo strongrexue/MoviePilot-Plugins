@@ -242,6 +242,10 @@ class _StubCredPlugin:
     def save_config(self, **patch):
         self._config.update(patch)
 
+    def drop_config(self, *keys):
+        for key in keys:
+            self._config.pop(key, None)
+
 
 def _pending(**overrides):
     """构造一份待验证登录上下文。"""
@@ -305,6 +309,51 @@ def test_pending_login_absent_without_hash():
     """没有 phone_code_hash 时不应对外声称存在待登录上下文。"""
     module = CredentialsModule(_StubCredPlugin(data={"pending_login": _pending(phone_code_hash="")}))
     assert module.pending_login() is None
+
+
+# --------------------------------------------------------------------- 会话存储
+
+
+def test_session_stored_in_plugin_data():
+    """会话以插件数据为准，同时兼容旧版本存在配置里的值。"""
+    data_module = CredentialsModule(_StubCredPlugin(data={"tg_session_string": "from-data"}))
+    assert data_module.session_string() == "from-data"
+
+    legacy_module = CredentialsModule(_StubCredPlugin(config={"tg_session_string": "from-config"}))
+    assert legacy_module.session_string() == "from-config"
+
+    assert CredentialsModule(_StubCredPlugin()).session_string() == ""
+
+
+def test_migrate_session_from_config():
+    """旧版本存在配置里的会话应迁到数据，并从配置中移除。
+
+    回归保护：宿主「保存配置」是整份覆盖，而前端表单不含会话串，
+    会话留在配置里就会在用户点一次保存后被清空（表现为"已登录"变"未登录"）。
+    """
+    plugin = _StubCredPlugin(config={"tg_api_id": "1", "tg_session_string": "legacy"})
+    CredentialsModule(plugin).migrate_session_from_config()
+    assert plugin.get_data("tg_session_string") == "legacy"
+    assert "tg_session_string" not in plugin.config
+
+
+def test_migrate_does_not_override_existing_data():
+    """数据里已有会话时不被旧配置覆盖，但配置里的旧字段仍要清掉。"""
+    plugin = _StubCredPlugin(
+        config={"tg_session_string": "legacy"},
+        data={"tg_session_string": "fresh"},
+    )
+    CredentialsModule(plugin).migrate_session_from_config()
+    assert plugin.get_data("tg_session_string") == "fresh"
+    assert "tg_session_string" not in plugin.config
+
+
+def test_status_reports_session_from_data():
+    """/status 的会话徽章应反映插件数据里的会话。"""
+    module = CredentialsModule(_StubCredPlugin(data={"tg_session_string": "s"}))
+    assert module.status()["session_present"] is True
+    module = CredentialsModule(_StubCredPlugin())
+    assert module.status()["session_present"] is False
 
 
 # --------------------------------------------------------------------- 响应模型

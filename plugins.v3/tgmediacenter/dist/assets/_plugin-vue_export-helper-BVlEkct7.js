@@ -8,6 +8,11 @@
  */
 
 const SLOW_REQUEST_MS = 1500;
+/**
+ * POST 默认超时。登录/发码/拉对话都要走 Telegram 网络，经代理时可能较慢，
+ * 因此给得比较宽；关键是不能无限等待（否则界面会一直转圈）。
+ */
+const DEFAULT_POST_TIMEOUT_MS = 130000;
 
 function pluginPath(pluginId, path = '') {
   const id = String(pluginId || '').trim();
@@ -72,9 +77,11 @@ async function getPluginApi(api, pluginId, path, options = {}) {
   }
 }
 
-async function postPluginApi(api, pluginId, path, payload = {}) {
+async function postPluginApi(api, pluginId, path, payload = {}, options = {}) {
   if (!api?.post) throw new Error('缺少 MoviePilot 注入的 api.post')
-  return await withTimeout(api, 'post', pluginPath(pluginId, path), payload, 0)
+  // POST 默认给一个上限：没有超时的话，后端卡住时前端会无限转圈，用户无从判断
+  const timeoutMs = Math.max(0, Number(options.timeoutMs) || DEFAULT_POST_TIMEOUT_MS);
+  return await withTimeout(api, 'post', pluginPath(pluginId, path), payload, timeoutMs)
 }
 
 /** 读取配置（宿主提供 plugin/<id> 的 GET/PUT 配置接口）。 */

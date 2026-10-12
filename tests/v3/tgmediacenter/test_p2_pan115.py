@@ -214,6 +214,48 @@ def test_status_reports_login_device():
     assert "支付宝" in status["login_device"]
 
 
+def test_error_text_covers_error_msg():
+    """云下载通道的错误字段是 error_msg，要能解析。"""
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    assert Pan115Client._error_text({"state": False, "error_msg": "请重新登录", "errno": 99}) == "请重新登录"
+
+
+def test_offline_quota_parses_quota_info():
+    """云下载配额接口的 data 结构要能解析成可读文本。"""
+    import asyncio
+
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    client = Pan115Client("UID=1; CID=2", app="alipaymini")
+
+    async def fake_request(method, url, **kwargs):
+        assert url == "https://clouddownload.115.com/"
+        assert kwargs.get("params", {}).get("ac") == "get_quota_info"
+        return {"state": True, "data": {"size_total": 5497558138880, "size_use": 1099511627776}}
+
+    client._request = fake_request
+    result = asyncio.run(client.offline_quota())
+    assert result["available"] is True
+    assert "TB" in result["text"]
+
+
+def test_offline_quota_unavailable_on_error():
+    """未登录/风控时不抛错，返回不可用。"""
+    import asyncio
+
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    client = Pan115Client("UID=1; CID=2")
+
+    async def fake_request(method, url, **kwargs):
+        return {"state": False, "error_msg": "请重新登录", "errno": 99}
+
+    client._request = fake_request
+    result = asyncio.run(client.offline_quota())
+    assert result["available"] is False
+
+
 def test_status_without_cookie():
     """未配置 Cookie 时状态明确、可展示。"""
     status = Pan115Module(_StubPlugin()).status()

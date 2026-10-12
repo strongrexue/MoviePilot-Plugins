@@ -34,21 +34,15 @@ _BASE_HEADERS = {
     "Accept": "application/json, text/plain, */*",
 }
 
-# 离线下载（云下载）通道要求固定的客户端 UA（p115client 同款写法）
-_LIXIAN_APP_VERSION = "36.2.28"
-_LIXIAN_UA = (
-    f"Mozilla/5.0 115disk/{_LIXIAN_APP_VERSION} "
-    f"115Browser/{_LIXIAN_APP_VERSION} 115wangpan_android/{_LIXIAN_APP_VERSION}"
-)
-
 _NAV_URL = "https://my.115.com/"
 _SPACE_URL = "https://webapi.115.com/files/index_info"
 _FILES_URL = "https://webapi.115.com/files"
-_LIXIAN_URL = "https://webapi.115.com/lixian/"
 _SHARE_SNAP_URL = "https://webapi.115.com/share/snap"
 _SHARE_RECEIVE_URL = "https://webapi.115.com/share/receive"
-# 离线提交统一走云下载通道（Web lixian 对 App 会话同样有风控）
-_OFFLINE_ADD_URL = "https://clouddownload.115.com/lixianssp/"
+# 云下载通道（离线下载）：lixianssp 需要加密签名，web 明文通道即可用（p115client type="web"）
+_OFFLINE_BASE_URL = "https://clouddownload.115.com"
+_OFFLINE_ADD_URL = _OFFLINE_BASE_URL + "/web/"
+_OFFLINE_QUOTA_URL = _OFFLINE_BASE_URL + "/"
 
 # 这些错误信息基本等同于"Cookie 失效/未登录"，需要引导用户重新获取
 _AUTH_ERROR_HINTS = ("登录", "未登录", "登陆", "cookie", "token", "重新登录", "授权")
@@ -193,8 +187,8 @@ class Pan115Client:
 
     @staticmethod
     def _error_text(payload: dict) -> str:
-        """从响应里提取错误描述。"""
-        for key in ("error", "errmsg", "message", "msg"):
+        """从响应里提取错误描述（115 各通道字段名不统一）。"""
+        for key in ("error", "error_msg", "errmsg", "message", "msg"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -260,34 +254,38 @@ class Pan115Client:
         }
 
     async def offline_quota(self) -> dict:
-        """尽力读取离线下载配额。
+        """读取云下载配额（``GET clouddownload.115.com/?ac=get_quota_info``）。
 
-        115 侧对这项并不稳定（MA 实例上也常年显示"获取失败"），因此这里只做尽力而为：
         拿不到就返回 ``available=False``，不影响其它能力与整体状态。
         """
         try:
             payload = await self._request(
-                "get", _LIXIAN_URL,
-                params={"ct": "lixian", "ac": "task_lists", "page": 1},
+                "get", _OFFLINE_QUOTA_URL,
+                params={"ac": "get_quota_info"},
             )
         except Pan115Error as err:
             logger.debug(f"读取 115 离线配额失败：{err}")
             return {"available": False, "text": "获取失败"}
-        # 不同版本字段名不一致，做一次宽松扫描
-        for key in ("quota", "space", "offline_quota"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return {"available": True, "text": value.strip()}
-            if isinstance(value, dict):
-                text = value.get("size") or value.get("text") or value.get("remain")
-                if text:
-                    return {"available": True, "text": str(text)}
-        data = payload.get("data")
-        if isinstance(data, dict):
-            for key in ("quota", "space"):
-                value = data.get(key)
+        if payload.get("state") in (False, 0):
+            message = self._error_text(payload)
+            logger.debug(f"115 未返回离线配额：{message or '未知原因'}")
+            return {"available": False, "text": "获取失败"}
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        info = data.get("quota_info") or data.get("quota") or data
+        if isinstance(info, dict):
+            total = info.get("size_total") or info.get("total") or info.get("all_total") or info.get("size")
+            used = info.get("size_use") or info.get("size_used") or info.get("use") or info.get("all_use")
+            if total:
+                text = f"{_format_bytes(used)} / {_format_bytes(total)}" if used else _format_bytes(total)
+                return {"available": True, "text": f"剩余 {text}"}
+        # 兜底：结构未知时宽松扫描字符串字段
+        for source in (payload, data, info if isinstance(info, dict) else {}):
+            for key in ("quota", "space", "text", "remain"):
+                value = source.get(key)
                 if isinstance(value, str) and value.strip():
                     return {"available": True, "text": value.strip()}
+                if isinstance(value, (int, float)) and value:
+                    return {"available": True, "text": _format_bytes(value)}
         return {"available": False, "text": "获取失败"}
 
     # ------------------------------------------------------------------ 目录
@@ -416,23 +414,30 @@ class Pan115Client:
     async def offline_add(self, url: str, cid: str = "") -> dict:
         """提交磁力 / eD2k 离线下载任务。
 
-        统一走云下载通道（``clouddownload.115.com/lixianssp``），该通道要求固定的
-        客户端 UA（p115client 同款），对 Web / App 会话都不触发安全密钥。
+        走云下载通道的**明文 web 端点**（``clouddownload.115.com/web/``，
+        p115client 的 ``type="web"``）。默认的 lixianssp 通道要求 RSA+ECDH 加密签名，
+        明文请求只会得到无法解析的响应——这是 1.2.4 ed2k 推送失败的根因。
         """
         target = str(cid or "").strip()
         if not target:
             raise Pan115Error("离线下载需要指定保存目录 CID")
         payload = await self._request(
             "post", _OFFLINE_ADD_URL,
-            params={"ct": "lixian", "ac": "add_task_url"},
-            data={"url": str(url or "").strip(), "wp_path_id": target},
-            headers={**_BASE_HEADERS, "User-Agent": _LIXIAN_UA, "Referer": "https://115.com/"},
+            data={
+                "ac": "add_task_url",
+                "url": str(url or "").strip(),
+                "wp_path_id": target,
+            },
         )
-        if payload.get("state") is False:
+        if payload.get("state") in (False, 0):
             message = self._error_text(payload) or "未知原因"
             if "已存在" in message or "重复" in message:
                 return {"ok": True, "message": "该任务已存在（跳过）"}
-            self._raise_if_security_key(message)
+            if "请验证账号" in message:
+                raise Pan115Error(
+                    "115 要求验证账号：当前会话被云下载通道风控。"
+                    "请换一个登录设备（推荐 115 Android 端）重新扫码后再试"
+                )
             self._raise_if_auth_error(message)
             raise Pan115Error(f"离线下载提交失败：{message}")
         return {"ok": True, "message": "离线任务已提交"}

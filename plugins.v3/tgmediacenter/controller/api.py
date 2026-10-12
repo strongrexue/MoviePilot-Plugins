@@ -45,6 +45,9 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/pan115/qr_start", plugin.api_pan115_qr_start, ["POST"], "获取 115 扫码登录二维码"),
         ("/pan115/qr_poll", plugin.api_pan115_qr_poll, ["POST"], "查询 115 扫码登录状态"),
         ("/pan115/qr_cancel", plugin.api_pan115_qr_cancel, ["POST"], "取消 115 扫码登录"),
+        ("/subscribe/sources", plugin.api_subscribe_sources, ["GET"], "获取订阅源常量表（MP / 豆瓣双通道）"),
+        ("/subscribe/status", plugin.api_subscribe_status, ["GET"], "获取订阅服务状态"),
+        ("/subscribe/sync", plugin.api_subscribe_sync, ["POST"], "立即同步订阅源（可指定通道 / 仅解析）"),
     ]
     return [
         {
@@ -94,6 +97,14 @@ def _credentials(plugin):
 def _pan115(plugin):
     """返回 115 模块；插件尚未初始化时抛 503。"""
     module = getattr(plugin, "_pan115", None)
+    if module is None:
+        raise HTTPException(status_code=503, detail="插件尚未初始化，请稍后重试")
+    return module
+
+
+def _subscribe(plugin):
+    """返回订阅模块；插件尚未初始化时抛 503。"""
+    module = getattr(plugin, "_subscribe", None)
     if module is None:
         raise HTTPException(status_code=503, detail="插件尚未初始化，请稍后重试")
     return module
@@ -246,3 +257,29 @@ def api_pan115_qr_cancel(plugin):
     module = _pan115(plugin)
     data = _invoke(module.qr_cancel)
     return _envelope(api_schemas.Pan115QrData.model_validate(data), message=data.get("message", ""))
+
+
+def api_subscribe_sources(plugin):
+    """获取订阅源常量表（MP / 豆瓣双通道，供前端渲染勾选列表）。"""
+    from ..core import subscribe_sources as sources_lib
+
+    return _envelope(sources_lib.all_sources_dict(), message="")
+
+
+def api_subscribe_status(plugin):
+    """获取订阅服务状态。"""
+    module = _subscribe(plugin)
+    data = _invoke(module.status)
+    return _envelope(api_schemas.SubscribeStatusData.model_validate(data), message="")
+
+
+def api_subscribe_sync(plugin, request: api_schemas.SubscribeSyncRequest):
+    """立即同步订阅源（可指定通道 / 仅解析）。"""
+    module = _subscribe(plugin)
+    result = _invoke(
+        lambda: module.sync(
+            channel=request.channel or None,
+            dry_run=bool(request.dry_run),
+        ),
+    )
+    return _envelope(api_schemas.SubscribeSyncResult.model_validate(result), message=result.get("message", ""))

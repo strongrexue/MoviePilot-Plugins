@@ -15,6 +15,7 @@ from .controller import api as api_controller
 from .controller import schemas as api_schemas
 from .modules.credentials import CredentialsModule
 from .modules.pan115 import Pan115Module
+from .modules.subscribe import SubscribeModule
 
 try:  # 一次性任务调度接口；缺失时降级为懒连接
     from app.sdk import scheduler as scheduler_sdk
@@ -29,7 +30,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.2.7"
+    plugin_version = "1.3.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -42,6 +43,7 @@ class TgMediaCenter(_PluginBase):
         self._config: Dict[str, Any] = {}
         self._credentials: Optional[CredentialsModule] = None
         self._pan115: Optional[Pan115Module] = None
+        self._subscribe: Optional[SubscribeModule] = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -92,6 +94,7 @@ class TgMediaCenter(_PluginBase):
 
         self._credentials = CredentialsModule(self)
         self._pan115 = Pan115Module(self)
+        self._subscribe = SubscribeModule(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
 
@@ -176,12 +179,10 @@ class TgMediaCenter(_PluginBase):
             "pan115_cookie": "",
             "pan115_target_cid": "",
             "pan115_batch_max_size": 20,
-            # ③ 自定义豆瓣源
-            "douban_enabled": False,
-            "douban_rsshub_base": "http://127.0.0.1:1200",
-            "douban_cookie": "",
-            "douban_wish_rss_urls": [],
-            "douban_rules": [],
+            # ③ 订阅服务（MP 榜单走 MP API / 豆瓣榜单走 RSSHub）
+            "subscribe_enabled": False,
+            "subscribe_rsshub_base": "https://rsshub.app",
+            "subscribe_sources": [],
             # ④ TG 资源监控
             "monitor_enabled": False,
             "monitor_rules": [],
@@ -195,6 +196,7 @@ class TgMediaCenter(_PluginBase):
             # 定时任务
             "douban_cron": "0 13 * * *",
             "cache_cron": "0 */6 * * *",
+            "subscribe_cron": "0 */6 * * *",
             # 通知
             "notify_on_hit": True,
             "notify_on_error": True,
@@ -274,15 +276,51 @@ class TgMediaCenter(_PluginBase):
         """刷新并返回对话列表。"""
         return api_controller.api_telegram_refresh_dialogs(self)
 
+    # ------------------------------------------------------------------ ③ 订阅服务
+
+    def api_subscribe_sources(self):
+        """获取订阅源常量表（MP / 豆瓣双通道）。"""
+        return api_controller.api_subscribe_sources(self)
+
+    def api_subscribe_status(self):
+        """获取订阅服务状态。"""
+        return api_controller.api_subscribe_status(self)
+
+    def api_subscribe_sync(self, request: api_schemas.SubscribeSyncRequest):
+        """立即同步订阅源。"""
+        return api_controller.api_subscribe_sync(self, request)
+
     # ------------------------------------------------------------------ 其它扩展点
 
     def get_database_models(self) -> Optional[List[type]]:
-        """返回插件自有数据模型（P5 起提供）。"""
-        return None
+        """返回插件自有数据模型（订阅去重表）。"""
+        from .model.subscribe_seen import SubscribeSeen
+
+        return [SubscribeSeen]
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """返回插件定时服务定义（P3 起提供）。"""
-        return []
+        """返回插件定时服务定义（订阅服务周期同步）。"""
+        if not self._enabled() or not self._subscribe or not self._subscribe.enabled():
+            return []
+        return [
+            {
+                "id": "subscribe_sync",
+                "name": "订阅服务同步",
+                "trigger": self._config.get("subscribe_cron") or "0 */6 * * *",
+                "func": self._run_subscribe_sync,
+                "kwargs": {},
+            }
+        ]
+
+    def _run_subscribe_sync(self) -> None:
+        """定时服务入口：同步订阅源（后台执行，无网关超时限制）。"""
+        subscribe = self._subscribe
+        if subscribe is None:
+            return
+        try:
+            subscribe.sync()
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] 订阅服务同步失败：{err}")
 
     def stop_service(self) -> None:
         """释放插件创建的后台资源。"""
@@ -294,3 +332,4 @@ class TgMediaCenter(_PluginBase):
                 logger.warning(f"[TgMediaCenter] 停止 TG 运行时失败：{err}")
         # 115 模块为无状态 HTTP 客户端，无需释放连接，仅清引用
         self._pan115 = None
+        self._subscribe = None

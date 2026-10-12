@@ -149,6 +149,15 @@ class _StubPlugin:
     def api_pan115_qr_cancel(self):
         ...
 
+    def api_subscribe_sources(self):
+        ...
+
+    def api_subscribe_status(self):
+        ...
+
+    def api_subscribe_sync(self, request):
+        ...
+
 
 def test_api_routes_contract():
     """所有路由都要声明 bear 认证与 response_model。"""
@@ -170,6 +179,9 @@ def test_api_routes_contract():
         "/pan115/qr_start",
         "/pan115/qr_poll",
         "/pan115/qr_cancel",
+        "/subscribe/sources",
+        "/subscribe/status",
+        "/subscribe/sync",
     }
     for route in routes:
         assert route["auth"] == "bear"

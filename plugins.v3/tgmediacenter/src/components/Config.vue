@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import ConfigTgPane from './config/ConfigTgPane.vue'
 import ConfigPan115Pane from './config/ConfigPan115Pane.vue'
+import ConfigSubscribePane from './config/ConfigSubscribePane.vue'
 import { useConfigForm } from './config/useConfigForm'
 
 const props = defineProps({
@@ -21,7 +22,7 @@ const config = useConfigForm({
 const modules = [
   { key: 'tg', title: 'TG 凭证', icon: 'mdi-send-lock-outline', desc: '登录向导、冷却与保活、对话列表' },
   { key: 'pan115', title: '115 网盘', icon: 'mdi-cloud-outline', desc: '登录态、目标目录、批量提交' },
-  { key: 'douban', title: '豆瓣源', icon: 'mdi-rss', desc: '想看 RSS 与自定义榜单规则' },
+  { key: 'subscribe', title: '订阅服务', icon: 'mdi-rss', desc: 'MP 榜单 + 豆瓣榜单自动订阅' },
   { key: 'monitor', title: '资源监控', icon: 'mdi-radar', desc: '监听频道、推送目标、仅缺集' },
   { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、同步与检索' },
   { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '两级匹配、置顶与内容转换' },
@@ -85,6 +86,12 @@ onMounted(config.loadConfig)
           />
           <ConfigPan115Pane
             v-else-if="activeModule === 'pan115'"
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :config="config"
+          />
+          <ConfigSubscribePane
+            v-else-if="activeModule === 'subscribe'"
             :api="props.api"
             :plugin-id="props.pluginId"
             :config="config"

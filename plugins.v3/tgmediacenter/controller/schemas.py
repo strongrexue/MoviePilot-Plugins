@@ -209,6 +209,48 @@ class Pan115DirData(BaseModel):
     message: str = ""
 
 
+class SubscribeSourceItem(BaseModel):
+    """订阅源配置项（用户勾选）。"""
+
+    key: str = ""
+    channel: str = "douban"
+    enabled: bool = False
+    min_rating: float = 0.0
+    media_type: str = "all"
+
+
+class SubscribeStatusData(BaseModel):
+    """订阅服务状态。"""
+
+    enabled: bool = False
+    rsshub_base: str = ""
+    sources: List[SubscribeSourceItem] = Field(default_factory=list)
+    mp_count: int = 0
+    douban_count: int = 0
+    last_sync: str = ""
+    last_result: dict = Field(default_factory=dict)
+
+
+class SubscribeSyncRequest(BaseModel):
+    """同步订阅源请求。"""
+
+    channel: str = Field(default="", description="mp / douban / 空=全部")
+    dry_run: bool = Field(default=False, description="仅解析不建订阅")
+
+
+class SubscribeSyncResult(BaseModel):
+    """一次同步的结果汇总。"""
+
+    total_sources: int = 0
+    hit: int = 0
+    created: int = 0
+    skipped: int = 0
+    failed: int = 0
+    remaining: int = 0
+    message: str = ""
+    results: List[Pan115PushItemResult] = Field(default_factory=list)
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
     "/telegram/send_code": TgSendCodeData,
@@ -225,4 +267,7 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/pan115/qr_start": Pan115QrData,
     "/pan115/qr_poll": Pan115QrData,
     "/pan115/qr_cancel": Pan115QrData,
+    "/subscribe/sources": List[dict],
+    "/subscribe/status": SubscribeStatusData,
+    "/subscribe/sync": SubscribeSyncResult,
 }

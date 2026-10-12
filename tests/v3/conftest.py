@@ -88,6 +88,42 @@ if not _try_import("app.schemas"):
 
     _make_module("app.schemas", Response=_StubResponse)
 
+# app.sdk.database：plugin_declarative_base（无宿主时用 SQLAlchemy 真基类）
+if not _try_import("app.sdk.database"):
+    _ensure_package("app.sdk")
+    from sqlalchemy.orm import DeclarativeBase
+
+    def _plugin_declarative_base() -> type[DeclarativeBase]:
+        class _PluginBase(DeclarativeBase):
+            pass
+
+        return _PluginBase
+
+    _make_module("app.sdk.database", plugin_declarative_base=_plugin_declarative_base)
+
+# app.sdk.network：RssHelper（无宿主时占位，网络行为真机验证）
+if not _try_import("app.sdk.network"):
+    class _StubRssHelper:
+        def parse(self, *args, **kwargs):
+            raise RuntimeError("测试环境无宿主 RssHelper；网络行为需真机验证")
+
+    _make_module("app.sdk.network", RssHelper=_StubRssHelper)
+
+# app.schemas.types：MediaType / MediaSource（无宿主时最小枚举）
+if not _try_import("app.schemas.types"):
+    from enum import Enum
+
+    class _MediaType(Enum):
+        MOVIE = "电影"
+        TV = "电视剧"
+
+    class _MediaSource(str, Enum):
+        TMDB = "themoviedb"
+        Douban = "douban"
+        Bangumi = "bangumi"
+
+    _make_module("app.schemas.types", MediaType=_MediaType, MediaSource=_MediaSource)
+
 # 3) 插件包别名：真正执行 __init__.py（手工塞 sys.modules 不会执行它，
 #    导致 from app.plugins.tgmediacenter import TgMediaCenter 拿不到名字）
 if not _try_import("app.plugins.tgmediacenter"):

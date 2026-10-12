@@ -24,6 +24,11 @@ export const configDefaults = {
   pan115_enabled: false,
   pan115_target_cid: '',
   pan115_batch_max_size: 20,
+  // ③ 订阅服务（MP 榜单走 MP API / 豆瓣榜单走 RSSHub）
+  subscribe_enabled: false,
+  subscribe_rsshub_base: 'https://rsshub.app',
+  subscribe_sources: [],
+  subscribe_cron: '0 */6 * * *',
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

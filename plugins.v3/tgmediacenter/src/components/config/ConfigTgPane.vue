@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from '../api'
 import { FRONTEND_VERSION } from '../version'
+import SecretField from './SecretField.vue'
 import TgDialogList from './TgDialogList.vue'
 
 const props = defineProps({
@@ -24,8 +25,8 @@ const dialogsUpdatedAt = ref('')
 const sent = ref(null)
 // 距离允许重新发送验证码的剩余秒数
 const resendIn = ref(0)
-// 隐私字段是否明文显示（默认打码，点击眼睛可看）
-const reveal = ref({ apiHash: false, phone: false })
+// 账号手机号是否明文显示（凭据输入框由 SecretField 各自管理）
+const reveal = ref({ phone: false })
 let countdownId = null
 
 const form = computed(() => props.config.form)
@@ -365,38 +366,13 @@ onUnmounted(() => {
       <VCardText>
         <VRow dense>
           <VCol cols="12" md="6">
-            <VTextField v-model="form.tg_api_id" label="API ID" density="compact" variant="outlined" hide-details />
+            <SecretField v-model="form.tg_api_id" label="API ID" />
           </VCol>
           <VCol cols="12" md="6">
-            <VTextField
-              v-model="form.tg_api_hash"
-              :type="reveal.apiHash ? 'text' : 'password'"
-              label="API Hash"
-              density="compact"
-              variant="outlined"
-              hide-details
-              autocomplete="off"
-            >
-              <template #append-inner>
-                <VIcon
-                  :icon="reveal.apiHash ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
-                  size="18"
-                  class="tg-reveal"
-                  :title="reveal.apiHash ? '隐藏' : '显示'"
-                  @click="reveal.apiHash = !reveal.apiHash"
-                />
-              </template>
-            </VTextField>
+            <SecretField v-model="form.tg_api_hash" label="API Hash" />
           </VCol>
           <VCol cols="12" md="6">
-            <VTextField
-              v-model="form.tg_phone"
-              label="手机号（含国家码）"
-              placeholder="+8613800000000"
-              density="compact"
-              variant="outlined"
-              hide-details
-            />
+            <SecretField v-model="form.tg_phone" label="手机号（含国家码）" placeholder="+8613800000000" />
           </VCol>
           <VCol cols="12" md="6">
             <VTextField
@@ -432,7 +408,7 @@ onUnmounted(() => {
         </VRow>
         <div class="tg-hint">
           API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。
-          API Hash 默认打码，点右侧眼睛可查看。
+          API ID、API Hash、手机号默认打码，点右侧眼睛可查看（打码只影响显示，保存的仍是真实值）。
         </div>
       </VCardText>
     </VCard>
@@ -581,6 +557,4 @@ onUnmounted(() => {
 .tg-wizard-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .tg-hint { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6; }
 .tg-secret { cursor: pointer; user-select: none; }
-.tg-reveal { cursor: pointer; opacity: 0.7; }
-.tg-reveal:hover { opacity: 1; }
 </style>

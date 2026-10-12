@@ -28,14 +28,25 @@ Vue 联邦远程组件，暴露 `./Config`、`./Page`、`./Dashboard` 三个入�
 
 排查顺序：
 
-1. 硬刷新页面，确认后端是否已经生效（`/status` 的状态徽章能反映新版后端）。
-2. 若前端仍为旧行为，在服务器上核验落盘产物：
+0. **先确认插件是否真的更新到目标版本**（容器内直接读落盘文件）：
+   ```bash
+   docker exec <容器名> sh -c \
+     "grep -o 'plugin_version = \"[^\"]*\"' /app/app/plugins/tgmediacenter/__init__.py; \
+      grep -o \"FRONTEND_VERSION = '[^']*'\" /app/app/plugins/tgmediacenter/src/components/version.js"
+   ```
+   两者应与你安装的版本号一致。若这里就是旧版本，说明**插件根本没更新**（与浏览器缓存无关），
+   需要在插件页重新安装/更新。
+1. 硬刷新页面（`Ctrl + Shift + R`），确认后端是否已经生效（状态徽章能反映新版后端）。
+2. 若前端仍为旧行为，核验落盘产物：
    ```bash
    docker exec <容器名> sh -c \
      "grep -o 'expose_Config-[A-Za-z0-9_-]*' /app/app/plugins/tgmediacenter/dist/assets/remoteEntry.js"
    ```
    输出应与仓库 `dist/assets/` 中的实际文件名一致；不一致说明更新未落盘，需重新安装插件。
 3. DevTools → Network 搜 `remoteEntry.js`，确认返回内容中的 chunk 名与仓库一致。
+
+> 宿主对插件静态文件是**每次请求从磁盘流式读取**（响应头 `no-cache, must-revalidate`，
+> 无服务端缓存），所以"看到旧界面"只有两种可能：浏览器里的旧联邦组件，或插件未真正更新。
 
 ### 界面提示"前端组件 vX ≠ 后端 vY"
 
@@ -132,5 +143,5 @@ python ../../../.github/scripts/check_federation_css.py
 
 ## 版本
 
-当前 `1.1.5`。版本号需与 `package.v3.json` 的 `version`、`history` 最新键以及前端
+当前 `1.1.6`。版本号需与 `package.v3.json` 的 `version`、`history` 最新键以及前端
 `src/components/version.js` 的 `FRONTEND_VERSION` 保持一致（后两者分别由门禁脚本与单测校验）。

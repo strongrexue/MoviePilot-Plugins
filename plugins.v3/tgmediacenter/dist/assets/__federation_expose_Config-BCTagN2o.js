@@ -11,7 +11,75 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.1.5';
+const FRONTEND_VERSION = '1.1.6';
+
+const {resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,withCtx:_withCtx$3,openBlock:_openBlock$3,createBlock:_createBlock$3} = await importShared('vue');
+
+
+const {ref: ref$4} = await importShared('vue');
+
+
+/**
+ * 默认打码、点眼睛可查看的凭据输入框。
+ *
+ * 说明：打码只改 `type`（显示层），`v-model` 里的值始终是真实内容——
+ * 因此"看着是圆点直接保存"不会把星号写进配置。
+ * 供后续 115 Cookie / 豆瓣 Cookie / Bot Token 等字段复用。
+ */
+
+const _sfc_main$3 = {
+  __name: 'SecretField',
+  props: {
+  modelValue: { type: [String, Number], default: '' },
+  label: { type: String, default: '' },
+  placeholder: { type: String, default: '' },
+  /** 底层输入类型（如 number）；查看时统一按 text 渲染 */
+  inputType: { type: String, default: 'text' },
+  /** 初始是否明文显示 */
+  startRevealed: { type: Boolean, default: false },
+},
+  emits: ['update:modelValue'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+
+const emit = __emit;
+const revealed = ref$4(props.startRevealed);
+
+return (_ctx, _cache) => {
+  const _component_VIcon = _resolveComponent$3("VIcon");
+  const _component_VTextField = _resolveComponent$3("VTextField");
+
+  return (_openBlock$3(), _createBlock$3(_component_VTextField, {
+    "model-value": __props.modelValue,
+    label: __props.label,
+    placeholder: __props.placeholder,
+    type: revealed.value ? __props.inputType : 'password',
+    density: "compact",
+    variant: "outlined",
+    "hide-details": "",
+    autocomplete: "off",
+    autocorrect: "off",
+    autocapitalize: "off",
+    spellcheck: "false",
+    "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => (emit('update:modelValue', $event)))
+  }, {
+    "append-inner": _withCtx$3(() => [
+      _createVNode$3(_component_VIcon, {
+        icon: revealed.value ? 'mdi-eye-off-outline' : 'mdi-eye-outline',
+        size: "18",
+        class: "tg-secret-eye",
+        title: revealed.value ? '隐藏' : '显示',
+        onClick: _cache[0] || (_cache[0] = $event => (revealed.value = !revealed.value))
+      }, null, 8, ["icon", "title"])
+    ]),
+    _: 1
+  }, 8, ["model-value", "label", "placeholder", "type"]))
+}
+}
+
+};
+const SecretField = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-f57a31cd"]]);
 
 /** 复制文本到剪贴板：优先 Clipboard API，失败回退到临时 textarea。 */
 async function copyText(text) {
@@ -436,8 +504,8 @@ const dialogsUpdatedAt = ref$2('');
 const sent = ref$2(null);
 // 距离允许重新发送验证码的剩余秒数
 const resendIn = ref$2(0);
-// 隐私字段是否明文显示（默认打码，点击眼睛可看）
-const reveal = ref$2({ apiHash: false, phone: false });
+// 账号手机号是否明文显示（凭据输入框由 SecretField 各自管理）
+const reveal = ref$2({ phone: false });
 let countdownId = null;
 
 const form = computed$1(() => props.config.form);
@@ -735,8 +803,8 @@ return (_ctx, _cache) => {
   const _component_VAlert = _resolveComponent$1("VAlert");
   const _component_VIcon = _resolveComponent$1("VIcon");
   const _component_VCardTitle = _resolveComponent$1("VCardTitle");
-  const _component_VTextField = _resolveComponent$1("VTextField");
   const _component_VCol = _resolveComponent$1("VCol");
+  const _component_VTextField = _resolveComponent$1("VTextField");
   const _component_VRow = _resolveComponent$1("VRow");
   const _component_VCardText = _resolveComponent$1("VCardText");
   const _component_VCard = _resolveComponent$1("VCard");
@@ -767,7 +835,7 @@ return (_ctx, _cache) => {
           loading: busy.value === 'connect',
           onClick: reconnect
         }, {
-          default: _withCtx$1(() => [...(_cache[10] || (_cache[10] = [
+          default: _withCtx$1(() => [...(_cache[9] || (_cache[9] = [
             _createTextVNode$1(" 重连 ", -1)
           ]))]),
           _: 1
@@ -779,7 +847,7 @@ return (_ctx, _cache) => {
           loading: statusLoading.value,
           onClick: loadStatus
         }, {
-          default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
+          default: _withCtx$1(() => [...(_cache[10] || (_cache[10] = [
             _createTextVNode$1(" 刷新状态 ", -1)
           ]))]),
           _: 1
@@ -855,7 +923,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
+          default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
             _createTextVNode$1("API 凭证", -1)
           ]))]),
           _: 1
@@ -869,13 +937,10 @@ return (_ctx, _cache) => {
                   md: "6"
                 }, {
                   default: _withCtx$1(() => [
-                    _createVNode$1(_component_VTextField, {
+                    _createVNode$1(SecretField, {
                       modelValue: form.value.tg_api_id,
                       "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((form.value.tg_api_id) = $event)),
-                      label: "API ID",
-                      density: "compact",
-                      variant: "outlined",
-                      "hide-details": ""
+                      label: "API ID"
                     }, null, 8, ["modelValue"])
                   ]),
                   _: 1
@@ -885,27 +950,11 @@ return (_ctx, _cache) => {
                   md: "6"
                 }, {
                   default: _withCtx$1(() => [
-                    _createVNode$1(_component_VTextField, {
+                    _createVNode$1(SecretField, {
                       modelValue: form.value.tg_api_hash,
-                      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.value.tg_api_hash) = $event)),
-                      type: reveal.value.apiHash ? 'text' : 'password',
-                      label: "API Hash",
-                      density: "compact",
-                      variant: "outlined",
-                      "hide-details": "",
-                      autocomplete: "off"
-                    }, {
-                      "append-inner": _withCtx$1(() => [
-                        _createVNode$1(_component_VIcon, {
-                          icon: reveal.value.apiHash ? 'mdi-eye-off-outline' : 'mdi-eye-outline',
-                          size: "18",
-                          class: "tg-reveal",
-                          title: reveal.value.apiHash ? '隐藏' : '显示',
-                          onClick: _cache[2] || (_cache[2] = $event => (reveal.value.apiHash = !reveal.value.apiHash))
-                        }, null, 8, ["icon", "title"])
-                      ]),
-                      _: 1
-                    }, 8, ["modelValue", "type"])
+                      "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((form.value.tg_api_hash) = $event)),
+                      label: "API Hash"
+                    }, null, 8, ["modelValue"])
                   ]),
                   _: 1
                 }),
@@ -914,14 +963,11 @@ return (_ctx, _cache) => {
                   md: "6"
                 }, {
                   default: _withCtx$1(() => [
-                    _createVNode$1(_component_VTextField, {
+                    _createVNode$1(SecretField, {
                       modelValue: form.value.tg_phone,
-                      "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.value.tg_phone) = $event)),
+                      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.value.tg_phone) = $event)),
                       label: "手机号（含国家码）",
-                      placeholder: "+8613800000000",
-                      density: "compact",
-                      variant: "outlined",
-                      "hide-details": ""
+                      placeholder: "+8613800000000"
                     }, null, 8, ["modelValue"])
                   ]),
                   _: 1
@@ -933,7 +979,7 @@ return (_ctx, _cache) => {
                   default: _withCtx$1(() => [
                     _createVNode$1(_component_VTextField, {
                       modelValue: form.value.tg_user_cooldown_seconds,
-                      "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.value.tg_user_cooldown_seconds) = $event)),
+                      "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.value.tg_user_cooldown_seconds) = $event)),
                       modelModifiers: { number: true },
                       type: "number",
                       label: "个人账号转发冷却（秒）",
@@ -951,7 +997,7 @@ return (_ctx, _cache) => {
                   default: _withCtx$1(() => [
                     _createVNode$1(_component_VTextField, {
                       modelValue: form.value.tg_keep_alive_seconds,
-                      "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.value.tg_keep_alive_seconds) = $event)),
+                      "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.value.tg_keep_alive_seconds) = $event)),
                       modelModifiers: { number: true },
                       type: "number",
                       label: "保活间隔（秒）",
@@ -969,7 +1015,7 @@ return (_ctx, _cache) => {
                   default: _withCtx$1(() => [
                     _createVNode$1(_component_VTextField, {
                       modelValue: form.value.tg_aggregation_window_seconds,
-                      "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.value.tg_aggregation_window_seconds) = $event)),
+                      "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.value.tg_aggregation_window_seconds) = $event)),
                       modelModifiers: { number: true },
                       type: "number",
                       step: "0.5",
@@ -984,7 +1030,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
-            _cache[13] || (_cache[13] = _createElementVNode$1("div", { class: "tg-hint" }, " API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。 API Hash 默认打码，点右侧眼睛可查看。 ", -1))
+            _cache[12] || (_cache[12] = _createElementVNode$1("div", { class: "tg-hint" }, " API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。 API ID、API Hash、手机号默认打码，点右侧眼睛可查看（打码只影响显示，保存的仍是真实值）。 ", -1))
           ]),
           _: 1
         })
@@ -997,7 +1043,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
+          default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
             _createTextVNode$1("登录向导", -1)
           ]))]),
           _: 1
@@ -1013,7 +1059,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-account-check-outline",
                       label: ""
                     }, {
-                      default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
+                      default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
                         _createTextVNode$1(" Telegram 客户端 已授权 ", -1)
                       ]))]),
                       _: 1
@@ -1035,7 +1081,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-account-multiple-outline",
                       onClick: refreshDialogs
                     }, {
-                      default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
+                      default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
                         _createTextVNode$1(" 刷新对话列表 ", -1)
                       ]))]),
                       _: 1
@@ -1047,13 +1093,13 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-logout",
                       onClick: logout
                     }, {
-                      default: _withCtx$1(() => [...(_cache[17] || (_cache[17] = [
+                      default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
                         _createTextVNode$1(" 退出登录 ", -1)
                       ]))]),
                       _: 1
                     }, 8, ["loading"])
                   ]),
-                  _cache[18] || (_cache[18] = _createElementVNode$1("div", { class: "tg-hint" }, " 已登录状态下不需要验证码。如需更换账号，请先「退出登录」。 ", -1))
+                  _cache[17] || (_cache[17] = _createElementVNode$1("div", { class: "tg-hint" }, " 已登录状态下不需要验证码。如需更换账号，请先「退出登录」。 ", -1))
                 ], 64))
               : (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 1 }, [
                   (needsReconnect.value)
@@ -1064,7 +1110,7 @@ return (_ctx, _cache) => {
                         density: "comfortable",
                         class: "tg-message"
                       }, {
-                        default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
+                        default: _withCtx$1(() => [...(_cache[18] || (_cache[18] = [
                           _createTextVNode$1(" 会话已保存，但 TG 客户端当前未连接：插件已在后台自动重连，约 10 秒后点「刷新状态」； 也可点右上角「重连」立即重试。 ", -1)
                         ]))]),
                         _: 1
@@ -1106,7 +1152,7 @@ return (_ctx, _cache) => {
                     }, 8, ["loading", "disabled"]),
                     _createVNode$1(_component_VTextField, {
                       modelValue: code.value,
-                      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((code).value = $event)),
+                      "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((code).value = $event)),
                       label: "验证码",
                       density: "compact",
                       variant: "outlined",
@@ -1121,7 +1167,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-login-variant",
                       onClick: signIn
                     }, {
-                      default: _withCtx$1(() => [...(_cache[20] || (_cache[20] = [
+                      default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
                         _createTextVNode$1(" 登录 ", -1)
                       ]))]),
                       _: 1
@@ -1131,7 +1177,7 @@ return (_ctx, _cache) => {
                     ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_15, [
                         _createVNode$1(_component_VTextField, {
                           modelValue: password.value,
-                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((password).value = $event)),
+                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((password).value = $event)),
                           type: "password",
                           label: "两步验证密码",
                           density: "compact",
@@ -1146,7 +1192,7 @@ return (_ctx, _cache) => {
                           "prepend-icon": "mdi-shield-key-outline",
                           onClick: signIn
                         }, {
-                          default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
+                          default: _withCtx$1(() => [...(_cache[20] || (_cache[20] = [
                             _createTextVNode$1(" 提交两步验证 ", -1)
                           ]))]),
                           _: 1
@@ -1161,13 +1207,13 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-account-multiple-outline",
                       onClick: refreshDialogs
                     }, {
-                      default: _withCtx$1(() => [...(_cache[22] || (_cache[22] = [
+                      default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
                         _createTextVNode$1(" 刷新对话列表 ", -1)
                       ]))]),
                       _: 1
                     }, 8, ["loading", "disabled"])
                   ]),
-                  _cache[23] || (_cache[23] = _createElementVNode$1("div", { class: "tg-hint" }, " 凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送； 刷新页面不会丢失已发出的验证码，直接输入即可。 ", -1))
+                  _cache[22] || (_cache[22] = _createElementVNode$1("div", { class: "tg-hint" }, " 凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送； 刷新页面不会丢失已发出的验证码，直接输入即可。 ", -1))
                 ], 64))
           ]),
           _: 1
@@ -1184,7 +1230,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-4b710ef6"]]);
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-965c0a43"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

@@ -149,6 +149,22 @@ class _StubPlugin:
     def api_pan115_qr_cancel(self):
         ...
 
+    # P4 资源监控
+    def api_monitor_rules(self):
+        ...
+
+    def api_monitor_rules_save(self, request):
+        ...
+
+    def api_monitor_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+        ...
+
+    def api_monitor_status(self):
+        ...
+
+    def api_monitor_test(self, request):
+        ...
+
 
 def test_api_routes_contract():
     """所有路由都要声明 bear 认证与 response_model。"""
@@ -170,6 +186,11 @@ def test_api_routes_contract():
         "/pan115/qr_start",
         "/pan115/qr_poll",
         "/pan115/qr_cancel",
+        # P4 资源监控（rules 同时注册 GET 与 PUT）
+        "/monitor/rules",
+        "/monitor/hits",
+        "/monitor/status",
+        "/monitor/test",
     }
     for route in routes:
         assert route["auth"] == "bear"

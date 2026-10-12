@@ -3,7 +3,7 @@
     "name": "TG媒体中心",
     "description": "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。",
     "labels": "工具,媒体",
-    "version": "1.2.8",
+    "version": "1.3.0",
     "icon": "tgmediacenter.png",
     "author": "strongrexue",
     "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v1.3.0": "【P4 TG 资源监控】[1]监听指定频道/群组的新消息：聚合窗口→净化（去广告行）→宿主 MetaVideo 识别→规则决策→推送队列（smart/115/TG 转发/仅记录）;[2]监控规则编辑器：监听频道多选（对话列表下拉+手动 ID）、推送目标、仅缺失开关、自定义关键词;[3]缺失判断依据 MP：媒体服务器 media_exists + 订阅快照 lack_episode，60 秒 TTL 缓存，无数据源时如实跳过并提示;[4]命中流水（分页+决策过滤）与运行状态（流水线/监听注册/队列/FloodWait 退避）;[5]规则测试：粘贴消息原文预览每条规则的处理结果，不落库不推送;[6]推送 worker 内嵌流水线线程，失败指数退避重试，TG 转发受全局冷却约束;[7]新增插件自有表 monitor_hit_log / monitor_push_task（分身隔离）;[8]移除已取消的豆瓣源配置入口（订阅请用「豆瓣中心」插件）",
       "v1.2.8": "回退到 P2 终态（1.2.7）：订阅服务改用「豆瓣中心」插件，P3 相关代码（去重表/榜单拉取/建订阅编排/定时同步/双 Tab 前端）全部移除。如果你之前装了 1.3.x，更新到 1.2.8 后请在插件中心卸载并重装一次以清除 P3 残留配置项。",
       "v1.2.7": "[1]回退离线下载到 1.2.5 的 clouddownload 明文 web 通道（proapi open/offline 端点真机验证异常）;[2]移除离线配额展示（115 侧接口不稳定，界面不再显示该栏）",
       "v1.2.6": "[1]修复离线配额 404 与 eD2k/磁力离线下载：App 会话改走 proapi 的 open/offline 端点（get_quota_info / add_task_urls），与目录、转存同域，绕开 clouddownload 域在宿主 HTTP 客户端下的 404;[2]Web 会话仍走 clouddownload 明文通道",

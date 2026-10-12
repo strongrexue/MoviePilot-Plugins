@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -209,6 +209,134 @@ class Pan115DirData(BaseModel):
     message: str = ""
 
 
+# ---------------------------------------------------------------------- ④ TG 资源监控
+
+
+class OptionItem(BaseModel):
+    """下拉选项。"""
+
+    value: str = ""
+    title: str = ""
+
+
+class MonitorRule(BaseModel):
+    """监控规则（与 MA resource_subscriber_rules 对齐，v1 只实现 client 模式）。"""
+
+    id: str = Field(default="", description="规则稳定 ID，保存时由后端补缺")
+    name: str = Field(default="", description="规则名称")
+    source_ids: List[int] = Field(default_factory=list, description="监听的会话 ID（频道/群组，可多选）")
+    destination: str = Field(default="smart", description="推送目标：smart/pan115/tg_forward/none")
+    target_id: str = Field(default="", description="TG 转发目标会话 ID（destination=tg_forward 时必填）")
+    match_only_if_missing: bool = Field(default=True, description="仅当媒体库/订阅缺失时才推送")
+    match_custom_keywords: bool = Field(default=False, description="是否启用自定义关键词过滤")
+    custom_keywords: List[str] = Field(default_factory=list, description="自定义关键词（任一命中即通过）")
+    rule_type: str = Field(default="client", description="client=Telethon 个人号监听；web=免登录监听（二期）")
+    web_channel_usernames: List[str] = Field(default_factory=list, description="web 监听模式频道用户名（二期预留）")
+    enabled: bool = Field(default=True, description="是否启用该规则")
+
+
+class MonitorRulesData(BaseModel):
+    """监控规则读写响应。"""
+
+    rules: List[MonitorRule] = Field(default_factory=list)
+    destinations: List[OptionItem] = Field(default_factory=list)
+    decisions: List[OptionItem] = Field(default_factory=list)
+    watched_chats: int = 0
+
+
+class MonitorRulesSaveRequest(BaseModel):
+    """保存监控规则请求。"""
+
+    rules: List[MonitorRule] = Field(default_factory=list)
+
+
+class MonitorHit(BaseModel):
+    """命中流水条目。"""
+
+    id: int = 0
+    rule_id: str = ""
+    rule_name: str = ""
+    chat_id: int = 0
+    message_id: int = 0
+    title: str = ""
+    year: str = ""
+    season: Optional[int] = None
+    episode: Optional[int] = None
+    media_type: str = ""
+    decision: str = ""
+    destination: str = ""
+    detail: str = ""
+    created_at: str = ""
+
+
+class MonitorHitsData(BaseModel):
+    """命中流水分页响应。"""
+
+    items: List[MonitorHit] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
+class MonitorPipelineStats(BaseModel):
+    """流水线运行态（与 MonitorModule.status()["pipeline"] 对应）。"""
+
+    running: bool = False
+    handler_registered: bool = False
+    buffered: int = 0
+    queued: int = 0
+    processed: int = 0
+    hit: int = 0
+    skipped: int = 0
+    failed: int = 0
+    push_pending: int = 0
+    push_failed: int = 0
+    started_at: str = ""
+    last_error: str = ""
+
+
+class MonitorStatusData(BaseModel):
+    """监控模块运行状态。
+
+    注意：``running`` 等字段在嵌套的 ``pipeline`` 里——平铺建模会让
+    model_validate 静默取默认值（界面永远显示"未运行"）。
+    """
+
+    enabled: bool = False
+    rules_count: int = 0
+    watched_chats: int = 0
+    pipeline: MonitorPipelineStats = Field(default_factory=MonitorPipelineStats)
+    matcher: Dict[str, Any] = Field(default_factory=dict)
+    gate_interval: int = 5
+    flood_remaining: int = 0
+
+
+class MonitorTestRequest(BaseModel):
+    """规则测试请求。"""
+
+    text: str = Field(default="", description="粘贴一条频道消息原文")
+
+
+class MonitorTestTrace(BaseModel):
+    """单条规则的测试结果。"""
+
+    rule_id: str = ""
+    rule_name: str = ""
+    destination: str = ""
+    decision: str = ""
+    reason: str = ""
+    enabled: bool = True
+
+
+class MonitorTestData(BaseModel):
+    """规则测试结果（不落库、不入队、不推送）。"""
+
+    purified: str = ""
+    recognized: Optional[Dict[str, Any]] = None
+    links: List[str] = Field(default_factory=list)
+    rules: List[MonitorTestTrace] = Field(default_factory=list)
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
     "/telegram/send_code": TgSendCodeData,
@@ -225,4 +353,8 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/pan115/qr_start": Pan115QrData,
     "/pan115/qr_poll": Pan115QrData,
     "/pan115/qr_cancel": Pan115QrData,
+    "/monitor/rules": MonitorRulesData,
+    "/monitor/hits": MonitorHitsData,
+    "/monitor/status": MonitorStatusData,
+    "/monitor/test": MonitorTestData,
 }

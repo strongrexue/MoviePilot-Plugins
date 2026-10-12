@@ -24,6 +24,9 @@ export const configDefaults = {
   pan115_enabled: false,
   pan115_target_cid: '',
   pan115_batch_max_size: 20,
+  // ④ TG 资源监控（规则结构见 /monitor/rules 接口返回；id 由后端补缺）
+  monitor_enabled: false,
+  monitor_rules: [],
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

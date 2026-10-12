@@ -45,6 +45,11 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/pan115/qr_start", plugin.api_pan115_qr_start, ["POST"], "获取 115 扫码登录二维码"),
         ("/pan115/qr_poll", plugin.api_pan115_qr_poll, ["POST"], "查询 115 扫码登录状态"),
         ("/pan115/qr_cancel", plugin.api_pan115_qr_cancel, ["POST"], "取消 115 扫码登录"),
+        ("/monitor/rules", plugin.api_monitor_rules, ["GET"], "获取 TG 资源监控规则"),
+        ("/monitor/rules", plugin.api_monitor_rules_save, ["PUT"], "保存 TG 资源监控规则"),
+        ("/monitor/hits", plugin.api_monitor_hits, ["GET"], "查询监控命中流水"),
+        ("/monitor/status", plugin.api_monitor_status, ["GET"], "获取监控运行状态"),
+        ("/monitor/test", plugin.api_monitor_test, ["POST"], "用一段文本测试规则处理结果"),
     ]
     return [
         {
@@ -246,3 +251,88 @@ def api_pan115_qr_cancel(plugin):
     module = _pan115(plugin)
     data = _invoke(module.qr_cancel)
     return _envelope(api_schemas.Pan115QrData.model_validate(data), message=data.get("message", ""))
+
+
+# ---------------------------------------------------------------------- ④ TG 资源监控
+
+
+def _monitor(plugin):
+    """返回监控模块；插件尚未初始化时抛 503。"""
+    module = getattr(plugin, "_monitor", None)
+    if module is None:
+        raise HTTPException(status_code=503, detail="插件尚未初始化，请稍后重试")
+    return module
+
+
+def _rules_payload(module) -> api_schemas.MonitorRulesData:
+    """规则读写响应（含前端下拉选项）。"""
+    from ..destinations import DESTINATION_OPTIONS
+
+    rules = module.rules()
+    return api_schemas.MonitorRulesData(
+        rules=[api_schemas.MonitorRule.model_validate(rule) for rule in rules],
+        destinations=[api_schemas.OptionItem.model_validate(item) for item in DESTINATION_OPTIONS],
+        decisions=[api_schemas.OptionItem.model_validate(item) for item in module.decision_options()],
+        watched_chats=len(module.watched_chat_ids()),
+    )
+
+
+def api_monitor_rules(plugin):
+    """读取监控规则（含归一化后补齐的规则 ID）。"""
+    module = _monitor(plugin)
+    data = _invoke(lambda: _rules_payload(module))
+    return _envelope(data)
+
+
+def api_monitor_rules_save(plugin, request: api_schemas.MonitorRulesSaveRequest):
+    """保存监控规则（归一 + 校验后整份写回配置）。"""
+    module = _monitor(plugin)
+    # 先校验再落库：TG 转发缺少目标 ID 是最常见的配置事故
+    for rule in request.rules or []:
+        if rule.destination == "tg_forward" and not str(rule.target_id or "").strip():
+            raise HTTPException(status_code=400, detail=f"规则「{rule.name or '未命名'}」选择 TG 转发时必须填写目标会话 ID")
+    data = _invoke(lambda: _rules_payload_after_save(module, request))
+    return _envelope(data, message=f"已保存 {len(data.rules)} 条监控规则")
+
+
+def _rules_payload_after_save(module, request: api_schemas.MonitorRulesSaveRequest) -> api_schemas.MonitorRulesData:
+    saved = module.save_rules([rule.model_dump() for rule in (request.rules or [])])
+    from ..destinations import DESTINATION_OPTIONS
+
+    return api_schemas.MonitorRulesData(
+        rules=[api_schemas.MonitorRule.model_validate(rule) for rule in saved],
+        destinations=[api_schemas.OptionItem.model_validate(item) for item in DESTINATION_OPTIONS],
+        decisions=[api_schemas.OptionItem.model_validate(item) for item in module.decision_options()],
+        watched_chats=len(module.watched_chat_ids()),
+    )
+
+
+def api_monitor_hits(plugin, page: int = 1, page_size: int = 20, decision: str = ""):
+    """分页查询命中流水（可按决策过滤）。"""
+    module = _monitor(plugin)
+    data = _invoke(lambda: module.hits(page=page, page_size=page_size, decision=decision))
+    return _envelope(api_schemas.MonitorHitsData.model_validate(data))
+
+
+def api_monitor_status(plugin):
+    """监控运行状态（流水线 / 处理器注册 / 推送队列 / 缺失判断能力）。"""
+    module = _monitor(plugin)
+    data = _invoke(lambda: module.status())
+    # 自愈：已启用且有监听规则但流水线没在跑（如刚保存首批规则、插件刚重载），
+    # 顺手安排启动，不阻塞本次响应——与 TG 连接的同一种模式。
+    schedule = getattr(module, "ensure_started", None)
+    if callable(schedule):
+        try:
+            schedule()
+        except Exception as err:  # pragma: no cover - 自愈属增强能力
+            logger.debug(f"安排监控流水线启动失败：{err}")
+    return _envelope(api_schemas.MonitorStatusData.model_validate(data))
+
+
+def api_monitor_test(plugin, request: api_schemas.MonitorTestRequest):
+    """用一段文本测试各规则会怎么处理（不落库、不入队、不推送）。"""
+    module = _monitor(plugin)
+    if not str(request.text or "").strip():
+        raise HTTPException(status_code=400, detail="请先粘贴一条频道消息文本")
+    data = _invoke(lambda: module.test_text(request.text))
+    return _envelope(api_schemas.MonitorTestData.model_validate(data), message="测试完成（未落库、未推送）")

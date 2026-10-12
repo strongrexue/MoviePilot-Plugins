@@ -72,6 +72,34 @@ if not _try_import("app.adapters.network.http"):
 if not _try_import("app.sdk.config"):
     _make_module("app.sdk.config", settings=type("S", (), {"PROXY": None})())
 
+# app.sdk.database：插件自有表基类。用真实 SQLAlchemy 声明基类打桩，
+# 让 hit_log / push_task 等模型可被真正建表与读写测试（内存 SQLite）。
+if not _try_import("app.sdk.database"):
+    from sqlalchemy.orm import declarative_base
+
+    def _plugin_declarative_base():
+        return declarative_base()
+
+    _make_module("app.sdk.database", plugin_declarative_base=_plugin_declarative_base)
+
+# app.sdk.media：宿主识别引擎与 MediaInfo。**故意不提供 MetaVideo**——
+# 识别层按"宿主不可用"降级（真机才有宿主）；MediaInfo 提供最小 dataclass，
+# 让缺失判断的 media_exists 调用链可在测试里跑通。
+if not _try_import("app.sdk.media"):
+    from dataclasses import dataclass, field
+    from typing import Optional as _Optional
+
+    @dataclass
+    class _StubMediaInfo:
+        title: _Optional[str] = None
+        year: _Optional[str] = None
+        type: _Optional[str] = None
+        season: _Optional[int] = None
+        media_source: _Optional[str] = None
+        media_id: _Optional[str] = None
+
+    _make_module("app.sdk.media", MediaInfo=_StubMediaInfo)
+
 if not _try_import("app.schemas"):
     from typing import Generic, TypeVar
 

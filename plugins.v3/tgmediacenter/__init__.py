@@ -1,9 +1,10 @@
 """TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
-当前进度：P2 —— 115 网盘推送目标。
+当前进度：P4 —— TG 资源监控。
 - 已实现：① TG 核心凭证（Telethon 运行时、登录向导、会话持久化、对话列表缓存）；
-  ② 115 网盘（Cookie 登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送）。
-- 待实现：自定义豆瓣源、TG 资源监控、历史消息缓存、TG 通用转发。
+  ② 115 网盘（Cookie 登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送）；
+  ④ TG 资源监控（事件接入、聚合窗口、宿主识别、缺失判断、推送队列）。
+- 待实现：历史消息缓存、TG 通用转发（自定义豆瓣源已取消，改用「豆瓣中心」插件）。
 """
 from typing import Any, Dict, List, Optional, Tuple
 import time
@@ -13,7 +14,9 @@ from app.sdk.plugin import _PluginBase
 
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
+from .model import get_models
 from .modules.credentials import CredentialsModule
+from .modules.monitor import MonitorModule
 from .modules.pan115 import Pan115Module
 
 try:  # 一次性任务调度接口；缺失时降级为懒连接
@@ -29,7 +32,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.2.8"
+    plugin_version = "1.3.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -42,6 +45,7 @@ class TgMediaCenter(_PluginBase):
         self._config: Dict[str, Any] = {}
         self._credentials: Optional[CredentialsModule] = None
         self._pan115: Optional[Pan115Module] = None
+        self._monitor: Optional[MonitorModule] = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -92,8 +96,17 @@ class TgMediaCenter(_PluginBase):
 
         self._credentials = CredentialsModule(self)
         self._pan115 = Pan115Module(self)
+        self._monitor = MonitorModule(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
+
+        # ④ 资源监控：启用且有监听规则时启动流水线（TG 未连接也会先起来，
+        # 处理器注册由流水线健康检查在运行时就绪后自动补上）
+        try:
+            if self._monitor.enabled() and self._monitor.watched_chat_ids():
+                self._monitor.start()
+        except Exception as err:  # pragma: no cover - 监控启动失败不影响其余能力
+            logger.warning(f"[TgMediaCenter] 启动资源监控流水线失败：{err}")
 
         # 建立连接是网络操作，交给一次性任务执行，不阻塞插件加载。
         # 只要有 API 凭证就提前连接（**不要求已登录**）：首次发码若现连 Telegram，
@@ -274,18 +287,54 @@ class TgMediaCenter(_PluginBase):
         """刷新并返回对话列表。"""
         return api_controller.api_telegram_refresh_dialogs(self)
 
+    # ------------------------------------------------------------------ ④ TG 资源监控
+
+    def api_monitor_rules(self):
+        """读取监控规则。"""
+        return api_controller.api_monitor_rules(self)
+
+    def api_monitor_rules_save(self, request: api_schemas.MonitorRulesSaveRequest):
+        """保存监控规则。"""
+        return api_controller.api_monitor_rules_save(self, request)
+
+    def api_monitor_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+        """分页查询命中流水。"""
+        return api_controller.api_monitor_hits(self, page=page, page_size=page_size, decision=decision)
+
+    def api_monitor_status(self):
+        """监控运行状态。"""
+        return api_controller.api_monitor_status(self)
+
+    def api_monitor_test(self, request: api_schemas.MonitorTestRequest):
+        """用一段文本测试规则处理结果。"""
+        return api_controller.api_monitor_test(self, request)
+
     # ------------------------------------------------------------------ 其它扩展点
 
     def get_database_models(self) -> Optional[List[type]]:
-        """返回插件自有数据模型（P5 起提供）。"""
-        return None
+        """返回插件自有数据模型（P4 起：命中流水 + 推送任务）。"""
+        try:
+            return get_models()
+        except Exception as err:  # pragma: no cover - 模型导入失败不应拖垮插件加载
+            logger.warning(f"[TgMediaCenter] 加载插件数据模型失败：{err}")
+            return None
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """返回插件定时服务定义（P3 起提供）。"""
+        """返回插件定时服务定义。
+
+        监控流水线自带 worker 线程（聚合窗口 + 推送队列扫描），不需要宿主定时任务；
+        预留：后续缓存增量同步（P5）等周期任务在此声明。
+        """
         return []
 
     def stop_service(self) -> None:
         """释放插件创建的后台资源。"""
+        monitor, self._monitor = self._monitor, None
+        if monitor is not None:
+            try:
+                monitor.stop()
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[TgMediaCenter] 停止资源监控流水线失败：{err}")
         credentials, self._credentials = self._credentials, None
         if credentials is not None:
             try:

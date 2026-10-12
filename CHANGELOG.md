@@ -55,6 +55,12 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.2.6（P2 修复：离线走 proapi open/offline 端点）
+
+- **离线配额 404**：`clouddownload.115.com` 域在宿主 HTTP 客户端下带 Cookie 请求返回 404（curl/urllib 复现均为 200，属宿主客户端对该域的行为差异）。App 会话改用 `proapi.115.com/open/offline/get_quota_info`（与目录/转存同域、p115client 的 App 通道正式端点）。
+- **eD2k/磁力离线下载**：App 会话同步改用 `proapi.115.com/open/offline/add_task_urls`，绕开 clouddownload 域。
+- Web 会话维持 clouddownload 明文通道不变。
+
 ## v1.2.5（P2 修复：离线下载通道 / 离线配额）
 
 - **eD2k/磁力推送失败**：云下载的默认通道（lixianssp）要求 RSA+ECDH 加密签名，明文请求返回的是加密内容（"返回内容无法解析"）。改走明文 web 端点 `clouddownload.115.com/web/`（p115client 的 type="web"）。

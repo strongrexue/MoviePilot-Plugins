@@ -230,14 +230,52 @@ def test_offline_quota_parses_quota_info():
     client = Pan115Client("UID=1; CID=2", app="alipaymini")
 
     async def fake_request(method, url, **kwargs):
-        assert url == "https://clouddownload.115.com/"
-        assert kwargs.get("params", {}).get("ac") == "get_quota_info"
+        assert url == "https://proapi.115.com/open/offline/get_quota_info"
         return {"state": True, "data": {"size_total": 5497558138880, "size_use": 1099511627776}}
 
     client._request = fake_request
     result = asyncio.run(client.offline_quota())
     assert result["available"] is True
     assert "TB" in result["text"]
+
+
+def test_offline_quota_web_session_uses_clouddownload():
+    """Web 会话走 clouddownload 端点；App 会话走 proapi open/offline 端点。"""
+    import asyncio
+
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    calls = []
+
+    async def fake_request(method, url, **kwargs):
+        calls.append((url, kwargs.get("params")))
+        return {"state": True, "data": {"quota_info": {"size_total": 100, "size_use": 40}}}
+
+    web = Pan115Client("UID=1; CID=2")
+    web._request = fake_request
+    asyncio.run(web.offline_quota())
+    assert calls[0][0] == "https://clouddownload.115.com/"
+    assert calls[0][1] == {"ac": "get_quota_info"}
+
+
+def test_offline_add_app_session_uses_proapi():
+    """App 会话离线下载走 proapi open/offline，避免 clouddownload 域 404。"""
+    import asyncio
+
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    calls = []
+
+    async def fake_request(method, url, **kwargs):
+        calls.append((url, kwargs.get("data")))
+        return {"state": True, "data": {"info_hash": "x"}}
+
+    client = Pan115Client("UID=1; CID=2", app="115android")
+    client._request = fake_request
+    asyncio.run(client.offline_add("magnet:?xt=urn:btih:abc", "123"))
+    assert calls[0][0] == "https://proapi.115.com/open/offline/add_task_urls"
+    assert calls[0][1]["url"].startswith("magnet:")
+    assert calls[0][1]["wp_path_id"] == "123"
 
 
 def test_offline_quota_unavailable_on_error():

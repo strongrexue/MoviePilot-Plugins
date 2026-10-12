@@ -3,7 +3,7 @@
     "name": "TG媒体中心",
     "description": "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。",
     "labels": "工具,媒体",
-    "version": "1.2.5",
+    "version": "1.2.6",
     "icon": "tgmediacenter.png",
     "author": "strongrexue",
     "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v1.2.6": "[1]修复离线配额 404 与 eD2k/磁力离线下载：App 会话改走 proapi 的 open/offline 端点（get_quota_info / add_task_urls），与目录、转存同域，绕开 clouddownload 域在宿主 HTTP 客户端下的 404;[2]Web 会话仍走 clouddownload 明文通道",
       "v1.2.5": "[1]修复 eD2k/磁力离线推送失败：改走云下载通道的明文 web 端点（默认 lixianssp 通道需要加密签名，明文请求无法解析）;[2]修复离线配额获取：改用 get_quota_info 接口并解析配额字段，多数情况可显示已用/总量;[3]云下载错误字段（error_msg）纳入错误解析，被风控时给出换设备重扫的指引",
       "v1.2.4": "[1]修复解析测试报未知错误（推送接口调用参数方式错误导致 500）;[2]修复扫码登录后校验目录仍要求安全密钥：App 会话的文件类接口改走 App 通道端点（proapi.115.com/{设备}/2.0/），不再打 Web 端点;[3]离线下载统一走云下载通道并使用固定客户端 UA;[4]界面显示当前登录绑定的设备（如支付宝小程序）",
       "v1.2.3": "[1]115 登录只保留扫码：Cookie 由扫码换取后保存在插件内部，界面不再提供手动粘贴入口（老用户已粘贴的 Cookie 会自动迁移）",

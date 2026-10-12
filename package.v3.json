@@ -3,7 +3,7 @@
     "name": "TG媒体中心",
     "description": "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。",
     "labels": "工具,媒体",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "icon": "tgmediacenter.png",
     "author": "strongrexue",
     "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v1.1.0": "[1]新增 TG 核心凭证模块;[2]接入 Telethon 运行时（独立线程事件循环）;[3]支持登录向导与两步验证;[4]会话以 StringSession 持久化;[5]新增对话列表缓存与刷新;[6]代理自动继承宿主设置",
       "v1.0.0": "首个版本：插件骨架（配置页 / 详情页 / 仪表盘三入口，API 层与自有表钩子）。"
     }
   }

@@ -1,5 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import ConfigTgPane from './config/ConfigTgPane.vue'
+import { useConfigForm } from './config/useConfigForm'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -7,6 +9,13 @@ const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['save', 'close'])
+
+const config = useConfigForm({
+  api: () => props.api,
+  pluginId: () => props.pluginId,
+  initialConfig: () => props.initialConfig,
+  emit,
+})
 
 const modules = [
   { key: 'tg', title: 'TG 凭证', icon: 'mdi-send-lock-outline', desc: '登录向导、冷却与保活、对话列表' },
@@ -19,6 +28,8 @@ const modules = [
 
 const activeModule = ref(modules[0].key)
 const current = computed(() => modules.find(item => item.key === activeModule.value) || modules[0])
+
+onMounted(config.loadConfig)
 </script>
 
 <template>
@@ -32,6 +43,15 @@ const current = computed(() => modules.find(item => item.key === activeModule.va
         </template>
         <VCardTitle class="text-h6">TG媒体中心</VCardTitle>
         <VCardSubtitle class="text-caption">{{ current.desc }}</VCardSubtitle>
+        <template #append>
+          <VSwitch
+            v-model="config.form.enabled"
+            color="success"
+            hide-details
+            inset
+            :label="config.form.enabled ? '已启用' : '已停用'"
+          />
+        </template>
       </VCardItem>
       <VDivider />
       <div class="tg-body">
@@ -51,7 +71,18 @@ const current = computed(() => modules.find(item => item.key === activeModule.va
           </VList>
         </nav>
         <section class="tg-content">
-          <VAlert type="info" variant="tonal" density="comfortable" class="tg-placeholder">
+          <VProgressLinear v-if="config.loading" indeterminate color="primary" height="2" class="mb-3" />
+          <VAlert v-if="config.error" type="warning" variant="tonal" density="compact" class="mb-3">
+            {{ config.error }}
+          </VAlert>
+
+          <ConfigTgPane
+            v-if="activeModule === 'tg'"
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :config="config"
+          />
+          <VAlert v-else type="info" variant="tonal" density="comfortable">
             「{{ current.title }}」配置面板待实现（见设计文档对应模块）。
           </VAlert>
         </section>
@@ -60,7 +91,7 @@ const current = computed(() => modules.find(item => item.key === activeModule.va
       <VCardActions>
         <VSpacer />
         <VBtn variant="text" @click="emit('close')">取消</VBtn>
-        <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="emit('save', {})">
+        <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="config.saveConfig">
           保存配置
         </VBtn>
       </VCardActions>
@@ -88,7 +119,6 @@ const current = computed(() => modules.find(item => item.key === activeModule.va
   background: rgba(var(--v-theme-on-surface), 0.02);
 }
 .tg-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto; padding: 16px; }
-.tg-placeholder { font-size: 13px; }
 @media (max-width: 760px) {
   .tg-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
   .tg-body { flex-direction: column; }

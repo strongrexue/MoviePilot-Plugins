@@ -1,11 +1,23 @@
-"""TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）.
+"""TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
-骨架版本：仅建立生命周期、Vue 联邦渲染声明与 API/模型钩子，
-业务模块按设计文档的 P1~P7 阶段逐步填充。
+当前进度：P1 —— TG 核心凭证模块。
+- 已实现：Telethon 运行时（独立线程事件循环）、登录向导、StringSession 持久化、
+  对话列表缓存、代理继承宿主设置。
+- 待实现：115 网盘、自定义豆瓣源、TG 资源监控、历史消息缓存、TG 通用转发。
 """
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
+
+from .controller import api as api_controller
+from .controller import schemas as api_schemas
+from .modules.credentials import CredentialsModule
+
+try:  # 一次性任务调度接口；缺失时降级为懒连接
+    from app.sdk import scheduler as scheduler_sdk
+except Exception:  # pragma: no cover
+    scheduler_sdk = None  # type: ignore[assignment]
 
 
 class TgMediaCenter(_PluginBase):
@@ -15,7 +27,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -23,19 +35,79 @@ class TgMediaCenter(_PluginBase):
     auth_level = 1
 
     def __init__(self, *args, **kwargs) -> None:
-        """建立当前插件实例独享的运行状态。"""
+        """建立当前插件实例独享的配置快照与模块容器。"""
         super().__init__(*args, **kwargs)
-        self._enabled = False
+        self._config: Dict[str, Any] = {}
+        self._credentials: Optional[CredentialsModule] = None
+
+    # ------------------------------------------------------------------ 配置快照
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        """返回当前生效配置。"""
+        return self._config
+
+    def save_config(self, **patch: Any) -> None:
+        """合并写入配置。
+
+        宿主 ``update_config()`` 是整份覆盖，因此统一走本方法：先合并当前快照，
+        再整体写回，避免只写部分字段时丢掉其它配置。
+        """
+        merged = dict(self._config)
+        merged.update(patch)
+        self._config = merged
+        self.update_config(merged)
+
+    def _enabled(self) -> bool:
+        """当前配置是否已启用插件。"""
+        return bool(self._config.get("enabled"))
+
+    # ------------------------------------------------------------------ 生命周期
 
     def init_plugin(self, config: Optional[dict] = None) -> None:
-        """读取配置并建立本次运行所需状态；必须允许重复调用。"""
+        """读取配置、重建模块并安排 TG 客户端延迟连接；必须允许重复调用。"""
         self.stop_service()
-        config = config or {}
-        self._enabled = bool(config.get("enabled"))
+
+        merged = self.default_config()
+        merged.update(config or {})
+        self._config = merged
+
+        self._credentials = CredentialsModule(self)
+
+        # 建立连接是网络操作，交给一次性任务执行，不阻塞插件加载。
+        if self._enabled() and self._config.get("tg_session_string"):
+            self._schedule_connect()
+
+    def _schedule_connect(self) -> None:
+        """让宿主调度器在稍后建立 TG 连接。"""
+        add_once = getattr(scheduler_sdk, "add_plugin_once_job", None) if scheduler_sdk else None
+        if add_once is None:
+            logger.info("[TgMediaCenter] 调度接口不可用，TG 连接改为首次调用时建立")
+            return
+        try:
+            add_once(
+                self.__class__.__name__,
+                "telegram_connect",
+                self._ensure_telegram_runtime,
+                "TG媒体中心 TG 客户端连接",
+                delay_seconds=5,
+            )
+        except Exception as err:  # pragma: no cover - 调度失败不影响其余能力
+            logger.warning(f"[TgMediaCenter] 安排 TG 连接任务失败：{err}")
+
+    def _ensure_telegram_runtime(self) -> None:
+        """一次性任务入口：建立运行时并连接。"""
+        credentials = self._credentials
+        if credentials is None:
+            return
+        try:
+            credentials.ensure_runtime()
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] TG 客户端连接失败：{err}")
 
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""
-        return self._enabled
+        return self._enabled()
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
@@ -44,7 +116,7 @@ class TgMediaCenter(_PluginBase):
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """Vue 模式下不返回 Vuetify 表单结构，只提供默认配置模型。"""
-        return None, self.default_config()
+        return None, TgMediaCenter.default_config()
 
     @staticmethod
     def default_config() -> Dict[str, Any]:
@@ -95,17 +167,50 @@ class TgMediaCenter(_PluginBase):
         return None
 
     def get_api(self) -> List[Dict[str, Any]]:
-        """返回插件 API 路由声明（骨架阶段为空）。"""
-        return []
+        """返回插件 API 路由声明。"""
+        return api_controller.get_api(self)
+
+    # ------------------------------------------------------------------ API 端点
+
+    def api_status(self):
+        """返回插件与 TG 凭证运行状态。"""
+        return api_controller.api_status(self)
+
+    def api_telegram_send_code(self, request: api_schemas.TgSendCodeRequest):
+        """发送 TG 登录验证码。"""
+        return api_controller.api_telegram_send_code(self, request)
+
+    def api_telegram_sign_in(self, request: api_schemas.TgSignInRequest):
+        """完成 TG 登录或两步验证。"""
+        return api_controller.api_telegram_sign_in(self, request)
+
+    def api_telegram_logout(self):
+        """退出 TG 登录。"""
+        return api_controller.api_telegram_logout(self)
+
+    def api_telegram_dialogs(self):
+        """返回缓存的对话列表。"""
+        return api_controller.api_telegram_dialogs(self)
+
+    def api_telegram_refresh_dialogs(self):
+        """刷新并返回对话列表。"""
+        return api_controller.api_telegram_refresh_dialogs(self)
+
+    # ------------------------------------------------------------------ 其它扩展点
 
     def get_database_models(self) -> Optional[List[type]]:
-        """返回插件自有数据模型（骨架阶段为空）。"""
+        """返回插件自有数据模型（P5 起提供）。"""
         return None
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """返回插件定时服务定义（骨架阶段为空）。"""
+        """返回插件定时服务定义（P3 起提供）。"""
         return []
 
     def stop_service(self) -> None:
         """释放插件创建的后台资源。"""
-        self._enabled = False
+        credentials, self._credentials = self._credentials, None
+        if credentials is not None:
+            try:
+                credentials.stop()
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[TgMediaCenter] 停止 TG 运行时失败：{err}")

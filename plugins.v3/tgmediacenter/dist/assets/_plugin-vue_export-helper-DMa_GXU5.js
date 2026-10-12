@@ -34,14 +34,15 @@ function timeoutError(path, timeoutMs) {
 }
 
 async function withTimeout(api, method, url, payload, timeoutMs) {
-  const send = () => (api.get(url) );
+  const send = () => (method === 'get' ? api.get(url) : api.post(url, payload));
   if (!timeoutMs) return send()
 
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timerId;
   const request = Promise.resolve().then(() =>
-    api.get(url, controller ? { signal: controller.signal } : undefined)
-      ,
+    method === 'get'
+      ? api.get(url, controller ? { signal: controller.signal } : undefined)
+      : api.post(url, payload, controller ? { signal: controller.signal } : undefined),
   );
   const timeout = new Promise((_, reject) => {
     timerId = setTimeout(() => {
@@ -71,4 +72,23 @@ async function getPluginApi(api, pluginId, path, options = {}) {
   }
 }
 
-export { getPluginApi as g, unwrap as u };
+async function postPluginApi(api, pluginId, path, payload = {}) {
+  if (!api?.post) throw new Error('缺少 MoviePilot 注入的 api.post')
+  return await withTimeout(api, 'post', pluginPath(pluginId, path), payload, 0)
+}
+
+/** 读取配置（宿主提供 plugin/<id> 的 GET/PUT 配置接口）。 */
+async function getPluginConfig(api, pluginId) {
+  const response = await api.get(pluginPath(pluginId));
+  return unwrap(response)
+}
+
+const _export_sfc = (sfc, props) => {
+  const target = sfc.__vccOpts || sfc;
+  for (const [key, val] of props) {
+    target[key] = val;
+  }
+  return target;
+};
+
+export { _export_sfc as _, getPluginConfig as a, getPluginApi as g, postPluginApi as p, unwrap as u };

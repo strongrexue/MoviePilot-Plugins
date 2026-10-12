@@ -23,8 +23,11 @@ Vue 联邦远程组件，暴露 `./Config`、`./Page`、`./Dashboard` 三个入�
 ```bash
 pnpm install
 pnpm dev      # vite build --watch，配合宿主 PLUGIN_LOCAL_REPO_PATHS + PLUGIN_AUTO_RELOAD 联调
-pnpm build    # 产出 dist/assets/
+pnpm build    # 先清理 dist/assets 旧产物，再产出新的联邦产物
 ```
+
+`build` 会先执行 `clean`：因为 `emptyOutDir` 为 false，不清理会堆积旧哈希产物，
+最终被打进发布包。
 
 构建后必须通过联邦 CSS 门禁：
 
@@ -32,6 +35,17 @@ pnpm build    # 产出 dist/assets/
 python ../../../.github/scripts/check_federation_css.py
 ```
 
+## 进度
+
+- **P0 骨架**（`1.0.0`）：仓库结构、元数据、联邦构建链、API 层与请求归属。
+- **P1 TG 核心凭证**（`1.1.0`）：Telethon 运行时（独立线程事件循环）、登录向导与两步验证、
+  StringSession 持久化、对话列表缓存、代理继承宿主设置。
+  - 配置页「TG 凭证」面板：状态徽章 → API 凭证 → 登录向导 → 刷新对话列表。
+  - 接口：`/status`、`/telegram/send_code`、`/telegram/sign_in`、`/telegram/logout`、
+    `/telegram/dialogs`、`/telegram/refresh_dialogs`。
+- 待实现：115 网盘（P2）、自定义豆瓣源（P3）、TG 资源监控（P4）、历史消息缓存（P5）、
+  TG 通用转发（P6）、打磨（P7）。
+
 ## 版本
 
-当前 `1.0.0`（骨架）。版本号需与 `package.v3.json` 的 `version` 及 `history` 最新键保持一致。
+当前 `1.1.0`。版本号需与 `package.v3.json` 的 `version` 及 `history` 最新键保持一致。

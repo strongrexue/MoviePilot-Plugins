@@ -1,0 +1,799 @@
+import { importShared } from './__federation_fn_import-JrT3xvdd.js';
+import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a as getPluginConfig } from './_plugin-vue_export-helper-DMa_GXU5.js';
+
+const {renderList:_renderList$1,Fragment:_Fragment$1,openBlock:_openBlock$1,createElementBlock:_createElementBlock$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createBlock:_createBlock$1,createElementVNode:_createElementVNode$1,createVNode:_createVNode$1,createCommentVNode:_createCommentVNode$1} = await importShared('vue');
+
+
+const _hoisted_1$1 = { class: "tg-pane" };
+const _hoisted_2$1 = { class: "tg-status-head" };
+const _hoisted_3$1 = { class: "tg-status-chips" };
+const _hoisted_4$1 = { key: 0 };
+const _hoisted_5 = { key: 1 };
+const _hoisted_6 = { key: 2 };
+const _hoisted_7 = { class: "tg-wizard" };
+const _hoisted_8 = {
+  key: 0,
+  class: "tg-wizard tg-wizard-password"
+};
+const _hoisted_9 = { class: "tg-wizard-actions" };
+const _hoisted_10 = { class: "tg-hint" };
+
+const {computed: computed$1,onMounted: onMounted$1,ref: ref$2} = await importShared('vue');
+
+
+const _sfc_main$1 = {
+  __name: 'ConfigTgPane',
+  props: {
+  api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: 'TgMediaCenter' },
+  config: { type: Object, required: true },
+},
+  setup(__props) {
+
+const props = __props;
+
+const status = ref$2(null);
+const statusLoading = ref$2(false);
+const busy = ref$2('');
+const message = ref$2('');
+const messageOk = ref$2(true);
+const loginStage = ref$2('idle'); // idle | code_sent | need_password
+const dialogs = ref$2([]);
+
+const form = computed$1(() => props.config.form);
+
+function setMessage(text, ok = true) {
+  message.value = text || '';
+  messageOk.value = ok;
+}
+
+async function loadStatus() {
+  statusLoading.value = true;
+  try {
+    status.value = unwrap(await getPluginApi(props.api, props.pluginId, 'status', { timeoutMs: 15000 }));
+  } catch (err) {
+    setMessage(err?.message || '状态读取失败', false);
+  } finally {
+    statusLoading.value = false;
+  }
+}
+
+async function loadDialogs() {
+  try {
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'telegram/dialogs', { timeoutMs: 15000 }));
+    dialogs.value = data?.dialogs || [];
+  } catch {
+    dialogs.value = [];
+  }
+}
+
+async function sendCode() {
+  if (busy.value) return
+  busy.value = 'send_code';
+  setMessage('');
+  try {
+    const phone = String(form.value.tg_phone || '').trim();
+    if (!phone) throw new Error('请先填写手机号（包含国家码）')
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/send_code', { phone }));
+    loginStage.value = result?.need_password ? 'need_password' : 'code_sent';
+    setMessage(result?.message || '验证码已发送');
+  } catch (err) {
+    setMessage(err?.message || '发送验证码失败', false);
+  } finally {
+    busy.value = '';
+  }
+}
+
+async function signIn() {
+  if (busy.value) return
+  busy.value = 'sign_in';
+  setMessage('');
+  try {
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/sign_in', {
+      phone: String(form.value.tg_phone || '').trim(),
+      code: String(code.value || '').trim(),
+      password: String(password.value || '').trim(),
+    }));
+    if (result?.need_password) {
+      loginStage.value = 'need_password';
+      setMessage(result?.message || '请输入两步验证密码', false);
+    } else if (result?.authorized) {
+      loginStage.value = 'idle';
+      code.value = '';
+      password.value = '';
+      setMessage(result?.message || '登录成功');
+      await Promise.all([loadStatus(), loadDialogs()]);
+    } else {
+      setMessage(result?.message || '登录未完成', false);
+    }
+  } catch (err) {
+    setMessage(err?.message || '登录失败', false);
+  } finally {
+    busy.value = '';
+  }
+}
+
+async function logout() {
+  if (busy.value) return
+  busy.value = 'logout';
+  setMessage('');
+  try {
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/logout', {}));
+    loginStage.value = 'idle';
+    dialogs.value = [];
+    setMessage(result?.message || '已退出登录');
+    await loadStatus();
+  } catch (err) {
+    setMessage(err?.message || '退出登录失败', false);
+  } finally {
+    busy.value = '';
+  }
+}
+
+async function refreshDialogs() {
+  if (busy.value) return
+  busy.value = 'refresh';
+  setMessage('');
+  try {
+    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/refresh_dialogs', {}));
+    dialogs.value = data?.dialogs || [];
+    setMessage(`对话列表已刷新，共 ${dialogs.value.length} 条`);
+    await loadStatus();
+  } catch (err) {
+    setMessage(err?.message || '刷新对话列表失败', false);
+  } finally {
+    busy.value = '';
+  }
+}
+
+const chips = computed$1(() => {
+  const info = status.value || {};
+  return [
+    { text: info.telethon_available ? 'telethon 已安装' : 'telethon 未安装', color: info.telethon_available ? 'success' : 'error' },
+    { text: info.api_configured ? 'API 凭证已填' : 'API 凭证未填', color: info.api_configured ? 'success' : 'warning' },
+    { text: info.session_present ? '会话已保存' : '无会话', color: info.session_present ? 'success' : 'default' },
+    { text: info.authorized ? '已登录' : '未登录', color: info.authorized ? 'success' : 'warning' },
+  ]
+});
+
+onMounted$1(async () => {
+  await loadStatus();
+  await loadDialogs();
+});
+
+return (_ctx, _cache) => {
+  const _component_VChip = _resolveComponent$1("VChip");
+  const _component_VBtn = _resolveComponent$1("VBtn");
+  const _component_VAlert = _resolveComponent$1("VAlert");
+  const _component_VCardTitle = _resolveComponent$1("VCardTitle");
+  const _component_VTextField = _resolveComponent$1("VTextField");
+  const _component_VCol = _resolveComponent$1("VCol");
+  const _component_VRow = _resolveComponent$1("VRow");
+  const _component_VCardText = _resolveComponent$1("VCardText");
+  const _component_VCard = _resolveComponent$1("VCard");
+
+  return (_openBlock$1(), _createElementBlock$1("div", _hoisted_1$1, [
+    _createElementVNode$1("div", _hoisted_2$1, [
+      _createElementVNode$1("div", _hoisted_3$1, [
+        (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(chips.value, (chip) => {
+          return (_openBlock$1(), _createBlock$1(_component_VChip, {
+            key: chip.text,
+            color: chip.color,
+            size: "small",
+            variant: "tonal",
+            label: ""
+          }, {
+            default: _withCtx$1(() => [
+              _createTextVNode$1(_toDisplayString$1(chip.text), 1)
+            ]),
+            _: 2
+          }, 1032, ["color"]))
+        }), 128))
+      ]),
+      _createVNode$1(_component_VBtn, {
+        size: "small",
+        variant: "text",
+        "prepend-icon": "mdi-refresh",
+        loading: statusLoading.value,
+        onClick: loadStatus
+      }, {
+        default: _withCtx$1(() => [...(_cache[8] || (_cache[8] = [
+          _createTextVNode$1(" 刷新状态 ", -1)
+        ]))]),
+        _: 1
+      }, 8, ["loading"])
+    ]),
+    (status.value?.me)
+      ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+          key: 0,
+          type: "success",
+          variant: "tonal",
+          density: "comfortable",
+          class: "tg-account"
+        }, {
+          default: _withCtx$1(() => [
+            _createTextVNode$1(" 已登录：" + _toDisplayString$1(status.value.me.name || status.value.me.username) + " ", 1),
+            (status.value.me.username)
+              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_4$1, "（@" + _toDisplayString$1(status.value.me.username) + "）", 1))
+              : _createCommentVNode$1("", true),
+            (status.value.me.phone)
+              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_5, " · " + _toDisplayString$1(status.value.me.phone), 1))
+              : _createCommentVNode$1("", true),
+            _createElementVNode$1("span", null, " · 对话缓存 " + _toDisplayString$1(status.value.dialog_count) + " 条", 1),
+            (status.value.dialogs_updated_at)
+              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_6, " · 更新于 " + _toDisplayString$1(status.value.dialogs_updated_at), 1))
+              : _createCommentVNode$1("", true)
+          ]),
+          _: 1
+        }))
+      : _createCommentVNode$1("", true),
+    (message.value)
+      ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+          key: 1,
+          type: messageOk.value ? 'info' : 'warning',
+          variant: "tonal",
+          density: "comfortable",
+          class: "tg-message"
+        }, {
+          default: _withCtx$1(() => [
+            _createTextVNode$1(_toDisplayString$1(message.value), 1)
+          ]),
+          _: 1
+        }, 8, ["type"]))
+      : _createCommentVNode$1("", true),
+    _createVNode$1(_component_VCard, {
+      flat: "",
+      class: "tg-card"
+    }, {
+      default: _withCtx$1(() => [
+        _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
+          default: _withCtx$1(() => [...(_cache[9] || (_cache[9] = [
+            _createTextVNode$1("API 凭证", -1)
+          ]))]),
+          _: 1
+        }),
+        _createVNode$1(_component_VCardText, null, {
+          default: _withCtx$1(() => [
+            _createVNode$1(_component_VRow, { dense: "" }, {
+              default: _withCtx$1(() => [
+                _createVNode$1(_component_VCol, {
+                  cols: "12",
+                  md: "6"
+                }, {
+                  default: _withCtx$1(() => [
+                    _createVNode$1(_component_VTextField, {
+                      modelValue: form.value.tg_api_id,
+                      "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((form.value.tg_api_id) = $event)),
+                      label: "API ID",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": ""
+                    }, null, 8, ["modelValue"])
+                  ]),
+                  _: 1
+                }),
+                _createVNode$1(_component_VCol, {
+                  cols: "12",
+                  md: "6"
+                }, {
+                  default: _withCtx$1(() => [
+                    _createVNode$1(_component_VTextField, {
+                      modelValue: form.value.tg_api_hash,
+                      "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((form.value.tg_api_hash) = $event)),
+                      label: "API Hash",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": ""
+                    }, null, 8, ["modelValue"])
+                  ]),
+                  _: 1
+                }),
+                _createVNode$1(_component_VCol, {
+                  cols: "12",
+                  md: "6"
+                }, {
+                  default: _withCtx$1(() => [
+                    _createVNode$1(_component_VTextField, {
+                      modelValue: form.value.tg_phone,
+                      "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((form.value.tg_phone) = $event)),
+                      label: "手机号（含国家码）",
+                      placeholder: "+8613800000000",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": ""
+                    }, null, 8, ["modelValue"])
+                  ]),
+                  _: 1
+                }),
+                _createVNode$1(_component_VCol, {
+                  cols: "12",
+                  md: "6"
+                }, {
+                  default: _withCtx$1(() => [
+                    _createVNode$1(_component_VTextField, {
+                      modelValue: form.value.tg_user_cooldown_seconds,
+                      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.value.tg_user_cooldown_seconds) = $event)),
+                      modelModifiers: { number: true },
+                      type: "number",
+                      label: "个人账号转发冷却（秒）",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": ""
+                    }, null, 8, ["modelValue"])
+                  ]),
+                  _: 1
+                }),
+                _createVNode$1(_component_VCol, {
+                  cols: "12",
+                  md: "6"
+                }, {
+                  default: _withCtx$1(() => [
+                    _createVNode$1(_component_VTextField, {
+                      modelValue: form.value.tg_keep_alive_seconds,
+                      "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.value.tg_keep_alive_seconds) = $event)),
+                      modelModifiers: { number: true },
+                      type: "number",
+                      label: "保活间隔（秒）",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": ""
+                    }, null, 8, ["modelValue"])
+                  ]),
+                  _: 1
+                }),
+                _createVNode$1(_component_VCol, {
+                  cols: "12",
+                  md: "6"
+                }, {
+                  default: _withCtx$1(() => [
+                    _createVNode$1(_component_VTextField, {
+                      modelValue: form.value.tg_aggregation_window_seconds,
+                      "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.value.tg_aggregation_window_seconds) = $event)),
+                      modelModifiers: { number: true },
+                      type: "number",
+                      step: "0.5",
+                      label: "消息聚合窗口（秒）",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": ""
+                    }, null, 8, ["modelValue"])
+                  ]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }),
+            _cache[10] || (_cache[10] = _createElementVNode$1("div", { class: "tg-hint" }, " API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。 ", -1))
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }),
+    _createVNode$1(_component_VCard, {
+      flat: "",
+      class: "tg-card"
+    }, {
+      default: _withCtx$1(() => [
+        _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
+          default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
+            _createTextVNode$1("登录向导", -1)
+          ]))]),
+          _: 1
+        }),
+        _createVNode$1(_component_VCardText, null, {
+          default: _withCtx$1(() => [
+            _createElementVNode$1("div", _hoisted_7, [
+              _createVNode$1(_component_VBtn, {
+                color: "primary",
+                variant: "flat",
+                loading: busy.value === 'send_code',
+                "prepend-icon": "mdi-send-outline",
+                onClick: sendCode
+              }, {
+                default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
+                  _createTextVNode$1(" 发送验证码 ", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading"]),
+              _createVNode$1(_component_VTextField, {
+                modelValue: _ctx.code,
+                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((_ctx.code) = $event)),
+                label: "验证码",
+                density: "compact",
+                variant: "outlined",
+                "hide-details": "",
+                class: "tg-wizard-input",
+                disabled: loginStage.value === 'need_password'
+              }, null, 8, ["modelValue", "disabled"]),
+              _createVNode$1(_component_VBtn, {
+                color: "success",
+                variant: "flat",
+                loading: busy.value === 'sign_in',
+                "prepend-icon": "mdi-login-variant",
+                onClick: signIn
+              }, {
+                default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
+                  _createTextVNode$1(" 登录 ", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading"])
+            ]),
+            (loginStage.value === 'need_password')
+              ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_8, [
+                  _createVNode$1(_component_VTextField, {
+                    modelValue: _ctx.password,
+                    "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((_ctx.password) = $event)),
+                    type: "password",
+                    label: "两步验证密码",
+                    density: "compact",
+                    variant: "outlined",
+                    "hide-details": "",
+                    class: "tg-wizard-input"
+                  }, null, 8, ["modelValue"]),
+                  _createVNode$1(_component_VBtn, {
+                    color: "warning",
+                    variant: "flat",
+                    loading: busy.value === 'sign_in',
+                    "prepend-icon": "mdi-shield-key-outline",
+                    onClick: signIn
+                  }, {
+                    default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
+                      _createTextVNode$1(" 提交两步验证 ", -1)
+                    ]))]),
+                    _: 1
+                  }, 8, ["loading"])
+                ]))
+              : _createCommentVNode$1("", true),
+            _createElementVNode$1("div", _hoisted_9, [
+              _createVNode$1(_component_VBtn, {
+                variant: "tonal",
+                loading: busy.value === 'refresh',
+                "prepend-icon": "mdi-account-multiple-outline",
+                onClick: refreshDialogs
+              }, {
+                default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
+                  _createTextVNode$1(" 刷新对话列表 ", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading"]),
+              _createVNode$1(_component_VBtn, {
+                variant: "text",
+                color: "error",
+                loading: busy.value === 'logout',
+                "prepend-icon": "mdi-logout",
+                onClick: logout
+              }, {
+                default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
+                  _createTextVNode$1(" 退出登录 ", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading"])
+            ]),
+            _createElementVNode$1("div", _hoisted_10, " 已缓存 " + _toDisplayString$1(dialogs.value.length) + " 个对话。首次登录后请点一次「刷新对话列表」， 资源监控与转发规则的频道下拉会用到它。 ", 1)
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    })
+  ]))
+}
+}
+
+};
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b6581f7d"]]);
+
+const {reactive,ref: ref$1} = await importShared('vue');
+
+/**
+ * 插件配置表单逻辑。
+ *
+ * 约定：
+ * - 默认值在这里维护一份，与后端 `default_config()` 对齐（后端是权威，此处仅用于首屏渲染）；
+ * - 保存时整体提交，交由后端 `update_config()` 覆盖写入；
+ * - 敏感字段（会话串 / Cookie）由后端掩码返回，前端不回写空值覆盖。
+ */
+const configDefaults = {
+  enabled: false,
+  // ① TG 核心凭证
+  tg_api_id: '',
+  tg_api_hash: '',
+  tg_phone: '',
+  tg_session_string: '',
+  tg_user_cooldown_seconds: 5,
+  tg_keep_alive_seconds: 60,
+  tg_aggregation_window_seconds: 3.0,
+};
+
+/** 不参与表单回写的敏感字段：保存时若为空则跳过。 */
+const SECRET_FIELDS = new Set(['tg_session_string']);
+
+function useConfigForm({ api, pluginId, initialConfig, emit }) {
+  const form = reactive({ ...configDefaults });
+  const loading = ref$1(false);
+  const saving = ref$1(false);
+  const error = ref$1('');
+
+  function applyConfig(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    for (const [key, fallback] of Object.entries(configDefaults)) {
+      const next = source[key];
+      form[key] = next === undefined || next === null ? fallback : next;
+    }
+  }
+
+  async function loadConfig() {
+    loading.value = true;
+    error.value = '';
+    try {
+      const value = initialConfig?.() || await getPluginConfig(api(), pluginId());
+      applyConfig(value);
+    } catch (err) {
+      error.value = err?.message || '配置读取失败';
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function buildPayload() {
+    const payload = { ...form };
+    for (const key of SECRET_FIELDS) {
+      if (!payload[key]) delete payload[key];
+    }
+    return payload
+  }
+
+  async function saveConfig() {
+    if (saving.value) return
+    saving.value = true;
+    error.value = '';
+    try {
+      emit('save', buildPayload());
+    } finally {
+      saving.value = false;
+    }
+  }
+
+  return reactive({
+    form,
+    loading,
+    saving,
+    error,
+    loadConfig,
+    saveConfig,
+    applyConfig,
+  })
+}
+
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,createBlock:_createBlock,createCommentVNode:_createCommentVNode} = await importShared('vue');
+
+
+const _hoisted_1 = { class: "tg-config" };
+const _hoisted_2 = { class: "tg-body" };
+const _hoisted_3 = { class: "tg-nav" };
+const _hoisted_4 = { class: "tg-content" };
+
+const {computed,onMounted,ref} = await importShared('vue');
+
+
+const _sfc_main = {
+  __name: 'Config',
+  props: {
+  api: { type: [Object, Function], default: null },
+  pluginId: { type: String, default: 'TgMediaCenter' },
+  initialConfig: { type: Object, default: () => ({}) },
+},
+  emits: ['save', 'close'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+const emit = __emit;
+
+const config = useConfigForm({
+  api: () => props.api,
+  pluginId: () => props.pluginId,
+  initialConfig: () => props.initialConfig,
+  emit,
+});
+
+const modules = [
+  { key: 'tg', title: 'TG 凭证', icon: 'mdi-send-lock-outline', desc: '登录向导、冷却与保活、对话列表' },
+  { key: 'pan115', title: '115 网盘', icon: 'mdi-cloud-outline', desc: '登录态、目标目录、批量提交' },
+  { key: 'douban', title: '豆瓣源', icon: 'mdi-rss', desc: '想看 RSS 与自定义榜单规则' },
+  { key: 'monitor', title: '资源监控', icon: 'mdi-radar', desc: '监听频道、推送目标、仅缺集' },
+  { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、同步与检索' },
+  { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '两级匹配、置顶与内容转换' },
+];
+
+const activeModule = ref(modules[0].key);
+const current = computed(() => modules.find(item => item.key === activeModule.value) || modules[0]);
+
+onMounted(config.loadConfig);
+
+return (_ctx, _cache) => {
+  const _component_VIcon = _resolveComponent("VIcon");
+  const _component_VAvatar = _resolveComponent("VAvatar");
+  const _component_VCardTitle = _resolveComponent("VCardTitle");
+  const _component_VCardSubtitle = _resolveComponent("VCardSubtitle");
+  const _component_VSwitch = _resolveComponent("VSwitch");
+  const _component_VCardItem = _resolveComponent("VCardItem");
+  const _component_VDivider = _resolveComponent("VDivider");
+  const _component_VListItemTitle = _resolveComponent("VListItemTitle");
+  const _component_VListItem = _resolveComponent("VListItem");
+  const _component_VList = _resolveComponent("VList");
+  const _component_VProgressLinear = _resolveComponent("VProgressLinear");
+  const _component_VAlert = _resolveComponent("VAlert");
+  const _component_VSpacer = _resolveComponent("VSpacer");
+  const _component_VBtn = _resolveComponent("VBtn");
+  const _component_VCardActions = _resolveComponent("VCardActions");
+  const _component_VCard = _resolveComponent("VCard");
+
+  return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+    _createVNode(_component_VCard, {
+      flat: "",
+      class: "tg-card"
+    }, {
+      default: _withCtx(() => [
+        _createVNode(_component_VCardItem, { class: "tg-header" }, {
+          prepend: _withCtx(() => [
+            _createVNode(_component_VAvatar, {
+              color: "primary",
+              variant: "tonal",
+              size: "44",
+              rounded: "lg"
+            }, {
+              default: _withCtx(() => [
+                _createVNode(_component_VIcon, {
+                  icon: "mdi-send-circle-outline",
+                  size: "24"
+                })
+              ]),
+              _: 1
+            })
+          ]),
+          append: _withCtx(() => [
+            _createVNode(_component_VSwitch, {
+              modelValue: _unref(config).form.enabled,
+              "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((_unref(config).form.enabled) = $event)),
+              color: "success",
+              "hide-details": "",
+              inset: "",
+              label: _unref(config).form.enabled ? '已启用' : '已停用'
+            }, null, 8, ["modelValue", "label"])
+          ]),
+          default: _withCtx(() => [
+            _createVNode(_component_VCardTitle, { class: "text-h6" }, {
+              default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+                _createTextVNode("TG媒体中心", -1)
+              ]))]),
+              _: 1
+            }),
+            _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
+              default: _withCtx(() => [
+                _createTextVNode(_toDisplayString(current.value.desc), 1)
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VDivider),
+        _createElementVNode("div", _hoisted_2, [
+          _createElementVNode("nav", _hoisted_3, [
+            _createVNode(_component_VList, {
+              density: "comfortable",
+              nav: "",
+              class: "py-2"
+            }, {
+              default: _withCtx(() => [
+                (_openBlock(), _createElementBlock(_Fragment, null, _renderList(modules, (item) => {
+                  return _createVNode(_component_VListItem, {
+                    key: item.key,
+                    active: activeModule.value === item.key,
+                    color: "primary",
+                    rounded: "lg",
+                    onClick: $event => (activeModule.value = item.key)
+                  }, {
+                    prepend: _withCtx(() => [
+                      _createVNode(_component_VIcon, {
+                        icon: item.icon
+                      }, null, 8, ["icon"])
+                    ]),
+                    default: _withCtx(() => [
+                      _createVNode(_component_VListItemTitle, null, {
+                        default: _withCtx(() => [
+                          _createTextVNode(_toDisplayString(item.title), 1)
+                        ]),
+                        _: 2
+                      }, 1024)
+                    ]),
+                    _: 2
+                  }, 1032, ["active", "onClick"])
+                }), 64))
+              ]),
+              _: 1
+            })
+          ]),
+          _createElementVNode("section", _hoisted_4, [
+            (_unref(config).loading)
+              ? (_openBlock(), _createBlock(_component_VProgressLinear, {
+                  key: 0,
+                  indeterminate: "",
+                  color: "primary",
+                  height: "2",
+                  class: "mb-3"
+                }))
+              : _createCommentVNode("", true),
+            (_unref(config).error)
+              ? (_openBlock(), _createBlock(_component_VAlert, {
+                  key: 1,
+                  type: "warning",
+                  variant: "tonal",
+                  density: "compact",
+                  class: "mb-3"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(_toDisplayString(_unref(config).error), 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (activeModule.value === 'tg')
+              ? (_openBlock(), _createBlock(ConfigTgPane, {
+                  key: 2,
+                  api: props.api,
+                  "plugin-id": props.pluginId,
+                  config: _unref(config)
+                }, null, 8, ["api", "plugin-id", "config"]))
+              : (_openBlock(), _createBlock(_component_VAlert, {
+                  key: 3,
+                  type: "info",
+                  variant: "tonal",
+                  density: "comfortable"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(" 「" + _toDisplayString(current.value.title) + "」配置面板待实现（见设计文档对应模块）。 ", 1)
+                  ]),
+                  _: 1
+                }))
+          ])
+        ]),
+        _createVNode(_component_VDivider),
+        _createVNode(_component_VCardActions, null, {
+          default: _withCtx(() => [
+            _createVNode(_component_VSpacer),
+            _createVNode(_component_VBtn, {
+              variant: "text",
+              onClick: _cache[1] || (_cache[1] = $event => (emit('close')))
+            }, {
+              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+                _createTextVNode("取消", -1)
+              ]))]),
+              _: 1
+            }),
+            _createVNode(_component_VBtn, {
+              color: "primary",
+              variant: "flat",
+              "prepend-icon": "mdi-content-save-outline",
+              onClick: _unref(config).saveConfig
+            }, {
+              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+                _createTextVNode(" 保存配置 ", -1)
+              ]))]),
+              _: 1
+            }, 8, ["onClick"])
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    })
+  ]))
+}
+}
+
+};
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cf3bb0bd"]]);
+
+export { Config as default };

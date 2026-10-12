@@ -45,13 +45,31 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 | 阶段 | 内容 | 版本 | tag | 状态 |
 |---|---|---|---|---|
 | P0 | 插件骨架：仓库结构、元数据、Vue 联邦构建链、API 层与请求归属、显示名与图标 | `1.0.0` | `stage-p0` | ✅ 已完成（MP 加载验证通过） |
-| P1 | TG 核心凭证：Telethon 接入、登录向导、StringSession 持久化、对话列表缓存 | `1.1.0`（补丁至 `1.1.7`） | `stage-p1` | ✅ 已完成 |
-| P2 | 115 网盘：Cookie 登录、状态配额、分享转存、离线下载、推送队列 | `1.2.0` | `stage-p2` | 🚧 代码完成，待真机验证（需有效 Cookie） |
-| P3 | 自定义豆瓣源：RssHelper 拉取、规则过滤、宿主订阅创建、去重表 | `1.3.0` | `stage-p3` | ⏳ 待开始 |
-| P4 | TG 资源监控：事件接入、聚合净化、MetaVideo 识别、缺集匹配、推送决策 | `1.4.0` | `stage-p4` | ⏳ 待开始 |
-| P5 | 历史消息缓存：建表、增量 / 范围同步、检索、统计 | `1.5.0` | `stage-p5` | ⏳ 待开始 |
-| P6 | TG 通用转发：两级匹配规则、内容转换、置顶、转发冷却 | `1.6.0` | `stage-p6` | ⏳ 待开始 |
-| P7 | 打磨：限流退避、通知接入、测试、真实加载验证、README | `1.7.0` | `stage-p7` | ⏳ 待开始 |
+| P1 | TG 核心凭证：Telethon 接入、登录向导、StringSession 持久化、对话列表缓存 | `1.1.0`（补丁至 `1.1.7`） | `stage-p1` | ✅ 已完成（真机验证通过） |
+| P2 | 115 网盘：Cookie 登录、状态配额、分享转存、离线下载、推送队列 | `1.2.0`（补丁至 `1.2.8`） | `stage-p2` | ✅ 已完成（真机验证通过） |
+| P3 | 自定义豆瓣源（订阅服务） | `1.3.x` | `archive/p3-subscribe` | ❌ 已取消：订阅改用「豆瓣中心」插件；代码备份在归档 tag |
+| P4 | TG 资源监控：事件接入、聚合净化、MetaVideo 识别、缺集匹配、推送决策 | `1.3.0` | `stage-p4`（待真机验证后打） | 🚧 代码完成，待真机验证 |
+| P5 | 历史消息缓存：建表、增量 / 范围同步、检索、统计 | `1.4.0` | `stage-p5` | ⏳ 待开始 |
+| P6 | TG 通用转发：两级匹配规则、内容转换、置顶、转发冷却 | `1.5.0` | `stage-p6` | ⏳ 待开始 |
+| P7 | 打磨：限流退避、通知接入、测试、真实加载验证、README | `1.6.0` | `stage-p7` | ⏳ 待开始 |
+
+> 版本说明：P3 取消后其 `1.3.x` 版本线作废，P4 起从 `1.3.0` 重新计（P5=`1.4.0`、P6=`1.5.0`、P7=`1.6.0`）。
+> GitHub 上残留的 P3 旧 Release（`v1.3.1`~`v1.3.5`）是取消前发布的，代码已从 main 移除，是否删除待用户决定。
+
+---
+
+## v1.3.0（P4：TG 资源监控）
+
+- **消息流水线**（`core/pipeline.py`）：Telethon 新消息事件在 TG loop 内注册（worker 每轮做注册健康检查，运行时重建后自动补注册）→ 线程安全队列 → 聚合窗口（默认 3 秒合并同频道批量消息，20 条上限强制刷新）→ worker 线程统一处理。
+- **净化与识别**（`services/recognizer.py`）：去广告行 / 控制字符（保留换行——按行过滤依赖它）；标题识别走宿主 `MetaVideo`（依赖缺失时整层降级为"无法识别"，不拖累其它能力）；首行识别不出时按序尝试后续行。
+- **规则**（存配置 `monitor_rules`）：监听频道多选、推送目标 `smart/pan115/tg_forward/none`、仅缺失开关、自定义关键词；保存时归一（补稳定规则 ID、source_ids 转整数、目标值校验）并即时启动流水线（`ensure_started` 去抖自愈）。
+- **缺失判断**（`services/matcher.py`）：订阅快照 `lack_episode` 预筛 + 媒体服务器 `media_exists()`（电影不存在即缺；剧集按 `seasons:{季:[集]}` 判断目标集）；60 秒 TTL 缓存；两级数据源都不可用时返回"无法判断"，命中如实跳过并在状态卡明示（不静默当成"不缺"）。
+- **推送 worker**：内嵌流水线线程，按目标分派（115 复用 P2 模块；TG 转发受全局冷却 `CooldownGate` 约束）；失败指数退避重试（30s×2^n，上限 600s，最多 3 次）；FloodWait 退避写回冷却门。
+- **自有表**：`monitor_hit_log`（命中流水，UNIQUE(plugin_id, rule_id, chat_id, message_id) 去重）、`monitor_push_task`（推送队列）。宿主 `get_database_models()` 声明建表。
+- **API**：`GET/PUT /monitor/rules`、`GET /monitor/hits`（分页 + 决策过滤）、`GET /monitor/status`（嵌套 pipeline/matcher 结构）、`POST /monitor/test`（不落库不入队不推送）。
+- **前端**：新增「资源监控」面板（状态卡 / 规则编辑器 / 规则测试 / 命中流水）；`Config.vue` 接入并移除已取消的豆瓣源入口；`useConfigForm.js` 补 `monitor_enabled`/`monitor_rules` 默认值。
+- **测试**：新增 `test_p4_monitor.py` 70 项（规则归一 / 识别净化 / 缺失判断 / 冷却门 / 流水线端到端含去重与推送重试 / 推送目标 / API 层 / 插件装配），全量 143 项通过；`conftest.py` 增加 `app.sdk.database`（真实 SQLAlchemy 声明基类）与 `app.sdk.media`（MediaInfo 替身，故意不提供 MetaVideo）桩。
+- **踩坑记录**（已修复，均有回归测试）：① 净化把 `\n` 当控制字符删掉导致整条消息拼成一行、含广告词时整条被误杀；② `MonitorStatusData` 平铺建模与 `status()` 的嵌套结构不匹配，`model_validate` 静默取默认值（界面会永远显示"未运行"）；③ 测试把替身**实例**patch 成"类构造器"（`MediaServerHelper()` 调用实例报 not callable，异常被 matcher 兜底吞掉）；④ 重复消息再插一条流水会撞去重唯一键——改为只计统计不插流水。
 
 ---
 

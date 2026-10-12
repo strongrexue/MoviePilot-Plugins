@@ -372,6 +372,37 @@ class TestRecognizer:
         monkeypatch.setattr(recognizer_module, "MetaVideo", UrlName)
         assert recognizer_module.recognize("某个不含链接的标题行") is None
 
+    def test_recognize_bot_announcement_format(self, fake_metavideo):
+        """真机踩过的频道播报格式：emoji + 类别前缀 + 字段行 + 链接 + 简介。"""
+        text = (
+            "📺 电视剧：璀璨之城 (2026) S01E01\n"
+            "📥 转存入库: S01E01\n"
+            "🍿 TMDB ID: 295002\n"
+            "⭐️ 评分: 0.0\n"
+            "🎭 题材: 爱情家庭\n"
+            "🔗 链接: https://115.com/s/sws9tvo3h9l?password=ayss\n"
+            "📝 剧情简介:\n"
+            "　　女人都想嫁入豪门，但她们不知道，豪门是炼狱。"
+        )
+        meta = recognizer_module.recognize(text)
+        assert meta is not None
+        assert meta["title"].startswith("璀璨之城")
+        assert meta["year"] == "2026"
+        assert meta["media_type"] == "tv"
+        assert meta["season"] == 1 and meta["episode"] == 1
+
+    def test_recognize_skips_field_label_line(self, fake_metavideo):
+        # 首行识别失败时，"转存入库:"等播报字段行不能被当成片名
+        meta = recognizer_module.recognize("📥 转存入库: S01E01\n测试剧集.S01E02.2160p")
+        assert meta is not None
+        assert meta["title"] == "测试剧集"
+        assert meta["episode"] == 2
+
+    def test_recognize_movie_category_hint(self, fake_metavideo):
+        meta = recognizer_module.recognize("🎬 电影：测试电影 (2023) 1080p")
+        assert meta is not None
+        assert meta["media_type"] == "movie"
+
 
 # ---------------------------------------------------------------------- 缺失判断
 

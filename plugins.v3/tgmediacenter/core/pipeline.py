@@ -262,6 +262,7 @@ class MessagePipeline:
                 media_type=meta.get("media_type") or "",
                 season=meta.get("season"),
                 episode=meta.get("episode"),
+                episode_end=meta.get("episode_end"),
             )
             if verdict.get("missing") is None:
                 self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_UNKNOWN,
@@ -670,6 +671,7 @@ class MessagePipeline:
                         media_type=meta.get("media_type") or "",
                         season=meta.get("season"),
                         episode=meta.get("episode"),
+                        episode_end=meta.get("episode_end"),
                     )
                 except Exception as err:  # pragma: no cover
                     verdict = {"missing": None, "reason": f"缺失判断异常：{err}"}

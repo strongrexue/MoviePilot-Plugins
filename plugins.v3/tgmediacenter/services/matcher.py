@@ -76,6 +76,23 @@ def _years_compatible(left: Any, right: Any) -> bool:
     return a == b
 
 
+def _summarize_episodes(episodes: list) -> str:
+    """把缺失集号列表压缩成区间描述（[1, 4, 5, 6] → "E01, E04-E06"）。"""
+    if not episodes:
+        return ""
+    sorted_eps = sorted(episodes)
+    parts: list = []
+    start = prev = sorted_eps[0]
+    for ep in sorted_eps[1:]:
+        if ep == prev + 1:
+            prev = ep
+            continue
+        parts.append(f"E{start:02d}" if start == prev else f"E{start:02d}-E{prev:02d}")
+        start = prev = ep
+    parts.append(f"E{start:02d}" if start == prev else f"E{start:02d}-E{prev:02d}")
+    return ", ".join(parts)
+
+
 class MediaMatcher:
     """媒体缺失判断（带短 TTL 缓存，线程安全）。"""
 
@@ -144,19 +161,23 @@ class MediaMatcher:
         media_type: str = "",
         season: Optional[int] = None,
         episode: Optional[int] = None,
+        episode_end: Optional[int] = None,
     ) -> dict:
         """判断媒体是否缺失。
 
+        :param episode_end: 集区间结束（如 "S01E01-E09" 的 9）；与 episode 一起
+            表达"这批资源覆盖的集范围"，缺失判断按区间逐一比对。
         :returns: ``{"missing": bool|None, "reason": str, "source": str, "detail": str}``
             ``missing=None`` 表示无法判断（无数据源）。
         """
-        key = self._cache_key(title, year, media_type, season, episode)
+        key = self._cache_key(title, year, media_type, season, episode, episode_end)
         cached = self._cache_get(key)
         if cached is not None:
             return cached
 
         result = self._decide(
-            title=title, year=year, media_type=media_type, season=season, episode=episode
+            title=title, year=year, media_type=media_type, season=season,
+            episode=episode, episode_end=episode_end,
         )
         self._cache_put(key, result)
         return result
@@ -169,6 +190,7 @@ class MediaMatcher:
         media_type: str,
         season: Optional[int],
         episode: Optional[int],
+        episode_end: Optional[int],
     ) -> dict:
         # 1) 订阅快照预筛（不需要媒体服务器）
         subscription = self._match_subscription(title=title, year=year, season=season)
@@ -191,7 +213,8 @@ class MediaMatcher:
 
         # 2) 媒体服务器存在性（主力）
         exists = self._query_media_exists(
-            title=title, year=year, media_type=media_type, season=season, episode=episode
+            title=title, year=year, media_type=media_type, season=season,
+            episode=episode, episode_end=episode_end,
         )
         if exists is not None:
             return exists
@@ -251,6 +274,7 @@ class MediaMatcher:
         media_type: str,
         season: Optional[int],
         episode: Optional[int],
+        episode_end: Optional[int] = None,
     ) -> Optional[dict]:
         """查询媒体服务器；返回判断字典，不可用时返回 None。"""
         if not MEDIASERVER_AVAILABLE:
@@ -295,18 +319,26 @@ class MediaMatcher:
                     "source": "mediaserver",
                     "detail": f"S{season:02d} 已存在 {len(owned)} 集",
                 }
-            if episode in owned:
+            # 集区间（"S01E01-E09"）按范围逐一比对：任一集缺失即视为缺
+            end = episode_end if episode_end is not None and episode_end >= episode else episode
+            wanted = range(episode, end + 1)
+            missing_eps = [ep for ep in wanted if ep not in owned]
+            range_text = f"E{episode:02d}" if end == episode else f"E{episode:02d}-E{end:02d}"
+            if not missing_eps:
                 return {
                     "missing": False,
-                    "reason": f"S{season:02d}E{episode:02d} 已在媒体库",
+                    "reason": f"S{season:02d}{range_text} 已在媒体库",
                     "source": "mediaserver",
                     "detail": f"该季已存在 {len(owned)} 集",
                 }
             return {
                 "missing": True,
-                "reason": f"S{season:02d}E{episode:02d} 媒体库缺失",
+                "reason": f"S{season:02d}{range_text} 缺 {len(missing_eps)} 集",
                 "source": "mediaserver",
-                "detail": f"该季已存在 {len(owned)} 集",
+                "detail": (
+                    f"缺失集：{_summarize_episodes(missing_eps)}"
+                    + (f"；该季已存在 {len(owned)} 集" if owned else "")
+                ),
             }
         # 电影（或未识别出季集的剧集条目）：存在即不缺
         return {
@@ -357,10 +389,12 @@ class MediaMatcher:
     # ------------------------------------------------------------------ 缓存
 
     @staticmethod
-    def _cache_key(title: str, year: str, media_type: str, season: Optional[int], episode: Optional[int]) -> str:
+    def _cache_key(title: str, year: str, media_type: str, season: Optional[int],
+                   episode: Optional[int], episode_end: Optional[int] = None) -> str:
         return "|".join([
             _normalize_title(title), str(year or ""), str(media_type or ""),
             str(season if season is not None else ""), str(episode if episode is not None else ""),
+            str(episode_end if episode_end is not None else ""),
         ])
 
     def _cache_get(self, key: str) -> Optional[dict]:

@@ -260,7 +260,7 @@
               《{{ testResult.recognized.title }}》
               <span v-if="testResult.recognized.year">（{{ testResult.recognized.year }}）</span>
               <span v-if="testResult.recognized.season"> S{{ String(testResult.recognized.season).padStart(2, '0') }}</span>
-              <span v-if="testResult.recognized.episode">E{{ String(testResult.recognized.episode).padStart(2, '0') }}</span>
+              <span v-if="testResult.recognized.episode">E{{ String(testResult.recognized.episode).padStart(2, '0') }}<template v-if="testResult.recognized.episode_end && testResult.recognized.episode_end !== testResult.recognized.episode">-E{{ String(testResult.recognized.episode_end).padStart(2, '0') }}</template></span>
               · {{ testResult.recognized.media_type === 'tv' ? '剧集' : '电影' }}
             </span>
             <span v-else class="mon-test-none">无法识别（标题格式特殊或宿主识别引擎不可用）</span>

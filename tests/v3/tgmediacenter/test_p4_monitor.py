@@ -73,7 +73,8 @@ class FakeMetaVideo:
         self.year = ""
         self.begin_season = None
         self.begin_episode = None
-        match = re.search(r"S(\d+)E(\d+)", title, re.IGNORECASE)
+        self.end_episode = None
+        match = re.search(r"S(\d+)E(\d+)(?:-E?(\d+))?", title, re.IGNORECASE)
         year = re.search(r"(19|20)\d{2}", title)
         if year:
             self.year = year.group(0)
@@ -81,6 +82,8 @@ class FakeMetaVideo:
             self.name = title.split(".")[0]
             self.begin_season = int(match.group(1))
             self.begin_episode = int(match.group(2))
+            if match.group(3):
+                self.end_episode = int(match.group(3))
             self.type = FakeType("电视剧")
         else:
             self.name = title.split(".")[0]
@@ -398,6 +401,15 @@ class TestRecognizer:
         assert meta["title"] == "测试剧集"
         assert meta["episode"] == 2
 
+    def test_recognize_episode_range(self, fake_metavideo):
+        """真机样本："S01E01-E09" 是集区间，起始集之外的缺失也要能判断。"""
+        meta = recognizer_module.recognize("📺 电视剧：美人余 (2026) S01E01-E09")
+        assert meta is not None
+        assert meta["title"].startswith("美人余")
+        assert meta["season"] == 1
+        assert meta["episode"] == 1
+        assert meta["episode_end"] == 9
+
     def test_recognize_movie_category_hint(self, fake_metavideo):
         meta = recognizer_module.recognize("🎬 电影：测试电影 (2023) 1080p")
         assert meta is not None
@@ -487,6 +499,34 @@ class TestMatcher:
         matcher = MediaMatcher()
         result = matcher.is_missing(title="测试剧集", media_type="tv", season=1)
         assert result["missing"] is False  # 该季已有内容
+
+    def test_mediaserver_tv_range_partial_missing(self, monkeypatch):
+        """真机样本：S01E01-E09 而库里只有 E01-E03 → 缺 6 集，不能误判不缺。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+
+        class Exist:
+            seasons = {1: [1, 2, 3]}
+
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(FakeMediaServerModule(Exist())))
+        matcher = MediaMatcher()
+        result = matcher.is_missing(title="美人余", media_type="tv", season=1, episode=1, episode_end=9)
+        assert result["missing"] is True
+        assert "缺 6 集" in result["reason"]
+        assert "E04-E09" in result["detail"]
+
+    def test_mediaserver_tv_range_all_present(self, monkeypatch):
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+
+        class Exist:
+            seasons = {1: list(range(1, 10))}
+
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(FakeMediaServerModule(Exist())))
+        matcher = MediaMatcher()
+        result = matcher.is_missing(title="美人余", media_type="tv", season=1, episode=1, episode_end=9)
+        assert result["missing"] is False
+        assert "E01-E09" in result["reason"]
 
     def test_no_source_returns_unknown(self):
         matcher = MediaMatcher()

@@ -146,6 +146,7 @@ def _recognize_line(line: str, subtitle: Optional[str]) -> Optional[dict]:
         return None
     season = _first_int(getattr(meta, "begin_season", None))
     episode = _first_int(getattr(meta, "begin_episode", None))
+    episode_end = _first_int(getattr(meta, "end_episode", None))
     media_type = _normalize_media_type(getattr(meta, "type", None))
     # 显式类别提示优先（播报格式的"电视剧：/电影："是频道给出的确定分类）
     if type_hint:
@@ -158,6 +159,7 @@ def _recognize_line(line: str, subtitle: Optional[str]) -> Optional[dict]:
         "year": str(getattr(meta, "year", "") or "").strip(),
         "season": season,
         "episode": episode,
+        "episode_end": episode_end if (episode_end is not None and episode_end >= (episode or 0)) else None,
         "media_type": media_type,
         "resource_type": str(getattr(meta, "resource_type", "") or "").strip(),
         "resource_pix": str(getattr(meta, "resource_pix", "") or "").strip(),

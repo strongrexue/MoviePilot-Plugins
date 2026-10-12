@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.3';
+const FRONTEND_VERSION = '1.3.4';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -2780,7 +2780,14 @@ return (_ctx, _cache) => {
                             ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_26, " S" + _toDisplayString$1(String(testResult.value.recognized.season).padStart(2, '0')), 1))
                             : _createCommentVNode$1("", true),
                           (testResult.value.recognized.episode)
-                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_27, "E" + _toDisplayString$1(String(testResult.value.recognized.episode).padStart(2, '0')), 1))
+                            ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_27, [
+                                _createTextVNode$1("E" + _toDisplayString$1(String(testResult.value.recognized.episode).padStart(2, '0')), 1),
+                                (testResult.value.recognized.episode_end && testResult.value.recognized.episode_end !== testResult.value.recognized.episode)
+                                  ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 0 }, [
+                                      _createTextVNode$1("-E" + _toDisplayString$1(String(testResult.value.recognized.episode_end).padStart(2, '0')), 1)
+                                    ], 64))
+                                  : _createCommentVNode$1("", true)
+                              ]))
                             : _createCommentVNode$1("", true),
                           _createTextVNode$1(" · " + _toDisplayString$1(testResult.value.recognized.media_type === 'tv' ? '剧集' : '电影'), 1)
                         ]))
@@ -2978,7 +2985,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-d1dd91d7"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-fdf4892f"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

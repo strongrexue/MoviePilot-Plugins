@@ -83,7 +83,7 @@ class _FakeDialog:
 
 
 def test_normalize_dialog_types():
-    """频道 / 群组 / 用户应被正确归类。"""
+    """频道 / 群组 / 用户 / 机器人应被正确归类。"""
     channel = normalize_dialog(_FakeDialog("某频道", _FakeEntity(id=100, broadcast=True, username="ch")))
     assert channel == {"id": 100, "name": "某频道", "type": "频道", "username": "ch"}
 
@@ -93,6 +93,9 @@ def test_normalize_dialog_types():
     user = normalize_dialog(_FakeDialog("张三", _FakeEntity(id=7, first_name="张", last_name="三")))
     assert user["type"] == "用户"
     assert user["id"] == 7
+
+    bot = normalize_dialog(_FakeDialog("某机器人", _FakeEntity(id=42, first_name="Bot", bot=True, username="somebot")))
+    assert bot["type"] == "机器人"
 
 
 # --------------------------------------------------------------------- 路由合同

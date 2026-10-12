@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from '../api'
+import { FRONTEND_VERSION } from '../version'
+import TgDialogList from './TgDialogList.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -17,6 +19,7 @@ const loginStage = ref('idle') // idle | code_sent | need_password
 const code = ref('')
 const password = ref('')
 const dialogs = ref([])
+const dialogsUpdatedAt = ref('')
 // 当前待验证码的上下文：投递渠道 + 手机号掩码 + 发码时间
 const sent = ref(null)
 // 距离允许重新发送验证码的剩余秒数
@@ -26,6 +29,18 @@ const reveal = ref({ apiHash: false, phone: false })
 let countdownId = null
 
 const form = computed(() => props.config.form)
+
+/**
+ * 前端构建版本与后端插件版本是否一致。
+ *
+ * 联邦组件入口无哈希、宿主加载器也不加缓存参数，因此"插件更新了但浏览器还在用旧
+ * 组件"是常态。版本不一致时直接提示，避免对着旧界面排查新问题。
+ */
+const versionMismatch = computed(() => {
+  const backend = String(status.value?.plugin_version || '')
+  if (!backend) return ''
+  return backend === FRONTEND_VERSION ? '' : `前端组件 v${FRONTEND_VERSION} ≠ 后端 v${backend}`
+})
 
 const sendLabel = computed(() => {
   if (resendIn.value > 0) return `重新发送（${resendIn.value}s）`
@@ -96,8 +111,10 @@ async function loadDialogs() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'telegram/dialogs', { timeoutMs: 15000 }))
     dialogs.value = data?.dialogs || []
+    dialogsUpdatedAt.value = data?.updated_at || ''
   } catch {
     dialogs.value = []
+    dialogsUpdatedAt.value = ''
   }
 }
 
@@ -114,10 +131,18 @@ async function fetchDialogs() {
     props.pluginId,
     'telegram/refresh_dialogs',
     {},
-    { timeoutMs: 130000 },
+    { timeoutMs: 58000 },
   ))
   dialogs.value = data?.dialogs || []
+  dialogsUpdatedAt.value = data?.updated_at || ''
   return dialogs.value.length
+}
+
+/** 网关中断（502 等）时后端可能仍在跑，回头同步一次状态以拿到真实结果。 */
+async function resyncAfterTransportError(err) {
+  if (err?.code !== 'GATEWAY_TIMEOUT' && err?.status !== 502 && err?.status !== 504) return
+  await loadStatus()
+  await loadDialogs()
 }
 
 async function sendCode() {
@@ -138,7 +163,13 @@ async function sendCode() {
     if (status.value && status.value.api_configured === false) {
       throw new Error('凭证尚未保存：请先点击底部「保存配置」，再发送验证码')
     }
-    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/send_code', { phone }))
+    const result = unwrap(await postPluginApi(
+      props.api,
+      props.pluginId,
+      'telegram/send_code',
+      { phone },
+      { timeoutMs: 58000 },
+    ))
     loginStage.value = 'code_sent'
     sent.value = {
       delivery: result?.delivery || 'unknown',
@@ -150,6 +181,7 @@ async function sendCode() {
     setMessage(result?.message || '验证码已发送')
   } catch (err) {
     setMessage(err?.message || '发送验证码失败', false)
+    await resyncAfterTransportError(err)
   } finally {
     busy.value = ''
   }
@@ -164,7 +196,7 @@ async function signIn() {
       phone: String(form.value.tg_phone || '').trim(),
       code: String(code.value || '').trim(),
       password: String(password.value || '').trim(),
-    }, { timeoutMs: 60000 }))
+    }, { timeoutMs: 62000 }))
     if (result?.need_password) {
       loginStage.value = 'need_password'
       setMessage(result?.message || '请输入两步验证密码', false)
@@ -189,6 +221,7 @@ async function signIn() {
     }
   } catch (err) {
     setMessage(err?.message || '登录失败', false)
+    await resyncAfterTransportError(err)
   } finally {
     busy.value = ''
   }
@@ -199,9 +232,10 @@ async function logout() {
   busy.value = 'logout'
   setMessage('')
   try {
-    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/logout', {}))
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/logout', {}, { timeoutMs: 40000 }))
     loginStage.value = 'idle'
     dialogs.value = []
+    dialogsUpdatedAt.value = ''
     sent.value = null
     startCountdown(0)
     setMessage(result?.message || '已退出登录')
@@ -223,6 +257,7 @@ async function refreshDialogs() {
     await loadStatus()
   } catch (err) {
     setMessage(err?.message || '刷新对话列表失败', false)
+    await resyncAfterTransportError(err)
   } finally {
     busy.value = ''
   }
@@ -261,6 +296,10 @@ onUnmounted(() => {
         刷新状态
       </VBtn>
     </div>
+
+    <VAlert v-if="versionMismatch" type="warning" variant="tonal" density="comfortable" class="tg-message">
+      {{ versionMismatch }} —— 浏览器仍在用缓存的旧联邦组件。请按 Ctrl+Shift+R 硬刷新页面（必要时清缓存）后再操作，否则会对着旧界面排查新问题。
+    </VAlert>
 
     <VAlert v-if="status?.me" type="success" variant="tonal" density="comfortable" class="tg-account">
       已登录：{{ status.me.name || status.me.username }}
@@ -447,15 +486,10 @@ onUnmounted(() => {
           凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送；
           刷新页面不会丢失已发出的验证码，直接输入即可。
         </div>
-        <div class="tg-hint">
-          已缓存 {{ dialogs.length }} 个对话。
-          <template v-if="status?.authorized && dialogs.length === 0">
-            尚未拉取成功，点一次「刷新对话列表」（首次可能较慢）。
-          </template>
-          <template v-else>资源监控与转发规则的频道下拉会用到它。</template>
-        </div>
       </VCardText>
     </VCard>
+
+    <TgDialogList :dialogs="dialogs" :updated-at="dialogsUpdatedAt" />
   </div>
 </template>
 

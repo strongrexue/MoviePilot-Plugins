@@ -89,28 +89,42 @@ class CredentialsModule:
 
     # ------------------------------------------------------------------ 运行时
 
-    def ensure_runtime(self) -> Optional[TelegramRuntime]:
-        """按当前配置建立运行时；凭证不全或依赖缺失时返回 None。"""
-        api_id = self._cfg("tg_api_id")
-        api_hash = self._cfg("tg_api_hash")
-        if not api_id or not api_hash:
-            return None
+    def api_configured(self) -> bool:
+        """是否已配置可用的 TG API 凭证。"""
+        return bool(self._cfg("tg_api_id") and self._cfg("tg_api_hash"))
+
+    def ensure_runtime(self, connect_timeout: int = 30) -> TelegramRuntime:
+        """按当前配置建立运行时并连接。
+
+        失败原因分三类抛出可展示的错误（而不是统一返回 None 让人猜）：
+        凭证缺失 / 依赖缺失 / 连接失败。
+
+        :param connect_timeout: 首次连接的时间预算（秒），调用方按自己的接口
+            网关超时上限给值 —— 首次发码要现连 Telegram，经代理可能很慢。
+        """
+        if not self.api_configured():
+            raise tg.TelegramOperationError("请先填写 API ID / API Hash 并保存配置")
+        if not TelegramRuntime.telethon_available():
+            raise tg.TelegramOperationError("telethon 依赖未安装，请重新安装插件以拉取依赖")
 
         runtime = self._runtime
         if runtime is not None and runtime.is_running():
             return runtime
 
         runtime = TelegramRuntime(
-            api_id=api_id,
-            api_hash=api_hash,
+            api_id=self._cfg("tg_api_id"),
+            api_hash=self._cfg("tg_api_hash"),
             session_string=self.session_string(),
             proxy=self._resolve_proxy(),
             keep_alive_seconds=int(self._cfg("tg_keep_alive_seconds", 60) or 60),
             plugin_id=getattr(self._plugin, "__class__").__name__,
         )
-        if not runtime.start():
+        if not runtime.start(connect_timeout=connect_timeout):
             self._runtime = None
-            return None
+            raise tg.TelegramOperationError(
+                f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）："
+                "请检查服务器网络与代理设置（代理继承 MoviePilot 设置）后重试"
+            )
         self._runtime = runtime
         return runtime
 
@@ -175,6 +189,8 @@ class CredentialsModule:
             pending_login = None
 
         return {
+            # 供前端比对自身构建版本：不一致说明浏览器还缓存着旧的联邦组件
+            "plugin_version": str(getattr(self._plugin, "plugin_version", "") or ""),
             "enabled": bool(self._plugin.get_state()),
             "telethon_available": TelegramRuntime.telethon_available(),
             "api_configured": bool(self._cfg("tg_api_id") and self._cfg("tg_api_hash")),
@@ -213,11 +229,16 @@ class CredentialsModule:
                     f"请先使用已收到的验证码；{left} 秒后可重新发送。"
                 )
 
-        runtime = self.ensure_runtime()
-        if runtime is None:
-            raise tg.TelegramOperationError("请先填写 API ID / API Hash 并安装 telethon 依赖")
-
-        result = runtime.call(tg.send_code(runtime.client, normalized), timeout=40)
+        # 首次发码要现连 Telegram（经代理可能十几秒），预算必须压在网关超时之内，
+        # 否则前端收到 502 而后端其实把码发出去了，体验极差。
+        runtime = self.ensure_runtime(connect_timeout=20)
+        try:
+            result = runtime.call(tg.send_code(runtime.client, normalized), timeout=25)
+        except (FutureTimeoutError, TimeoutError) as err:
+            raise tg.TelegramOperationError(
+                "请求验证码超时：Telegram 响应过慢（代理可能不稳定）。"
+                "若 Telegram 里已收到验证码，请直接输入验证码登录；否则请等待约 10 秒后重试"
+            ) from err
         delivery = str(result.get("delivery") or "unknown")
         context = {
             "phone": result.get("phone", ""),
@@ -268,24 +289,27 @@ class CredentialsModule:
 
     def sign_in(self, phone: str, code: str = "", password: str = "") -> dict:
         """完成登录或两步验证，成功时持久化 StringSession。"""
-        runtime = self.ensure_runtime()
-        if runtime is None:
-            raise tg.TelegramOperationError("请先填写 API ID / API Hash 并安装 telethon 依赖")
+        runtime = self.ensure_runtime(connect_timeout=20)
 
         pending = self._pending()
         effective_phone = str(phone or pending.get("phone") or self._cfg("tg_phone", "")).strip()
 
-        result = runtime.call(
-            tg.sign_in(
-                runtime.client,
-                phone=effective_phone,
-                code=str(code or "").strip(),
-                # 留空则交回 Telethon 使用客户端内缓存的 hash
-                phone_code_hash=str(pending.get("phone_code_hash") or "") or None,
-                password=str(password or "").strip() or None,
-            ),
-            timeout=40,
-        )
+        try:
+            result = runtime.call(
+                tg.sign_in(
+                    runtime.client,
+                    phone=effective_phone,
+                    code=str(code or "").strip(),
+                    # 留空则交回 Telethon 使用客户端内缓存的 hash
+                    phone_code_hash=str(pending.get("phone_code_hash") or "") or None,
+                    password=str(password or "").strip() or None,
+                ),
+                timeout=30,
+            )
+        except (FutureTimeoutError, TimeoutError) as err:
+            raise tg.TelegramOperationError(
+                "登录请求超时：Telegram 响应过慢，请稍后重试（验证码有效期约 5 分钟）"
+            ) from err
 
         if result.get("authorized"):
             session_string = runtime.current_session_string()
@@ -336,20 +360,19 @@ class CredentialsModule:
     def refresh_dialogs(self) -> list[dict]:
         """从 Telegram 重新拉取对话列表并缓存。
 
-        拉取要遍历账号全部对话，经代理时可能耗时较久，因此给足超时（120 秒）；
-        但绝不无限等待——超时/运行时被停掉都要给出明确原因，否则界面只会一直转圈。
+        拉取要遍历账号全部对话，经代理时可能耗时较久。但预算必须**小于同步接口的
+        网关超时**（否则前端只会收到 502，而后端仍在继续跑），因此这里给出
+        "连接 10s + 拉取 45s" 的上限，超时则明确告知原因。
         """
-        runtime = self.ensure_runtime()
-        if runtime is None:
-            raise tg.TelegramOperationError("TG 客户端未就绪，无法刷新对话列表")
+        runtime = self.ensure_runtime(connect_timeout=10)
         if not runtime.is_running():
             raise tg.TelegramOperationError("TG 运行时未运行，请先建立连接后重试")
 
         try:
-            dialogs = runtime.call(tg.fetch_dialogs(runtime.client, limit=_DIALOG_LIMIT), timeout=120)
+            dialogs = runtime.call(tg.fetch_dialogs(runtime.client, limit=_DIALOG_LIMIT), timeout=40)
         except (FutureTimeoutError, TimeoutError) as err:
             raise tg.TelegramOperationError(
-                "拉取对话列表超时：Telegram 响应过慢或代理不稳定，请稍后重试"
+                "拉取对话列表超时（40 秒）：账号对话较多或 Telegram/代理响应过慢，请稍后重试"
             ) from err
         except RuntimeError as err:
             # 运行中被停止（例如插件被重新加载）

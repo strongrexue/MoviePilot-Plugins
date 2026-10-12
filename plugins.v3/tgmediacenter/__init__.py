@@ -27,7 +27,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.1.3"
+    plugin_version = "1.1.4"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -92,7 +92,9 @@ class TgMediaCenter(_PluginBase):
         self._credentials.migrate_session_from_config()
 
         # 建立连接是网络操作，交给一次性任务执行，不阻塞插件加载。
-        if self._enabled() and self._credentials.session_string():
+        # 只要有 API 凭证就提前连接（**不要求已登录**）：首次发码若现连 Telegram，
+        # 经代理很容易超过同步接口的网关超时（表现为 502，而码其实已经发出）。
+        if self._enabled() and self._credentials.api_configured():
             self._schedule_connect()
 
     def _schedule_connect(self) -> None:
@@ -113,14 +115,17 @@ class TgMediaCenter(_PluginBase):
             logger.warning(f"[TgMediaCenter] 安排 TG 连接任务失败：{err}")
 
     def _ensure_telegram_runtime(self) -> None:
-        """一次性任务入口：建立运行时并连接。"""
+        """一次性任务入口：建立运行时并连接。
+
+        后台执行没有网关超时限制，可以给更宽松的预算。
+        """
         credentials = self._credentials
         if credentials is None:
             return
         try:
-            credentials.ensure_runtime()
-        except Exception as err:  # pragma: no cover
-            logger.warning(f"[TgMediaCenter] TG 客户端连接失败：{err}")
+            credentials.ensure_runtime(connect_timeout=45)
+        except Exception as err:
+            logger.info(f"[TgMediaCenter] TG 客户端预连接失败（后续调用会按需重试）：{err}")
 
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""

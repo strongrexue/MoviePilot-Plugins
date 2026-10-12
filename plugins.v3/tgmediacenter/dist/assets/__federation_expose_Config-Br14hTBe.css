@@ -1,0 +1,112 @@
+
+.tg-card[data-v-72a76285] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px;
+}
+.tg-list-title[data-v-72a76285] { display: flex; align-items: center; gap: 8px; padding-bottom: 0;
+}
+.tg-filters[data-v-72a76285] { display: flex; gap: 8px; flex-wrap: wrap;
+}
+.tg-filter-key[data-v-72a76285] { flex: 1 1 240px; min-width: 180px;
+}
+.tg-filter-type[data-v-72a76285] { flex: 0 0 140px; max-width: 160px;
+}
+.tg-type-summary[data-v-72a76285] { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px;
+}
+.tg-updated[data-v-72a76285] { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); margin-left: auto;
+}
+.tg-dialog-list[data-v-72a76285] {
+  margin-top: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 10px;
+}
+.tg-dialog-item[data-v-72a76285] { cursor: pointer;
+}
+.tg-type-chip[data-v-72a76285] { min-width: 44px; justify-content: center;
+}
+.tg-dialog-name[data-v-72a76285] { font-size: 14px;
+}
+.tg-dialog-sub[data-v-72a76285] { font-size: 12px; opacity: 0.7;
+}
+.tg-copy[data-v-72a76285] { opacity: 0.4;
+}
+.tg-dialog-item:hover .tg-copy[data-v-72a76285] { opacity: 1;
+}
+.tg-empty[data-v-72a76285] {
+  margin-top: 10px;
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 10px;
+}
+.tg-more[data-v-72a76285] { margin-top: 6px; text-align: center;
+}
+.tg-hint[data-v-72a76285] { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6;
+}
+
+.tg-pane[data-v-7e6b2d63] { display: flex; flex-direction: column; gap: 12px;
+}
+.tg-status-head[data-v-7e6b2d63] { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+}
+.tg-status-chips[data-v-7e6b2d63] { display: flex; gap: 6px; flex-wrap: wrap;
+}
+.tg-account[data-v-7e6b2d63],
+.tg-message[data-v-7e6b2d63] { font-size: 13px;
+}
+.tg-card[data-v-7e6b2d63] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px;
+}
+.tg-wizard[data-v-7e6b2d63] { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px;
+}
+.tg-wizard-password[data-v-7e6b2d63] { margin-top: 8px;
+}
+.tg-wizard-input[data-v-7e6b2d63] { flex: 1 1 200px; min-width: 160px;
+}
+.tg-wizard-actions[data-v-7e6b2d63] { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;
+}
+.tg-hint[data-v-7e6b2d63] { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6;
+}
+.tg-secret[data-v-7e6b2d63] { cursor: pointer; user-select: none;
+}
+.tg-reveal[data-v-7e6b2d63] { cursor: pointer; opacity: 0.7;
+}
+.tg-reveal[data-v-7e6b2d63]:hover { opacity: 1;
+}
+
+.tg-config[data-v-cf3bb0bd] { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px;
+}
+.tg-card[data-v-cf3bb0bd] {
+  width: 100%;
+  height: min(860px, calc(100dvh - 48px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.tg-header[data-v-cf3bb0bd] { flex: 0 0 auto; padding: 14px 18px;
+}
+.tg-body[data-v-cf3bb0bd] { flex: 1 1 auto; min-height: 0; display: flex;
+}
+.tg-nav[data-v-cf3bb0bd] {
+  width: 160px;
+  flex: 0 0 160px;
+  border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgba(var(--v-theme-on-surface), 0.02);
+}
+.tg-content[data-v-cf3bb0bd] { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto; padding: 16px;
+}
+@media (max-width: 760px) {
+.tg-config[data-v-cf3bb0bd] { width: min(100%, calc(100vw - 16px)); padding: 4px;
+}
+.tg-body[data-v-cf3bb0bd] { flex-direction: column;
+}
+.tg-nav[data-v-cf3bb0bd] {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    overflow-x: auto;
+}
+}

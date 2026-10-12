@@ -116,8 +116,12 @@ class TelegramRuntime:
 
     # ------------------------------------------------------------------ 生命周期
 
-    def start(self) -> bool:
-        """启动运行时并连接客户端；已启动时直接返回 True。"""
+    def start(self, connect_timeout: int = 30) -> bool:
+        """启动运行时并连接客户端；已启动时直接返回 True。
+
+        :param connect_timeout: 首次连接的时间预算（秒）。同步接口有网关超时上限
+            （本插件遇到的 502 即为此），因此调用方应给出比"用户能等"更保守的值。
+        """
         with self._lock:
             if self.is_running():
                 return True
@@ -134,7 +138,7 @@ class TelegramRuntime:
             self._thread.start()
 
         try:
-            client = self.call(self._connect_client(), timeout=30)
+            client = self.call(self._connect_client(), timeout=max(5, int(connect_timeout)))
         except Exception as err:
             logger.warning(f"[{self._plugin_id}] TG 客户端连接失败：{err}")
             self.stop()
@@ -212,16 +216,20 @@ class TelegramRuntime:
                 logger.debug(f"[{self._plugin_id}] 事件循环收尾异常：{err}")
 
     async def _connect_client(self) -> Any:
-        """在 loop 内创建并连接客户端。"""
+        """在 loop 内创建并连接客户端。
+
+        重试与超时都压得比较紧：经代理连接 Telegram 时单次握手可能就要十几秒，
+        而同步接口有网关超时上限（过长会直接 502，后端却仍在继续执行）。
+        """
         session = StringSession(self._session_string) if self._session_string else StringSession()
         client = TelegramClient(
             session,
             self._api_id,
             self._api_hash,
             proxy=self._proxy,
-            connection_retries=3,
-            retry_delay=2,
-            timeout=15,
+            connection_retries=2,
+            retry_delay=1,
+            timeout=10,
             device_model="TGMediaCenter",
             system_version="1.0",
             app_version="1.0",

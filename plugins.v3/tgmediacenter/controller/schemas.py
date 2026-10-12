@@ -33,6 +33,7 @@ class TgPendingLogin(BaseModel):
 class TgStatusData(BaseModel):
     """插件与 TG 凭证运行状态。"""
 
+    plugin_version: str = ""
     enabled: bool = False
     telethon_available: bool = False
     api_configured: bool = False

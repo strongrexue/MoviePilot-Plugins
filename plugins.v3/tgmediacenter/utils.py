@@ -130,10 +130,13 @@ def normalize_dialog(dialog: Any) -> dict:
 
     is_channel = bool(getattr(entity, "broadcast", False))
     is_group = bool(getattr(entity, "megagroup", False)) or bool(getattr(entity, "chat_id", None))
-    is_user = bool(getattr(entity, "first_name", None) is not None and not is_group)
+    is_bot = bool(getattr(entity, "bot", False))
+    is_user = bool(getattr(entity, "first_name", None) is not None and not is_group and not is_bot)
 
     if is_channel:
         chat_type = "频道"
+    elif is_bot:
+        chat_type = "机器人"
     elif is_group:
         chat_type = "群组"
     elif is_user:

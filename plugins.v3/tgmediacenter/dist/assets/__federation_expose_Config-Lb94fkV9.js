@@ -1,5 +1,386 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a as getPluginConfig } from './_plugin-vue_export-helper-BVlEkct7.js';
+import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a as getPluginConfig } from './_plugin-vue_export-helper-CF63hxE1.js';
+
+/**
+ * 前端构建版本。
+ *
+ * 用途：与后端 `/status` 返回的 `plugin_version` 比对。
+ * 联邦组件的入口文件名固定（`remoteEntry.js`，无哈希）、加载器也不加缓存参数，
+ * 因此「插件已更新但浏览器仍用旧组件」是常态。界面上一旦发现两边版本不一致，
+ * 就直接提示用户硬刷新，避免对着旧界面排查新问题。
+ *
+ * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
+ */
+const FRONTEND_VERSION = '1.1.4';
+
+/** 复制文本到剪贴板：优先 Clipboard API，失败回退到临时 textarea。 */
+async function copyText(text) {
+  const value = String(text ?? '');
+  if (!value) return false
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true
+    }
+  } catch {
+    // 非安全上下文（http）下 Clipboard API 不可用，走回退
+  }
+
+  try {
+    const area = document.createElement('textarea');
+    area.value = value;
+    area.setAttribute('readonly', 'readonly');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(area);
+    return ok
+  } catch {
+    return false
+  }
+}
+
+const {createElementVNode:_createElementVNode$2,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,createVNode:_createVNode$2,renderList:_renderList$2,Fragment:_Fragment$2,createElementBlock:_createElementBlock$2} = await importShared('vue');
+
+
+const _hoisted_1$2 = { class: "tg-filters" };
+const _hoisted_2$2 = {
+  key: 0,
+  class: "tg-type-summary"
+};
+const _hoisted_3$2 = {
+  key: 0,
+  class: "tg-updated"
+};
+const _hoisted_4$2 = {
+  key: 2,
+  class: "tg-empty"
+};
+const _hoisted_5$1 = {
+  key: 3,
+  class: "tg-empty"
+};
+const _hoisted_6$1 = { key: 0 };
+const _hoisted_7$1 = {
+  key: 5,
+  class: "tg-more"
+};
+const _hoisted_8$1 = {
+  key: 6,
+  class: "tg-more"
+};
+
+const {computed: computed$2,ref: ref$3} = await importShared('vue');
+
+/**
+ * 对话（群组 / 频道 / 机器人 / 用户）列表。
+ *
+ * 参照 MA 的「群组/联系人列表」：可搜索、按类型筛选、显示 ID 并可一键复制，
+ * 便于配置资源监控与转发规则时挑选频道。
+ */
+
+const _sfc_main$2 = {
+  __name: 'TgDialogList',
+  props: {
+  dialogs: { type: Array, default: () => [] },
+  updatedAt: { type: String, default: '' },
+  // 每屏最多渲染条数，避免上千条一次全渲染
+  pageSize: { type: Number, default: 60 },
+},
+  setup(__props) {
+
+const props = __props;
+
+const keyword = ref$3('');
+const typeFilter = ref$3('全部');
+const limit = ref$3(props.pageSize);
+const toast = ref$3('');
+
+const TYPE_ORDER = ['频道', '群组', '机器人', '用户', '其他'];
+
+const TYPE_COLOR = {
+  频道: 'primary',
+  群组: 'success',
+  机器人: 'info',
+  用户: 'warning',
+  其他: 'default',
+};
+
+const typeOptions = computed$2(() => {
+  const present = new Set((props.dialogs || []).map(item => item?.type).filter(Boolean));
+  const ordered = TYPE_ORDER.filter(type => present.has(type));
+  // 出现未知类型时也列出来，避免"看不见就是没有"
+  for (const type of present) {
+    if (!ordered.includes(type)) ordered.push(type);
+  }
+  return ['全部', ...ordered]
+});
+
+const counts = computed$2(() => {
+  const result = {};
+  for (const item of props.dialogs || []) {
+    const type = item?.type || '其他';
+    result[type] = (result[type] || 0) + 1;
+  }
+  return result
+});
+
+const filtered = computed$2(() => {
+  const key = keyword.value.trim().toLowerCase();
+  return (props.dialogs || []).filter(item => {
+    if (typeFilter.value !== '全部' && (item?.type || '') !== typeFilter.value) return false
+    if (!key) return true
+    return (
+      String(item?.name || '').toLowerCase().includes(key)
+      || String(item?.username || '').toLowerCase().includes(key)
+      || String(item?.id ?? '').includes(key)
+    )
+  })
+});
+
+const visible = computed$2(() => filtered.value.slice(0, limit.value));
+const hasMore = computed$2(() => filtered.value.length > visible.value.length);
+
+function typeColor(type) {
+  return TYPE_COLOR[type] || 'default'
+}
+
+async function revealId(item) {
+  const text = String(item?.id ?? '');
+  const ok = await copyText(text);
+  toast.value = ok ? `已复制 ID：${text}` : `复制失败，请手动选择：${text}`;
+  window.setTimeout(() => {
+    if (toast.value.startsWith('已复制')) toast.value = '';
+  }, 2000);
+}
+
+function resetLimit() {
+  limit.value = props.pageSize;
+}
+
+function more() {
+  limit.value += props.pageSize;
+}
+
+function onFilterChange() {
+  resetLimit();
+}
+
+function clearFilters() {
+  keyword.value = '';
+  typeFilter.value = '全部';
+  resetLimit();
+}
+
+return (_ctx, _cache) => {
+  const _component_VChip = _resolveComponent$2("VChip");
+  const _component_VCardTitle = _resolveComponent$2("VCardTitle");
+  const _component_VTextField = _resolveComponent$2("VTextField");
+  const _component_VSelect = _resolveComponent$2("VSelect");
+  const _component_VAlert = _resolveComponent$2("VAlert");
+  const _component_VListItemTitle = _resolveComponent$2("VListItemTitle");
+  const _component_VListItemSubtitle = _resolveComponent$2("VListItemSubtitle");
+  const _component_VIcon = _resolveComponent$2("VIcon");
+  const _component_VListItem = _resolveComponent$2("VListItem");
+  const _component_VList = _resolveComponent$2("VList");
+  const _component_VBtn = _resolveComponent$2("VBtn");
+  const _component_VCardText = _resolveComponent$2("VCardText");
+  const _component_VCard = _resolveComponent$2("VCard");
+
+  return (_openBlock$2(), _createBlock$2(_component_VCard, {
+    flat: "",
+    class: "tg-card"
+  }, {
+    default: _withCtx$2(() => [
+      _createVNode$2(_component_VCardTitle, { class: "tg-list-title" }, {
+        default: _withCtx$2(() => [
+          _cache[2] || (_cache[2] = _createElementVNode$2("span", { class: "text-subtitle-2" }, "群组 / 联系人列表", -1)),
+          (__props.dialogs.length)
+            ? (_openBlock$2(), _createBlock$2(_component_VChip, {
+                key: 0,
+                size: "x-small",
+                variant: "tonal",
+                color: "primary",
+                label: ""
+              }, {
+                default: _withCtx$2(() => [
+                  _createTextVNode$2(" 共 " + _toDisplayString$2(__props.dialogs.length) + " 个 ", 1)
+                ]),
+                _: 1
+              }))
+            : _createCommentVNode$2("", true)
+        ]),
+        _: 1
+      }),
+      _createVNode$2(_component_VCardText, null, {
+        default: _withCtx$2(() => [
+          _createElementVNode$2("div", _hoisted_1$2, [
+            _createVNode$2(_component_VTextField, {
+              modelValue: keyword.value,
+              "onUpdate:modelValue": [
+                _cache[0] || (_cache[0] = $event => ((keyword).value = $event)),
+                onFilterChange
+              ],
+              density: "compact",
+              variant: "outlined",
+              "hide-details": "",
+              clearable: "",
+              "prepend-inner-icon": "mdi-magnify",
+              placeholder: "按名称 / 用户名 / ID 搜索",
+              class: "tg-filter-key"
+            }, null, 8, ["modelValue"]),
+            _createVNode$2(_component_VSelect, {
+              modelValue: typeFilter.value,
+              "onUpdate:modelValue": [
+                _cache[1] || (_cache[1] = $event => ((typeFilter).value = $event)),
+                onFilterChange
+              ],
+              items: typeOptions.value,
+              density: "compact",
+              variant: "outlined",
+              "hide-details": "",
+              class: "tg-filter-type"
+            }, null, 8, ["modelValue", "items"])
+          ]),
+          (__props.dialogs.length)
+            ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_2$2, [
+                (_openBlock$2(true), _createElementBlock$2(_Fragment$2, null, _renderList$2(counts.value, (count, type) => {
+                  return (_openBlock$2(), _createBlock$2(_component_VChip, {
+                    key: type,
+                    size: "x-small",
+                    variant: "tonal",
+                    color: typeColor(type),
+                    label: ""
+                  }, {
+                    default: _withCtx$2(() => [
+                      _createTextVNode$2(_toDisplayString$2(type) + " " + _toDisplayString$2(count), 1)
+                    ]),
+                    _: 2
+                  }, 1032, ["color"]))
+                }), 128)),
+                (__props.updatedAt)
+                  ? (_openBlock$2(), _createElementBlock$2("span", _hoisted_3$2, "更新于 " + _toDisplayString$2(__props.updatedAt), 1))
+                  : _createCommentVNode$2("", true)
+              ]))
+            : _createCommentVNode$2("", true),
+          (toast.value)
+            ? (_openBlock$2(), _createBlock$2(_component_VAlert, {
+                key: 1,
+                type: toast.value.startsWith('已复制') ? 'success' : 'warning',
+                variant: "tonal",
+                density: "compact",
+                class: "mt-3"
+              }, {
+                default: _withCtx$2(() => [
+                  _createTextVNode$2(_toDisplayString$2(toast.value), 1)
+                ]),
+                _: 1
+              }, 8, ["type"]))
+            : _createCommentVNode$2("", true),
+          (!__props.dialogs.length)
+            ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_4$2, " 暂无缓存。登录成功后点「刷新对话列表」拉取（首次可能较慢）。 "))
+            : (!filtered.value.length)
+              ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_5$1, " 没有匹配的对话，试试其它关键词。 "))
+              : (_openBlock$2(), _createBlock$2(_component_VList, {
+                  key: 4,
+                  density: "compact",
+                  class: "tg-dialog-list"
+                }, {
+                  default: _withCtx$2(() => [
+                    (_openBlock$2(true), _createElementBlock$2(_Fragment$2, null, _renderList$2(visible.value, (item) => {
+                      return (_openBlock$2(), _createBlock$2(_component_VListItem, {
+                        key: `${item.type}-${item.id}`,
+                        class: "tg-dialog-item",
+                        onClick: $event => (revealId(item))
+                      }, {
+                        prepend: _withCtx$2(() => [
+                          _createVNode$2(_component_VChip, {
+                            size: "x-small",
+                            variant: "tonal",
+                            color: typeColor(item.type),
+                            label: "",
+                            class: "tg-type-chip"
+                          }, {
+                            default: _withCtx$2(() => [
+                              _createTextVNode$2(_toDisplayString$2(item.type), 1)
+                            ]),
+                            _: 2
+                          }, 1032, ["color"])
+                        ]),
+                        append: _withCtx$2(() => [
+                          _createVNode$2(_component_VIcon, {
+                            icon: "mdi-content-copy",
+                            size: "16",
+                            class: "tg-copy",
+                            title: "复制 ID"
+                          })
+                        ]),
+                        default: _withCtx$2(() => [
+                          _createVNode$2(_component_VListItemTitle, { class: "tg-dialog-name" }, {
+                            default: _withCtx$2(() => [
+                              _createTextVNode$2(_toDisplayString$2(item.name), 1)
+                            ]),
+                            _: 2
+                          }, 1024),
+                          _createVNode$2(_component_VListItemSubtitle, { class: "tg-dialog-sub" }, {
+                            default: _withCtx$2(() => [
+                              (item.username)
+                                ? (_openBlock$2(), _createElementBlock$2("span", _hoisted_6$1, "@" + _toDisplayString$2(item.username) + " · ", 1))
+                                : _createCommentVNode$2("", true),
+                              _createTextVNode$2(_toDisplayString$2(item.id), 1)
+                            ]),
+                            _: 2
+                          }, 1024)
+                        ]),
+                        _: 2
+                      }, 1032, ["onClick"]))
+                    }), 128))
+                  ]),
+                  _: 1
+                })),
+          (hasMore.value)
+            ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_7$1, [
+                _createVNode$2(_component_VBtn, {
+                  size: "small",
+                  variant: "text",
+                  onClick: more
+                }, {
+                  default: _withCtx$2(() => [
+                    _createTextVNode$2(" 显示更多（还有 " + _toDisplayString$2(filtered.value.length - visible.value.length) + " 个） ", 1)
+                  ]),
+                  _: 1
+                })
+              ]))
+            : (filtered.value.length > __props.pageSize)
+              ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_8$1, [
+                  _createVNode$2(_component_VBtn, {
+                    size: "small",
+                    variant: "text",
+                    onClick: clearFilters
+                  }, {
+                    default: _withCtx$2(() => [...(_cache[3] || (_cache[3] = [
+                      _createTextVNode$2("重置筛选", -1)
+                    ]))]),
+                    _: 1
+                  })
+                ]))
+              : _createCommentVNode$2("", true),
+          _cache[4] || (_cache[4] = _createElementVNode$2("div", { class: "tg-hint" }, "点击任意条目可复制其 ID（配置监控/转发规则时会用到）。", -1))
+        ]),
+        _: 1
+      })
+    ]),
+    _: 1
+  }))
+}
+}
+
+};
+const TgDialogList = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-72a76285"]]);
 
 const {renderList:_renderList$1,Fragment:_Fragment$1,openBlock:_openBlock$1,createElementBlock:_createElementBlock$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createBlock:_createBlock$1,createElementVNode:_createElementVNode$1,createVNode:_createVNode$1,createCommentVNode:_createCommentVNode$1} = await importShared('vue');
 
@@ -18,7 +399,6 @@ const _hoisted_10 = {
   class: "tg-wizard tg-wizard-password"
 };
 const _hoisted_11 = { class: "tg-wizard-actions" };
-const _hoisted_12 = { class: "tg-hint" };
 
 const {computed: computed$1,onMounted: onMounted$1,onUnmounted,ref: ref$2} = await importShared('vue');
 
@@ -43,6 +423,7 @@ const loginStage = ref$2('idle'); // idle | code_sent | need_password
 const code = ref$2('');
 const password = ref$2('');
 const dialogs = ref$2([]);
+const dialogsUpdatedAt = ref$2('');
 // 当前待验证码的上下文：投递渠道 + 手机号掩码 + 发码时间
 const sent = ref$2(null);
 // 距离允许重新发送验证码的剩余秒数
@@ -52,6 +433,18 @@ const reveal = ref$2({ apiHash: false, phone: false });
 let countdownId = null;
 
 const form = computed$1(() => props.config.form);
+
+/**
+ * 前端构建版本与后端插件版本是否一致。
+ *
+ * 联邦组件入口无哈希、宿主加载器也不加缓存参数，因此"插件更新了但浏览器还在用旧
+ * 组件"是常态。版本不一致时直接提示，避免对着旧界面排查新问题。
+ */
+const versionMismatch = computed$1(() => {
+  const backend = String(status.value?.plugin_version || '');
+  if (!backend) return ''
+  return backend === FRONTEND_VERSION ? '' : `前端组件 v${FRONTEND_VERSION} ≠ 后端 v${backend}`
+});
 
 const sendLabel = computed$1(() => {
   if (resendIn.value > 0) return `重新发送（${resendIn.value}s）`
@@ -122,8 +515,10 @@ async function loadDialogs() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'telegram/dialogs', { timeoutMs: 15000 }));
     dialogs.value = data?.dialogs || [];
+    dialogsUpdatedAt.value = data?.updated_at || '';
   } catch {
     dialogs.value = [];
+    dialogsUpdatedAt.value = '';
   }
 }
 
@@ -140,10 +535,18 @@ async function fetchDialogs() {
     props.pluginId,
     'telegram/refresh_dialogs',
     {},
-    { timeoutMs: 130000 },
+    { timeoutMs: 58000 },
   ));
   dialogs.value = data?.dialogs || [];
+  dialogsUpdatedAt.value = data?.updated_at || '';
   return dialogs.value.length
+}
+
+/** 网关中断（502 等）时后端可能仍在跑，回头同步一次状态以拿到真实结果。 */
+async function resyncAfterTransportError(err) {
+  if (err?.code !== 'GATEWAY_TIMEOUT' && err?.status !== 502 && err?.status !== 504) return
+  await loadStatus();
+  await loadDialogs();
 }
 
 async function sendCode() {
@@ -164,7 +567,13 @@ async function sendCode() {
     if (status.value && status.value.api_configured === false) {
       throw new Error('凭证尚未保存：请先点击底部「保存配置」，再发送验证码')
     }
-    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/send_code', { phone }));
+    const result = unwrap(await postPluginApi(
+      props.api,
+      props.pluginId,
+      'telegram/send_code',
+      { phone },
+      { timeoutMs: 58000 },
+    ));
     loginStage.value = 'code_sent';
     sent.value = {
       delivery: result?.delivery || 'unknown',
@@ -176,6 +585,7 @@ async function sendCode() {
     setMessage(result?.message || '验证码已发送');
   } catch (err) {
     setMessage(err?.message || '发送验证码失败', false);
+    await resyncAfterTransportError(err);
   } finally {
     busy.value = '';
   }
@@ -190,7 +600,7 @@ async function signIn() {
       phone: String(form.value.tg_phone || '').trim(),
       code: String(code.value || '').trim(),
       password: String(password.value || '').trim(),
-    }, { timeoutMs: 60000 }));
+    }, { timeoutMs: 62000 }));
     if (result?.need_password) {
       loginStage.value = 'need_password';
       setMessage(result?.message || '请输入两步验证密码', false);
@@ -215,6 +625,7 @@ async function signIn() {
     }
   } catch (err) {
     setMessage(err?.message || '登录失败', false);
+    await resyncAfterTransportError(err);
   } finally {
     busy.value = '';
   }
@@ -225,9 +636,10 @@ async function logout() {
   busy.value = 'logout';
   setMessage('');
   try {
-    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/logout', {}));
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/logout', {}, { timeoutMs: 40000 }));
     loginStage.value = 'idle';
     dialogs.value = [];
+    dialogsUpdatedAt.value = '';
     sent.value = null;
     startCountdown(0);
     setMessage(result?.message || '已退出登录');
@@ -249,6 +661,7 @@ async function refreshDialogs() {
     await loadStatus();
   } catch (err) {
     setMessage(err?.message || '刷新对话列表失败', false);
+    await resyncAfterTransportError(err);
   } finally {
     busy.value = '';
   }
@@ -277,8 +690,8 @@ onUnmounted(() => {
 return (_ctx, _cache) => {
   const _component_VChip = _resolveComponent$1("VChip");
   const _component_VBtn = _resolveComponent$1("VBtn");
-  const _component_VIcon = _resolveComponent$1("VIcon");
   const _component_VAlert = _resolveComponent$1("VAlert");
+  const _component_VIcon = _resolveComponent$1("VIcon");
   const _component_VCardTitle = _resolveComponent$1("VCardTitle");
   const _component_VTextField = _resolveComponent$1("VTextField");
   const _component_VCol = _resolveComponent$1("VCol");
@@ -317,9 +730,23 @@ return (_ctx, _cache) => {
         _: 1
       }, 8, ["loading"])
     ]),
-    (status.value?.me)
+    (versionMismatch.value)
       ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
           key: 0,
+          type: "warning",
+          variant: "tonal",
+          density: "comfortable",
+          class: "tg-message"
+        }, {
+          default: _withCtx$1(() => [
+            _createTextVNode$1(_toDisplayString$1(versionMismatch.value) + " —— 浏览器仍在用缓存的旧联邦组件。请按 Ctrl+Shift+R 硬刷新页面（必要时清缓存）后再操作，否则会对着旧界面排查新问题。 ", 1)
+          ]),
+          _: 1
+        }))
+      : _createCommentVNode$1("", true),
+    (status.value?.me)
+      ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+          key: 1,
           type: "success",
           variant: "tonal",
           density: "comfortable",
@@ -354,7 +781,7 @@ return (_ctx, _cache) => {
       : _createCommentVNode$1("", true),
     (message.value)
       ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
-          key: 1,
+          key: 2,
           type: messageOk.value ? 'info' : 'warning',
           variant: "tonal",
           density: "comfortable",
@@ -630,29 +1057,23 @@ return (_ctx, _cache) => {
                 _: 1
               }, 8, ["loading"])
             ]),
-            _cache[18] || (_cache[18] = _createElementVNode$1("div", { class: "tg-hint" }, " 凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送； 刷新页面不会丢失已发出的验证码，直接输入即可。 ", -1)),
-            _createElementVNode$1("div", _hoisted_12, [
-              _createTextVNode$1(" 已缓存 " + _toDisplayString$1(dialogs.value.length) + " 个对话。 ", 1),
-              (status.value?.authorized && dialogs.value.length === 0)
-                ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 0 }, [
-                    _createTextVNode$1(" 尚未拉取成功，点一次「刷新对话列表」（首次可能较慢）。 ")
-                  ], 64))
-                : (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 1 }, [
-                    _createTextVNode$1("资源监控与转发规则的频道下拉会用到它。")
-                  ], 64))
-            ])
+            _cache[18] || (_cache[18] = _createElementVNode$1("div", { class: "tg-hint" }, " 凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送； 刷新页面不会丢失已发出的验证码，直接输入即可。 ", -1))
           ]),
           _: 1
         })
       ]),
       _: 1
-    })
+    }),
+    _createVNode$1(TgDialogList, {
+      dialogs: dialogs.value,
+      "updated-at": dialogsUpdatedAt.value
+    }, null, 8, ["dialogs", "updated-at"])
   ]))
 }
 }
 
 };
-const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-30629e27"]]);
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-7e6b2d63"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

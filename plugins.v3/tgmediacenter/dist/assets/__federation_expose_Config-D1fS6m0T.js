@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.1';
+const FRONTEND_VERSION = '1.3.2';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -1930,6 +1930,14 @@ const allSources = ref$2([]);
 const mpSources = computed$1(() => allSources.value.filter((s) => s.channel === 'mp'));
 const doubanSources = computed$1(() => allSources.value.filter((s) => s.channel === 'douban'));
 
+// 总览计数：显示表单实时勾选数（勾选立即反映，无需先保存）
+const mpCount = computed$1(() => countEnabled('mp'));
+const doubanCount = computed$1(() => countEnabled('douban'));
+
+function countEnabled(channel) {
+  return (form.value.subscribe_sources || []).filter((s) => s.enabled && s.channel === channel).length
+}
+
 // 用户勾选的订阅源（config.subscribe_sources），key → 配置项
 const selectedMap = computed$1(() => {
   const map = {};
@@ -2002,7 +2010,8 @@ async function sync(channel, dryRun) {
       channel,
       dry_run: Boolean(dryRun),
     }, { timeoutMs: 58000 }));
-    status.value = data;
+    // sync 接口返回的就是本次结果（含 results），实时写进 last_result 供下方列表展示
+    status.value = { ...(status.value || {}), last_result: data };
     setMessage(data?.message || '同步完成', !(data?.failed > 0));
   } catch (err) {
     setMessage(err?.message || '同步失败', false);
@@ -2063,7 +2072,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
               default: _withCtx$1(() => [
-                _createTextVNode$1(" MP 榜单 " + _toDisplayString$1(status.value?.mp_count ?? 0) + " 个 · 豆瓣榜单 " + _toDisplayString$1(status.value?.douban_count ?? 0) + " 个 ", 1)
+                _createTextVNode$1(" MP 榜单 " + _toDisplayString$1(mpCount.value) + " 个 · 豆瓣榜单 " + _toDisplayString$1(doubanCount.value) + " 个（勾选后请点右下「保存配置」生效） ", 1)
               ]),
               _: 1
             })
@@ -2420,7 +2429,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigSubscribePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-1962a17b"]]);
+const ConfigSubscribePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-0c7f4c99"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

@@ -55,6 +55,11 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.3.2（P3 修复：抓取结果实时刷新）
+
+- 解析/抓取后「最近抓取结果」不更新：sync 接口返回的结果实时写入 last_result，列表立即显示每条命中/跳过原因。
+- 总览卡片改为显示表单实时勾选数，并提示「勾选后需保存配置」。
+
 ## v1.3.1（P3 修复：同步/异步误用）
 
 - **豆瓣 RSS 拉取失败**（An asyncio.Future... required）：`RssHelper.parse` 是同步方法，误包进 run_sync。

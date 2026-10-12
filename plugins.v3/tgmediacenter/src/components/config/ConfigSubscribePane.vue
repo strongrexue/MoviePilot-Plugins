@@ -29,6 +29,14 @@ const allSources = ref([])
 const mpSources = computed(() => allSources.value.filter((s) => s.channel === 'mp'))
 const doubanSources = computed(() => allSources.value.filter((s) => s.channel === 'douban'))
 
+// 总览计数：显示表单实时勾选数（勾选立即反映，无需先保存）
+const mpCount = computed(() => countEnabled('mp'))
+const doubanCount = computed(() => countEnabled('douban'))
+
+function countEnabled(channel) {
+  return (form.value.subscribe_sources || []).filter((s) => s.enabled && s.channel === channel).length
+}
+
 // 用户勾选的订阅源（config.subscribe_sources），key → 配置项
 const selectedMap = computed(() => {
   const map = {}
@@ -101,7 +109,8 @@ async function sync(channel, dryRun) {
       channel,
       dry_run: Boolean(dryRun),
     }, { timeoutMs: 58000 }))
-    status.value = data
+    // sync 接口返回的就是本次结果（含 results），实时写进 last_result 供下方列表展示
+    status.value = { ...(status.value || {}), last_result: data }
     setMessage(data?.message || '同步完成', !(data?.failed > 0))
   } catch (err) {
     setMessage(err?.message || '同步失败', false)
@@ -126,7 +135,7 @@ onMounted(async () => {
         </template>
         <VCardTitle class="text-subtitle-2">启用订阅服务</VCardTitle>
         <VCardSubtitle class="text-caption">
-          MP 榜单 {{ status?.mp_count ?? 0 }} 个 · 豆瓣榜单 {{ status?.douban_count ?? 0 }} 个
+          MP 榜单 {{ mpCount }} 个 · 豆瓣榜单 {{ doubanCount }} 个（勾选后请点右下「保存配置」生效）
         </VCardSubtitle>
       </VCardItem>
     </VCard>

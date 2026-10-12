@@ -39,11 +39,6 @@ const spaceLine = computed(() => {
   return `空间：${space.used || '?'} / ${space.total}`
 })
 
-const offlineLine = computed(() => {
-  const offline = status.value?.offline || {}
-  return `离线配额：${offline.text || '未检测'}`
-})
-
 function setMessage(text, ok = true) {
   message.value = text || ''
   messageOk.value = ok
@@ -247,8 +242,6 @@ onUnmounted(qrStopPolling)
           <span class="p115-account">{{ accountLine }}</span>
           <span class="p115-sep">|</span>
           <span>{{ spaceLine }}</span>
-          <span class="p115-sep">|</span>
-          <span>{{ offlineLine }}</span>
           <span v-if="status?.last_check" class="p115-updated">检测于 {{ status.last_check }}</span>
         </div>
 

@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.2.6';
+const FRONTEND_VERSION = '1.2.7';
 
 const {resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4} = await importShared('vue');
 
@@ -1316,11 +1316,6 @@ const spaceLine = computed$1(() => {
   return `空间：${space.used || '?'} / ${space.total}`
 });
 
-const offlineLine = computed$1(() => {
-  const offline = status.value?.offline || {};
-  return `离线配额：${offline.text || '未检测'}`
-});
-
 function setMessage(text, ok = true) {
   message.value = text || '';
   messageOk.value = ok;
@@ -1581,8 +1576,6 @@ return (_ctx, _cache) => {
               _createElementVNode$1("span", _hoisted_3$1, _toDisplayString$1(accountLine.value), 1),
               _cache[10] || (_cache[10] = _createElementVNode$1("span", { class: "p115-sep" }, "|", -1)),
               _createElementVNode$1("span", null, _toDisplayString$1(spaceLine.value), 1),
-              _cache[11] || (_cache[11] = _createElementVNode$1("span", { class: "p115-sep" }, "|", -1)),
-              _createElementVNode$1("span", null, _toDisplayString$1(offlineLine.value), 1),
               (status.value?.last_check)
                 ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_4$1, "检测于 " + _toDisplayString$1(status.value.last_check), 1))
                 : _createCommentVNode$1("", true)
@@ -1622,7 +1615,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-close",
                       onClick: qrCancel
                     }, {
-                      default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
+                      default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
                         _createTextVNode$1("取消", -1)
                       ]))]),
                       _: 1
@@ -1638,7 +1631,7 @@ return (_ctx, _cache) => {
                     }, null, 8, _hoisted_8),
                     _createElementVNode$1("div", _hoisted_9, [
                       _createElementVNode$1("div", _hoisted_10, _toDisplayString$1(qr.value.status_text || '等待扫码'), 1),
-                      _cache[13] || (_cache[13] = _createElementVNode$1("div", { class: "p115-qr-tip" }, "用 115 App 扫描二维码，并在手机上点击确认", -1)),
+                      _cache[12] || (_cache[12] = _createElementVNode$1("div", { class: "p115-qr-tip" }, "用 115 App 扫描二维码，并在手机上点击确认", -1)),
                       _createElementVNode$1("div", _hoisted_11, "会话绑定设备：" + _toDisplayString$1(qr.value.app), 1),
                       (qr.value.expires_in)
                         ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_12, " 二维码有效期约 " + _toDisplayString$1(Math.max(1, Math.ceil(qr.value.expires_in / 60))) + " 分钟 ", 1))
@@ -1655,7 +1648,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-connection",
                 onClick: check
               }, {
-                default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
+                default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
                   _createTextVNode$1(" 测试连接 ", -1)
                 ]))]),
                 _: 1
@@ -1667,7 +1660,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-logout",
                 onClick: clearCookie
               }, {
-                default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
+                default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
                   _createTextVNode$1(" 清除登录态 ", -1)
                 ]))]),
                 _: 1
@@ -1680,13 +1673,13 @@ return (_ctx, _cache) => {
                 loading: loading.value,
                 onClick: loadStatus
               }, {
-                default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
+                default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
                   _createTextVNode$1(" 刷新状态 ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading"])
             ]),
-            _cache[17] || (_cache[17] = _createElementVNode$1("div", { class: "p115-hint" }, [
+            _cache[16] || (_cache[16] = _createElementVNode$1("div", { class: "p115-hint" }, [
               _createTextVNode$1(" 登录只用"),
               _createElementVNode$1("strong", null, "扫码"),
               _createTextVNode$1("：115 对浏览器 Cookie 有设备风控——读账号/空间可以通过， 但「列目录 / 转存 / 离线」这类文件接口会返回 "),
@@ -1705,7 +1698,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$1(() => [...(_cache[18] || (_cache[18] = [
+          default: _withCtx$1(() => [...(_cache[17] || (_cache[17] = [
             _createTextVNode$1("任务设置", -1)
           ]))]),
           _: 1
@@ -1743,7 +1736,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-folder-check-outline",
                       onClick: verifyDir
                     }, {
-                      default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
+                      default: _withCtx$1(() => [...(_cache[18] || (_cache[18] = [
                         _createTextVNode$1(" 校验目录 ", -1)
                       ]))]),
                       _: 1
@@ -1772,7 +1765,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
-            _cache[20] || (_cache[20] = _createElementVNode$1("div", { class: "p115-hint" }, [
+            _cache[19] || (_cache[19] = _createElementVNode$1("div", { class: "p115-hint" }, [
               _createTextVNode$1(" 转存与离线下载都保存到该 CID（在 115 里打开目标文件夹，地址栏 "),
               _createElementVNode$1("code", null, "cid="),
               _createTextVNode$1(" 后面就是）。 单批上限用于分批提交，避免一次提交过多被 115 拒绝；CMS 联动属二期能力，本版本不提供。 ")
@@ -1789,7 +1782,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
+          default: _withCtx$1(() => [...(_cache[20] || (_cache[20] = [
             _createTextVNode$1("推送测试", -1)
           ]))]),
           _: 1
@@ -1814,7 +1807,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-text-search",
                 onClick: _cache[5] || (_cache[5] = $event => (push(true)))
               }, {
-                default: _withCtx$1(() => [...(_cache[22] || (_cache[22] = [
+                default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
                   _createTextVNode$1(" 解析测试（不提交） ", -1)
                 ]))]),
                 _: 1
@@ -1827,7 +1820,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-cloud-upload-outline",
                 onClick: _cache[6] || (_cache[6] = $event => (push(false)))
               }, {
-                default: _withCtx$1(() => [...(_cache[23] || (_cache[23] = [
+                default: _withCtx$1(() => [...(_cache[22] || (_cache[22] = [
                   _createTextVNode$1(" 推送到 115 ", -1)
                 ]))]),
                 _: 1
@@ -1872,7 +1865,7 @@ return (_ctx, _cache) => {
                   })
                 ]))
               : _createCommentVNode$1("", true),
-            _cache[24] || (_cache[24] = _createElementVNode$1("div", { class: "p115-hint" }, " 解析测试不需要 Cookie，可先用它确认链接能被正确识别（含提取码）。 实际推送需要已保存的 Cookie 与目标目录 CID。 ", -1))
+            _cache[23] || (_cache[23] = _createElementVNode$1("div", { class: "p115-hint" }, " 解析测试不需要 Cookie，可先用它确认链接能被正确识别（含提取码）。 实际推送需要已保存的 Cookie 与目标目录 CID。 ", -1))
           ]),
           _: 1
         })
@@ -1884,7 +1877,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-58c3a354"]]);
+const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-2909c768"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

@@ -172,7 +172,6 @@ class Pan115Module:
             "qr_app": qr_app,
             "login_device": device_label,
             "space": state.get("space") if isinstance(state.get("space"), dict) else {},
-            "offline": state.get("offline") if isinstance(state.get("offline"), dict) else {"available": False, "text": "未检测"},
             "last_check": str(state.get("at") or ""),
             "target_cid": self.target_cid(),
             "batch_max_size": self.batch_size(),
@@ -315,7 +314,7 @@ class Pan115Module:
     # ------------------------------------------------------------------ 账号与授权
 
     def check(self) -> dict:
-        """测试连接：读取账号、空间配额与离线配额，并写入状态缓存。"""
+        """测试连接：读取账号与空间配额，并写入状态缓存。"""
         client = self._client(timeout=20)
 
         account = run_sync(client.user_info)
@@ -324,15 +323,12 @@ class Pan115Module:
         except Pan115Error as err:
             logger.warning(f"读取 115 空间配额失败：{err}")
             space = {}
-        # 离线配额在 115 侧不稳定，失败不影响整体判定
-        offline = run_sync(client.offline_quota)
 
         self._save_state(
             authorized=True,
             account=str(account.get("user_name") or account.get("user_id") or ""),
             account_id=str(account.get("user_id") or ""),
             space=space,
-            offline=offline,
         )
         logger.info(f"[{getattr(self._plugin, '__class__').__name__}] 115 连接正常：{account.get('user_name') or account.get('user_id')}")
         return self.status()

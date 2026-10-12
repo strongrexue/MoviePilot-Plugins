@@ -42,7 +42,6 @@ _SHARE_RECEIVE_URL = "https://webapi.115.com/share/receive"
 # 云下载通道（离线下载）：lixianssp 需要加密签名，web 明文通道即可用（p115client type="web"）
 _OFFLINE_BASE_URL = "https://clouddownload.115.com"
 _OFFLINE_ADD_URL = _OFFLINE_BASE_URL + "/web/"
-_OFFLINE_QUOTA_URL = _OFFLINE_BASE_URL + "/"
 
 # 这些错误信息基本等同于"Cookie 失效/未登录"，需要引导用户重新获取
 _AUTH_ERROR_HINTS = ("登录", "未登录", "登陆", "cookie", "token", "重新登录", "授权")
@@ -253,57 +252,6 @@ class Pan115Client:
             "remain": _format_bytes(remain.get("size") or remain.get("size_raw") or info.get("remain_size") or ""),
         }
 
-    async def offline_quota(self) -> dict:
-        """读取云下载配额。
-
-        按会话类型选端点（避免 404）：
-        - **App 会话**：``GET https://proapi.115.com/open/offline/get_quota_info``
-          （与目录/转存同域，p115client 对 App 会话读配额的正式端点）；
-        - **Web 会话**：``GET https://clouddownload.115.com/?ac=get_quota_info``。
-
-        拿不到就返回 ``available=False``，不影响其它能力与整体状态。
-        """
-        url = (
-            "https://proapi.115.com/open/offline/get_quota_info"
-            if self.app_session
-            else _OFFLINE_QUOTA_URL
-        )
-        try:
-            if self.app_session:
-                payload = await self._request("get", url)
-            else:
-                payload = await self._request("get", url, params={"ac": "get_quota_info"})
-        except Pan115Error as err:
-            logger.debug(f"读取 115 离线配额失败：{err}")
-            return {"available": False, "text": "获取失败"}
-        if payload.get("state") in (False, 0):
-            message = self._error_text(payload)
-            logger.debug(f"115 未返回离线配额：{message or '未知原因'}")
-            return {"available": False, "text": "获取失败"}
-        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        info = data.get("quota_info") or data.get("quota") or data.get("space_info") or data
-        if isinstance(info, dict):
-            total = (
-                info.get("size_total") or info.get("total") or info.get("all_total")
-                or info.get("size") or info.get("space_total")
-            )
-            used = (
-                info.get("size_use") or info.get("size_used") or info.get("use")
-                or info.get("all_use") or info.get("space_use")
-            )
-            if total:
-                text = f"{_format_bytes(used)} / {_format_bytes(total)}" if used else _format_bytes(total)
-                return {"available": True, "text": f"剩余 {text}"}
-        # 兜底：结构未知时宽松扫描字符串/数字字段
-        for source in (payload, data, info if isinstance(info, dict) else {}):
-            for key in ("quota", "space", "text", "remain", "size", "total"):
-                value = source.get(key)
-                if isinstance(value, str) and value.strip():
-                    return {"available": True, "text": value.strip()}
-                if isinstance(value, (int, float)) and value:
-                    return {"available": True, "text": _format_bytes(value)}
-        return {"available": False, "text": "获取失败"}
-
     # ------------------------------------------------------------------ 目录
 
     async def list_dir(self, cid: str, limit: int = 30) -> dict:
@@ -430,28 +378,21 @@ class Pan115Client:
     async def offline_add(self, url: str, cid: str = "") -> dict:
         """提交磁力 / eD2k 离线下载任务。
 
-        按会话类型选端点（与目录/转存/配额一致，避免 clouddownload 域的 404）：
-        - **App 会话**：``POST https://proapi.115.com/open/offline/add_task_urls``
-          （p115client 的 App 通道端点，明文无需签名）；
-        - **Web 会话**：``POST https://clouddownload.115.com/web/``（明文 web 通道）。
+        走云下载通道的**明文 web 端点**（``clouddownload.115.com/web/``，
+        p115client 的 ``type="web"``）。默认的 lixianssp 通道要求 RSA+ECDH 加密签名，
+        明文请求只会得到无法解析的响应。
         """
         target = str(cid or "").strip()
         if not target:
             raise Pan115Error("离线下载需要指定保存目录 CID")
-        if self.app_session:
-            payload = await self._request(
-                "post", "https://proapi.115.com/open/offline/add_task_urls",
-                data={"url": str(url or "").strip(), "wp_path_id": target},
-            )
-        else:
-            payload = await self._request(
-                "post", _OFFLINE_ADD_URL,
-                data={
-                    "ac": "add_task_url",
-                    "url": str(url or "").strip(),
-                    "wp_path_id": target,
-                },
-            )
+        payload = await self._request(
+            "post", _OFFLINE_ADD_URL,
+            data={
+                "ac": "add_task_url",
+                "url": str(url or "").strip(),
+                "wp_path_id": target,
+            },
+        )
         if payload.get("state") in (False, 0):
             message = self._error_text(payload) or "未知原因"
             if "已存在" in message or "重复" in message:

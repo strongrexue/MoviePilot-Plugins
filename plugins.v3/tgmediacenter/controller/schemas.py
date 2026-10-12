@@ -112,13 +112,6 @@ class Pan115Space(BaseModel):
     remain: str = ""
 
 
-class Pan115Offline(BaseModel):
-    """115 离线下载配额（115 侧不保证可取）。"""
-
-    available: bool = False
-    text: str = ""
-
-
 class Pan115QrApp(BaseModel):
     """扫码登录可选的设备标识。"""
 
@@ -144,7 +137,6 @@ class Pan115StatusData(BaseModel):
     qr_app: str = ""
     login_device: str = ""
     space: Pan115Space = Field(default_factory=Pan115Space)
-    offline: Pan115Offline = Field(default_factory=Pan115Offline)
     last_check: str = ""
     target_cid: str = ""
     batch_max_size: int = 20

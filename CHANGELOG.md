@@ -55,6 +55,11 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.2.7（P2 回退：离线通道回退 / 移除离线配额）
+
+- **离线下载回退**：proapi open/offline 端点在真机验证异常，回退到 1.2.5 的 clouddownload 明文 web 通道（`clouddownload.115.com/web/`）。
+- **移除离线配额展示**：115 侧配额接口不稳定，界面「账号与授权」栏不再显示离线配额，仅保留账号与空间。
+
 ## v1.2.6（P2 修复：离线走 proapi open/offline 端点）
 
 - **离线配额 404**：`clouddownload.115.com` 域在宿主 HTTP 客户端下带 Cookie 请求返回 404（curl/urllib 复现均为 200，属宿主客户端对该域的行为差异）。App 会话改用 `proapi.115.com/open/offline/get_quota_info`（与目录/转存同域、p115client 的 App 通道正式端点）。

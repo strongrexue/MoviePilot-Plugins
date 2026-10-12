@@ -9,8 +9,6 @@ from typing import Any, List, Optional
 
 from app.sdk.logging import logger
 
-from ..utils import run_sync
-
 
 def _media_item(info: Any, fallback_media_type: str) -> dict:
     """把宿主 ``MediaInfo`` 归一为统一条目。
@@ -69,30 +67,31 @@ def _tv_type():
 
 
 def fetch_mp_source(source_key: str, *, page: int = 1, count: int = 30) -> List[dict]:
-    """拉取一个 MP 榜单源，返回统一条目列表。"""
+    """拉取一个 MP 榜单源，返回统一条目列表。
+
+    全部走宿主**同步版**链方法（run_module 桥接到宿主自己的事件循环）：
+    链的异步变体（async_*）依赖宿主 loop 上下文，放进我们自建的循环会永久
+    挂起（run_sync 纪律：同步宿主 API 直接调用，绝不包 run_sync）。
+    """
     if source_key == "tmdb_trending":
-        infos = run_sync(lambda: _tmdb_chain().async_tmdb_trending(page=page)) or []
+        infos = _tmdb_chain().tmdb_trending(page=page) or []
         return [_media_item(info, "all") for info in infos if info]
     if source_key == "tmdb_movie":
-        infos = run_sync(
-            lambda: _tmdb_chain().async_tmdb_discover(
-                mtype=_movie_type(), sort_by="popularity.desc", with_genres="",
-                with_original_language="", with_keywords="", with_watch_providers="",
-                vote_average=0.0, vote_count=0, release_date="", page=page,
-            )
+        infos = _tmdb_chain().tmdb_discover(
+            mtype=_movie_type(), sort_by="popularity.desc", with_genres="",
+            with_original_language="", with_keywords="", with_watch_providers="",
+            vote_average=0.0, vote_count=0, release_date="", page=page,
         ) or []
         return [_media_item(info, "电影") for info in infos if info]
     if source_key == "tmdb_tv":
-        infos = run_sync(
-            lambda: _tmdb_chain().async_tmdb_discover(
-                mtype=_tv_type(), sort_by="popularity.desc", with_genres="",
-                with_original_language="", with_keywords="", with_watch_providers="",
-                vote_average=0.0, vote_count=0, release_date="", page=page,
-            )
+        infos = _tmdb_chain().tmdb_discover(
+            mtype=_tv_type(), sort_by="popularity.desc", with_genres="",
+            with_original_language="", with_keywords="", with_watch_providers="",
+            vote_average=0.0, vote_count=0, release_date="", page=page,
         ) or []
         return [_media_item(info, "电视剧") for info in infos if info]
     if source_key == "bangumi_calendar":
-        infos = run_sync(lambda: _bangumi_chain().async_calendar()) or []
+        infos = _bangumi_chain().calendar() or []
         return [_media_item(info, "动画") for info in infos if info]
     logger.warning(f"未知的 MP 榜单源：{source_key}")
     return []

@@ -127,8 +127,10 @@ class CredentialsModule:
         )
         if not runtime.start(connect_timeout=connect_timeout):
             self._runtime = None
+            reason = str(getattr(runtime, "last_error", "") or "").strip()
+            detail = f"（{reason}）" if reason else ""
             raise tg.TelegramOperationError(
-                f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）："
+                f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）{detail}："
                 "请检查服务器网络与代理设置（代理继承 MoviePilot 设置）后重试"
             )
         self._runtime = runtime

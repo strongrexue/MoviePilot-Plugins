@@ -53,6 +53,11 @@ class TelegramRuntime:
         self._thread: Optional[threading.Thread] = None
         self._client: Any = None
         self._keep_alive_task: Any = None
+        self.last_error: Optional[str] = None
+
+    def _set_last_error(self, text: str) -> None:
+        """记录最近一次连接失败的底层原因（诊断用，可被读取后拼进用户消息）。"""
+        self.last_error = str(text or "")[:300] or None
 
     # ------------------------------------------------------------------ 基础属性
 
@@ -122,6 +127,7 @@ class TelegramRuntime:
             logger.info(f"[{self._plugin_id}] TG 连接已断开，正在重连")
             self.call(self._reconnect(client), timeout=max(5, int(timeout)))
         except Exception as err:
+            self._set_last_error(f"{type(err).__name__}: {err}")
             logger.warning(f"[{self._plugin_id}] TG 重连失败：{err}")
             return False
         return self.is_connected()
@@ -173,9 +179,17 @@ class TelegramRuntime:
             self._thread.start()
 
         try:
+            self._set_last_error("")
             client = self.call(self._connect_client(), timeout=max(5, int(connect_timeout)))
         except Exception as err:
-            logger.warning(f"[{self._plugin_id}] TG 客户端连接失败：{err}")
+            if self.last_error:
+                reason = self.last_error
+            elif isinstance(err, TimeoutError):
+                reason = f"连接预算 {connect_timeout} 秒内未完成且无底层异常（多为网络/代理不通导致的静默挂起）"
+            else:
+                reason = f"{type(err).__name__}: {err}"
+            self._set_last_error(reason)
+            logger.warning(f"[{self._plugin_id}] TG 客户端连接失败：{reason}")
             self.stop()
             return False
 
@@ -253,8 +267,9 @@ class TelegramRuntime:
     async def _connect_client(self) -> Any:
         """在 loop 内创建并连接客户端。
 
-        重试与超时都压得比较紧：经代理连接 Telegram 时单次握手可能就要十几秒，
-        而同步接口有网关超时上限（过长会直接 502，后端却仍在继续执行）。
+        重试与超时都压得比较紧：telethon 内部 ``timeout=8`` + 仅重试 1 次
+        （约 9 秒内出结果），必须快于外层连接预算（20 秒），否则外层先超时、
+        真正的网络错误会被 TimeoutError 掩盖，用户只能看到笼统的"连接失败"。
         """
         session = StringSession(self._session_string) if self._session_string else StringSession()
         client = TelegramClient(
@@ -262,14 +277,21 @@ class TelegramRuntime:
             self._api_id,
             self._api_hash,
             proxy=self._proxy,
-            connection_retries=2,
+            connection_retries=1,
             retry_delay=1,
-            timeout=10,
+            timeout=8,
             device_model="TGMediaCenter",
             system_version="1.0",
             app_version="1.0",
         )
-        await client.connect()
+        try:
+            await client.connect()
+        except Exception as err:
+            # 记录底层真实原因（DNS/TCP/代理失败等），start() 会把它带给用户
+            self._set_last_error(f"{type(err).__name__}: {err}")
+            raise
+        if not client.is_connected():
+            self._set_last_error("connect() 返回后客户端仍未连接（多为网络/代理不通，无异常抛出）")
         return client
 
     async def _disconnect(self, client: Any) -> None:

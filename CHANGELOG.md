@@ -55,6 +55,11 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.3.4（P3 修复：TG 连接失败带出底层原因）
+
+- TG 连不上时错误消息带出底层真实原因（如 DNS/TCP/代理错误）。此前 telethon 内部超时（10s×2 次重试）慢于外层 20s 预算，网络错误总被 TimeoutError 掩盖；现收紧为 8s×1 次并记录 last_error。
+- MP 榜单改用宿主同步版链方法（tmdb_trending/tmdb_discover/calendar），链的异步变体依赖宿主 loop 上下文，在自建循环里会永久挂起（run_sync 纪律的延伸）。
+
 ## v1.3.3（P3 修复：定时服务注册 / 结果列表标题）
 
 - **服务注册失败（No trigger by the name "0/6"）**：宿主把 get_service 的 trigger 原样传给 apscheduler，cron 表达式字符串不被接受；改为 CronTrigger.from_crontab 对象（该失败曾连带影响插件后台初始化，TG 重连/刷新不可用）。

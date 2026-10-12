@@ -106,7 +106,9 @@ class SubscribeModule:
         from ..model.subscribe_seen import SubscribeSeen
 
         try:
-            with self._db().session as session:
+            # 注意：PluginDatabaseHandle.session 是**方法**（def session(self)），
+            # 必须调用后把返回的 Session 当上下文管理器（SQLAlchemy 2.0 退出时自动 close）
+            with self._db().session() as session:
                 row = session.execute(
                     select(SubscribeSeen.id).where(SubscribeSeen.unique_key == unique_key)
                 ).first()
@@ -131,7 +133,7 @@ class SubscribeModule:
 
         plugin_id = self._plugin.__class__.__name__
         try:
-            with self._db().session as session:
+            with self._db().session() as session:
                 session.add(SubscribeSeen(
                     plugin_id=plugin_id,
                     channel=channel,

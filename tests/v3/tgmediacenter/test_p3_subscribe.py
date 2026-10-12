@@ -158,3 +158,41 @@ def test_sync_dry_run_no_db():
     # 未启用源 → 直接返回，不触发网络/数据库
     result = module.sync(dry_run=True)
     assert result["created"] == 0
+
+
+# --------------------------------------------------------------------- 豆瓣 RSS 自解析（1.3.5：不走宿主 RssHelper）
+
+
+def test_parse_rss_xml_douban_style():
+    """标准 RSS 2.0 解析出 title/link/description，且与归一函数衔接。"""
+    from app.plugins.tgmediacenter.services import douban_source
+
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel><title>豆瓣榜单</title>
+    <item>
+      <title>韩剧 第八个</title>
+      <link>https://movie.douban.com/subject/36912345/</link>
+      <description>&lt;p&gt;8.7分&lt;/p&gt;2025 韩剧 奇幻</description>
+      <pubDate>12 Oct 2026 21:37:20 GMT</pubDate>
+      <guid>https://movie.douban.com/subject/36912345/</guid>
+    </item>
+    </channel></rss>"""
+    items = douban_source._parse_rss_xml(xml)
+    assert len(items) == 1
+    assert items[0]["title"] == "韩剧 第八个"
+    assert "/subject/36912345/" in items[0]["link"]
+
+    source = sources_lib.sources_by_channel("douban")[0]
+    normalized = douban_source._normalize_item(items[0], source)
+    assert normalized["douban_id"] == "36912345"
+    assert normalized["year"] == "2025"
+    assert normalized["vote_average"] == 8.7
+
+
+def test_parse_rss_xml_invalid():
+    """非法 XML / 空文本返回空列表而不是抛异常。"""
+    from app.plugins.tgmediacenter.services import douban_source
+
+    assert douban_source._parse_rss_xml("") == []
+    assert douban_source._parse_rss_xml("not xml") == []
+    assert douban_source._parse_rss_xml("<rss><channel></channel></rss>") == []

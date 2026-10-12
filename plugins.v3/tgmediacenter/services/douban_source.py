@@ -1,4 +1,4 @@
-"""③ 订阅服务拉取：豆瓣榜单（走 RSSHub，``RssHelper.parse``）。
+"""③ 订阅服务拉取：豆瓣榜单（走 RSSHub，RequestUtils 同步取回 + 标准库解析）。
 
 把 RSS 条目归一为统一条目 dict（与 ``mp_source`` 一致）：
 ``title / year / media_type / vote_average / douban_id / tmdb_id / bangumi_id / poster``。
@@ -81,23 +81,18 @@ def _normalize_item(item: dict, source: SourceDef) -> Optional[dict]:
 def fetch_douban_source(source: SourceDef, rsshub_base: str, *, proxy: bool = False) -> List[dict]:
     """拉取一个豆瓣榜单源，返回统一条目列表。
 
-    注意：``RssHelper().parse`` 是**同步方法**（V3 宿主源码如此），不要包进 run_sync——
-    包了会把返回的 list 当协程送进事件循环，报
-    「An asyncio.Future, a coroutine or an awaitable is required」。
+    **不走宿主 ``RssHelper``**：其内部装配链路（组合根端口/快照配置）随宿主构建
+    版本变动过，曾出现难以定位的异步桥接报错。这里直接用宿主 ``RequestUtils``
+    （同步 requests）取回 XML，再用标准库解析成与 RssHelper 兼容的条目 dict。
     """
     url = rss_url(source, rsshub_base)
-    try:
-        from app.sdk.network import RssHelper
-    except Exception as err:  # pragma: no cover - 宿主接口缺失
-        logger.error(f"无法加载宿主 RssHelper：{err}")
-        return []
-    try:
-        items = RssHelper().parse(url, proxy=proxy, timeout=20)
-    except Exception as err:  # pragma: no cover - 网络/解析异常
+    xml_text, err = _fetch_xml(url, proxy=proxy, timeout=20)
+    if xml_text is None:
         logger.warning(f"拉取豆瓣 RSS 失败 {url}：{err}")
         return []
-    if items is None or items is False or not isinstance(items, list):
-        logger.warning(f"豆瓣 RSS 无有效数据：{url}")
+    items = _parse_rss_xml(xml_text)
+    if not items:
+        logger.warning(f"豆瓣 RSS 无有效条目：{url}")
         return []
     result: List[dict] = []
     for item in items:
@@ -107,3 +102,57 @@ def fetch_douban_source(source: SourceDef, rsshub_base: str, *, proxy: bool = Fa
         if normalized:
             result.append(normalized)
     return result
+
+
+def _fetch_xml(url: str, *, proxy: bool, timeout: int) -> tuple[Optional[str], str]:
+    """同步取回 RSS XML 文本；失败返回 ``(None, 原因)``。"""
+    try:
+        from app.sdk.network import RequestUtils
+    except Exception as err:  # pragma: no cover - 宿主接口缺失
+        return None, f"无法加载宿主 RequestUtils：{err}"
+    proxies = None
+    if proxy:
+        try:
+            from app.sdk.config import settings
+
+            proxies = getattr(settings, "PROXY", None)
+        except Exception:  # pragma: no cover - 读不到代理配置按直连
+            proxies = None
+    try:
+        resp = RequestUtils(proxies=proxies, timeout=timeout).get_res(url)
+    except Exception as err:
+        return None, f"{type(err).__name__}: {err}"
+    if resp is None:
+        return None, "请求返回空值（网络不通或被拦截）"
+    status = getattr(resp, "status_code", 0)
+    if status != 200:
+        return None, f"HTTP {status}"
+    return (getattr(resp, "text", "") or ""), ""
+
+
+def _parse_rss_xml(text: str) -> List[dict]:
+    """标准库解析 RSS 2.0/RDF，产出与 RssHelper 兼容的条目 dict。"""
+    import xml.etree.ElementTree as ET
+
+    if not text or not text.strip().startswith("<"):
+        return []
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+    items: List[dict] = []
+    for node in root.iter("item"):
+        def _text(tag: str) -> str:
+            child = node.find(tag)
+            if child is not None and child.text:
+                return child.text.strip()
+            return ""
+
+        items.append({
+            "title": _text("title"),
+            "link": _text("link"),
+            "description": _text("description"),
+            "pubdate": _text("pubDate"),
+            "guid": _text("guid"),
+        })
+    return items

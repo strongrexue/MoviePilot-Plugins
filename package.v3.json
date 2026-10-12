@@ -3,7 +3,7 @@
     "name": "TG媒体中心",
     "description": "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。",
     "labels": "工具,媒体",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "icon": "tgmediacenter.png",
     "author": "strongrexue",
     "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v1.3.5": "[1]修复订阅去重表查询/写入始终失败（method object does not support the context manager protocol）：PluginDatabaseHandle.session 是方法，此前当属性用作 with 上下文，导致去重自 1.3.0 起从未生效;[2]豆瓣榜单拉取改为不走宿主 RssHelper（其内部装配链路随宿主构建版本变动，曾出现难以定位的asyncio.Future 报错）：RequestUtils 同步取回 + 标准库解析 RSS，行为确定可控",
       "v1.3.4": "[1]TG 连接失败时带出底层真实原因（此前 telethon 内部超时慢于外层预算，网络错误被 TimeoutError 掩盖，用户只能看到笼统的连接失败）：telethon 连接参数收紧为 timeout=8/重试1次，并把 DNS/TCP/代理等底层错误记录后拼入错误消息;[2]MP 榜单改用宿主同步版链方法（tmdb_trending/tmdb_discover/calendar），消除异步变体在陌生事件循环中永久挂起的隐患",
       "v1.3.3": "[1]修复订阅服务定时注册失败（No trigger by the name 0/6）：cron 表达式须转为 CronTrigger.from_crontab 对象再交给宿主调度器，服务注册失败曾连带影响插件后台初始化;[2]修复抓取结果列表不显示媒体名（订阅结果误用 115 的结果模型，title 字段被丢弃）",
       "v1.3.2": "[1]修复「最近抓取结果」解析/抓取后不实时刷新（sync 结果实时写入 last_result）;[2]总览卡片改为显示表单实时勾选数，并提示勾选后需保存配置",

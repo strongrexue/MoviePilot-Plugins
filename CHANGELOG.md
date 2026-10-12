@@ -55,6 +55,11 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.3.5（P3 修复：去重表会话误用 / 豆瓣 RSS 自解析）
+
+- **去重表自 1.3.0 起从未生效**：`PluginDatabaseHandle.session` 是方法，被当属性用作 `with` 上下文 →「method object does not support the context manager protocol」，查询恒返回未处理、写入恒失败。改为 `session()` 调用后用 SQLAlchemy 2.0 会话上下文。
+- **豆瓣榜单拉取不再经过宿主 RssHelper**（其组合根端口装配链路随宿主构建版本变动，出现过难定位的「An asyncio.Future...」报错）：改用宿主 RequestUtils（同步 requests）取回 XML + 标准库解析，行为确定可控；失败原因（HTTP 状态/网络错误）直接透出。
+
 ## v1.3.4（P3 修复：TG 连接失败带出底层原因）
 
 - TG 连不上时错误消息带出底层真实原因（如 DNS/TCP/代理错误）。此前 telethon 内部超时（10s×2 次重试）慢于外层 20s 预算，网络错误总被 TimeoutError 掩盖；现收紧为 8s×1 次并记录 last_error。

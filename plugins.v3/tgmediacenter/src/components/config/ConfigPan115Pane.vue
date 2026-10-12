@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from '../api'
-import SecretField from './SecretField.vue'
 
 /**
  * ② 115 网盘面板。
  *
- * 结构对齐 MA 的「115 网盘」设置：账号与授权 / 任务设置；
- * 差异是登录方式——v1 采用**手动 Cookie**（设计文档决策），不做扫码登录。
+ * 结构对齐 MA 的「115 网盘」设置：账号与授权 / 任务设置。
+ * 登录方式只保留**扫码登录**（App 通道，不触发安全密钥）；
+ * Cookie 由扫码换取后保存在插件数据内部，界面上不展示、不可粘贴。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -27,8 +27,8 @@ const form = computed(() => props.config.form)
 
 const accountLine = computed(() => {
   const info = status.value || {}
-  if (!info.cookie_configured) return '未配置 Cookie'
-  if (!info.authorized) return 'Cookie 已填写，尚未验证（点「测试连接」）'
+  if (!info.cookie_configured) return '未登录（请扫码）'
+  if (!info.authorized) return '已取得登录态，尚未验证（点「测试连接」）'
   return info.account ? `当前登录账号：${info.account}` : '已连接'
 })
 
@@ -81,8 +81,7 @@ async function clearCookie() {
   try {
     const info = unwrap(await postPluginApi(props.api, props.pluginId, 'pan115/logout', {}, { timeoutMs: 20000 }))
     status.value = info
-    form.value.pan115_cookie = ''
-    setMessage('已清除 115 Cookie 与状态缓存')
+    setMessage('已清除 115 登录态')
   } catch (err) {
     setMessage(err?.message || '清除失败', false)
   } finally {
@@ -292,17 +291,6 @@ onUnmounted(qrStopPolling)
           </div>
         </div>
 
-        <div class="p115-sub">或手动粘贴 Cookie（备用；扫码登录成功后此处保持为空即可，登录态保存在插件内部，不会被「保存配置」清空）</div>
-        <VRow dense class="mt-1">
-          <VCol cols="12">
-            <SecretField
-              v-model="form.pan115_cookie"
-              label="115 Cookie"
-              placeholder="UID=...; CID=...; SEID=...; KID=..."
-            />
-          </VCol>
-        </VRow>
-
         <div class="p115-actions">
           <VBtn color="primary" variant="flat" :loading="busy === 'check'" prepend-icon="mdi-connection" @click="check">
             测试连接
@@ -323,10 +311,11 @@ onUnmounted(qrStopPolling)
         </div>
 
         <div class="p115-hint">
-          <strong>推荐用扫码登录</strong>：115 对浏览器 Cookie 有设备风控——读账号/空间可以通过，
+          登录只用<strong>扫码</strong>：115 对浏览器 Cookie 有设备风控——读账号/空间可以通过，
           但「列目录 / 转存 / 离线」这类文件接口会返回 <code>请先验证安全密钥</code>；
           扫码绑定 App 设备（如支付宝小程序）不会触发该验证。
-          若坚持用手动 Cookie，请在浏览器登录 115 后按 F12 → 复制含 <code>UID</code> 与 <code>CID</code> 的整条 Cookie。
+          扫码成功后 Cookie 自动保存在插件内部（不显示在界面上），也不会被「保存配置」清空；
+          Cookie 失效时重新扫码即可。
         </div>
       </VCardText>
     </VCard>

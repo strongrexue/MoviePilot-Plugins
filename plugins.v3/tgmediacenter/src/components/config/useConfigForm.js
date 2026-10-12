@@ -20,9 +20,8 @@ export const configDefaults = {
   tg_user_cooldown_seconds: 5,
   tg_keep_alive_seconds: 60,
   tg_aggregation_window_seconds: 3.0,
-  // ② 115 网盘
+  // ② 115 网盘（登录态只走扫码，Cookie 存插件数据，不放配置/表单）
   pan115_enabled: false,
-  pan115_cookie: '',
   pan115_target_cid: '',
   pan115_batch_max_size: 20,
 }

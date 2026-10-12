@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.2.1';
+const FRONTEND_VERSION = '1.2.2';
 
 const {resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4} = await importShared('vue');
 
@@ -1646,7 +1646,7 @@ return (_ctx, _cache) => {
                   ]))
                 : _createCommentVNode$1("", true)
             ]),
-            _cache[18] || (_cache[18] = _createElementVNode$1("div", { class: "p115-sub" }, "或手动粘贴 Cookie（备用）", -1)),
+            _cache[18] || (_cache[18] = _createElementVNode$1("div", { class: "p115-sub" }, "或手动粘贴 Cookie（备用；扫码登录成功后此处保持为空即可，登录态保存在插件内部，不会被「保存配置」清空）", -1)),
             _createVNode$1(_component_VRow, {
               dense: "",
               class: "mt-1"
@@ -1906,7 +1906,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-2ed70653"]]);
+const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-3de058d1"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

@@ -5,15 +5,16 @@
 
 支持的链接形态：
 - 115 分享链接：``https://115.com/s/<code>``（含 115cdn / anxia 等镜像域名）
-- 分享提取码：URL 查询参数 ``password=`` / ``pwd=``，或正文里的"提取码：abcd"
-- 磁力链：``magnet:?xt=urn:btih:...``
-- ed2k：``ed2k://|file|...``
+- 分享提取码：URL 查询参数 ``password=`` / ``pwd=``、``#`` 片段（如 ``?#password=abcd``）、
+  或正文里的"提取码：abcd"
+- 磁力链：``magnet:?xt=urn:btih:...``（文件名可含中文）
+- ed2k：``ed2k://|file|<文件名可含中文>|<大小>|<哈希>|/``
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 # 115 分享链接可能出现的域名（含历史/镜像）
 SHARE_HOSTS = ("115.com", "115cdn.com", "anxia.com", "115vod.com", "lecloud.com")
@@ -91,11 +92,16 @@ def _parse_share(url: str, text: str) -> Optional[PushItem]:
         return None
 
     query = parse_qs(parts.query or "")
+    fragment = parse_qs((parts.fragment or "").lstrip("!"))
     password = ""
-    for key in ("password", "pwd", "passcode"):
-        values = query.get(key) or []
-        if values and values[0].strip():
-            password = values[0].strip()
+    # 提取码可能在 ? 查询参数，也可能在 # 片段（如 115.com/s/xxx?#password=abcd）
+    for source_map in (query, fragment):
+        for key in ("password", "pwd", "passcode"):
+            values = source_map.get(key) or []
+            if values and values[0].strip():
+                password = values[0].strip()
+                break
+        if password:
             break
     if not password:
         password = _find_code_in_text(text)
@@ -127,15 +133,25 @@ def parse_push_text(text: str) -> ParsedLinks:
         result.items.append(item)
         taken.append(url)
 
-    # 2) 磁力链
-    for match in re.finditer(r"magnet:\?[^\s\u4e00-\u9fff\"'<>]+", source, re.IGNORECASE):
+    # 2) ed2k：优先按结构识别（文件名可含中文，老写法排除中文会把链接截断在第一个汉字）
+    #    结构：ed2k://|file|<名>|<大小>|<32位哈希>|/
+    ed2k_structural = re.compile(
+        r"ed2k://\|file\|[^|\"'<>]*\|\d+\|[0-9a-zA-Z]{32}\|/?",
+        re.IGNORECASE,
+    )
+    for match in ed2k_structural.finditer(source):
+        url = match.group(0)
+        result.items.append(PushItem(kind="ed2k", url=url, raw=url))
+    if not any(item.kind == "ed2k" for item in result.items):
+        # 兜底：结构不标准时按前缀识别（允许中文，遇空白/引号/尖括号停止）
+        for match in re.finditer(r"ed2k://\|[^\s\"'<>]+", source, re.IGNORECASE):
+            url = match.group(0).rstrip(".,;)】]|/")
+            result.items.append(PushItem(kind="ed2k", url=url, raw=url))
+
+    # 3) 磁力链（dn= 文件名可含中文，同样不能排除中文）
+    for match in re.finditer(r"magnet:\?[^\s\"'<>]+", source, re.IGNORECASE):
         url = match.group(0).rstrip(".,;)】]")
         result.items.append(PushItem(kind="magnet", url=url, raw=url))
-
-    # 3) ed2k
-    for match in re.finditer(r"ed2k://\|[^\s\u4e00-\u9fff\"'<>]+", source, re.IGNORECASE):
-        url = match.group(0).rstrip(".,;)】]")
-        result.items.append(PushItem(kind="ed2k", url=unquote(url), raw=url))
 
     result.total = len(result.items)
     result.supported = sum(1 for item in result.items if item.supported)

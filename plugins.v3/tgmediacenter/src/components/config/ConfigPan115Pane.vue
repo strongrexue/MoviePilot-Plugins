@@ -292,7 +292,7 @@ onUnmounted(qrStopPolling)
           </div>
         </div>
 
-        <div class="p115-sub">或手动粘贴 Cookie（备用）</div>
+        <div class="p115-sub">或手动粘贴 Cookie（备用；扫码登录成功后此处保持为空即可，登录态保存在插件内部，不会被「保存配置」清空）</div>
         <VRow dense class="mt-1">
           <VCol cols="12">
             <SecretField

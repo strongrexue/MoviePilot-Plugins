@@ -30,6 +30,10 @@ from ..utils import run_sync
 
 _STATE_KEY = "pan115_state"
 _QR_KEY = "pan115_qr"
+# Cookie 实际存放点 = 插件数据（配置里的 pan115_cookie 只是手动粘贴的入口）。
+# 根因：宿主「保存配置」是整份覆盖，前端表单不回显 Cookie 真实值，
+# 用户点一次保存就会把扫码写入配置的 Cookie 清空——所以登录态必须存插件数据。
+_COOKIE_DATA_KEY = "pan115_cookie_data"
 # 二维码有效期（115 侧约 5 分钟）
 _QR_TTL_SECONDS = 300
 # 单次同步调用的总时间预算（秒）：必须小于同步接口的网关超时
@@ -72,13 +76,47 @@ class Pan115Module:
         except (TypeError, ValueError):
             return 20
 
+    def _stored_cookie(self) -> str:
+        """从插件数据读 Cookie（真实存放点）。"""
+        value = self._plugin.get_data(_COOKIE_DATA_KEY)
+        return str(value or "").strip() if not isinstance(value, dict) else str(value.get("value") or "").strip()
+
+    def _effective_cookie(self) -> str:
+        """生效 Cookie：插件数据优先；配置里有值（手动粘贴）时迁移到插件数据。
+
+        迁移判断必须用原始来源读（这里直接读 get_data 与 config 两个字段），
+        不能用本方法自身做条件，否则恒假会丢数据。
+        """
+        stored = self._stored_cookie()
+        if stored:
+            return stored
+        from_config = str(self._cfg("pan115_cookie", "") or "").strip()
+        if from_config:
+            try:
+                self._plugin.save_data(_COOKIE_DATA_KEY, from_config)
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"迁移 115 Cookie 到插件数据失败：{err}")
+        return from_config
+
+    def _save_cookie(self, cookie: str) -> None:
+        """写入 Cookie（插件数据）；同时清掉配置里的旧值，避免双源不一致。"""
+        self._plugin.save_data(_COOKIE_DATA_KEY, str(cookie or "").strip())
+        try:
+            self._plugin.drop_config("pan115_cookie")
+        except Exception:
+            # 宿主未提供 drop_config 时退化为置空（整份覆盖语义下等价于删除该自管字段）
+            try:
+                self._plugin.save_config(pan115_cookie="")
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"清理配置中的旧 115 Cookie 失败：{err}")
+
     def _client(self, timeout: int = 20) -> Pan115Client:
         """构造 115 客户端；未配置 Cookie 时给出可操作错误。"""
-        cookie = self._cfg("pan115_cookie", "")
+        cookie = self._effective_cookie()
         client = Pan115Client(cookie, proxies=self._resolve_proxy(), timeout=timeout)
         if not client.cookie_configured:
             raise Pan115Error(
-                "未配置有效的 115 Cookie：请从浏览器复制 115 登录后的 Cookie（需含 UID 与 CID）并保存"
+                "未配置有效的 115 Cookie：请扫码登录，或在「或手动粘贴 Cookie」里粘贴后点「测试连接」"
             )
         return client
 
@@ -111,7 +149,7 @@ class Pan115Module:
     def status(self) -> dict:
         """返回 115 状态（**不联网**，只用缓存，保证接口快且稳）。"""
         state = self._state()
-        cookie = self._cfg("pan115_cookie", "")
+        cookie = self._effective_cookie()
         try:
             configured = Pan115Client(cookie).cookie_configured
         except Exception:  # pragma: no cover - Cookie 解析异常按未配置处理
@@ -227,9 +265,9 @@ class Pan115Module:
                 "expires_in": max(0, _QR_TTL_SECONDS - int(age)),
             }
 
-        # 已确认：换取 Cookie 并落盘（写配置，因为这是用户级的登录凭据）
+        # 已确认：换取 Cookie 并落盘（存插件数据，防止被「保存配置」整份覆盖清空）
         cookie = run_sync(lambda: client.result(pending["uid"], pending.get("app") or DEFAULT_APP))
-        self._plugin.save_config(pan115_cookie=cookie)
+        self._save_cookie(cookie)
         self._clear_qr()
         status = self.check()
         return {
@@ -287,7 +325,7 @@ class Pan115Module:
 
     def logout(self) -> dict:
         """清除 Cookie 与状态缓存。"""
-        self._plugin.save_config(pan115_cookie="")
+        self._save_cookie("")
         for key in (_STATE_KEY, _QR_KEY):
             try:
                 self._plugin.del_data(key)

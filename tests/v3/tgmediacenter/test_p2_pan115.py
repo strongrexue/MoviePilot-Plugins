@@ -41,6 +41,34 @@ def test_parse_share_mirror_hosts():
         assert parsed.items[0].kind == "share"
 
 
+def test_parse_share_link_with_password_in_fragment():
+    """提取码在 # 片段（115.com/s/xxx?#password=abcd）也要能识别。"""
+    parsed = link_utils.parse_push_text("https://115.com/s/swd9f3b?#password=ayss")
+    assert parsed.total == 1
+    item = parsed.items[0]
+    assert item.kind == "share"
+    assert item.code == "swd9f3b"
+    assert item.password == "ayss"
+
+
+def test_parse_ed2k_with_chinese_filename():
+    """ed2k 文件名含中文不能被截断（老实现排除中文，只取到 ed2k://|file|）。"""
+    text = "ed2k://|file|魔法的姐妹蕾蕾和莉莉.2026.S01E14.第14集.1080p.Baha.WEB-DL.H.264.AAC.{tmdbid-286361}.mp4|393047931|d0f9ac34167612f80940eb49e0c0cc63|/"
+    parsed = link_utils.parse_push_text(text)
+    assert parsed.total == 1
+    item = parsed.items[0]
+    assert item.kind == "ed2k"
+    assert "魔法的姐妹" in item.url
+    assert item.url.endswith("|/")
+
+
+def test_parse_magnet_with_chinese_name():
+    """磁力链 dn= 含中文同样不截断。"""
+    parsed = link_utils.parse_push_text("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=某电影.2026.4K")
+    assert parsed.total == 1
+    assert parsed.items[0].kind == "magnet"
+
+
 def test_parse_non_share_115_link_ignored():
     """115 站内普通链接（非 /s/ 分享）不当作分享。"""
     assert link_utils.parse_push_text("https://115.com/?cid=123").total == 0
@@ -157,6 +185,10 @@ class _StubPlugin:
     def save_config(self, **patch):
         self._config.update(patch)
 
+    def drop_config(self, *keys):
+        for key in keys:
+            self._config.pop(key, None)
+
 
 def test_status_without_cookie():
     """未配置 Cookie 时状态明确、可展示。"""
@@ -170,6 +202,36 @@ def test_status_cookie_configured():
     """Cookie 含 UID/CID 时视为已配置（不联网）。"""
     module = Pan115Module(_StubPlugin(config={"pan115_cookie": "UID=1; CID=2; SEID=3"}))
     assert module.status()["cookie_configured"] is True
+
+
+def test_cookie_from_config_migrates_to_plugin_data():
+    """配置里的 Cookie（手动粘贴）首次使用时迁移到插件数据。"""
+    plugin = _StubPlugin(config={"pan115_cookie": "UID=1; CID=2"})
+    module = Pan115Module(plugin)
+    assert plugin.get_data("pan115_cookie_data") in (None, "")
+    assert module.status()["cookie_configured"] is True
+    assert plugin.get_data("pan115_cookie_data") == "UID=1; CID=2"
+
+
+def test_cookie_in_data_survives_config_overwrite():
+    """核心回归：扫码写入的 Cookie 存插件数据，配置被整份覆盖（保存配置）后仍生效。"""
+    plugin = _StubPlugin()
+    module = Pan115Module(plugin)
+    module._save_cookie("UID=9; CID=9")
+    assert plugin.config.get("pan115_cookie") in (None, "")  # 不再写配置
+    # 用户点了「保存配置」：宿主整份覆盖，表单里没有 cookie 字段
+    plugin.save_config(**{k: "" for k in ("pan115_enabled", "pan115_target_cid")})
+    module2 = Pan115Module(plugin)
+    assert module2.status()["cookie_configured"] is True
+
+
+def test_logout_clears_data_cookie_and_legacy_config_cookie():
+    """清除登录态要同时清掉插件数据与配置里的旧 Cookie。"""
+    plugin = _StubPlugin(config={"pan115_cookie": "UID=1; CID=2"}, data={"pan115_cookie_data": "UID=1; CID=2"})
+    status = Pan115Module(plugin).logout()
+    assert plugin.get_data("pan115_cookie_data") == ""
+    assert plugin.config.get("pan115_cookie", "") == ""
+    assert status["cookie_configured"] is False
 
 
 def test_push_dry_run_parses_without_cookie():
@@ -327,11 +389,12 @@ def test_logout_clears_cookie_and_state():
     """清除登录态要同时清掉 Cookie、状态缓存与待扫码会话。"""
     plugin = _StubPlugin(
         config={"pan115_cookie": "UID=1; CID=2"},
-        data={"pan115_state": {"authorized": True}, "pan115_qr": {"uid": "u"}},
+        data={"pan115_state": {"authorized": True}, "pan115_qr": {"uid": "u"}, "pan115_cookie_data": "UID=1; CID=2"},
     )
     module = Pan115Module(plugin)
     status = module.logout()
-    assert plugin.config["pan115_cookie"] == ""
+    assert plugin.config.get("pan115_cookie", "") == ""
+    assert plugin.get_data("pan115_cookie_data") == ""
     assert plugin.get_data("pan115_state") is None
     assert plugin.get_data("pan115_qr") is None
     assert status["cookie_configured"] is False

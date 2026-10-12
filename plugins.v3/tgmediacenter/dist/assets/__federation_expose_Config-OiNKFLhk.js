@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.2.3';
+const FRONTEND_VERSION = '1.2.4';
 
 const {resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4} = await importShared('vue');
 
@@ -1306,7 +1306,8 @@ const accountLine = computed$1(() => {
   const info = status.value || {};
   if (!info.cookie_configured) return '未登录（请扫码）'
   if (!info.authorized) return '已取得登录态，尚未验证（点「测试连接」）'
-  return info.account ? `当前登录账号：${info.account}` : '已连接'
+  const device = info.login_device ? `（登录设备：${info.login_device}）` : '';
+  return `${info.account ? `当前登录账号：${info.account}` : '已连接'}${device}`
 });
 
 const spaceLine = computed$1(() => {
@@ -1883,7 +1884,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-172c25f0"]]);
+const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-58c3a354"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

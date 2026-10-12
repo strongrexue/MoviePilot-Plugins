@@ -1,14 +1,19 @@
-"""115 网盘 Web 接口客户端（自实现子集，零新增依赖）。
+"""115 网盘接口客户端（自实现子集，零新增依赖）。
 
-范围（对齐设计文档附录 D 方案 A）
---------------------------------
-只覆盖 v1 需要的能力，全部走 **115 的 Web 接口**（带 Cookie 即可，不需要 App 通道的
-签名算法）：
+端点选择（关键，参照社区 p115client 的实现）
+--------------------------------------------
+- **Web 会话**（手动粘贴的浏览器 Cookie）：走 Web 端点 ``webapi.115.com``；
+  但 115 对这类会话有设备风控，文件类接口会要求「安全密钥」二次验证。
+- **App 会话**（扫码绑定设备后换取的 Cookie）：必须走 **App 通道端点**
+  ``proapi.115.com/{app}/2.0/...``——App 会话 + Web 端点会被 115 判为异常，
+  照样要求安全密钥。这是 1.2.3 及之前"扫码成功但校验目录仍报安全密钥"的根因。
 
-- 登录态与账号信息、空间配额
+只覆盖 v1 需要的能力：
+
+- 登录态与账号信息、空间配额（Web 端点，任何会话可用）
 - 目录列举（用于校验转存目录 CID）
 - 分享链接转存（share/snap + share/receive）
-- 磁力 / eD2k 离线下载（lixian add_task_url）
+- 磁力 / eD2k 离线下载（clouddownload lixianssp）
 - 离线配额（尽力而为，115 侧经常拿不到，失败不影响其它能力）
 
 依赖宿主的 ``AsyncRequestUtils``，不引入第三方 115 客户端库（社区库带 37 个传递依赖）。
@@ -16,7 +21,6 @@
 from __future__ import annotations
 
 from typing import Any, Optional
-from urllib.parse import urlsplit
 
 from app.adapters.network.http import AsyncRequestUtils
 from app.sdk.logging import logger
@@ -30,12 +34,21 @@ _BASE_HEADERS = {
     "Accept": "application/json, text/plain, */*",
 }
 
+# 离线下载（云下载）通道要求固定的客户端 UA（p115client 同款写法）
+_LIXIAN_APP_VERSION = "36.2.28"
+_LIXIAN_UA = (
+    f"Mozilla/5.0 115disk/{_LIXIAN_APP_VERSION} "
+    f"115Browser/{_LIXIAN_APP_VERSION} 115wangpan_android/{_LIXIAN_APP_VERSION}"
+)
+
 _NAV_URL = "https://my.115.com/"
 _SPACE_URL = "https://webapi.115.com/files/index_info"
 _FILES_URL = "https://webapi.115.com/files"
 _LIXIAN_URL = "https://webapi.115.com/lixian/"
 _SHARE_SNAP_URL = "https://webapi.115.com/share/snap"
 _SHARE_RECEIVE_URL = "https://webapi.115.com/share/receive"
+# 离线提交统一走云下载通道（Web lixian 对 App 会话同样有风控）
+_OFFLINE_ADD_URL = "https://clouddownload.115.com/lixianssp/"
 
 # 这些错误信息基本等同于"Cookie 失效/未登录"，需要引导用户重新获取
 _AUTH_ERROR_HINTS = ("登录", "未登录", "登陆", "cookie", "token", "重新登录", "授权")
@@ -101,12 +114,47 @@ class Pan115Client:
         self,
         cookie: Any,
         *,
+        app: str = "web",
         proxies: Optional[dict] = None,
         timeout: int = 20,
     ) -> None:
         self._cookie = parse_cookie(cookie)
+        self._app = str(app or "web").strip() or "web"
         self._proxies = proxies
         self._timeout = max(5, int(timeout or 20))
+
+    @property
+    def app(self) -> str:
+        """当前会话绑定的设备标识；``web`` 表示网页会话。"""
+        return self._app
+
+    @property
+    def app_session(self) -> bool:
+        """是否为 App 通道会话（决定文件类接口走哪套端点）。"""
+        return self._app not in ("", "web")
+
+    # ------------------------------------------------------------------ 端点选择
+
+    @property
+    def files_url(self) -> str:
+        """目录列举端点。"""
+        if self.app_session:
+            return f"https://proapi.115.com/{self._app}/2.0/ufile/files"
+        return _FILES_URL
+
+    @property
+    def share_snap_url(self) -> str:
+        """分享快照端点。"""
+        if self.app_session:
+            return f"https://proapi.115.com/{self._app}/2.0/share/snap"
+        return _SHARE_SNAP_URL
+
+    @property
+    def share_receive_url(self) -> str:
+        """分享转存端点。"""
+        if self.app_session:
+            return f"https://proapi.115.com/{self._app}/2.0/share/receive"
+        return _SHARE_RECEIVE_URL
 
     # ------------------------------------------------------------------ 基础请求
 
@@ -115,10 +163,10 @@ class Pan115Client:
         """是否配置了看起来可用的 Cookie（不发起网络请求）。"""
         return bool(self._cookie.get("UID") and self._cookie.get("CID"))
 
-    async def _request(self, method: str, url: str, *, params: dict = None, data: dict = None) -> dict:
+    async def _request(self, method: str, url: str, *, params: dict = None, data: dict = None, headers: dict = None) -> dict:
         """发起请求并返回 JSON；非 200 / 非 JSON / 网络失败统一抛错。"""
         client = AsyncRequestUtils(
-            headers=_BASE_HEADERS,
+            headers=headers or _BASE_HEADERS,
             cookies=self._cookie,
             proxies=self._proxies,
             timeout=self._timeout,
@@ -245,9 +293,13 @@ class Pan115Client:
     # ------------------------------------------------------------------ 目录
 
     async def list_dir(self, cid: str, limit: int = 30) -> dict:
-        """列举目录内容；用于校验"转存目录 CID"是否有效。"""
+        """列举目录内容；用于校验"转存目录 CID"是否有效。
+
+        Web 端点（``/files``）返回 ``data`` 为列表、``path``/``count`` 在顶层；
+        App 2.0 端点返回 ``data`` 为 ``{list, path, count}``——两种都要兼容。
+        """
         payload = await self._request(
-            "get", _FILES_URL,
+            "get", self.files_url,
             params={
                 "aid": 1,
                 "cid": str(cid or "0"),
@@ -261,11 +313,18 @@ class Pan115Client:
             },
         )
         self._unwrap(payload, "读取目录")
-        items = payload.get("data") or []
-        path = payload.get("path") or []
+        data = payload.get("data")
+        if isinstance(data, dict):
+            items = data.get("list") or []
+            path = data.get("path") or payload.get("path") or []
+            count = data.get("count") or len(items)
+        else:
+            items = data or []
+            path = payload.get("path") or []
+            count = payload.get("count") or len(items)
         return {
             "cid": str(payload.get("cid") or cid or ""),
-            "count": int(payload.get("count") or len(items) or 0),
+            "count": int(count or 0),
             "dirname": str((path[-1].get("name") if path else "") or ""),
             "items": [
                 {
@@ -291,10 +350,11 @@ class Pan115Client:
     async def share_snap(self, share_code: str, password: str = "") -> dict:
         """读取分享快照，拿到顶层文件 id 列表（转存必需）。"""
         payload = await self._request(
-            "get", _SHARE_SNAP_URL,
+            "get", self.share_snap_url,
             params={
                 "share_code": str(share_code or "").strip(),
                 "receive_code": str(password or "").strip(),
+                "cid": 0,
                 "offset": 0,
                 "limit": 100,
             },
@@ -334,7 +394,7 @@ class Pan115Client:
         if not file_ids:
             raise Pan115Error("分享里没有可转存的文件")
         payload = await self._request(
-            "post", _SHARE_RECEIVE_URL,
+            "post", self.share_receive_url,
             data={
                 "share_code": str(share_code or "").strip(),
                 "receive_code": str(password or "").strip(),
@@ -354,14 +414,19 @@ class Pan115Client:
     # ------------------------------------------------------------------ 离线下载
 
     async def offline_add(self, url: str, cid: str = "") -> dict:
-        """提交磁力 / eD2k 离线下载任务。"""
+        """提交磁力 / eD2k 离线下载任务。
+
+        统一走云下载通道（``clouddownload.115.com/lixianssp``），该通道要求固定的
+        客户端 UA（p115client 同款），对 Web / App 会话都不触发安全密钥。
+        """
         target = str(cid or "").strip()
         if not target:
             raise Pan115Error("离线下载需要指定保存目录 CID")
         payload = await self._request(
-            "post", _LIXIAN_URL,
+            "post", _OFFLINE_ADD_URL,
             params={"ct": "lixian", "ac": "add_task_url"},
             data={"url": str(url or "").strip(), "wp_path_id": target},
+            headers={**_BASE_HEADERS, "User-Agent": _LIXIAN_UA, "Referer": "https://115.com/"},
         )
         if payload.get("state") is False:
             message = self._error_text(payload) or "未知原因"

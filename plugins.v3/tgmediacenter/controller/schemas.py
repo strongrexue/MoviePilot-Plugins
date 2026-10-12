@@ -141,6 +141,8 @@ class Pan115StatusData(BaseModel):
     cookie_configured: bool = False
     authorized: bool = False
     account: str = ""
+    qr_app: str = ""
+    login_device: str = ""
     space: Pan115Space = Field(default_factory=Pan115Space)
     offline: Pan115Offline = Field(default_factory=Pan115Offline)
     last_check: str = ""

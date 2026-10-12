@@ -217,11 +217,12 @@ def api_pan115_push(plugin, request: api_schemas.Pan115PushRequest):
     if request.text:
         sources.append(request.text)
     result = _invoke(
-        module.push,
-        sources,
-        cid=request.cid or None,
-        batch_size=request.batch_size or None,
-        dry_run=bool(request.dry_run),
+        lambda: module.push(
+            sources,
+            cid=request.cid or None,
+            batch_size=request.batch_size or None,
+            dry_run=bool(request.dry_run),
+        ),
     )
     return _envelope(api_schemas.Pan115PushResult.model_validate(result), message=result.get("message", ""))
 

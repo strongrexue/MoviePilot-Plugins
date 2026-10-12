@@ -111,13 +111,16 @@ class Pan115Module:
                 logger.debug(f"清理配置中的旧 115 Cookie 失败：{err}")
 
     def _client(self, timeout: int = 20) -> Pan115Client:
-        """构造 115 客户端；未配置 Cookie 时给出可操作错误。"""
+        """构造 115 客户端；未配置 Cookie 时给出可操作错误。
+
+        会话绑定的设备（``qr_app``）决定文件类接口走哪套端点：
+        App 会话必须打 ``proapi.115.com/{app}/2.0/...``，打 Web 端点会被要求安全密钥。
+        """
         cookie = self._effective_cookie()
-        client = Pan115Client(cookie, proxies=self._resolve_proxy(), timeout=timeout)
+        app = str(self._state().get("qr_app") or "web")
+        client = Pan115Client(cookie, app=app, proxies=self._resolve_proxy(), timeout=timeout)
         if not client.cookie_configured:
-            raise Pan115Error(
-                "未配置有效的 115 Cookie：请扫码登录，或在「或手动粘贴 Cookie」里粘贴后点「测试连接」"
-            )
+            raise Pan115Error("未登录 115：请在「账号与授权」里扫码登录")
         return client
 
     def _resolve_proxy(self) -> Optional[dict]:
@@ -154,11 +157,20 @@ class Pan115Module:
             configured = Pan115Client(cookie).cookie_configured
         except Exception:  # pragma: no cover - Cookie 解析异常按未配置处理
             configured = False
+        qr_app = str(state.get("qr_app") or "")
+        device_label = ""
+        if qr_app:
+            device_label = next(
+                (option["title"] for option in app_options() if option["value"] == qr_app),
+                qr_app,
+            )
         return {
             "enabled": self.enabled(),
             "cookie_configured": configured,
             "authorized": bool(state.get("authorized")),
             "account": str(state.get("account") or ""),
+            "qr_app": qr_app,
+            "login_device": device_label,
             "space": state.get("space") if isinstance(state.get("space"), dict) else {},
             "offline": state.get("offline") if isinstance(state.get("offline"), dict) else {"available": False, "text": "未检测"},
             "last_check": str(state.get("at") or ""),
@@ -268,6 +280,8 @@ class Pan115Module:
         # 已确认：换取 Cookie 并落盘（存插件数据，防止被「保存配置」整份覆盖清空）
         cookie = run_sync(lambda: client.result(pending["uid"], pending.get("app") or DEFAULT_APP))
         self._save_cookie(cookie)
+        # 记录会话绑定的设备：之后所有文件类接口都要走对应的 App 通道端点
+        self._save_state(qr_app=str(pending.get("app") or DEFAULT_APP))
         self._clear_qr()
         status = self.check()
         return {

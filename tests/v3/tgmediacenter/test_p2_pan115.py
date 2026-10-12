@@ -190,6 +190,30 @@ class _StubPlugin:
             self._config.pop(key, None)
 
 
+def test_client_endpoints_by_session_type():
+    """App 会话必须走 proapi 的 App 通道端点；Web 会话走 webapi。"""
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    web = Pan115Client("UID=1; CID=2")
+    assert not web.app_session
+    assert web.files_url == "https://webapi.115.com/files"
+    assert web.share_snap_url == "https://webapi.115.com/share/snap"
+
+    app_client = Pan115Client("UID=1; CID=2", app="alipaymini")
+    assert app_client.app_session
+    assert app_client.files_url == "https://proapi.115.com/alipaymini/2.0/ufile/files"
+    assert app_client.share_snap_url == "https://proapi.115.com/alipaymini/2.0/share/snap"
+    assert app_client.share_receive_url == "https://proapi.115.com/alipaymini/2.0/share/receive"
+
+
+def test_status_reports_login_device():
+    """扫码成功后要能展示绑定的登录设备。"""
+    plugin = _StubPlugin(data={"pan115_state": {"authorized": True, "qr_app": "alipaymini"}})
+    status = Pan115Module(plugin).status()
+    assert status["qr_app"] == "alipaymini"
+    assert "支付宝" in status["login_device"]
+
+
 def test_status_without_cookie():
     """未配置 Cookie 时状态明确、可展示。"""
     status = Pan115Module(_StubPlugin()).status()
@@ -248,7 +272,7 @@ def test_push_requires_cookie_for_real_run():
     module = Pan115Module(_StubPlugin())
     with pytest.raises(Pan115Error) as excinfo:
         module.push(["magnet:?xt=urn:btih:" + "c" * 40])
-    assert "Cookie" in str(excinfo.value)
+    assert "扫码" in str(excinfo.value)
 
 
 def test_push_requires_target_cid():

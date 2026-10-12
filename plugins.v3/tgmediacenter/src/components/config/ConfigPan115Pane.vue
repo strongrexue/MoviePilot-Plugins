@@ -29,7 +29,8 @@ const accountLine = computed(() => {
   const info = status.value || {}
   if (!info.cookie_configured) return '未登录（请扫码）'
   if (!info.authorized) return '已取得登录态，尚未验证（点「测试连接」）'
-  return info.account ? `当前登录账号：${info.account}` : '已连接'
+  const device = info.login_device ? `（登录设备：${info.login_device}）` : ''
+  return `${info.account ? `当前登录账号：${info.account}` : '已连接'}${device}`
 })
 
 const spaceLine = computed(() => {

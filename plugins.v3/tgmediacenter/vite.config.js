@@ -53,6 +53,8 @@ export default defineConfig({
   ],
   build: {
     target: 'esnext',
+    // 不压缩：产物体积依然很小（gzip 后十几 KB），换来的是浏览器里可直接读源码，
+    // 排查"插件更新了但界面还是旧的"这类问题时要按字符串核对产物，压缩后无法核对。
     minify: false,
     cssCodeSplit: true,
     emptyOutDir: false,

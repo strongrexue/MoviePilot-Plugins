@@ -7,6 +7,7 @@
 import pytest
 
 from app.plugins.tgmediacenter.core import links as link_utils
+from app.plugins.tgmediacenter.core import pan115_login
 from app.plugins.tgmediacenter.core.pan115_client import Pan115Error, parse_cookie
 from app.plugins.tgmediacenter.modules.pan115 import Pan115Module
 
@@ -213,11 +214,125 @@ def test_batch_size_override_and_guard():
     assert module.batch_size(0) >= 1
 
 
+# --------------------------------------------------------------------- 扫码登录
+
+
+def test_qr_app_options_available():
+    """设备清单要能供前端下拉使用。"""
+    options = pan115_login.app_options()
+    values = {item["value"] for item in options}
+    assert "alipaymini" in values
+    assert "115ios" in values and "115android" in values
+    assert all(item["title"] for item in options)
+    assert pan115_login.DEFAULT_APP in values
+
+
+def test_qr_status_text_covers_known_codes():
+    """已知状态码都要有中文文案。"""
+    for code in (0, 1, 2, -1, -2):
+        assert pan115_login.QR_STATUS_TEXT.get(code)
+
+
+def test_qr_rejects_unknown_app_without_network():
+    """不支持的设备标识要在发请求前就拒绝。"""
+    import asyncio
+
+    with pytest.raises(pan115_login.Pan115QrError) as excinfo:
+        asyncio.run(pan115_login.Pan115QrLogin().result("uid", "not-an-app"))
+    assert "不支持的登录设备" in str(excinfo.value)
+
+
+def test_qr_poll_without_pending():
+    """没有进行中的扫码会话时，返回明确的过期态（不联网）。"""
+    result = Pan115Module(_StubPlugin()).qr_poll()
+    assert result["status"] == "expired"
+    assert "重新获取二维码" in result["message"]
+
+
+def test_qr_poll_expires_stale_session():
+    """超过有效期的扫码会话应判过期并清理（不联网）。"""
+    from datetime import datetime, timedelta
+
+    stale = (datetime.now() - timedelta(seconds=600)).isoformat(timespec="seconds")
+    plugin = _StubPlugin(data={"pan115_qr": {
+        "uid": "u", "time": 1, "sign": "s", "app": "alipaymini",
+        "image": "data:image/png;base64,xx", "at": stale,
+    }})
+    module = Pan115Module(plugin)
+    result = module.qr_poll()
+    assert result["status"] == "expired"
+    assert plugin.get_data("pan115_qr") is None
+
+
+def test_qr_pending_view_hidden_when_stale():
+    """过期的二维码不应出现在状态里（前端就不会继续展示）。"""
+    from datetime import datetime, timedelta
+
+    fresh = datetime.now().isoformat(timespec="seconds")
+    stale = (datetime.now() - timedelta(seconds=600)).isoformat(timespec="seconds")
+    fresh_module = Pan115Module(_StubPlugin(data={"pan115_qr": {
+        "uid": "u", "app": "115ios", "image": "data:image/png;base64,xx", "at": fresh,
+    }}))
+    view = fresh_module.status()["qr_pending"]
+    assert view is not None and view["app"] == "115ios" and view["expires_in"] > 0
+
+    stale_module = Pan115Module(_StubPlugin(data={"pan115_qr": {
+        "uid": "u", "app": "115ios", "image": "data:image/png;base64,xx", "at": stale,
+    }}))
+    assert stale_module.status()["qr_pending"] is None
+
+
+def test_qr_cancel_clears_session():
+    """取消后不再有待扫码会话。"""
+    plugin = _StubPlugin(data={"pan115_qr": {"uid": "u", "app": "alipaymini", "at": "now"}})
+    module = Pan115Module(plugin)
+    result = module.qr_cancel()
+    assert result["status"] == "canceled"
+    assert plugin.get_data("pan115_qr") is None
+
+
+def test_status_exposes_qr_apps():
+    """状态里要带上设备清单，前端无需硬编码。"""
+    status = Pan115Module(_StubPlugin()).status()
+    assert len(status["qr_apps"]) >= 5
+
+
+# --------------------------------------------------------------------- 安全密钥提示
+
+
+def test_security_key_error_is_explained():
+    """"请先验证安全密钥"要翻译成可操作的解释，而不是原样抛出。"""
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    client = Pan115Client("UID=1; CID=2")
+    with pytest.raises(Pan115Error) as excinfo:
+        client._unwrap({"state": False, "error": "请先验证安全密钥"}, "读取目录")
+    message = str(excinfo.value)
+    assert "安全密钥" in message
+    assert "扫码登录" in message
+
+
+def test_other_errors_keep_original_text():
+    """其它错误保持原文，不被安全密钥提示覆盖。"""
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    client = Pan115Client("UID=1; CID=2")
+    with pytest.raises(Pan115Error) as excinfo:
+        client._unwrap({"state": False, "error": "目录不存在"}, "读取目录")
+    assert "目录不存在" in str(excinfo.value)
+    assert "扫码登录" not in str(excinfo.value)
+
+
 def test_logout_clears_cookie_and_state():
-    """清除 Cookie 要同时清掉状态缓存。"""
-    plugin = _StubPlugin(config={"pan115_cookie": "UID=1; CID=2"}, data={"pan115_state": {"authorized": True}})
+    """清除登录态要同时清掉 Cookie、状态缓存与待扫码会话。"""
+    plugin = _StubPlugin(
+        config={"pan115_cookie": "UID=1; CID=2"},
+        data={"pan115_state": {"authorized": True}, "pan115_qr": {"uid": "u"}},
+    )
     module = Pan115Module(plugin)
     status = module.logout()
     assert plugin.config["pan115_cookie"] == ""
     assert plugin.get_data("pan115_state") is None
+    assert plugin.get_data("pan115_qr") is None
     assert status["cookie_configured"] is False
+

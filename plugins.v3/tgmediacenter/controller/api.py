@@ -17,6 +17,7 @@ from app.sdk.logging import logger
 from fastapi import HTTPException
 
 from ..core.pan115_client import Pan115Error
+from ..core.pan115_login import Pan115QrError
 from ..core.telegram import TelegramOperationError
 from . import schemas as api_schemas
 
@@ -41,6 +42,9 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/pan115/logout", plugin.api_pan115_logout, ["POST"], "清除 115 Cookie 与状态"),
         ("/pan115/verify_dir", plugin.api_pan115_verify_dir, ["POST"], "校验 115 目标目录 CID"),
         ("/pan115/push", plugin.api_pan115_push, ["POST"], "批量推送链接到 115"),
+        ("/pan115/qr_start", plugin.api_pan115_qr_start, ["POST"], "获取 115 扫码登录二维码"),
+        ("/pan115/qr_poll", plugin.api_pan115_qr_poll, ["POST"], "查询 115 扫码登录状态"),
+        ("/pan115/qr_cancel", plugin.api_pan115_qr_cancel, ["POST"], "取消 115 扫码登录"),
     ]
     return [
         {
@@ -67,6 +71,8 @@ def _invoke(callback: Callable, **kwargs):
     except TelegramOperationError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
     except Pan115Error as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except Pan115QrError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
     except (FutureTimeoutError, TimeoutError) as err:
         raise HTTPException(status_code=504, detail="Telegram 操作超时，请重试") from err
@@ -218,3 +224,24 @@ def api_pan115_push(plugin, request: api_schemas.Pan115PushRequest):
         dry_run=bool(request.dry_run),
     )
     return _envelope(api_schemas.Pan115PushResult.model_validate(result), message=result.get("message", ""))
+
+
+def api_pan115_qr_start(plugin, request: api_schemas.Pan115QrStartRequest):
+    """获取 115 扫码登录二维码（App 通道，不触发 Web 安全密钥）。"""
+    module = _pan115(plugin)
+    data = _invoke(module.qr_start, app=request.app or None)
+    return _envelope(api_schemas.Pan115QrData.model_validate(data), message=data.get("message", ""))
+
+
+def api_pan115_qr_poll(plugin):
+    """查询 115 扫码登录状态；确认后自动写入 Cookie。"""
+    module = _pan115(plugin)
+    data = _invoke(module.qr_poll)
+    return _envelope(api_schemas.Pan115QrData.model_validate(data), message=data.get("message", ""))
+
+
+def api_pan115_qr_cancel(plugin):
+    """取消 115 扫码登录。"""
+    module = _pan115(plugin)
+    data = _invoke(module.qr_cancel)
+    return _envelope(api_schemas.Pan115QrData.model_validate(data), message=data.get("message", ""))

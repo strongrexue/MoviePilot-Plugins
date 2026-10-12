@@ -119,6 +119,21 @@ class Pan115Offline(BaseModel):
     text: str = ""
 
 
+class Pan115QrApp(BaseModel):
+    """扫码登录可选的设备标识。"""
+
+    value: str = ""
+    title: str = ""
+
+
+class Pan115QrPending(BaseModel):
+    """进行中的扫码登录（刷新页面后可恢复展示）。"""
+
+    app: str = ""
+    image: str = ""
+    expires_in: int = 0
+
+
 class Pan115StatusData(BaseModel):
     """115 模块状态。"""
 
@@ -131,6 +146,26 @@ class Pan115StatusData(BaseModel):
     last_check: str = ""
     target_cid: str = ""
     batch_max_size: int = 20
+    qr_apps: List[Pan115QrApp] = Field(default_factory=list)
+    qr_pending: Optional[Pan115QrPending] = None
+
+
+class Pan115QrStartRequest(BaseModel):
+    """获取登录二维码。"""
+
+    app: str = Field(default="alipaymini", description="扫码绑定的设备标识，如 alipaymini / 115ios")
+
+
+class Pan115QrData(BaseModel):
+    """扫码登录状态。"""
+
+    app: str = ""
+    image: str = Field(default="", description="二维码图片 data URL")
+    status: str = Field(default="waiting", description="waiting/scanned/success/expired/canceled")
+    status_text: str = ""
+    message: str = ""
+    expires_in: int = 0
+    status_data: Optional[Pan115StatusData] = None
 
 
 class Pan115PushRequest(BaseModel):
@@ -193,4 +228,7 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/pan115/logout": Pan115StatusData,
     "/pan115/verify_dir": Pan115DirData,
     "/pan115/push": Pan115PushResult,
+    "/pan115/qr_start": Pan115QrData,
+    "/pan115/qr_poll": Pan115QrData,
+    "/pan115/qr_cancel": Pan115QrData,
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from '../api'
 import SecretField from './SecretField.vue'
 
@@ -127,7 +127,95 @@ async function push(dryRun) {
   }
 }
 
-onMounted(loadStatus)
+// ------------------------------------------------------------------ 扫码登录
+const qr = ref(null)
+const qrApp = ref('alipaymini')
+const qrBusy = ref(false)
+let qrTimer = null
+
+const qrApps = computed(() => status.value?.qr_apps || [])
+
+async function qrStart() {
+  if (qrBusy.value) return
+  qrBusy.value = true
+  setMessage('正在获取二维码…')
+  try {
+    const data = unwrap(await postPluginApi(
+      props.api, props.pluginId, 'pan115/qr_start', { app: qrApp.value }, { timeoutMs: 30000 },
+    ))
+    qr.value = data
+    setMessage(data?.message || '请用 115 App 扫描二维码')
+    startQrPolling()
+  } catch (err) {
+    setMessage(err?.message || '获取二维码失败', false)
+  } finally {
+    qrBusy.value = false
+  }
+}
+
+async function qrPollOnce() {
+  try {
+    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'pan115/qr_poll', {}, { timeoutMs: 30000 }))
+    qr.value = data
+    const state = data?.status
+    if (state === 'success') {
+      qrStopPolling()
+      if (data?.status_data) status.value = data.status_data
+      setMessage(data?.message || '扫码登录成功')
+      await loadStatus()
+    } else if (state === 'expired' || state === 'canceled') {
+      qrStopPolling()
+      setMessage(data?.message || '二维码已失效，请重新获取', false)
+    } else {
+      setMessage(data?.status_text || '等待扫码')
+    }
+  } catch (err) {
+    qrStopPolling()
+    setMessage(err?.message || '查询扫码状态失败', false)
+  }
+}
+
+function startQrPolling() {
+  qrStopPolling()
+  qrTimer = window.setInterval(qrPollOnce, 2000)
+}
+
+function qrStopPolling() {
+  if (qrTimer) {
+    window.clearInterval(qrTimer)
+    qrTimer = null
+  }
+}
+
+async function qrCancel() {
+  qrStopPolling()
+  try {
+    await postPluginApi(props.api, props.pluginId, 'pan115/qr_cancel', {}, { timeoutMs: 20000 })
+  } catch {
+    // 取消失败不影响本地状态清理
+  }
+  qr.value = null
+  setMessage('已取消扫码登录')
+}
+
+onMounted(async () => {
+  await loadStatus()
+  // 刷新页面后若仍有进行中的扫码会话，恢复二维码并继续轮询
+  const pending = status.value?.qr_pending
+  if (pending?.image) {
+    qr.value = {
+      app: pending.app,
+      image: pending.image,
+      status: 'waiting',
+      status_text: '等待扫码',
+      message: '继续等待扫码…',
+      expires_in: pending.expires_in,
+    }
+    startQrPolling()
+  }
+})
+
+onUnmounted(qrStopPolling)
 </script>
 
 <template>
@@ -164,7 +252,48 @@ onMounted(loadStatus)
           <span v-if="status?.last_check" class="p115-updated">检测于 {{ status.last_check }}</span>
         </div>
 
-        <VRow dense class="mt-2">
+        <!-- 扫码登录（推荐）：App 通道不会触发 115 的「安全密钥」二次验证 -->
+        <div class="p115-qr">
+          <div class="p115-qr-form">
+            <VSelect
+              v-model="qrApp"
+              :items="qrApps"
+              item-title="title"
+              item-value="value"
+              label="登录设备"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="p115-qr-app"
+              :disabled="Boolean(qr)"
+            />
+            <VBtn
+              color="primary"
+              variant="flat"
+              :loading="qrBusy"
+              prepend-icon="mdi-qrcode-scan"
+              @click="qrStart"
+            >
+              {{ qr ? '重新获取二维码' : '扫码登录' }}
+            </VBtn>
+            <VBtn v-if="qr" variant="text" color="error" prepend-icon="mdi-close" @click="qrCancel">取消</VBtn>
+          </div>
+
+          <div v-if="qr?.image" class="p115-qr-body">
+            <img :src="qr.image" alt="115 登录二维码" class="p115-qr-img" />
+            <div class="p115-qr-meta">
+              <div class="p115-qr-state">{{ qr.status_text || '等待扫码' }}</div>
+              <div class="p115-qr-tip">用 115 App 扫描二维码，并在手机上点击确认</div>
+              <div class="p115-qr-tip">会话绑定设备：{{ qr.app }}</div>
+              <div v-if="qr.expires_in" class="p115-qr-tip">
+                二维码有效期约 {{ Math.max(1, Math.ceil(qr.expires_in / 60)) }} 分钟
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p115-sub">或手动粘贴 Cookie（备用）</div>
+        <VRow dense class="mt-1">
           <VCol cols="12">
             <SecretField
               v-model="form.pan115_cookie"
@@ -185,7 +314,7 @@ onMounted(loadStatus)
             prepend-icon="mdi-logout"
             @click="clearCookie"
           >
-            清除 Cookie
+            清除登录态
           </VBtn>
           <VSpacer />
           <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="loading" @click="loadStatus">
@@ -194,9 +323,10 @@ onMounted(loadStatus)
         </div>
 
         <div class="p115-hint">
-          登录态用<strong>手动 Cookie</strong>（v1 不做扫码登录）：浏览器登录 115 后按 F12 →
-          Application/Network → 复制请求头里的 Cookie 整条（需含 <code>UID</code> 与 <code>CID</code>）粘贴到上方并保存。
-          Cookie 会过期，失效后重测会提示。
+          <strong>推荐用扫码登录</strong>：115 对浏览器 Cookie 有设备风控——读账号/空间可以通过，
+          但「列目录 / 转存 / 离线」这类文件接口会返回 <code>请先验证安全密钥</code>；
+          扫码绑定 App 设备（如支付宝小程序）不会触发该验证。
+          若坚持用手动 Cookie，请在浏览器登录 115 后按 F12 → 复制含 <code>UID</code> 与 <code>CID</code> 的整条 Cookie。
         </div>
       </VCardText>
     </VCard>
@@ -297,6 +427,15 @@ onMounted(loadStatus)
 .p115-sep { opacity: 0.4; }
 .p115-updated { margin-left: auto; font-size: 12px; opacity: 0.6; }
 .p115-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.p115-qr { margin-top: 12px; padding: 12px; border-radius: 10px; background: rgba(var(--v-theme-on-surface), 0.03); }
+.p115-qr-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.p115-qr-app { flex: 0 0 260px; max-width: 100%; }
+.p115-qr-body { display: flex; gap: 16px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.p115-qr-img { width: 168px; height: 168px; border-radius: 8px; background: #fff; padding: 6px; }
+.p115-qr-meta { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+.p115-qr-state { font-size: 14px; font-weight: 500; color: rgb(var(--v-theme-primary)); }
+.p115-qr-tip { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.65); line-height: 1.6; }
+.p115-sub { margin-top: 14px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); }
 .p115-hint { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.7; }
 .p115-hint code {
   padding: 1px 4px;

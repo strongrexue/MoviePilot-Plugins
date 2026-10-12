@@ -158,10 +158,26 @@ class Pan115Client:
         if any(hint in lowered for hint in _AUTH_ERROR_HINTS):
             raise Pan115AuthError(f"115 登录态无效：{message}（请重新获取 Cookie 并保存）")
 
+    def _raise_if_security_key(self, message: str) -> None:
+        """把"请先验证安全密钥"翻译成可操作的解释。
+
+        成因：115 对**浏览器 Cookie** 的会话做设备风控——读取账号/空间可以，但
+        「文件读写类」接口（列目录、转存、离线）会要求账号级二次验证（安全密钥）。
+        社区所有第三方 115 工具因此都改用扫码登录（App 通道）。
+        """
+        if "安全密钥" not in message:
+            return
+        raise Pan115Error(
+            "115 要求先验证安全密钥：用浏览器 Cookie 从服务器调用时，115 会把「文件读写类」"
+            "接口视为新设备的敏感操作，从而要求账号级二次验证。"
+            "请改用上面的「扫码登录」（选 App 设备，如支付宝小程序），该通道不会触发这个验证。"
+        )
+
     def _unwrap(self, payload: dict, action: str) -> dict:
         """检查 ``state`` 字段；失败时抛出带上下文的错误。"""
         if payload.get("state") is False or payload.get("state") == 0:
             message = self._error_text(payload) or "未知原因"
+            self._raise_if_security_key(message)
             self._raise_if_auth_error(message)
             raise Pan115Error(f"{action}失败：{message}")
         return payload
@@ -287,6 +303,7 @@ class Pan115Client:
             message = self._error_text(payload) or "分享不可用"
             if "密码" in message or "提取" in message:
                 raise Pan115Error("提取码错误或未填写，请检查分享链接的提取码")
+            self._raise_if_security_key(message)
             raise Pan115Error(f"读取分享失败：{message}")
         data = payload.get("data") or {}
         # 新版返回 {data: {shareinfo, list}}；旧版可能直接是 list
@@ -329,6 +346,7 @@ class Pan115Client:
             message = self._error_text(payload) or "未知原因"
             if "已转存" in message or "重复" in message:
                 return {"ok": True, "message": "该分享此前已转存过（跳过）"}
+            self._raise_if_security_key(message)
             self._raise_if_auth_error(message)
             raise Pan115Error(f"转存失败：{message}")
         return {"ok": True, "message": "转存成功"}
@@ -349,6 +367,7 @@ class Pan115Client:
             message = self._error_text(payload) or "未知原因"
             if "已存在" in message or "重复" in message:
                 return {"ok": True, "message": "该任务已存在（跳过）"}
+            self._raise_if_security_key(message)
             self._raise_if_auth_error(message)
             raise Pan115Error(f"离线下载提交失败：{message}")
         return {"ok": True, "message": "离线任务已提交"}

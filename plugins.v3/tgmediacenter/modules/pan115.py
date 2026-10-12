@@ -19,9 +19,19 @@ from app.sdk.logging import logger
 
 from ..core import links as link_utils
 from ..core.pan115_client import Pan115AuthError, Pan115Client, Pan115Error
+from ..core.pan115_login import (
+    DEFAULT_APP,
+    Pan115QrError,
+    Pan115QrLogin,
+    app_options,
+)
+from ..utils import elapsed_seconds as _elapsed_seconds
 from ..utils import run_sync
 
 _STATE_KEY = "pan115_state"
+_QR_KEY = "pan115_qr"
+# 二维码有效期（115 侧约 5 分钟）
+_QR_TTL_SECONDS = 300
 # 单次同步调用的总时间预算（秒）：必须小于同步接口的网关超时
 _PUSH_DEADLINE_SECONDS = 40
 # 单次同步调用处理的条目上限（其余返回 remaining，由前端提示再次点击）
@@ -116,7 +126,139 @@ class Pan115Module:
             "last_check": str(state.get("at") or ""),
             "target_cid": self.target_cid(),
             "batch_max_size": self.batch_size(),
+            "qr_apps": app_options(),
+            "qr_pending": self._qr_pending_view(),
         }
+
+    # ------------------------------------------------------------------ 扫码登录
+
+    def _qr_login(self, timeout: int = 20) -> Pan115QrLogin:
+        """构造扫码登录客户端（继承宿主代理）。"""
+        return Pan115QrLogin(proxies=self._resolve_proxy(), timeout=timeout)
+
+    def _qr_pending(self) -> dict:
+        data = self._plugin.get_data(_QR_KEY) or {}
+        return data if isinstance(data, dict) else {}
+
+    def _qr_pending_view(self) -> Optional[dict]:
+        """待扫码状态的对外视图（不含 uid/sign 等内部字段）。"""
+        pending = self._qr_pending()
+        if not pending.get("uid"):
+            return None
+        age = _elapsed_seconds(pending.get("at"))
+        if age is not None and age > _QR_TTL_SECONDS:
+            return None
+        return {
+            "app": str(pending.get("app") or DEFAULT_APP),
+            "image": str(pending.get("image") or ""),
+            "expires_in": max(0, _QR_TTL_SECONDS - int(age or 0)),
+        }
+
+    def qr_start(self, app: Optional[str] = None) -> dict:
+        """获取登录二维码（App 通道，不会触发 Web 安全密钥）。"""
+        use_app = str(app or DEFAULT_APP).strip() or DEFAULT_APP
+        client = self._qr_login()
+        token = run_sync(client.token)
+        image = run_sync(lambda: client.image_data_url(token["uid"]))
+        self._plugin.save_data(_QR_KEY, {
+            "uid": token["uid"],
+            "time": token["time"],
+            "sign": token["sign"],
+            "app": use_app,
+            "image": image,
+            "at": datetime.now().isoformat(timespec="seconds"),
+        })
+        return {
+            "app": use_app,
+            "image": image,
+            "status": "waiting",
+            "status_text": "等待扫码",
+            "message": f"请用 115 App 扫描二维码（设备将绑定为：{use_app}）",
+            "expires_in": _QR_TTL_SECONDS,
+        }
+
+    def qr_poll(self) -> dict:
+        """查询扫码状态；确认后自动写入 Cookie 并检测连接。"""
+        pending = self._qr_pending()
+        if not pending.get("uid"):
+            return {
+                "app": "",
+                "image": "",
+                "status": "expired",
+                "status_text": "二维码已失效",
+                "message": "没有进行中的扫码登录，请重新获取二维码",
+                "expires_in": 0,
+            }
+
+        age = _elapsed_seconds(pending.get("at")) or 0
+        if age > _QR_TTL_SECONDS:
+            self._clear_qr()
+            return {
+                "app": str(pending.get("app") or ""),
+                "image": "",
+                "status": "expired",
+                "status_text": "二维码已过期",
+                "message": "二维码已过期，请重新获取",
+                "expires_in": 0,
+            }
+
+        client = self._qr_login()
+        state = run_sync(lambda: client.status(pending["uid"], pending.get("time"), pending.get("sign")))
+        code = state.get("code")
+
+        if code in (-1, -2):
+            self._clear_qr()
+            return {
+                "app": str(pending.get("app") or ""),
+                "image": "",
+                "status": "expired" if code == -1 else "canceled",
+                "status_text": state.get("text") or "扫码已结束",
+                "message": state.get("text") or "扫码已结束，请重新获取二维码",
+                "expires_in": 0,
+            }
+
+        if code != 2:
+            return {
+                "app": str(pending.get("app") or ""),
+                "image": str(pending.get("image") or ""),
+                "status": "scanned" if code == 1 else "waiting",
+                "status_text": state.get("text") or "等待扫码",
+                "message": state.get("text") or "等待扫码",
+                "expires_in": max(0, _QR_TTL_SECONDS - int(age)),
+            }
+
+        # 已确认：换取 Cookie 并落盘（写配置，因为这是用户级的登录凭据）
+        cookie = run_sync(lambda: client.result(pending["uid"], pending.get("app") or DEFAULT_APP))
+        self._plugin.save_config(pan115_cookie=cookie)
+        self._clear_qr()
+        status = self.check()
+        return {
+            "app": str(pending.get("app") or ""),
+            "image": "",
+            "status": "success",
+            "status_text": "登录成功",
+            "message": f"115 扫码登录成功：{status.get('account') or ''}",
+            "expires_in": 0,
+            "status_data": status,
+        }
+
+    def qr_cancel(self) -> dict:
+        """取消扫码登录。"""
+        self._clear_qr()
+        return {
+            "app": "",
+            "image": "",
+            "status": "canceled",
+            "status_text": "已取消",
+            "message": "已取消扫码登录",
+            "expires_in": 0,
+        }
+
+    def _clear_qr(self) -> None:
+        try:
+            self._plugin.del_data(_QR_KEY)
+        except Exception as err:  # pragma: no cover
+            logger.debug(f"清除扫码状态失败：{err}")
 
     # ------------------------------------------------------------------ 账号与授权
 
@@ -146,10 +288,11 @@ class Pan115Module:
     def logout(self) -> dict:
         """清除 Cookie 与状态缓存。"""
         self._plugin.save_config(pan115_cookie="")
-        try:
-            self._plugin.del_data(_STATE_KEY)
-        except Exception as err:  # pragma: no cover
-            logger.debug(f"清除 115 状态缓存失败：{err}")
+        for key in (_STATE_KEY, _QR_KEY):
+            try:
+                self._plugin.del_data(key)
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"清除 115 缓存 {key} 失败：{err}")
         return self.status()
 
     # ------------------------------------------------------------------ 目录

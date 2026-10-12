@@ -29,7 +29,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -257,6 +257,18 @@ class TgMediaCenter(_PluginBase):
     def api_pan115_push(self, request: api_schemas.Pan115PushRequest):
         """批量推送链接到 115。"""
         return api_controller.api_pan115_push(self, request)
+
+    def api_pan115_qr_start(self, request: api_schemas.Pan115QrStartRequest):
+        """获取 115 扫码登录二维码。"""
+        return api_controller.api_pan115_qr_start(self, request)
+
+    def api_pan115_qr_poll(self):
+        """查询 115 扫码登录状态。"""
+        return api_controller.api_pan115_qr_poll(self)
+
+    def api_pan115_qr_cancel(self):
+        """取消 115 扫码登录。"""
+        return api_controller.api_pan115_qr_cancel(self)
 
     def api_telegram_refresh_dialogs(self):
         """刷新并返回对话列表。"""

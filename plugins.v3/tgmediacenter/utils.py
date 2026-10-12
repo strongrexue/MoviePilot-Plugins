@@ -143,6 +143,20 @@ def run_sync(factory: Callable[[], Any], *, timeout: float = 90.0) -> Any:
     return box.get("value")
 
 
+def elapsed_seconds(started_at: Any, *, now: Optional[datetime] = None) -> Optional[float]:
+    """计算从 ``started_at`` 到现在的秒数；无法解析时返回 None。
+
+    用于判断二维码等短时效凭证是否过期。
+    """
+    try:
+        started = datetime.fromisoformat(str(started_at or "").strip())
+    except (TypeError, ValueError):
+        return None
+    if started.tzinfo is not None:
+        started = started.replace(tzinfo=None)
+    return max(0.0, ((now or datetime.now()) - started).total_seconds())
+
+
 def remaining_seconds(sent_at: Any, window: Any, *, now: Optional[datetime] = None) -> int:
     """计算“距离允许重新发送验证码”还剩多少秒。
 

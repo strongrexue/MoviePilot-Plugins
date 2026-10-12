@@ -1,8 +1,10 @@
-"""TgMediaCenter 通用工具：代理解析、敏感值掩码、对象归一。"""
+"""TgMediaCenter 通用工具：代理解析、敏感值掩码、对象归一、同步执行异步。"""
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import unquote, urlsplit
 
 # 代理 scheme 到 Telethon proxy_type 的映射
@@ -95,6 +97,50 @@ def describe_delivery(channel: Any) -> str:
     """把 Telegram 的验证码投递渠道翻译为可展示的中文说明。"""
     key = str(channel or "").strip().lower() or "unknown"
     return _DELIVERY_TEXT.get(key, _DELIVERY_TEXT["unknown"])
+
+
+def run_sync(factory: Callable[[], Any], *, timeout: float = 90.0) -> Any:
+    """在同步上下文里执行协程。
+
+    :param factory: 返回协程的可调用对象（协程不可重复使用，必须现造）
+    :param timeout: 仅用于"已有事件循环"的降级路径
+
+    宿主插件接口是同步方法（由线程池调用），正常情况下当前线程没有运行中的事件循环，
+    直接新建循环执行即可；若检测到已有循环（防御性处理），则放到临时线程执行，
+    避免 "This event loop is already running"。
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(factory())
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:  # pragma: no cover - 收尾异常不影响结果
+                pass
+            loop.close()
+
+    box: dict[str, Any] = {}
+
+    def _worker() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            box["value"] = loop.run_until_complete(factory())
+        except BaseException as err:  # noqa: BLE001 - 原样回抛给调用方
+            box["error"] = err
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_worker, name="tgmc.run_sync", daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise TimeoutError(f"异步任务执行超时（{timeout:.0f} 秒）")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
 
 
 def remaining_seconds(sent_at: Any, window: Any, *, now: Optional[datetime] = None) -> int:

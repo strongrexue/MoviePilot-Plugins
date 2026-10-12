@@ -101,6 +101,85 @@ class TgDialogsData(BaseModel):
     updated_at: str = ""
 
 
+# ---------------------------------------------------------------------- ② 115 网盘
+
+
+class Pan115Space(BaseModel):
+    """115 空间配额。"""
+
+    total: str = ""
+    used: str = ""
+    remain: str = ""
+
+
+class Pan115Offline(BaseModel):
+    """115 离线下载配额（115 侧不保证可取）。"""
+
+    available: bool = False
+    text: str = ""
+
+
+class Pan115StatusData(BaseModel):
+    """115 模块状态。"""
+
+    enabled: bool = False
+    cookie_configured: bool = False
+    authorized: bool = False
+    account: str = ""
+    space: Pan115Space = Field(default_factory=Pan115Space)
+    offline: Pan115Offline = Field(default_factory=Pan115Offline)
+    last_check: str = ""
+    target_cid: str = ""
+    batch_max_size: int = 20
+
+
+class Pan115PushRequest(BaseModel):
+    """推送链接（分享 / 磁力 / eD2k）。"""
+
+    text: str = Field(default="", description="原始文本，可含多个链接与提取码说明")
+    links: List[str] = Field(default_factory=list, description="链接数组；与 text 合并处理")
+    cid: str = Field(default="", description="目标目录 CID；留空用配置值")
+    batch_size: int = Field(default=0, description="单批最大链接数；0 表示用配置值")
+    dry_run: bool = Field(default=False, description="仅解析不提交")
+
+
+class Pan115VerifyDirRequest(BaseModel):
+    """校验目标目录。"""
+
+    cid: str = Field(default="", description="目标目录 CID；留空用配置值")
+
+
+class Pan115PushItemResult(BaseModel):
+    """单条链接的推送结果。"""
+
+    target: str = ""
+    ok: bool = False
+    message: str = ""
+
+
+class Pan115PushResult(BaseModel):
+    """批量推送结果。"""
+
+    total: int = 0
+    processed: int = 0
+    remaining: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    skipped: int = 0
+    batches: int = 0
+    message: str = ""
+    results: List[Pan115PushItemResult] = Field(default_factory=list)
+
+
+class Pan115DirData(BaseModel):
+    """目录校验结果。"""
+
+    cid: str = ""
+    dirname: str = ""
+    count: int = 0
+    message: str = ""
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
     "/telegram/send_code": TgSendCodeData,
@@ -109,4 +188,9 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/telegram/dialogs": TgDialogsData,
     "/telegram/connect": TgStatusData,
     "/telegram/refresh_dialogs": TgDialogsData,
+    "/pan115/status": Pan115StatusData,
+    "/pan115/check": Pan115StatusData,
+    "/pan115/logout": Pan115StatusData,
+    "/pan115/verify_dir": Pan115DirData,
+    "/pan115/push": Pan115PushResult,
 }

@@ -1,9 +1,9 @@
 """TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
-当前进度：P1 —— TG 核心凭证模块。
-- 已实现：Telethon 运行时（独立线程事件循环）、登录向导、StringSession 持久化、
-  对话列表缓存、代理继承宿主设置。
-- 待实现：115 网盘、自定义豆瓣源、TG 资源监控、历史消息缓存、TG 通用转发。
+当前进度：P2 —— 115 网盘推送目标。
+- 已实现：① TG 核心凭证（Telethon 运行时、登录向导、会话持久化、对话列表缓存）；
+  ② 115 网盘（Cookie 登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送）。
+- 待实现：自定义豆瓣源、TG 资源监控、历史消息缓存、TG 通用转发。
 """
 from typing import Any, Dict, List, Optional, Tuple
 import time
@@ -14,6 +14,7 @@ from app.sdk.plugin import _PluginBase
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
 from .modules.credentials import CredentialsModule
+from .modules.pan115 import Pan115Module
 
 try:  # 一次性任务调度接口；缺失时降级为懒连接
     from app.sdk import scheduler as scheduler_sdk
@@ -28,7 +29,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.1.7"
+    plugin_version = "1.2.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -40,6 +41,7 @@ class TgMediaCenter(_PluginBase):
         super().__init__(*args, **kwargs)
         self._config: Dict[str, Any] = {}
         self._credentials: Optional[CredentialsModule] = None
+        self._pan115: Optional[Pan115Module] = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -89,6 +91,7 @@ class TgMediaCenter(_PluginBase):
         self._config = merged
 
         self._credentials = CredentialsModule(self)
+        self._pan115 = Pan115Module(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
 
@@ -233,6 +236,28 @@ class TgMediaCenter(_PluginBase):
         """连接 / 重连 TG 客户端。"""
         return api_controller.api_telegram_connect(self)
 
+    # ------------------------------------------------------------------ ② 115 网盘
+
+    def api_pan115_status(self):
+        """返回 115 模块状态。"""
+        return api_controller.api_pan115_status(self)
+
+    def api_pan115_check(self):
+        """测试 115 连接并读取账号与配额。"""
+        return api_controller.api_pan115_check(self)
+
+    def api_pan115_logout(self):
+        """清除 115 Cookie 与状态。"""
+        return api_controller.api_pan115_logout(self)
+
+    def api_pan115_verify_dir(self, request: api_schemas.Pan115VerifyDirRequest):
+        """校验 115 目标目录 CID。"""
+        return api_controller.api_pan115_verify_dir(self, request)
+
+    def api_pan115_push(self, request: api_schemas.Pan115PushRequest):
+        """批量推送链接到 115。"""
+        return api_controller.api_pan115_push(self, request)
+
     def api_telegram_refresh_dialogs(self):
         """刷新并返回对话列表。"""
         return api_controller.api_telegram_refresh_dialogs(self)
@@ -255,3 +280,5 @@ class TgMediaCenter(_PluginBase):
                 credentials.stop()
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止 TG 运行时失败：{err}")
+        # 115 模块为无状态 HTTP 客户端，无需释放连接，仅清引用
+        self._pan115 = None

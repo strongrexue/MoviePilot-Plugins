@@ -125,6 +125,21 @@ class _StubPlugin:
     def api_telegram_refresh_dialogs(self):
         ...
 
+    def api_pan115_status(self):
+        ...
+
+    def api_pan115_check(self):
+        ...
+
+    def api_pan115_logout(self):
+        ...
+
+    def api_pan115_verify_dir(self, request):
+        ...
+
+    def api_pan115_push(self, request):
+        ...
+
 
 def test_api_routes_contract():
     """所有路由都要声明 bear 认证与 response_model。"""
@@ -138,6 +153,11 @@ def test_api_routes_contract():
         "/telegram/dialogs",
         "/telegram/connect",
         "/telegram/refresh_dialogs",
+        "/pan115/status",
+        "/pan115/check",
+        "/pan115/logout",
+        "/pan115/verify_dir",
+        "/pan115/push",
     }
     for route in routes:
         assert route["auth"] == "bear"

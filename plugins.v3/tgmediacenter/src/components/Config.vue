@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import ConfigTgPane from './config/ConfigTgPane.vue'
+import ConfigPan115Pane from './config/ConfigPan115Pane.vue'
 import { useConfigForm } from './config/useConfigForm'
 
 const props = defineProps({
@@ -78,6 +79,12 @@ onMounted(config.loadConfig)
 
           <ConfigTgPane
             v-if="activeModule === 'tg'"
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :config="config"
+          />
+          <ConfigPan115Pane
+            v-else-if="activeModule === 'pan115'"
             :api="props.api"
             :plugin-id="props.pluginId"
             :config="config"

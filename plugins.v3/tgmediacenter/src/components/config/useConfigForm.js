@@ -20,7 +20,15 @@ export const configDefaults = {
   tg_user_cooldown_seconds: 5,
   tg_keep_alive_seconds: 60,
   tg_aggregation_window_seconds: 3.0,
+  // ② 115 网盘
+  pan115_enabled: false,
+  pan115_cookie: '',
+  pan115_target_cid: '',
+  pan115_batch_max_size: 20,
 }
+
+// ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，
+// 表单里没有的字段会被清空（后端自管状态请改存插件数据，不要放配置）。
 
 export function useConfigForm({ api, pluginId, initialConfig, emit }) {
   const form = reactive({ ...configDefaults })

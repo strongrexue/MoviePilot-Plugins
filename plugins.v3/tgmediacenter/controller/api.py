@@ -46,7 +46,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/pan115/qr_poll", plugin.api_pan115_qr_poll, ["POST"], "查询 115 扫码登录状态"),
         ("/pan115/qr_cancel", plugin.api_pan115_qr_cancel, ["POST"], "取消 115 扫码登录"),
         ("/monitor/rules", plugin.api_monitor_rules, ["GET"], "获取 TG 资源监控规则"),
-        ("/monitor/rules", plugin.api_monitor_rules_save, ["PUT"], "保存 TG 资源监控规则"),
+        ("/monitor/rules", plugin.api_monitor_rules_save, ["PUT", "POST"], "保存 TG 资源监控规则"),
         ("/monitor/hits", plugin.api_monitor_hits, ["GET"], "查询监控命中流水"),
         ("/monitor/status", plugin.api_monitor_status, ["GET"], "获取监控运行状态"),
         ("/monitor/test", plugin.api_monitor_test, ["POST"], "用一段文本测试规则处理结果"),

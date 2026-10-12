@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a as getPluginConfig } from './_plugin-vue_export-helper-CF63hxE1.js';
+import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a as putPluginApi, b as getPluginConfig } from './_plugin-vue_export-helper--Uc9iKY6.js';
 
 /**
  * 前端构建版本。
@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.0';
+const FRONTEND_VERSION = '1.3.1';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -1879,7 +1879,7 @@ return (_ctx, _cache) => {
 };
 const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-2909c768"]]);
 
-const {resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,createTextVNode:_createTextVNode$1,withCtx:_withCtx$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementVNode:_createElementVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList$1,Fragment:_Fragment$1,mergeProps:_mergeProps,withKeys:_withKeys} = await importShared('vue');
+const {resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,createTextVNode:_createTextVNode$1,withCtx:_withCtx$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementVNode:_createElementVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList$1,Fragment:_Fragment$1,withKeys:_withKeys} = await importShared('vue');
 
 
 const _hoisted_1$1 = { class: "mon-pane" };
@@ -2171,7 +2171,7 @@ async function saveRules() {
       web_channel_usernames: rule.web_channel_usernames || [],
       enabled: rule.enabled !== false,
     }));
-    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'monitor/rules', { rules: payload }, { timeoutMs: 30000 }));
+    const data = unwrap(await putPluginApi(props.api, props.pluginId, 'monitor/rules', { rules: payload }, { timeoutMs: 30000 }));
     if (Array.isArray(data?.rules)) {
       rules.value = data.rules;
       syncRulesToForm();
@@ -2233,10 +2233,21 @@ const dialogOptions = computed$1(() =>
   })),
 );
 
-function chatName(id) {
-  const found = (dialogs.value || []).find(item => Number(item.id) === Number(id));
-  return found ? `${found.name}` : String(id)
-}
+// 下拉选项 = 对话列表 + 已选中的手动 ID（否则手动添加的 ID 在 chips 里显示不出名称）
+const selectItems = computed$1(() => {
+  const items = dialogOptions.value.slice();
+  const known = new Set(items.map(item => item.value));
+  for (const rule of rules.value) {
+    for (const raw of rule.source_ids || []) {
+      const id = Number(raw);
+      if (id && !known.has(id)) {
+        items.push({ title: String(id), value: id });
+        known.add(id);
+      }
+    }
+  }
+  return items
+});
 
 function decisionLabel(value) {
   const found = decisions.value.find(item => item.value === value);
@@ -2575,7 +2586,7 @@ return (_ctx, _cache) => {
                           _createVNode$1(_component_VSelect, {
                             modelValue: rule.source_ids,
                             "onUpdate:modelValue": $event => ((rule.source_ids) = $event),
-                            items: dialogOptions.value,
+                            items: selectItems.value,
                             "item-title": "title",
                             "item-value": "value",
                             label: "监听频道 / 群组",
@@ -2585,22 +2596,7 @@ return (_ctx, _cache) => {
                             density: "compact",
                             variant: "outlined",
                             "hide-details": ""
-                          }, {
-                            chip: _withCtx$1(({ props: chipProps }) => [
-                              _createVNode$1(_component_VChip, _mergeProps({ ref_for: true }, chipProps, {
-                                size: "small",
-                                variant: "tonal",
-                                color: "primary",
-                                label: ""
-                              }), {
-                                default: _withCtx$1(() => [
-                                  _createTextVNode$1(_toDisplayString$1(chatName(chipProps.value)), 1)
-                                ]),
-                                _: 2
-                              }, 1040)
-                            ]),
-                            _: 1
-                          }, 8, ["modelValue", "onUpdate:modelValue", "items"]),
+                          }, null, 8, ["modelValue", "onUpdate:modelValue", "items"]),
                           _createElementVNode$1("div", _hoisted_15, [
                             _createVNode$1(_component_VTextField, {
                               modelValue: manualIds.value[rule.id || index],
@@ -2982,7 +2978,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-556727a0"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-d1dd91d7"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

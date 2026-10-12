@@ -98,16 +98,16 @@ function normalizeError(err, path) {
 }
 
 async function withTimeout(api, method, url, payload, timeoutMs) {
-  const send = () => (method === 'get' ? api.get(url) : api.post(url, payload));
-  if (!timeoutMs) return send()
+  const doRequest = (signal) => {
+    if (method === 'get') return api.get(url, signal ? { signal } : undefined)
+    if (method === 'put') return api.put(url, payload, signal ? { signal } : undefined)
+    return api.post(url, payload, signal ? { signal } : undefined)
+  };
+  if (!timeoutMs) return doRequest()
 
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timerId;
-  const request = Promise.resolve().then(() =>
-    method === 'get'
-      ? api.get(url, controller ? { signal: controller.signal } : undefined)
-      : api.post(url, payload, controller ? { signal: controller.signal } : undefined),
-  );
+  const request = Promise.resolve().then(() => doRequest(controller?.signal));
   const timeout = new Promise((_, reject) => {
     timerId = setTimeout(() => {
       controller?.abort();
@@ -156,6 +156,24 @@ async function postPluginApi(api, pluginId, path, payload = {}, options = {}) {
   }
 }
 
+/** PUT 请求（如 /monitor/rules 保存）。超时与错误归一策略与 POST 一致。 */
+async function putPluginApi(api, pluginId, path, payload = {}, options = {}) {
+  if (!api?.put) throw new Error('缺少 MoviePilot 注入的 api.put')
+  const timeoutMs = Math.max(0, Number(options.timeoutMs) || DEFAULT_POST_TIMEOUT_MS);
+  const url = pluginPath(pluginId, path);
+  const startedAt = Date.now();
+  try {
+    return await withTimeout(api, 'put', url, payload, timeoutMs)
+  } catch (err) {
+    throw normalizeError(err, path)
+  } finally {
+    const elapsed = Date.now() - startedAt;
+    if (timeoutMs && elapsed >= SLOW_REQUEST_MS) {
+      console.warn(`[TgMediaCenter] PUT ${path} ${elapsed}ms`);
+    }
+  }
+}
+
 /** 读取配置（宿主提供 plugin/<id> 的 GET/PUT 配置接口）。 */
 async function getPluginConfig(api, pluginId) {
   const response = await api.get(pluginPath(pluginId));
@@ -170,4 +188,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, getPluginConfig as a, getPluginApi as g, postPluginApi as p, unwrap as u };
+export { _export_sfc as _, putPluginApi as a, getPluginConfig as b, getPluginApi as g, postPluginApi as p, unwrap as u };

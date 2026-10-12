@@ -123,7 +123,7 @@
               <div class="mon-chats">
                 <VSelect
                   v-model="rule.source_ids"
-                  :items="dialogOptions"
+                  :items="selectItems"
                   item-title="title"
                   item-value="value"
                   label="监听频道 / 群组"
@@ -133,13 +133,7 @@
                   density="compact"
                   variant="outlined"
                   hide-details
-                >
-                  <template #chip="{ props: chipProps }">
-                    <VChip v-bind="chipProps" size="small" variant="tonal" color="primary" label>
-                      {{ chatName(chipProps.value) }}
-                    </VChip>
-                  </template>
-                </VSelect>
+                />
                 <div class="mon-chats-add">
                   <VTextField
                     v-model="manualIds[rule.id || index]"
@@ -375,7 +369,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { getPluginApi, postPluginApi, unwrap } from '../api'
+import { getPluginApi, postPluginApi, putPluginApi, unwrap } from '../api'
 
 /**
  * ④ TG 资源监控面板。
@@ -587,7 +581,7 @@ async function saveRules() {
       web_channel_usernames: rule.web_channel_usernames || [],
       enabled: rule.enabled !== false,
     }))
-    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'monitor/rules', { rules: payload }, { timeoutMs: 30000 }))
+    const data = unwrap(await putPluginApi(props.api, props.pluginId, 'monitor/rules', { rules: payload }, { timeoutMs: 30000 }))
     if (Array.isArray(data?.rules)) {
       rules.value = data.rules
       syncRulesToForm()
@@ -649,10 +643,21 @@ const dialogOptions = computed(() =>
   })),
 )
 
-function chatName(id) {
-  const found = (dialogs.value || []).find(item => Number(item.id) === Number(id))
-  return found ? `${found.name}` : String(id)
-}
+// 下拉选项 = 对话列表 + 已选中的手动 ID（否则手动添加的 ID 在 chips 里显示不出名称）
+const selectItems = computed(() => {
+  const items = dialogOptions.value.slice()
+  const known = new Set(items.map(item => item.value))
+  for (const rule of rules.value) {
+    for (const raw of rule.source_ids || []) {
+      const id = Number(raw)
+      if (id && !known.has(id)) {
+        items.push({ title: String(id), value: id })
+        known.add(id)
+      }
+    }
+  }
+  return items
+})
 
 function decisionLabel(value) {
   const found = decisions.value.find(item => item.value === value)

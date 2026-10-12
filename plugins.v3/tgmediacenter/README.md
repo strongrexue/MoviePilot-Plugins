@@ -18,6 +18,30 @@ MoviePilot V3 插件，聚合六项能力：
 
 Vue 联邦远程组件，暴露 `./Config`、`./Page`、`./Dashboard` 三个入口。
 
+## 已知行为（排查时先看这里）
+
+### 更新插件后前端没变化 / 仍报旧错误
+
+联邦入口固定叫 `remoteEntry.js`（无哈希），宿主加载器也不追加缓存参数，而 SPA 只在
+**页面加载时**拉取一次远程组件。因此**更新带前端改动的版本后，必须整页硬刷新
+（`Ctrl + Shift + R`）**，否则浏览器仍在使用旧组件代码。
+
+排查顺序：
+
+1. 硬刷新页面，确认后端是否已经生效（`/status` 的状态徽章能反映新版后端）。
+2. 若前端仍为旧行为，在服务器上核验落盘产物：
+   ```bash
+   docker exec <容器名> sh -c \
+     "grep -o 'expose_Config-[A-Za-z0-9_-]*' /app/app/plugins/tgmediacenter/dist/assets/remoteEntry.js"
+   ```
+   输出应与仓库 `dist/assets/` 中的实际文件名一致；不一致说明更新未落盘，需重新安装插件。
+3. DevTools → Network 搜 `remoteEntry.js`，确认返回内容中的 chunk 名与仓库一致。
+
+### 凭证必须先「保存配置」
+
+后端连接用的是**已保存**的配置，不是表单里当前输入的值。填完 API ID / Hash / 手机号后
+要先点底部的「保存配置」，再发送验证码。
+
 ## 本地开发
 
 ```bash

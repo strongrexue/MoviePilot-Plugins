@@ -90,7 +90,7 @@ def api_telegram_send_code(plugin, request: api_schemas.TgSendCodeRequest):
     """发送登录验证码。"""
     module = _credentials(plugin)
     result = _invoke(module.send_code, phone=request.phone)
-    return _envelope(api_schemas.TgAuthResult.model_validate(result), message=result.get("message", ""))
+    return _envelope(api_schemas.TgSendCodeData.model_validate(result), message=result.get("message", ""))
 
 
 def api_telegram_sign_in(plugin, request: api_schemas.TgSignInRequest):

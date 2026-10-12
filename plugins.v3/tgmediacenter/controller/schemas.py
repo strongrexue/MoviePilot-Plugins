@@ -20,6 +20,16 @@ class TgMe(BaseModel):
     phone: str = ""
 
 
+class TgPendingLogin(BaseModel):
+    """待验证的登录上下文（用于刷新页面后恢复登录向导）。"""
+
+    phone_masked: str = ""
+    sent_at: str = ""
+    delivery: str = "unknown"
+    delivery_text: str = ""
+    resend_in: int = 0
+
+
 class TgStatusData(BaseModel):
     """插件与 TG 凭证运行状态。"""
 
@@ -34,6 +44,7 @@ class TgStatusData(BaseModel):
     phone_masked: str = ""
     dialog_count: int = 0
     dialogs_updated_at: str = ""
+    pending_login: Optional[TgPendingLogin] = None
     user_cooldown_seconds: int = 5
     keep_alive_seconds: int = 60
     aggregation_window_seconds: float = 3.0
@@ -43,6 +54,16 @@ class TgSendCodeRequest(BaseModel):
     """请求登录验证码。"""
 
     phone: str = Field(default="", description="手机号，需包含国家码，如 +8613800000000")
+
+
+class TgSendCodeData(BaseModel):
+    """发码结果：告知投递渠道与可重发倒计时，便于前端给出准确引导。"""
+
+    phone_masked: str = ""
+    delivery: str = "unknown"
+    delivery_text: str = ""
+    resend_in: int = 0
+    message: str = ""
 
 
 class TgSignInRequest(BaseModel):
@@ -81,7 +102,7 @@ class TgDialogsData(BaseModel):
 
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
-    "/telegram/send_code": TgAuthResult,
+    "/telegram/send_code": TgSendCodeData,
     "/telegram/sign_in": TgAuthResult,
     "/telegram/logout": TgAuthResult,
     "/telegram/dialogs": TgDialogsData,

@@ -1,14 +1,22 @@
 """P1（TG 核心凭证）单元测试。
 
-覆盖不依赖网络的纯逻辑：代理解析、敏感值掩码、对话归一，以及 API 路由合同。
-需要网络的登录流程不做自动化测试，改由真实加载验证（见设计文档 P1 验收）。
+覆盖不依赖网络的纯逻辑：代理解析、敏感值掩码、对话归一、验证码投递渠道与重发
+冷却，以及 API 路由合同。需要网络的登录流程不做自动化测试，改由真实加载验证。
 """
+from datetime import datetime, timedelta
+
+import pytest
+
 from app.plugins.tgmediacenter.controller import api as api_controller
+from app.plugins.tgmediacenter.core import telegram as tg
 from app.plugins.tgmediacenter.core.runtime import TelegramRuntime
+from app.plugins.tgmediacenter.modules.credentials import CredentialsModule
 from app.plugins.tgmediacenter.utils import (
+    describe_delivery,
     mask_secret,
     normalize_dialog,
     parse_proxy_for_telethon,
+    remaining_seconds,
 )
 
 
@@ -159,3 +167,172 @@ def test_runtime_api_id_normalization():
     assert TelegramRuntime(api_id="  678 ", api_hash="x")._api_id == 678
     assert TelegramRuntime(api_id="abc", api_hash="x").credentials_ready is False
     assert TelegramRuntime(api_id="", api_hash="x").credentials_ready is False
+
+
+# --------------------------------------------------------------------- 投递渠道
+
+
+class SentCodeTypeApp:
+    """桩类：类名需与 Telethon 的 SentCodeType* 保持一致。"""
+
+
+class SentCodeTypeSms:
+    """桩类：短信投递。"""
+
+
+class _FakeSent:
+    def __init__(self, sent_type):
+        self.type = sent_type
+
+
+def test_delivery_channel_mapping():
+    """验证码投递渠道应按 SentCode.type 的类名识别。"""
+    assert tg.delivery_channel(_FakeSent(SentCodeTypeApp())) == "app"
+    assert tg.delivery_channel(_FakeSent(SentCodeTypeSms())) == "sms"
+    assert tg.delivery_channel(_FakeSent(None)) == "unknown"
+    assert tg.delivery_channel(object()) == "unknown"
+
+
+def test_describe_delivery_is_actionable():
+    """渠道说明要能指导用户去哪找验证码。"""
+    assert "Telegram 应用" in describe_delivery("app")
+    assert "短信" in describe_delivery("sms")
+    assert describe_delivery("") == describe_delivery("unknown")
+    assert describe_delivery("不存在的渠道") == describe_delivery("unknown")
+
+
+def test_remaining_seconds():
+    """重发倒计时应按发码时间与 Telegram 给出的间隔计算。"""
+    now = datetime(2026, 10, 12, 22, 0, 0)
+    past = (now - timedelta(seconds=20)).isoformat(timespec="seconds")
+    assert remaining_seconds(past, 60, now=now) == 40
+    assert remaining_seconds(past, 10, now=now) == 0
+    assert remaining_seconds("", 60, now=now) == 0
+    assert remaining_seconds(past, 0, now=now) == 0
+    assert remaining_seconds(past, "abc", now=now) == 0
+    assert remaining_seconds("不是时间", 60, now=now) == 0
+
+
+# --------------------------------------------------------------------- 发码冷却
+
+
+class _StubCredPlugin:
+    """凭证模块只依赖插件的配置与数据读写，用桩对象隔离宿主。"""
+
+    def __init__(self, config=None, data=None):
+        self._config = dict(config or {})
+        self._data = dict(data or {})
+
+    @property
+    def config(self):
+        return self._config
+
+    def get_state(self):
+        return False
+
+    def get_data(self, key=None):
+        return self._data.get(key)
+
+    def save_data(self, key, value):
+        self._data[key] = value
+
+    def del_data(self, key):
+        self._data.pop(key, None)
+
+    def save_config(self, **patch):
+        self._config.update(patch)
+
+
+def _pending(**overrides):
+    """构造一份待验证登录上下文。"""
+    payload = {
+        "phone": "+8613800138000",
+        "phone_code_hash": "hash",
+        "at": datetime.now().isoformat(timespec="seconds"),
+        "delivery": "app",
+        "timeout": 60,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_send_code_blocked_within_cooldown():
+    """冷却期内重复发码应被本地拦截并给出可操作提示。
+
+    回归保护：Telegram 对同号码发码有最小间隔，间隔内再请求会得到
+    SEND_CODE_UNAVAILABLE，早期实现把一长串英文报错直接抛给用户。
+    """
+    module = CredentialsModule(_StubCredPlugin(data={"pending_login": _pending()}))
+    with pytest.raises(tg.TelegramOperationError) as excinfo:
+        module.send_code("+8613800138000")
+    assert "秒后可重新发送" in str(excinfo.value)
+
+
+def test_send_code_allows_other_phone_within_cooldown():
+    """换号不受上一号码冷却限制：应走到运行时检查而非被冷却拦截。"""
+    module = CredentialsModule(_StubCredPlugin(data={"pending_login": _pending()}))
+    with pytest.raises(tg.TelegramOperationError) as excinfo:
+        module.send_code("+8613900139000")
+    assert "API ID" in str(excinfo.value)
+
+
+def test_cooldown_expires():
+    """冷却结束后不应再拦截。"""
+    expired = _pending(at=(datetime.now() - timedelta(seconds=180)).isoformat(timespec="seconds"))
+    module = CredentialsModule(_StubCredPlugin(data={"pending_login": expired}))
+    assert module.resend_in() == 0
+    with pytest.raises(tg.TelegramOperationError) as excinfo:
+        module.send_code("+8613800138000")
+    assert "API ID" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------- 待登录上下文
+
+
+def test_pending_login_masks_phone():
+    """待登录上下文对外只暴露掩码手机号。"""
+    module = CredentialsModule(_StubCredPlugin(data={"pending_login": _pending()}))
+    view = module.pending_login()
+    assert view is not None
+    assert view["phone_masked"] == mask_secret("+8613800138000")
+    assert "+8613800138000" not in view["phone_masked"]
+    assert view["delivery"] == "app"
+    assert "Telegram 应用" in view["delivery_text"]
+    assert view["resend_in"] > 0
+
+
+def test_pending_login_absent_without_hash():
+    """没有 phone_code_hash 时不应对外声称存在待登录上下文。"""
+    module = CredentialsModule(_StubCredPlugin(data={"pending_login": _pending(phone_code_hash="")}))
+    assert module.pending_login() is None
+
+
+# --------------------------------------------------------------------- 响应模型
+
+
+def test_send_code_response_model():
+    """/telegram/send_code 需返回投递渠道与可重发倒计时。"""
+    from app.plugins.tgmediacenter.controller import schemas as api_schemas
+
+    assert api_schemas.API_RESPONSE_MODELS["/telegram/send_code"] is api_schemas.TgSendCodeData
+    data = api_schemas.TgSendCodeData.model_validate({
+        "phone_masked": "+861******8000",
+        "delivery": "app",
+        "delivery_text": "已发送到你的 Telegram 应用",
+        "resend_in": 60,
+        "message": "验证码已发送到你的 Telegram 应用",
+    })
+    assert data.delivery == "app"
+    assert data.resend_in == 60
+
+
+def test_status_model_accepts_pending_login():
+    """/status 需容纳待登录上下文，且允许为空。"""
+    from app.plugins.tgmediacenter.controller import schemas as api_schemas
+
+    data = api_schemas.TgStatusData.model_validate({
+        "pending_login": {"phone_masked": "+86******8000", "delivery": "sms", "resend_in": 12},
+    })
+    assert data.pending_login is not None
+    assert data.pending_login.delivery == "sms"
+    assert api_schemas.TgStatusData.model_validate({"pending_login": None}).pending_login is None

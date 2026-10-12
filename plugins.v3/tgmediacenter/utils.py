@@ -1,6 +1,7 @@
 """TgMediaCenter 通用工具：代理解析、敏感值掩码、对象归一。"""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import unquote, urlsplit
 
@@ -77,6 +78,47 @@ def mask_secret(value: Any, keep: int = 4) -> str:
     if len(text) <= keep * 2:
         return "*" * len(text)
     return f"{text[:keep]}{'*' * 6}{text[-keep:]}"
+
+
+# 验证码投递渠道 → 面向用户的中文说明
+_DELIVERY_TEXT = {
+    "app": "已发送到你的 Telegram 应用（请打开手机或电脑上已登录的 Telegram 查看，不是短信）",
+    "sms": "已通过短信发送",
+    "call": "将通过语音电话播报",
+    "flash_call": "将通过闪信呼叫显示",
+    "email": "已发送到账号绑定的邮箱",
+    "unknown": "已发送（请同时留意 Telegram 应用与短信）",
+}
+
+
+def describe_delivery(channel: Any) -> str:
+    """把 Telegram 的验证码投递渠道翻译为可展示的中文说明。"""
+    key = str(channel or "").strip().lower() or "unknown"
+    return _DELIVERY_TEXT.get(key, _DELIVERY_TEXT["unknown"])
+
+
+def remaining_seconds(sent_at: Any, window: Any, *, now: Optional[datetime] = None) -> int:
+    """计算“距离允许重新发送验证码”还剩多少秒。
+
+    :param sent_at: 上次发码时间（``datetime.now().isoformat()`` 形式）
+    :param window: Telegram 返回的可重发间隔（秒）
+    :returns: 剩余秒数；无法计算时返回 0（表示可以立即重发）
+    """
+    try:
+        total = int(window or 0)
+    except (TypeError, ValueError):
+        return 0
+    if total <= 0:
+        return 0
+    try:
+        started = datetime.fromisoformat(str(sent_at or "").strip())
+    except (TypeError, ValueError):
+        return 0
+    # 统一按本地朴素时间比较，避免带时区的输入与 datetime.now() 相减报错
+    if started.tzinfo is not None:
+        started = started.replace(tzinfo=None)
+    elapsed = ((now or datetime.now()) - started).total_seconds()
+    return max(0, int(round(total - elapsed)))
 
 
 def normalize_dialog(dialog: Any) -> dict:

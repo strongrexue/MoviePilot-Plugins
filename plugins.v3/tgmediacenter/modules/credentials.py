@@ -15,7 +15,12 @@ from app.sdk.logging import logger
 
 from ..core import telegram as tg
 from ..core.runtime import TelegramRuntime
-from ..utils import mask_secret, parse_proxy_for_telethon
+from ..utils import (
+    describe_delivery,
+    mask_secret,
+    parse_proxy_for_telethon,
+    remaining_seconds,
+)
 
 _PENDING_KEY = "pending_login"
 _DIALOGS_KEY = "dialogs"
@@ -123,6 +128,11 @@ class CredentialsModule:
             dialogs_updated_at = str(self._plugin.get_data(_DIALOGS_AT_KEY) or "")
         except Exception:  # pragma: no cover
             dialogs_updated_at = ""
+        try:
+            pending_login = self.pending_login()
+        except Exception as err:  # pragma: no cover - 展示增强，失败不影响状态
+            logger.debug(f"读取待登录上下文失败：{err}")
+            pending_login = None
 
         return {
             "enabled": bool(self._plugin.get_state()),
@@ -136,6 +146,7 @@ class CredentialsModule:
             "phone_masked": mask_secret(self._cfg("tg_phone", "")),
             "dialog_count": len(dialogs),
             "dialogs_updated_at": dialogs_updated_at,
+            "pending_login": pending_login,
             "user_cooldown_seconds": int(self._cfg("tg_user_cooldown_seconds", 5) or 5),
             "keep_alive_seconds": int(self._cfg("tg_keep_alive_seconds", 60) or 60),
             "aggregation_window_seconds": float(self._cfg("tg_aggregation_window_seconds", 3.0) or 3.0),
@@ -144,26 +155,76 @@ class CredentialsModule:
     # ------------------------------------------------------------------ 登录流程
 
     def send_code(self, phone: str) -> dict:
-        """请求验证码并暂存 phone_code_hash 与手机号。"""
+        """请求验证码并暂存待登录上下文。
+
+        Telegram 对同一号码的发码有最小间隔（``SentCode.timeout``）。间隔内再次请求
+        必然失败（表现为 ``SEND_CODE_UNAVAILABLE``），因此在本地先挡住并给出可操作提示，
+        而不是把英文报错丢给用户。
+        """
+        normalized = str(phone or "").strip()
+        pending = self._pending()
+        # 仅当目标号码与上次发码号码一致时才做冷却拦截，换号不拦
+        if normalized and normalized == str(pending.get("phone") or "").strip():
+            left = self.resend_in()
+            if left > 0:
+                raise tg.TelegramOperationError(
+                    f"验证码已于 {pending.get('at') or '刚刚'} 发送"
+                    f"（{describe_delivery(pending.get('delivery'))}）。"
+                    f"请先使用已收到的验证码；{left} 秒后可重新发送。"
+                )
+
         runtime = self.ensure_runtime()
         if runtime is None:
             raise tg.TelegramOperationError("请先填写 API ID / API Hash 并安装 telethon 依赖")
 
-        result = runtime.call(tg.send_code(runtime.client, phone), timeout=40)
-        self._plugin.save_data(_PENDING_KEY, {
+        result = runtime.call(tg.send_code(runtime.client, normalized), timeout=40)
+        delivery = str(result.get("delivery") or "unknown")
+        context = {
             "phone": result.get("phone", ""),
             "phone_code_hash": result.get("phone_code_hash", ""),
             "at": datetime.now().isoformat(timespec="seconds"),
-        })
+            "delivery": delivery,
+            "timeout": int(result.get("timeout") or 0),
+        }
+        self._plugin.save_data(_PENDING_KEY, context)
         # 记录手机号，便于后续重新发码与状态展示
-        self._plugin.save_config(tg_phone=result.get("phone", ""))
-        return {"authorized": False, "need_password": False,
-                "message": "验证码已发送，请查看 Telegram"}
+        self._plugin.save_config(tg_phone=context["phone"])
+        return {
+            "authorized": False,
+            "need_password": False,
+            "message": f"验证码{describe_delivery(delivery)}",
+            "delivery": delivery,
+            "delivery_text": describe_delivery(delivery),
+            "resend_in": int(context["timeout"]),
+            "phone_masked": mask_secret(context["phone"]),
+        }
 
     def _pending(self) -> dict:
         """读取待验证登录上下文。"""
         data = self._plugin.get_data(_PENDING_KEY) or {}
         return data if isinstance(data, dict) else {}
+
+    def resend_in(self) -> int:
+        """距离允许重新发送验证码的剩余秒数（0 表示可立即发送）。"""
+        pending = self._pending()
+        return remaining_seconds(pending.get("at"), pending.get("timeout"))
+
+    def pending_login(self) -> Optional[dict]:
+        """待登录上下文的对外视图（手机号掩码）。
+
+        前端在硬刷新后据此恢复登录向导，避免用户因“页面状态丢失”而重复点发码。
+        """
+        pending = self._pending()
+        if not pending or not pending.get("phone_code_hash"):
+            return None
+        channel = str(pending.get("delivery") or "unknown")
+        return {
+            "phone_masked": mask_secret(pending.get("phone")),
+            "sent_at": str(pending.get("at") or ""),
+            "delivery": channel,
+            "delivery_text": describe_delivery(channel),
+            "resend_in": self.resend_in(),
+        }
 
     def sign_in(self, phone: str, code: str = "", password: str = "") -> dict:
         """完成登录或两步验证，成功时持久化 StringSession。"""
@@ -179,7 +240,8 @@ class CredentialsModule:
                 runtime.client,
                 phone=effective_phone,
                 code=str(code or "").strip(),
-                phone_code_hash=str(pending.get("phone_code_hash") or ""),
+                # 留空则交回 Telethon 使用客户端内缓存的 hash
+                phone_code_hash=str(pending.get("phone_code_hash") or "") or None,
                 password=str(password or "").strip() or None,
             ),
             timeout=40,

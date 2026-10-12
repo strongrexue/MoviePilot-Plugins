@@ -10,15 +10,17 @@ const _hoisted_3$1 = { class: "tg-status-chips" };
 const _hoisted_4$1 = { key: 0 };
 const _hoisted_5 = { key: 1 };
 const _hoisted_6 = { key: 2 };
-const _hoisted_7 = { class: "tg-wizard" };
-const _hoisted_8 = {
-  key: 0,
+const _hoisted_7 = { key: 0 };
+const _hoisted_8 = { key: 1 };
+const _hoisted_9 = { class: "tg-wizard" };
+const _hoisted_10 = {
+  key: 1,
   class: "tg-wizard tg-wizard-password"
 };
-const _hoisted_9 = { class: "tg-wizard-actions" };
-const _hoisted_10 = { class: "tg-hint" };
+const _hoisted_11 = { class: "tg-wizard-actions" };
+const _hoisted_12 = { class: "tg-hint" };
 
-const {computed: computed$1,onMounted: onMounted$1,ref: ref$2} = await importShared('vue');
+const {computed: computed$1,onMounted: onMounted$1,onUnmounted,ref: ref$2} = await importShared('vue');
 
 
 const _sfc_main$1 = {
@@ -41,18 +43,64 @@ const loginStage = ref$2('idle'); // idle | code_sent | need_password
 const code = ref$2('');
 const password = ref$2('');
 const dialogs = ref$2([]);
+// 当前待验证码的上下文：投递渠道 + 手机号掩码 + 发码时间
+const sent = ref$2(null);
+// 距离允许重新发送验证码的剩余秒数
+const resendIn = ref$2(0);
+let countdownId = null;
 
 const form = computed$1(() => props.config.form);
+
+const sendLabel = computed$1(() => {
+  if (resendIn.value > 0) return `重新发送（${resendIn.value}s）`
+  return loginStage.value === 'code_sent' ? '重新发送验证码' : '发送验证码'
+});
+
+const sendDisabled = computed$1(() => Boolean(busy.value) || resendIn.value > 0);
 
 function setMessage(text, ok = true) {
   message.value = text || '';
   messageOk.value = ok;
 }
 
+function startCountdown(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (countdownId) {
+    clearInterval(countdownId);
+    countdownId = null;
+  }
+  resendIn.value = total;
+  if (total <= 0) return
+  countdownId = setInterval(() => {
+    resendIn.value = Math.max(0, resendIn.value - 1);
+    if (resendIn.value <= 0 && countdownId) {
+      clearInterval(countdownId);
+      countdownId = null;
+    }
+  }, 1000);
+}
+
+function applyPending(pending) {
+  if (!pending) return
+  sent.value = pending;
+  loginStage.value = loginStage.value === 'need_password' ? 'need_password' : 'code_sent';
+  // 仅在未倒计时时同步，避免覆盖刚发码后的本地计时
+  if (!countdownId && resendIn.value <= 0) startCountdown(pending.resend_in);
+}
+
 async function loadStatus() {
   statusLoading.value = true;
   try {
-    status.value = unwrap(await getPluginApi(props.api, props.pluginId, 'status', { timeoutMs: 15000 }));
+    const info = unwrap(await getPluginApi(props.api, props.pluginId, 'status', { timeoutMs: 15000 }));
+    status.value = info;
+    // 硬刷新后从后端恢复登录向导，避免用户误以为需要重新发码
+    if (info?.authorized) {
+      loginStage.value = 'idle';
+      sent.value = null;
+      startCountdown(0);
+    } else {
+      applyPending(info?.pending_login);
+    }
   } catch (err) {
     setMessage(err?.message || '状态读取失败', false);
   } finally {
@@ -71,6 +119,10 @@ async function loadDialogs() {
 
 async function sendCode() {
   if (busy.value) return
+  if (resendIn.value > 0) {
+    setMessage(`请先使用已收到的验证码，${resendIn.value} 秒后可重新发送`, false);
+    return
+  }
   busy.value = 'send_code';
   setMessage('');
   try {
@@ -84,7 +136,14 @@ async function sendCode() {
       throw new Error('凭证尚未保存：请先点击底部「保存配置」，再发送验证码')
     }
     const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/send_code', { phone }));
-    loginStage.value = result?.need_password ? 'need_password' : 'code_sent';
+    loginStage.value = 'code_sent';
+    sent.value = {
+      delivery: result?.delivery || 'unknown',
+      delivery_text: result?.delivery_text || '已发送，请查看 Telegram',
+      phone_masked: result?.phone_masked || '',
+      sent_at: new Date().toLocaleTimeString(),
+    };
+    startCountdown(result?.resend_in);
     setMessage(result?.message || '验证码已发送');
   } catch (err) {
     setMessage(err?.message || '发送验证码失败', false);
@@ -110,6 +169,8 @@ async function signIn() {
       loginStage.value = 'idle';
       code.value = '';
       password.value = '';
+      sent.value = null;
+      startCountdown(0);
       setMessage('登录成功，正在拉取对话列表…');
       await loadStatus();
       await refreshDialogs();
@@ -131,6 +192,8 @@ async function logout() {
     const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/logout', {}));
     loginStage.value = 'idle';
     dialogs.value = [];
+    sent.value = null;
+    startCountdown(0);
     setMessage(result?.message || '已退出登录');
     await loadStatus();
   } catch (err) {
@@ -169,6 +232,11 @@ const chips = computed$1(() => {
 onMounted$1(async () => {
   await loadStatus();
   await loadDialogs();
+});
+
+onUnmounted(() => {
+  if (countdownId) clearInterval(countdownId);
+  countdownId = null;
 });
 
 return (_ctx, _cache) => {
@@ -393,19 +461,40 @@ return (_ctx, _cache) => {
         }),
         _createVNode$1(_component_VCardText, null, {
           default: _withCtx$1(() => [
-            _createElementVNode$1("div", _hoisted_7, [
+            (sent.value && loginStage.value !== 'idle')
+              ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                  key: 0,
+                  type: "info",
+                  variant: "tonal",
+                  density: "comfortable",
+                  class: "tg-message"
+                }, {
+                  default: _withCtx$1(() => [
+                    _createTextVNode$1(" 验证码" + _toDisplayString$1(sent.value.delivery_text) + " ", 1),
+                    (sent.value.phone_masked)
+                      ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_7, " · " + _toDisplayString$1(sent.value.phone_masked), 1))
+                      : _createCommentVNode$1("", true),
+                    (resendIn.value > 0)
+                      ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_8, " · " + _toDisplayString$1(resendIn.value) + " 秒后可重新发送", 1))
+                      : _createCommentVNode$1("", true)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode$1("", true),
+            _createElementVNode$1("div", _hoisted_9, [
               _createVNode$1(_component_VBtn, {
                 color: "primary",
                 variant: "flat",
                 loading: busy.value === 'send_code',
+                disabled: sendDisabled.value,
                 "prepend-icon": "mdi-send-outline",
                 onClick: sendCode
               }, {
-                default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
-                  _createTextVNode$1(" 发送验证码 ", -1)
-                ]))]),
+                default: _withCtx$1(() => [
+                  _createTextVNode$1(_toDisplayString$1(sendLabel.value), 1)
+                ]),
                 _: 1
-              }, 8, ["loading"]),
+              }, 8, ["loading", "disabled"]),
               _createVNode$1(_component_VTextField, {
                 modelValue: code.value,
                 "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((code).value = $event)),
@@ -423,14 +512,14 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-login-variant",
                 onClick: signIn
               }, {
-                default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
+                default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
                   _createTextVNode$1(" 登录 ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading"])
             ]),
             (loginStage.value === 'need_password')
-              ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_8, [
+              ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_10, [
                   _createVNode$1(_component_VTextField, {
                     modelValue: password.value,
                     "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((password).value = $event)),
@@ -448,21 +537,21 @@ return (_ctx, _cache) => {
                     "prepend-icon": "mdi-shield-key-outline",
                     onClick: signIn
                   }, {
-                    default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
+                    default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
                       _createTextVNode$1(" 提交两步验证 ", -1)
                     ]))]),
                     _: 1
                   }, 8, ["loading"])
                 ]))
               : _createCommentVNode$1("", true),
-            _createElementVNode$1("div", _hoisted_9, [
+            _createElementVNode$1("div", _hoisted_11, [
               _createVNode$1(_component_VBtn, {
                 variant: "tonal",
                 loading: busy.value === 'refresh',
                 "prepend-icon": "mdi-account-multiple-outline",
                 onClick: refreshDialogs
               }, {
-                default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
+                default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
                   _createTextVNode$1(" 刷新对话列表 ", -1)
                 ]))]),
                 _: 1
@@ -474,13 +563,14 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-logout",
                 onClick: logout
               }, {
-                default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
+                default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
                   _createTextVNode$1(" 退出登录 ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading"])
             ]),
-            _createElementVNode$1("div", _hoisted_10, " 已缓存 " + _toDisplayString$1(dialogs.value.length) + " 个对话。首次登录后请点一次「刷新对话列表」， 资源监控与转发规则的频道下拉会用到它。 ", 1)
+            _cache[16] || (_cache[16] = _createElementVNode$1("div", { class: "tg-hint" }, " 凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送； 刷新页面不会丢失已发出的验证码，直接输入即可。 ", -1)),
+            _createElementVNode$1("div", _hoisted_12, "已缓存 " + _toDisplayString$1(dialogs.value.length) + " 个对话。登录后请点一次「刷新对话列表」， 资源监控与转发规则的频道下拉会用到它。", 1)
           ]),
           _: 1
         })
@@ -492,7 +582,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-3185c3ac"]]);
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-a975a337"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

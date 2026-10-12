@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from '../api'
 
 const props = defineProps({
@@ -17,18 +17,64 @@ const loginStage = ref('idle') // idle | code_sent | need_password
 const code = ref('')
 const password = ref('')
 const dialogs = ref([])
+// 当前待验证码的上下文：投递渠道 + 手机号掩码 + 发码时间
+const sent = ref(null)
+// 距离允许重新发送验证码的剩余秒数
+const resendIn = ref(0)
+let countdownId = null
 
 const form = computed(() => props.config.form)
+
+const sendLabel = computed(() => {
+  if (resendIn.value > 0) return `重新发送（${resendIn.value}s）`
+  return loginStage.value === 'code_sent' ? '重新发送验证码' : '发送验证码'
+})
+
+const sendDisabled = computed(() => Boolean(busy.value) || resendIn.value > 0)
 
 function setMessage(text, ok = true) {
   message.value = text || ''
   messageOk.value = ok
 }
 
+function startCountdown(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0))
+  if (countdownId) {
+    clearInterval(countdownId)
+    countdownId = null
+  }
+  resendIn.value = total
+  if (total <= 0) return
+  countdownId = setInterval(() => {
+    resendIn.value = Math.max(0, resendIn.value - 1)
+    if (resendIn.value <= 0 && countdownId) {
+      clearInterval(countdownId)
+      countdownId = null
+    }
+  }, 1000)
+}
+
+function applyPending(pending) {
+  if (!pending) return
+  sent.value = pending
+  loginStage.value = loginStage.value === 'need_password' ? 'need_password' : 'code_sent'
+  // 仅在未倒计时时同步，避免覆盖刚发码后的本地计时
+  if (!countdownId && resendIn.value <= 0) startCountdown(pending.resend_in)
+}
+
 async function loadStatus() {
   statusLoading.value = true
   try {
-    status.value = unwrap(await getPluginApi(props.api, props.pluginId, 'status', { timeoutMs: 15000 }))
+    const info = unwrap(await getPluginApi(props.api, props.pluginId, 'status', { timeoutMs: 15000 }))
+    status.value = info
+    // 硬刷新后从后端恢复登录向导，避免用户误以为需要重新发码
+    if (info?.authorized) {
+      loginStage.value = 'idle'
+      sent.value = null
+      startCountdown(0)
+    } else {
+      applyPending(info?.pending_login)
+    }
   } catch (err) {
     setMessage(err?.message || '状态读取失败', false)
   } finally {
@@ -47,6 +93,10 @@ async function loadDialogs() {
 
 async function sendCode() {
   if (busy.value) return
+  if (resendIn.value > 0) {
+    setMessage(`请先使用已收到的验证码，${resendIn.value} 秒后可重新发送`, false)
+    return
+  }
   busy.value = 'send_code'
   setMessage('')
   try {
@@ -60,7 +110,14 @@ async function sendCode() {
       throw new Error('凭证尚未保存：请先点击底部「保存配置」，再发送验证码')
     }
     const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/send_code', { phone }))
-    loginStage.value = result?.need_password ? 'need_password' : 'code_sent'
+    loginStage.value = 'code_sent'
+    sent.value = {
+      delivery: result?.delivery || 'unknown',
+      delivery_text: result?.delivery_text || '已发送，请查看 Telegram',
+      phone_masked: result?.phone_masked || '',
+      sent_at: new Date().toLocaleTimeString(),
+    }
+    startCountdown(result?.resend_in)
     setMessage(result?.message || '验证码已发送')
   } catch (err) {
     setMessage(err?.message || '发送验证码失败', false)
@@ -86,6 +143,8 @@ async function signIn() {
       loginStage.value = 'idle'
       code.value = ''
       password.value = ''
+      sent.value = null
+      startCountdown(0)
       setMessage('登录成功，正在拉取对话列表…')
       await loadStatus()
       await refreshDialogs()
@@ -107,6 +166,8 @@ async function logout() {
     const result = unwrap(await postPluginApi(props.api, props.pluginId, 'telegram/logout', {}))
     loginStage.value = 'idle'
     dialogs.value = []
+    sent.value = null
+    startCountdown(0)
     setMessage(result?.message || '已退出登录')
     await loadStatus()
   } catch (err) {
@@ -145,6 +206,11 @@ const chips = computed(() => {
 onMounted(async () => {
   await loadStatus()
   await loadDialogs()
+})
+
+onUnmounted(() => {
+  if (countdownId) clearInterval(countdownId)
+  countdownId = null
 })
 </script>
 
@@ -238,15 +304,27 @@ onMounted(async () => {
     <VCard flat class="tg-card">
       <VCardTitle class="text-subtitle-2">登录向导</VCardTitle>
       <VCardText>
+        <VAlert
+          v-if="sent && loginStage !== 'idle'"
+          type="info"
+          variant="tonal"
+          density="comfortable"
+          class="tg-message"
+        >
+          验证码{{ sent.delivery_text }}
+          <span v-if="sent.phone_masked"> · {{ sent.phone_masked }}</span>
+          <span v-if="resendIn > 0"> · {{ resendIn }} 秒后可重新发送</span>
+        </VAlert>
         <div class="tg-wizard">
           <VBtn
             color="primary"
             variant="flat"
             :loading="busy === 'send_code'"
+            :disabled="sendDisabled"
             prepend-icon="mdi-send-outline"
             @click="sendCode"
           >
-            发送验证码
+            {{ sendLabel }}
           </VBtn>
           <VTextField
             v-model="code"
@@ -307,9 +385,11 @@ onMounted(async () => {
           </VBtn>
         </div>
         <div class="tg-hint">
-          已缓存 {{ dialogs.length }} 个对话。首次登录后请点一次「刷新对话列表」，
-          资源监控与转发规则的频道下拉会用到它。
+          凭证需先点底部「保存配置」再发码。若未收到验证码，等倒计时结束后可重新发送；
+          刷新页面不会丢失已发出的验证码，直接输入即可。
         </div>
+        <div class="tg-hint">已缓存 {{ dialogs.length }} 个对话。登录后请点一次「刷新对话列表」，
+          资源监控与转发规则的频道下拉会用到它。</div>
       </VCardText>
     </VCard>
   </div>
@@ -322,7 +402,7 @@ onMounted(async () => {
 .tg-account,
 .tg-message { font-size: 13px; }
 .tg-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
-.tg-wizard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tg-wizard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .tg-wizard-password { margin-top: 8px; }
 .tg-wizard-input { flex: 1 1 200px; min-width: 160px; }
 .tg-wizard-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }

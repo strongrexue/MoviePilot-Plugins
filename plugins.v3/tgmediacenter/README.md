@@ -42,6 +42,19 @@ Vue 联邦远程组件，暴露 `./Config`、`./Page`、`./Dashboard` 三个入�
 后端连接用的是**已保存**的配置，不是表单里当前输入的值。填完 API ID / Hash / 手机号后
 要先点底部的「保存配置」，再发送验证码。
 
+### 验证码发到哪里 / 为什么要等倒计时
+
+- 验证码的**投递渠道由 Telegram 决定**，不一定是短信：若该账号已在某处登录，验证码通常直接
+  发到**已登录的 Telegram 应用内**（`delivery: app`）。接口会返回 `delivery_text`，界面上也有明示。
+- Telegram 对同一号码的发码有**最小间隔**（返回值里的 `timeout`，通常 60 秒）。界面上的
+  「重新发送（Ns）」倒计时即来自它；**倒计时内点发送会被本地直接拦下**，因为此时请求必然失败。
+- 因此：**已收到验证码就直接输入登录，不要重复点发码**。刷新页面不会丢——待登录上下文
+  （`pending_login`）持久化在后端，页面加载时会自动恢复登录向导。
+
+> 若手动调用接口重复发码，可能看到 `SEND_CODE_UNAVAILABLE`：这是 Telegram 对"重发"请求的拒绝
+> （Telethon 会在客户端已缓存 `phone_code_hash` 时把请求改写成 `ResendCodeRequest`）。
+> v1.1.2 起已在发码前清理该缓存并做本地冷却拦截，同时把提示翻译为中文。
+
 ## 本地开发
 
 ```bash
@@ -72,4 +85,4 @@ python ../../../.github/scripts/check_federation_css.py
 
 ## 版本
 
-当前 `1.1.1`。版本号需与 `package.v3.json` 的 `version` 及 `history` 最新键保持一致。
+当前 `1.1.2`。版本号需与 `package.v3.json` 的 `version` 及 `history` 最新键保持一致。

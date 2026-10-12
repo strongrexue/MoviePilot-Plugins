@@ -43,7 +43,7 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 | 阶段 | 内容 | 版本 | tag | 状态 |
 |---|---|---|---|---|
 | P0 | 插件骨架：仓库结构、元数据、Vue 联邦构建链、API 层与请求归属、显示名与图标 | `1.0.0` | `stage-p0` | ✅ 已完成（MP 加载验证通过） |
-| P1 | TG 核心凭证：Telethon 接入、登录向导、StringSession 持久化、对话列表缓存 | `1.1.0` | `stage-p1` | ✅ 已完成 |
+| P1 | TG 核心凭证：Telethon 接入、登录向导、StringSession 持久化、对话列表缓存 | `1.1.0`（补丁至 `1.1.2`） | `stage-p1` | ✅ 已完成 |
 | P2 | 115 网盘：Cookie 登录、状态配额、分享转存、离线下载、推送队列 | `1.2.0` | `stage-p2` | ⏳ 待开始 |
 | P3 | 自定义豆瓣源：RssHelper 拉取、规则过滤、宿主订阅创建、去重表 | `1.3.0` | `stage-p3` | ⏳ 待开始 |
 | P4 | TG 资源监控：事件接入、聚合净化、MetaVideo 识别、缺集匹配、推送决策 | `1.4.0` | `stage-p4` | ⏳ 待开始 |
@@ -52,6 +52,28 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 | P7 | 打磨：限流退避、通知接入、测试、真实加载验证、README | `1.7.0` | `stage-p7` | ⏳ 待开始 |
 
 ---
+
+## v1.1.2（P1 修复：发码链路）
+
+真机验证发现"重复发码报 SEND_CODE_UNAVAILABLE"，根因是 Telethon 的内部行为：
+
+- Telethon 在客户端实例上缓存 `_phone_code_hash[phone]`。一旦存在，再次调用
+  `send_code_request()` 会被**改写成 `auth.ResendCodeRequest`**（语义是"换一种投递方式重发"）；
+  当该号码可用的方式用尽时，Telegram 直接回 `SEND_CODE_UNAVAILABLE`，界面上就是一长串英文报错。
+- 触发条件很常见：验证码其实已经发出（且仍然有效），用户因页面状态丢失又点了一次「发送验证码」。
+
+修复与加固：
+
+- **发码前置清理缓存**：`send_code` 前清除客户端内的 `phone_code_hash`，让每次点击都走一次干净的
+  `auth.SendCodeRequest`，而不是被静默降级为重发请求（`_reset_phone_code_hash`，跨版本兜底）。
+- **投递渠道识别**：按 `SentCode.type` 的类名识别 `app / sms / call / flash_call / email`，
+  接口返回 `delivery` 与 `delivery_text`，前端明确告知"验证码发到了 Telegram 应用，不是短信"。
+- **可重发倒计时**：使用 Telegram 返回的 `SentCode.timeout` 作为冷却窗口；冷却期内本地拦截并给出
+  "请先使用已收到的验证码，N 秒后可重新发送"，不再把英文报错抛给用户。换号不受上一号码冷却限制。
+- **待登录上下文持久化**：`phone_code_hash` / 发码时间 / 投递渠道 / 冷却窗口落盘，`/status` 返回
+  `pending_login`（手机号掩码），前端**刷新页面后自动恢复登录向导**，从根上消除"再点一次发送"的动机。
+- **异常按名解析**：Telethon 各版本错误类集合不一致，`from telethon.errors import X` 一旦有名字缺失
+  会让**整组映射失效**。改为按名字 `getattr` 动态取用，并补齐中文提示（含频率限制的等待秒数）。
 
 ## v1.1.1（P1 修复）
 

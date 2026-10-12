@@ -246,16 +246,16 @@ class MessagePipeline:
                              "自定义关键词未命中", destination, links)
                 return
 
-        # 标题识别（宿主 MetaVideo）
-        if meta is None:
-            reason = ("宿主识别引擎不可用（请确认 MoviePilot 版本）"
-                      if not recognizer_service.meta_available() else "标题无法识别")
-            self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_UNRECOGNIZED,
-                         reason, destination, links)
-            return
-
-        # 仅缺失判断（依据 MP 媒体服务器 + 订阅快照）
+        # 仅缺失判断（依据 MP 媒体服务器 + 订阅快照）。
+        # 标题识别只在需要判断缺失时是硬性要求：仅缺失关闭时，纯链接消息
+        # 也应能按规则推送（推送 115 只需要链接，不需要标题）。
         if rule.get("match_only_if_missing"):
+            if meta is None:
+                reason = ("宿主识别引擎不可用（请确认 MoviePilot 版本）"
+                          if not recognizer_service.meta_available() else "标题无法识别，无法判断缺失")
+                self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_UNRECOGNIZED,
+                             reason, destination, links)
+                return
             verdict = self._matcher.is_missing(
                 title=meta.get("title") or "",
                 year=meta.get("year") or "",
@@ -654,14 +654,15 @@ class MessagePipeline:
                     trace.update(decision=DECISION_SKIPPED_KEYWORD, reason="自定义关键词未命中")
                     traces.append(trace)
                     continue
-            if meta is None:
-                trace.update(
-                    decision=DECISION_SKIPPED_UNRECOGNIZED,
-                    reason="宿主识别引擎不可用" if not recognizer_service.meta_available() else "标题无法识别",
-                )
-                traces.append(trace)
-                continue
             if rule.get("match_only_if_missing"):
+                if meta is None:
+                    trace.update(
+                        decision=DECISION_SKIPPED_UNRECOGNIZED,
+                        reason=("宿主识别引擎不可用" if not recognizer_service.meta_available()
+                                else "标题无法识别，无法判断缺失"),
+                    )
+                    traces.append(trace)
+                    continue
                 try:
                     verdict = self._matcher.is_missing(
                         title=meta.get("title") or "",

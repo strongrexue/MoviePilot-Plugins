@@ -58,6 +58,14 @@ git revert --no-commit stage-p3..stage-p4 && git commit
 
 ---
 
+## v1.3.2（P4 真机修复：media_exists 取错层级 / 订阅计数 / 假标题）
+
+- **media_exists 报 `'Emby' object has no attribute 'media_exists'`**：`iterate_module_instances()` 产出的 `ServiceInfo` 里，`instance` 是**具体服务器实例**（Emby 客户端对象，无该方法），带 `media_exists` 的是 **`module`**（模块基类实例，内部自己遍历全部服务）。改为优先取 `service.module` 并以 `hasattr` 校验。
+- **订阅数与 MP 订阅页不一致**：`list_subscriptions()` 无参调用只返回第一页（默认页大小 50），计数错误地用了 `len(items)`。改用分页 DTO 的 `total`。
+- **纯链接消息被识别成假标题**（《Https: 115 Com S ...》）：含 `http(s)://`/`magnet:`/`ed2k:` 的行不再作为标题候选；识别出的名称含链接特征（不要求 `://`，垃圾名形如 "Https: 115 Com ..."）或超过 100 字符时按无法识别处理。
+- **决策顺序调整**：标题识别只在「仅缺失时推送」开启时是硬性要求——关闭后纯链接消息也能按规则推送 115（推送只需要链接，不需要标题）；命中流水的标题字段允许为空。
+- 新增回归测试 6 项（URL-only 识别 / 首行链接跳过 / 假标题防呆 / 订阅 total 计数 / 纯链接推送与跳过），全量 149 项通过。
+
 ## v1.3.0（P4：TG 资源监控）
 
 - **消息流水线**（`core/pipeline.py`）：Telethon 新消息事件在 TG loop 内注册（worker 每轮做注册健康检查，运行时重建后自动补注册）→ 线程安全队列 → 聚合窗口（默认 3 秒合并同频道批量消息，20 条上限强制刷新）→ worker 线程统一处理。

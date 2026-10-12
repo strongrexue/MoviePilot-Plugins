@@ -167,9 +167,16 @@ class FakeMediaServerModule:
         return self._result
 
 
+class _FakeEmbyInstance:
+    """镜像真机结构：ServiceInfo.instance 是具体服务器对象，没有 media_exists。"""
+
+    pass
+
+
 class FakeMediaServerService:
     def __init__(self, module) -> None:
-        self.instance = module
+        self.module = module
+        self.instance = _FakeEmbyInstance()
         self.name = "emby"
 
 
@@ -344,6 +351,27 @@ class TestRecognizer:
         assert recognizer_module.recognize("测试剧集.S01E02") is None
         assert recognizer_module.meta_available() is False
 
+    def test_recognize_skips_url_only_message(self, fake_metavideo):
+        # 真机踩过：纯链接消息被 MetaVideo 硬解析成《Https: 115 Com ...》假标题
+        assert recognizer_module.recognize("https://115.com/s/sws9tvo3h9l?password=ayss") is None
+
+    def test_recognize_ignores_leading_link_line(self, fake_metavideo):
+        meta = recognizer_module.recognize(
+            "https://115.com/s/abcdef?password=x\n测试剧集.S01E02.2160p"
+        )
+        assert meta is not None
+        assert meta["title"] == "测试剧集"
+
+    def test_recognize_rejects_url_like_name(self, monkeypatch):
+        class UrlName(FakeMetaVideo):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.name = "Https: 115 Com S Abc"
+
+        monkeypatch.setattr(recognizer_module, "META_AVAILABLE", True)
+        monkeypatch.setattr(recognizer_module, "MetaVideo", UrlName)
+        assert recognizer_module.recognize("某个不含链接的标题行") is None
+
 
 # ---------------------------------------------------------------------- 缺失判断
 
@@ -378,6 +406,17 @@ class TestMatcher:
         # 年份不一致 → 订阅不匹配 → 没有数据源 → 无法判断
         result = matcher.is_missing(title="测试剧集", year="2023", media_type="tv", season=1)
         assert result["missing"] is None
+
+    def test_capabilities_counts_total_not_first_page(self, monkeypatch):
+        # 真机踩过：无参 list_subscriptions 只返回第一页（默认 50 条），
+        # 计数必须用 total，否则订阅多于页大小时数字对不上
+        class PageWithTotal:
+            items = [FakeSubscription(f"剧{i}") for i in range(3)]
+            total = 65
+
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: PageWithTotal())
+        assert MediaMatcher().capabilities()["subscriptions"] == 65
 
     def test_mediaserver_movie_not_exists(self, monkeypatch):
         monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
@@ -523,10 +562,28 @@ class TestPipeline:
                 self.name = ""
 
         monkeypatch.setattr(recognizer_module, "MetaVideo", Empty)
-        monitor.save_rules([base_rule()])
+        # 仅缺失开启时，无法识别就没法判断缺失 → 跳过
+        monitor.save_rules([base_rule(match_only_if_missing=True)])
         self._process(pipeline, CHAT_A, "这段文字没有可识别的资源名")
         logs = query_all(TgHitLog, plugin)
         assert logs[0].decision == DECISION_SKIPPED_UNRECOGNIZED
+
+    def test_link_only_message_pushes_when_only_missing_off(self, plugin, monitor, pipeline):
+        # 仅缺失关闭时，纯链接消息不需要识别即可推送（115 目标只要求链接）
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False)])
+        self._process(pipeline, CHAT_A, "https://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_HIT
+        assert logs[0].title == ""
+        tasks = query_all(TgPushTask, plugin)
+        assert tasks and "115.com/s/swtest" in tasks[0].payload
+
+    def test_link_only_message_unrecognized_when_only_missing_on(self, plugin, monitor, pipeline):
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=True)])
+        self._process(pipeline, CHAT_A, "https://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_SKIPPED_UNRECOGNIZED
+        assert query_all(TgPushTask, plugin) == []
 
     def test_pan115_without_links_skipped(self, plugin, monitor, pipeline):
         monitor.save_rules([base_rule(destination="pan115")])

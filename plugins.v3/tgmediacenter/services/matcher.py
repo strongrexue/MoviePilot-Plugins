@@ -100,11 +100,18 @@ class MediaMatcher:
             "mediaserver": self._mediaserver_name(),
         }
 
-    @staticmethod
-    def _count_subscriptions() -> int:
+    def _count_subscriptions(self) -> int:
         if not QUERIES_AVAILABLE:
             return 0
+        # 注意：无参调用只返回第一页（默认页大小 50），计数必须用 total，
+        # 否则订阅多于 50 时界面显示的数字与 MP 订阅页对不上。
         page = list_subscriptions()
+        total = getattr(page, "total", None)
+        if total is not None:
+            try:
+                return int(total)
+            except (TypeError, ValueError):
+                pass
         items = getattr(page, "items", None)
         if items is None:
             return 0
@@ -250,13 +257,15 @@ class MediaMatcher:
             return None
         try:
             helper = MediaServerHelper()
-            # 注意：宿主 get_service() 必须传名称才返回 ServiceInfo（含 .instance），
-            # 无参调用恒为 None；这里取任意一个已启用的媒体服务器模块实例即可——
-            # media_exists(server=None) 内部会遍历该模块类型的全部服务。
+            # 注意：iterate_module_instances 产出的 ServiceInfo 里，带 media_exists 的
+            # 是 **module**（媒体服务器模块基类实例，其内部会遍历该类型的全部服务）；
+            # instance 是具体某个服务器实例（如 Emby 客户端对象），没有该方法——
+            # 取错层级会报 "'Emby' object has no attribute 'media_exists'"。
             module = None
             for service in helper.iterate_module_instances():
-                module = getattr(service, "instance", None)
-                if module is not None:
+                candidate = getattr(service, "module", None) or getattr(service, "instance", None)
+                if candidate is not None and hasattr(candidate, "media_exists"):
+                    module = candidate
                     break
             if module is None:
                 return None

@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from app.sdk.logging import logger
@@ -22,6 +23,14 @@ try:  # 宿主识别引擎：缺失时整层降级
 except Exception:  # pragma: no cover - 无宿主环境的降级分支
     MetaVideo = None  # type: ignore[assignment]
     META_AVAILABLE = False
+
+# 链接行特征：命中则不作为标题候选（MetaVideo 会把 URL 硬解析成
+# 《Https: 115 Com ...》这类假标题，真机已踩过）
+_URL_LINE_RE = re.compile(r"https?://|magnet:\?|ed2k://", re.IGNORECASE)
+# 识别结果防呆：名称里带链接特征或超长，基本可断定是误解析。
+# 注意不能要求 "://"：URL 被 MetaVideo 拆词后的垃圾名形如 "Https: 115 Com ..."（无 //）。
+_BAD_NAME_RE = re.compile(r"https?|www\.", re.IGNORECASE)
+_MAX_NAME_LENGTH = 100
 
 # 明显广告/推广行特征（命中即整行丢弃）。宁少勿多：误杀资源名比漏过滤更糟。
 _AD_LINE_MARKERS = (
@@ -83,15 +92,24 @@ def _first_int(value: Any) -> Optional[int]:
         return None
 
 
+def _is_bad_name(name: str) -> bool:
+    """识别出的名称是否像误解析（含链接特征或超长）。"""
+    text = str(name or "")
+    return bool(_BAD_NAME_RE.search(text)) or len(text) > _MAX_NAME_LENGTH
+
+
 def _recognize_line(line: str, subtitle: Optional[str]) -> Optional[dict]:
     """对单行做 MetaVideo 识别；得到名称才算成功。"""
+    # 链接行不作标题候选：纯链接消息（或链接在首行的消息）不该被解析出假标题
+    if _URL_LINE_RE.search(line):
+        return None
     try:
         meta = MetaVideo(line, subtitle)
     except Exception as err:  # pragma: no cover - 识别引擎内部异常按未识别处理
         logger.debug(f"MetaVideo 识别异常（忽略）：{err}")
         return None
     name = str(getattr(meta, "name", "") or "").strip()
-    if not name:
+    if not name or _is_bad_name(name):
         return None
     season = _first_int(getattr(meta, "begin_season", None))
     episode = _first_int(getattr(meta, "begin_episode", None))

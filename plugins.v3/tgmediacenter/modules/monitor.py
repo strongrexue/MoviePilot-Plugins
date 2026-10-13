@@ -23,7 +23,7 @@ from ..core.cooldown import CooldownGate
 from ..core.pipeline import MessagePipeline, new_rule_id
 from ..destinations import DESTINATION_VALUES
 from ..model.hit_log import DECISIONS, TgHitLog
-from ..model.push_task import STATUS_FAILED, STATUS_PENDING, TgPushTask
+from ..model.push_task import STATUS_DONE, STATUS_FAILED, STATUS_PENDING, TgPushTask
 from ..services.matcher import MediaMatcher
 
 _RULES_KEY = "monitor_rules"
@@ -279,49 +279,58 @@ class MonitorModule:
 
         db = getattr(self._plugin, "get_database", lambda: None)()
         if db is None:
-            return {"pending": 0, "failed": 0}
+            return {"pending": 0, "failed": 0, "done": 0}
         plugin_id = getattr(self._plugin, "__class__").__name__
         try:
             with db.session() as session:
-                pending = session.execute(
-                    select(func.count()).select_from(TgPushTask).where(
-                        TgPushTask.plugin_id == plugin_id,
-                        TgPushTask.status == STATUS_PENDING,
-                    )
-                ).scalar() or 0
-                failed = session.execute(
-                    select(func.count()).select_from(TgPushTask).where(
-                        TgPushTask.plugin_id == plugin_id,
-                        TgPushTask.status == STATUS_FAILED,
-                    )
-                ).scalar() or 0
-                return {"pending": int(pending), "failed": int(failed)}
+                def _count(status_value: str) -> int:
+                    return int(session.execute(
+                        select(func.count()).select_from(TgPushTask).where(
+                            TgPushTask.plugin_id == plugin_id,
+                            TgPushTask.status == status_value,
+                        )
+                    ).scalar() or 0)
+
+                return {
+                    "pending": _count(STATUS_PENDING),
+                    "failed": _count(STATUS_FAILED),
+                    "done": _count(STATUS_DONE),
+                }
         except Exception as err:  # pragma: no cover
             logger.debug(f"统计推送队列失败：{err}")
-            return {"pending": 0, "failed": 0}
+            return {"pending": 0, "failed": 0, "done": 0}
 
     def status(self) -> dict:
         """监控模块运行态（供状态接口与前端展示）。"""
         pipeline = self._pipeline
         push = self.push_stats()
+        pipeline_stats = pipeline.stats() if pipeline is not None else {
+            "running": False,
+            "handler_registered": False,
+            "buffered": 0,
+            "queued": 0,
+            "processed": 0,
+            "hit": 0,
+            "skipped": 0,
+            "failed": 0,
+            "events_received": 0,
+            "events_watched": 0,
+            "events_unwatched": 0,
+            "messages_enqueued": 0,
+            "last_event_at": "",
+            "push_done": push["done"],
+            "push_pending": push["pending"],
+            "push_failed": push["failed"],
+            "started_at": "",
+            "last_error": "",
+        }
+        # 推送完成数用数据库口径（跨重启累计），比 worker 内存计数更直观
+        pipeline_stats["push_done"] = push["done"]
         return {
             "enabled": self.enabled(),
             "rules_count": len(self.rules()),
             "watched_chats": len(self.watched_chat_ids()),
-            "pipeline": pipeline.stats() if pipeline is not None else {
-                "running": False,
-                "handler_registered": False,
-                "buffered": 0,
-                "queued": 0,
-                "processed": 0,
-                "hit": 0,
-                "skipped": 0,
-                "failed": 0,
-                "push_pending": push["pending"],
-                "push_failed": push["failed"],
-                "started_at": "",
-                "last_error": "",
-            },
+            "pipeline": pipeline_stats,
             "matcher": self._matcher.capabilities(),
             "gate_interval": self._gate.interval(),
             "flood_remaining": int(self._gate.flood_remaining()),

@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.5';
+const FRONTEND_VERSION = '1.3.6';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -2434,9 +2434,23 @@ return (_ctx, _cache) => {
                 ]),
                 _: 1
               }),
-              ((status.value?.pipeline?.push_failed ?? 0) > 0)
+              ((status.value?.pipeline?.push_done ?? 0) > 0)
                 ? (_openBlock$1(), _createBlock$1(_component_VChip, {
                     key: 0,
+                    size: "small",
+                    variant: "tonal",
+                    color: "success",
+                    label: ""
+                  }, {
+                    default: _withCtx$1(() => [
+                      _createTextVNode$1(" 推送完成 " + _toDisplayString$1(status.value.pipeline.push_done), 1)
+                    ]),
+                    _: 1
+                  }))
+                : _createCommentVNode$1("", true),
+              ((status.value?.pipeline?.push_failed ?? 0) > 0)
+                ? (_openBlock$1(), _createBlock$1(_component_VChip, {
+                    key: 1,
                     size: "small",
                     variant: "tonal",
                     color: "error",
@@ -3054,7 +3068,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-d5832d43"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-55639fdb"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

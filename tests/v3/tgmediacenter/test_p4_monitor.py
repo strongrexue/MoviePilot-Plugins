@@ -780,6 +780,34 @@ class TestPushWorker:
         row = query_all(TgPushTask, plugin)[0]
         assert row.status == STATUS_DONE
 
+    def test_push_result_annotates_hit_log(self, plugin, monitor, pipeline, monkeypatch):
+        """推送终态要回写命中流水：流水里"已入推送队列 #N"能看到结局。"""
+        monitor.save_rules([base_rule(destination="none")])
+        pipeline._process_batch(CHAT_A, [{
+            "chat_id": CHAT_A, "message_id": 1,
+            "text": "测试剧集.S01E02\nhttps://115.com/s/swtest?password=abcd",
+        }])
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plug, gate: _FakeDest(PushResult(ok=True, message="完成转存")))
+        view = pipeline._claim_pending_tasks()[0]
+        pipeline._execute_push(view)
+        logs = query_all(TgHitLog, plugin)
+        assert "推送成功：完成转存" in logs[0].detail
+        assert pipeline.stats()["push_done"] == 1
+
+    def test_push_failure_annotates_hit_log(self, plugin, monitor, pipeline, monkeypatch):
+        monitor.save_rules([base_rule(destination="none")])
+        pipeline._process_batch(CHAT_A, [{
+            "chat_id": CHAT_A, "message_id": 1,
+            "text": "测试剧集.S01E02\nhttps://115.com/s/swtest?password=abcd",
+        }])
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plug, gate: _FakeDest(PushResult(ok=False, message="Cookie 失效", retryable=False)))
+        view = pipeline._claim_pending_tasks()[0]
+        pipeline._execute_push(view)
+        logs = query_all(TgHitLog, plugin)
+        assert "推送失败：Cookie 失效" in logs[0].detail
+
     def test_retryable_failure_returns_to_pending_with_backoff(self, plugin, monitor, pipeline, monkeypatch):
         monitor.save_rules([base_rule(destination="none")])
         pipeline._process_batch(CHAT_A, [{

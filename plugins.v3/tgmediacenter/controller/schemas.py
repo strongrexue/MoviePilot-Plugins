@@ -295,6 +295,7 @@ class MonitorPipelineStats(BaseModel):
     events_unwatched: int = 0
     messages_enqueued: int = 0
     last_event_at: str = ""
+    push_done: int = 0
     push_pending: int = 0
     push_failed: int = 0
     started_at: str = ""

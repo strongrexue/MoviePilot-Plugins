@@ -486,6 +486,7 @@ class MessagePipeline:
 
         task_id = int(task.get("id") or 0)
         retries = int(task.get("retries") or 0)
+        terminal = ok or not retryable
         try:
             with db.session() as session:
                 row = session.get(TgPushTask, task_id)
@@ -506,6 +507,37 @@ class MessagePipeline:
                 session.commit()
         except Exception as err:  # pragma: no cover
             logger.warning(f"更新推送任务状态失败（#{task_id}）：{err}")
+            return
+        # 终态时把推送结果回写到命中流水：流水里的"已入推送队列 #N"能看到结局
+        if terminal:
+            self._annotate_hit(task, ok, message)
+        if ok:
+            self._stats["push_done"] = self._stats.get("push_done", 0) + 1
+
+    def _annotate_hit(self, task: Dict[str, Any], ok: bool, message: str) -> None:
+        """把推送结果追加到对应命中流水的说明里（同规则同消息、决策为 hit 的行）。"""
+        db = self._db()
+        if db is None:
+            return
+        try:
+            from sqlalchemy import select
+
+            with db.session() as session:
+                rows = session.execute(
+                    select(TgHitLog).where(
+                        TgHitLog.plugin_id == self._plugin_id(),
+                        TgHitLog.rule_id == str(task.get("rule_id") or "")[:64],
+                        TgHitLog.chat_id == int(task.get("chat_id") or 0),
+                        TgHitLog.message_id == int(task.get("message_id") or 0),
+                        TgHitLog.decision == DECISION_HIT,
+                    )
+                ).scalars().all()
+                suffix = f" ｜ 推送{'成功' if ok else '失败'}：{str(message or '')[:120]}"
+                for row in rows:
+                    row.detail = f"{row.detail}{suffix}"[:500]
+                session.commit()
+        except Exception as err:  # pragma: no cover - 回写失败不影响推送本身
+            logger.debug(f"回写推送结果到命中流水失败（忽略）：{err}")
 
     @staticmethod
     def _task_view(row: Any) -> Dict[str, Any]:
@@ -620,6 +652,7 @@ class MessagePipeline:
             "events_unwatched": self._stats["events_unwatched"],
             "messages_enqueued": self._stats["messages_enqueued"],
             "last_event_at": self._last_event_at,
+            "push_done": self._stats.get("push_done", 0),
             "push_pending": pending,
             "push_failed": failed,
             "started_at": self._started_at,

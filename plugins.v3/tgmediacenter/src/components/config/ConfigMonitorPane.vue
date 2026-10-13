@@ -44,6 +44,9 @@
           <VChip size="small" variant="tonal" color="primary" label>
             队列待处理 {{ status?.pipeline?.push_pending ?? 0 }}
           </VChip>
+          <VChip v-if="(status?.pipeline?.push_done ?? 0) > 0" size="small" variant="tonal" color="success" label>
+            推送完成 {{ status.pipeline.push_done }}
+          </VChip>
           <VChip v-if="(status?.pipeline?.push_failed ?? 0) > 0" size="small" variant="tonal" color="error" label>
             失败 {{ status.pipeline.push_failed }}
           </VChip>

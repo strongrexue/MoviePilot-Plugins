@@ -76,14 +76,30 @@ _RETRY_MAX_SECONDS = 600.0
 # 115 登录态失效的提醒间隔（秒）：属"要人工介入且会持续存在"的故障，
 # 不按轮次重复提醒，6 小时内只发一次。
 _CREDENTIAL_NOTIFY_WINDOW = 6 * 3600.0
-# 判定"这是登录态/鉴权问题"的关键词（115 侧文案不完全固定，按语义兜）
-_AUTH_ERROR_HINTS = ("登录", "cookie", "授权", "安全密钥", "验证", "未启用", "失效", "401", "403")
+# 判定"这是登录态/鉴权问题"的关键词（115 侧文案不完全固定，按语义兜）。
+# 注意：这里**不能**放裸的「失效」——"分享链接已失效 / 文件已失效"是资源本身
+# 的问题，跟登录态无关；误判会给失败通知挂上"重新扫码"引导，更要命的是它会
+# 命中 6 小时去重（key=pan115_credential），把后续真正的失败通知一起吞掉
+# （1.6.11 验证时发现）。登录态失效的文案通常自带"登录/cookie/授权"等词。
+_AUTH_ERROR_HINTS = ("登录", "cookie", "授权", "安全密钥", "验证", "未启用",
+                     "登录态失效", "会话失效", "凭证失效", "身份失效", "401", "403")
+# 判定"115 里其实已经有了、本次没重复保存"的关键词。
+# 与 core/pan115_client.py 的口径对齐：分享转存遇「已转存/重复」、离线遇
+# 「已存在/重复」都返回 ok=True + "…（跳过）"，属于成功但不是新转存——
+# 通知里必须说清，否则用户以为刚又存了一份。
+_DUPLICATE_HINTS = ("已转存", "已存在", "重复", "已保存", "此前已", "已接收")
 
 
 def _looks_like_auth_error(message: str) -> bool:
     """这条失败信息是否像 115 登录态失效（用于给通知加"重新扫码"引导）。"""
     text = str(message or "").lower()
     return any(hint in text for hint in _AUTH_ERROR_HINTS)
+
+
+def _looks_like_duplicate(message: str) -> bool:
+    """这条结果说明是否表示"115 里已经有了"（成功，但未重复保存）。"""
+    text = str(message or "")
+    return any(hint in text for hint in _DUPLICATE_HINTS)
 
 
 def _task_links(task: Dict[str, Any]) -> List[str]:
@@ -95,9 +111,11 @@ def _task_links(task: Dict[str, Any]) -> List[str]:
 
 
 def _link_outcomes(detail: Any) -> Dict[str, Dict[str, Any]]:
-    """把目标的逐条结果整理成 ``{输入链接: {"ok": bool}}``（合并下发回填用）。
+    """把目标的逐条结果整理成 ``{输入链接: {"ok": bool, "dup": bool}}``（合并下发回填用）。
 
     同一输入链接可能被解析出多条条目（一段正文含多个链接）：任一条失败即视为失败。
+    ``dup`` 表示该链接的结果说明是"115 里已经有了"（成功但未重复保存），
+    供通知把「已转存过」和「新转存」区分开（1.6.11）。
     """
     result: Dict[str, Dict[str, Any]] = {}
     if not isinstance(detail, dict):
@@ -108,10 +126,37 @@ def _link_outcomes(detail: Any) -> Dict[str, Dict[str, Any]]:
         source = str(entry.get("source") or "").strip()
         if not source:
             continue
-        slot = result.setdefault(source, {"ok": True})
+        slot = result.setdefault(source, {"ok": True, "dup": False})
         if not entry.get("ok"):
             slot["ok"] = False
+        if _looks_like_duplicate(entry.get("message")):
+            slot["dup"] = True
     return result
+
+
+def _task_duplicate(task: Dict[str, Any], detail: Any) -> bool:
+    """这条任务是否整条都属于"115 里已有、本次未重复保存"。
+
+    合并下发时目标给的逐条结果已经在 ``detail["duplicate"]`` 里算好；单任务
+    路径则自己从 ``detail["results"]`` 反推。口径保守：**全部**已知链接都被判
+    为已存在才算整条"已转存过"——部分重复仍按成功展示，避免把"存了一半"说成
+    "没重复保存"。
+    """
+    if not isinstance(detail, dict):
+        return False
+    if "duplicate" in detail:
+        return bool(detail.get("duplicate"))
+    outcomes = _link_outcomes(detail)
+    if not outcomes:
+        return False
+    links = _task_links(task)
+    if not links:
+        return False
+    known = [outcomes.get(link) for link in links]
+    known = [entry for entry in known if entry]
+    if len(known) != len(links):
+        return False
+    return all(bool(entry.get("dup")) for entry in known)
 
 
 def _decision_for_skip(verdict: dict) -> "tuple[str, str]":
@@ -722,7 +767,8 @@ class MessagePipeline:
             return f"{title}（{links} 条链接）"
         return f"消息 #{task.get('message_id')}（{links} 条链接）"
 
-    def _note_outcome(self, *, task: Dict[str, Any], via: str, outcome: str, message: str) -> None:
+    def _note_outcome(self, *, task: Dict[str, Any], via: str, outcome: str,
+                      message: str, detail: Any = None) -> None:
         """把 115 转存的推送终态记进本轮通知桶（重试挂起的不算）。
 
         通知只覆盖 115 转存（用户明确要求）：通用转发（tg_forward）的成败
@@ -735,10 +781,15 @@ class MessagePipeline:
         links = _task_links(task)
         chat_id = int(task.get("chat_id") or 0)
         if outcome == "done":
-            # 元组带上 chat_id：通知里按任务分块、各自标注来源频道
-            self._cycle["pan115_done"].append((self._task_label(task), links, chat_id))
+            # 元组带上 chat_id 与 duplicate：通知里按任务分块、各自标注来源频道，
+            # 并区分「新转存」与「已转存过」（115 把重复也算成功，必须说清）
+            self._cycle["pan115_done"].append(
+                (self._task_label(task), links, chat_id, _task_duplicate(task, detail))
+            )
             return
-        self._cycle["pan115_failed"].append((self._task_label(task), str(message or "")))
+        self._cycle["pan115_failed"].append(
+            (self._task_label(task), str(message or ""), links, chat_id)
+        )
 
     def _dialog_names(self) -> Dict[int, str]:
         """对话缓存里的 ID → 标题映射（展示增强，失败不影响主体）。"""
@@ -763,11 +814,13 @@ class MessagePipeline:
         done = list(cycle.get("pan115_done") or [])
         failed_115 = list(cycle.get("pan115_failed") or [])
 
+        names: Dict[int, str] = {}
         if done and self._notifier.enabled("notify_on_hit", True):
             names = self._dialog_names()
             lines: List[str] = []
             shown = done[:8]
-            for label, links, chat_id in shown:
+            duplicates = 0
+            for label, links, chat_id, duplicate in shown:
                 # 去「· 」、链接行左对齐（首字对齐）；每条任务一个块，自带来源
                 lines.append(label)
                 for url in links[:3]:
@@ -776,21 +829,43 @@ class MessagePipeline:
                     lines.append(f"还有 {len(links) - 3} 条链接")
                 src = names.get(int(chat_id)) or str(chat_id)
                 lines.append(f"来源：{src}")
+                if duplicate:
+                    duplicates += 1
+                    lines.append("已转存过，本次未重复保存")
             text = "已转存到 115（" + str(len(done)) + " 条）：\n" + "\n".join(lines)
             if len(done) > 8:
                 text += f"\n…另有 {len(done) - 8} 条"
-            self._notifier.send(f"TG媒体中心 · 115 转存完成（{len(done)} 条）", text)
+            # 标题里也点出"已转存过"条数：通知列表只看标题时同样能分辨
+            if duplicates and duplicates == len(done):
+                title = f"TG媒体中心 · 115 转存完成（{len(done)} 条，已转存过）"
+            elif duplicates:
+                title = f"TG媒体中心 · 115 转存完成（{len(done)} 条，其中 {duplicates} 条已转存过）"
+            else:
+                title = f"TG媒体中心 · 115 转存完成（{len(done)} 条）"
+            self._notifier.send(title, text)
 
         total = len(failed_115)
         if total and self._notifier.enabled("notify_on_error", True):
-            credential_issue = any(_looks_like_auth_error(msg) for _, msg in failed_115)
+            if not names:
+                names = self._dialog_names()
+            credential_issue = any(_looks_like_auth_error(msg) for _, msg, _, _ in failed_115)
             lines: List[str] = [
                 f"115 转存失败 {total} 条：",
             ]
-            lines += [f"· {label} —— {msg}" for label, msg in failed_115[:6]]
-            shown = min(total, 6)
-            if total > shown:
-                lines.append(f"…另有 {total - shown} 条")
+            # 与成功通知同款版式：每条任务一个块（媒体名 → 链接 → 来源 → 失败原因），
+            # 去「· 」、首字对齐，便于一眼定位是哪条链接、来自哪个频道、为什么失败。
+            shown = failed_115[:6]
+            for label, msg, links, chat_id in shown:
+                lines.append(label)
+                for url in links[:3]:
+                    lines.append(url)
+                if len(links) > 3:
+                    lines.append(f"还有 {len(links) - 3} 条链接")
+                src = names.get(int(chat_id)) or str(chat_id)
+                lines.append(f"来源：{src}")
+                lines.append(f"失败原因：{msg or '未知原因'}")
+            if total > len(shown):
+                lines.append(f"…另有 {total - len(shown)} 条")
             if credential_issue:
                 lines.append("看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
             self._notifier.send(
@@ -973,12 +1048,9 @@ class MessagePipeline:
         )
         for task, start, end in spans:
             task_links = links[start:end]
-            if not outcomes:
-                # 目标完全不回报逐条结果：只能用整批结论兜底（保守：整批成功才算成功）
-                succeeded = len(task_links) if result.ok else 0
-                failed = len(task_links) - succeeded
-                ok, retryable = bool(result.ok), bool(result.retryable)
-            else:
+            # 整条任务是否"115 里已有、未重复保存"：全部链接都判为已存在才算
+            duplicate = False
+            if outcomes:
                 known = [outcomes.get(link) for link in task_links]
                 known = [entry for entry in known if entry]
                 succeeded = sum(1 for entry in known if entry["ok"])
@@ -986,12 +1058,20 @@ class MessagePipeline:
                 failed = len(task_links) - succeeded
                 ok = len(known) == len(task_links) and failed == 0
                 retryable = len(known) < len(task_links) or (failed > 0 and succeeded == 0)
+                duplicate = bool(known) and len(known) == len(task_links) and all(
+                    bool(entry.get("dup")) for entry in known
+                )
+            else:
+                # 目标完全不回报逐条结果：只能用整批结论兜底（保守：整批成功才算成功）
+                succeeded = len(task_links) if result.ok else 0
+                failed = len(task_links) - succeeded
+                ok, retryable = bool(result.ok), bool(result.retryable)
             self._finish_task(
                 task,
                 ok=ok,
                 message=f"合并推送（{len(task_links)} 条）：成功 {succeeded}，失败 {failed}",
                 retryable=retryable,
-                detail={"batch": True, "links": len(task_links)},
+                detail={"batch": True, "links": len(task_links), "duplicate": duplicate},
                 via=getattr(target, "name", ""),
             )
 
@@ -1039,7 +1119,7 @@ class MessagePipeline:
         if ok:
             self._stats["push_done"] = self._stats.get("push_done", 0) + 1
         # 记进本轮通知桶（成功汇总 / 失败汇总在 _push_cycle 末尾统一发出）
-        self._note_outcome(task=task, via=via, outcome=outcome, message=message)
+        self._note_outcome(task=task, via=via, outcome=outcome, message=message, detail=detail)
         return outcome
 
     def _annotate_hit(self, task: Dict[str, Any], ok: bool, message: str) -> None:

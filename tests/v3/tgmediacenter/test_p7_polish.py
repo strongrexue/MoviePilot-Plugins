@@ -90,7 +90,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.6.10"
+        self.plugin_version = "1.6.11"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -285,18 +285,31 @@ def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: 
 
 
 class _Target:
-    def __init__(self, name: str, ok: bool, message: str, retryable: bool = False) -> None:
+    def __init__(self, name: str, ok: bool, message: str, retryable: bool = False,
+                 detail: Any = None) -> None:
         self.name = name
         self._ok = ok
         self._message = message
         self._retryable = retryable
+        self._detail = detail
         self.calls = 0
 
     def push(self, payload: Dict[str, Any]):
         from app.plugins.tgmediacenter.destinations.base import PushResult
 
         self.calls += 1
-        return PushResult(ok=self._ok, message=self._message, retryable=self._retryable)
+        return PushResult(ok=self._ok, message=self._message, retryable=self._retryable,
+                          detail=self._detail)
+
+
+def _duplicate_detail(links: List[str]) -> Dict[str, Any]:
+    """115 把"已转存过"报成成功时的逐条结果（message 是判定依据）。"""
+    return {
+        "results": [
+            {"source": link, "ok": True, "message": "该分享此前已转存过（跳过）"}
+            for link in links
+        ]
+    }
 
 
 class TestPushNotifications:
@@ -370,6 +383,73 @@ class TestPushNotifications:
         assert len(push_env.messages) == 1
         assert "115 转存失败" in push_env.messages[0]["title"]
         assert "分享链接已失效" in push_env.messages[0]["text"]
+
+    def test_failure_notification_blocks_and_source(self, push_env, monkeypatch):
+        """1.6.11：失败通知与成功同款版式——去「· 」、块内含链接 / 来源 / 失败原因。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=False, message="转存失败：分享链接已失效", retryable=False)
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env, chat_id=-1004316104321,
+                          title="希望 (2026)", links=["https://115.com/s/aaa"])
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        pipeline._flush_notifications()
+        assert len(push_env.messages) == 1
+        text = push_env.messages[0]["text"]
+        assert "· " not in text
+        assert "希望 (2026)（1 条链接）" in text
+        assert "https://115.com/s/aaa" in text
+        assert "来源：-1004316104321" in text
+        assert "失败原因：转存失败：分享链接已失效" in text
+        # 「链接已失效」是资源本身的问题 ≠ 登录态失效：不能挂重新扫码引导
+        # （误挂会触发 6 小时去重，把后续真正的失败通知一起吞掉）
+        assert "重新扫码" not in text
+
+    def test_duplicate_notification_marks_already_saved(self, push_env, monkeypatch):
+        """1.6.11：115 把「已转存过」报成成功，通知里必须说清"本次未重复保存"。"""
+        links = ["https://115.com/s/aaa"]
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=True, message="推送完成：成功 1",
+                         detail=_duplicate_detail(links))
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env, chat_id=-1004316104321, title="希望 (2026)", links=links)
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        pipeline._flush_notifications()
+        assert len(push_env.messages) == 1
+        assert "已转存过" in push_env.messages[0]["title"]
+        text = push_env.messages[0]["text"]
+        assert "已转存过，本次未重复保存" in text
+        assert "https://115.com/s/aaa" in text
+        assert "来源：-1004316104321" in text
+
+    def test_duplicate_mixed_counts_only_in_title(self, push_env, monkeypatch):
+        """1.6.11：混排时只有"已转存过"那块带标注，标题点出条数。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        dup_links = ["https://115.com/s/aaa"]
+        target = _Target("pan115", ok=True, message="推送完成：成功 1",
+                         detail=_duplicate_detail(dup_links))
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task_dup = _seed_task(push_env, task_id=1, chat_id=-1004316104321,
+                              title="希望 (2026)", links=dup_links)
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task_dup)
+        # 第二条是真正的新转存（无 detail → 无"已转存过"判据）
+        fresh = _Target("pan115", ok=True, message="推送完成：成功 1")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: fresh)
+        task_new = _seed_task(push_env, task_id=2, chat_id=-1003751539830,
+                              title="伟大的长征 (2025)", links=["https://115.com/s/bbb"])
+        pipeline._execute_push(task_new)
+        pipeline._flush_notifications()
+        assert len(push_env.messages) == 1
+        title = push_env.messages[0]["title"]
+        assert "2 条，其中 1 条已转存过" in title
+        text = push_env.messages[0]["text"]
+        assert text.count("已转存过，本次未重复保存") == 1
 
     def test_credential_failure_adds_guidance_and_throttles(self, push_env, monkeypatch):
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
@@ -474,7 +554,7 @@ def test_overview_aggregates_modules():
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.6.10"
+    assert data.plugin_version == "1.6.11"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"

@@ -245,9 +245,35 @@ class MonitorModule:
 
     # ------------------------------------------------------------------ 查询
 
+    def _hit_filters(self, *, kind: str = "", decision: str = "", keyword: str = "") -> List[Any]:
+        """流水查询条件（列表 / 统计 / 删除共用一个入口）。
+
+        共用同一个构造入口是刻意的：「删除当前筛选结果」必须与列表看到的完全一致，
+        否则用户会删掉自己没看到的记录。``keyword`` 模糊匹配片名 / 规则名 / 说明。
+        """
+        from sqlalchemy import or_
+
+        plugin_id = getattr(self._plugin, "__class__").__name__
+        filters: List[Any] = [TgHitLog.plugin_id == plugin_id]
+        if kind:
+            filters.append(TgHitLog.kind == str(kind)[:16])
+        if decision:
+            filters.append(TgHitLog.decision == str(decision)[:32])
+        text = str(keyword or "").strip()
+        if text:
+            # 用户输入里的 % / _ 是字面量：不转义的话「_」会变成「任意单字符」通配符
+            escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            filters.append(or_(
+                TgHitLog.title.like(pattern, escape="\\"),
+                TgHitLog.rule_name.like(pattern, escape="\\"),
+                TgHitLog.detail.like(pattern, escape="\\"),
+            ))
+        return filters
+
     def hits(self, *, page: int = 1, page_size: int = 20, decision: str = "",
-             kind: str = KIND_MONITOR) -> dict:
-        """分页读取命中流水（可按 decision 与来源 kind 过滤）。
+             keyword: str = "", kind: str = KIND_MONITOR) -> dict:
+        """分页读取命中流水（可按 decision / 关键词 / 来源 kind 过滤）。
 
         ``kind`` 区分流水来源：``monitor``（④ 资源监控）/ ``forward``（⑥ 通用转发）。
         两套规则共用一张表，默认只看监控流水（保持既有接口语义不变）。
@@ -259,12 +285,7 @@ class MonitorModule:
         db = getattr(self._plugin, "get_database", lambda: None)()
         if db is None:
             return {"items": [], "total": 0, "page": page, "page_size": page_size}
-        plugin_id = getattr(self._plugin, "__class__").__name__
-        filters = [TgHitLog.plugin_id == plugin_id]
-        if kind:
-            filters.append(TgHitLog.kind == str(kind)[:16])
-        if decision:
-            filters.append(TgHitLog.decision == str(decision)[:32])
+        filters = self._hit_filters(kind=kind, decision=decision, keyword=keyword)
         try:
             with db.session() as session:
                 total = session.execute(
@@ -282,6 +303,28 @@ class MonitorModule:
             logger.warning(f"读取命中流水失败：{err}")
             return {"items": [], "total": 0, "page": page, "page_size": page_size}
         return {"items": items, "total": int(total), "page": page, "page_size": page_size}
+
+    def clear_hits(self, *, kind: str = KIND_MONITOR, decision: str = "",
+                   keyword: str = "") -> dict:
+        """按条件删除流水；不带 decision / keyword 即清空该来源（kind）的全部流水。
+
+        :returns: ``{"deleted": 删除条数, "message": 提示文案}``
+        """
+        from sqlalchemy import delete
+
+        db = getattr(self._plugin, "get_database", lambda: None)()
+        if db is None:
+            return {"deleted": 0, "message": "数据库未就绪，暂不能清理流水"}
+        filters = self._hit_filters(kind=kind, decision=decision, keyword=keyword)
+        try:
+            with db.session() as session:
+                result = session.execute(delete(TgHitLog).where(*filters))
+                session.commit()
+                deleted = int(result.rowcount or 0)
+        except Exception as err:
+            logger.warning(f"删除命中流水失败：{err}")
+            return {"deleted": 0, "message": f"删除流水失败：{err}"}
+        return {"deleted": deleted, "message": f"已删除 {deleted} 条流水"}
 
     @staticmethod
     def _hit_view(row: Any) -> dict:

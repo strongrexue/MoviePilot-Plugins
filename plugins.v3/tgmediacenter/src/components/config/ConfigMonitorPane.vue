@@ -395,6 +395,37 @@
         </template>
       </VCardItem>
       <VCardText>
+        <div class="mon-hits-tools">
+          <VTextField
+            v-model="hitKeyword"
+            placeholder="按片名 / 规则 / 说明搜索"
+            prepend-inner-icon="mdi-magnify"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+            class="mon-hits-search"
+          />
+          <VBtn
+            size="small"
+            variant="tonal"
+            color="error"
+            prepend-icon="mdi-delete-outline"
+            :disabled="!hitsTotal"
+            @click="askClear('filtered')"
+          >
+            删除筛选结果
+          </VBtn>
+          <VBtn
+            size="small"
+            variant="text"
+            color="error"
+            :disabled="!hitsTotal && !hitKeyword"
+            @click="askClear('all')"
+          >
+            清空本类流水
+          </VBtn>
+        </div>
         <VTable density="compact" class="mon-hits">
           <thead>
             <tr>
@@ -451,11 +482,41 @@
       风控提示：TG 个人号对外操作有频率限制，插件按「聚合窗口 + 全局冷却 + FloodWait 退避」克制发送；
       长时间大流量监控请适当调大「TG 凭证」页的个人号冷却秒数。
     </div>
+
+    <!-- 清理流水确认（删除不可恢复，必须二次确认） -->
+    <VDialog v-model="clearDialog" max-width="460">
+      <VCard>
+        <VCardTitle class="text-subtitle-1">
+          {{ clearTarget === 'all' ? '清空监控流水' : '删除筛选结果' }}
+        </VCardTitle>
+        <VCardText class="text-body-2">
+          <template v-if="clearTarget === 'all'">
+            将删除本面板的<strong>全部监控流水</strong>（共 {{ hitsTotal }} 条），删除后不可恢复；
+            通用转发的流水不受影响。
+          </template>
+          <template v-else>
+            将删除当前筛选出的 <strong>{{ hitsTotal }}</strong> 条流水
+            <template v-if="decisionFilter || hitKeyword.trim()">
+              （筛选：{{ [
+                decisionFilter ? `决策=${decisionLabel(decisionFilter)}` : '',
+                hitKeyword.trim() ? `关键词=${hitKeyword.trim()}` : '',
+              ].filter(Boolean).join(' / ') }}）
+            </template>
+            ，删除后不可恢复。
+          </template>
+        </VCardText>
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" @click="clearDialog = false">取消</VBtn>
+          <VBtn color="error" :loading="clearing" @click="runClear">删除</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getPluginApi, postPluginApi, putPluginApi, unwrap } from '../api'
 // 流水「决策」文案与详情页 / 仪表盘共用同一份映射（避免同一决策在不同页面文案不一致）
 import { decisionLabel, decisionColor } from '../decision'
@@ -512,8 +573,13 @@ const hitsTotal = ref(0)
 const hitsPage = ref(1)
 const hitsPageSize = 20
 const decisionFilter = ref('')
+const hitKeyword = ref('')
+const clearDialog = ref(false)
+const clearTarget = ref('filtered')
+const clearing = ref(false)
 
 let refreshTimer = null
+let keywordTimer = null
 
 function setMessage(text, ok = true) {
   message.value = text || ''
@@ -591,6 +657,7 @@ async function loadHits() {
     params.set('page', String(hitsPage.value))
     params.set('page_size', String(hitsPageSize))
     if (decisionFilter.value) params.set('decision', decisionFilter.value)
+    if (hitKeyword.value.trim()) params.set('keyword', hitKeyword.value.trim())
     const data = unwrap(await getPluginApi(
       props.api, props.pluginId, `monitor/hits?${params.toString()}`, { timeoutMs: 15000 },
     ))
@@ -598,6 +665,46 @@ async function loadHits() {
     hitsTotal.value = data?.total || 0
   } catch (err) {
     setMessage(err?.message || '读取命中流水失败', false)
+  }
+}
+
+// 关键词输入防抖 300ms：边打字边查会把后端打满（流水表可能上万行）
+watch(hitKeyword, () => {
+  clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(() => {
+    hitsPage.value = 1
+    loadHits()
+  }, 300)
+})
+
+function askClear(target) {
+  if (target === 'filtered' && !hitsTotal.value) {
+    setMessage('当前筛选没有可删除的流水')
+    return
+  }
+  clearTarget.value = target
+  clearDialog.value = true
+}
+
+async function runClear() {
+  if (clearing.value) return
+  clearing.value = true
+  try {
+    // 不带条件即清空本面板（后端按 kind 隔离，不会碰到转发流水）
+    const payload = clearTarget.value === 'all'
+      ? {}
+      : { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() }
+    const data = unwrap(await postPluginApi(
+      props.api, props.pluginId, 'monitor/hits/clear', payload, { timeoutMs: 30000 },
+    ))
+    setMessage(data?.message || '已清理流水')
+    clearDialog.value = false
+    hitsPage.value = 1
+    await Promise.all([loadHits(), loadStatus()])
+  } catch (err) {
+    setMessage(err?.message || '清理流水失败', false)
+  } finally {
+    clearing.value = false
   }
 }
 
@@ -801,6 +908,10 @@ onUnmounted(() => {
     window.clearInterval(refreshTimer)
     refreshTimer = null
   }
+  if (keywordTimer) {
+    window.clearTimeout(keywordTimer)
+    keywordTimer = null
+  }
 })
 </script>
 
@@ -868,4 +979,6 @@ onUnmounted(() => {
 .mon-hits-empty { text-align: center; padding: 16px; opacity: 0.6; }
 .mon-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .mon-pager-info { font-size: 12px; opacity: 0.7; }
+.mon-hits-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.mon-hits-search { flex: 1 1 220px; max-width: 320px; }
 </style>

@@ -159,7 +159,11 @@ class _StubPlugin:
     def api_monitor_rules_save(self, request):
         ...
 
-    def api_monitor_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+    def api_monitor_hits(self, page: int = 1, page_size: int = 20, decision: str = "",
+                         keyword: str = ""):
+        ...
+
+    def api_monitor_hits_clear(self, request):
         ...
 
     def api_monitor_status(self):
@@ -203,7 +207,11 @@ class _StubPlugin:
     def api_forward_status(self):
         ...
 
-    def api_forward_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+    def api_forward_hits(self, page: int = 1, page_size: int = 20, decision: str = "",
+                         keyword: str = ""):
+        ...
+
+    def api_forward_hits_clear(self, request):
         ...
 
     def api_forward_test(self, request):
@@ -235,6 +243,7 @@ def test_api_routes_contract():
         # P4 资源监控（rules 同时注册 GET 与 PUT）
         "/monitor/rules",
         "/monitor/hits",
+        "/monitor/hits/clear",
         "/monitor/status",
         "/monitor/test",
         # P5 历史消息缓存（settings 同时注册 GET 与 PUT）
@@ -249,6 +258,7 @@ def test_api_routes_contract():
         "/forward/rules",
         "/forward/status",
         "/forward/hits",
+        "/forward/hits/clear",
         "/forward/test",
     }
     for route in routes:

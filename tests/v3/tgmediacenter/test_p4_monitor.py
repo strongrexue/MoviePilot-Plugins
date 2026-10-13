@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.plugins.tgmediacenter.core import pipeline as pipeline_module
 from app.plugins.tgmediacenter.controller import api as controller_api
+from app.plugins.tgmediacenter.controller import schemas as api_schemas
 from app.plugins.tgmediacenter.core.cooldown import CooldownGate, describe_flood_wait
 from app.plugins.tgmediacenter.destinations import (
     DESTINATION_VALUES,
@@ -36,6 +37,7 @@ from app.plugins.tgmediacenter.model.hit_log import (
     DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_UNRECOGNIZED,
+    KIND_FORWARD,
     TgHitLog,
 )
 from app.plugins.tgmediacenter.model.push_task import (
@@ -1606,6 +1608,60 @@ class TestMonitorApi:
         # episode_end 要原样带出来（老库迁移补列后同样可读）
         with_end = [item for item in page1.items if item.episode_end == 6]
         assert len(with_end) == 1 and with_end[0].episode == 5 and with_end[0].season == 1
+
+    def test_hits_keyword_filter(self, plugin, monitor):
+        """关键词筛选：片名 / 规则名 / 说明 任一命中即列出，且能与决策筛选叠加。"""
+        for message_id, (title, rule_name, detail, decision) in enumerate([
+            ("玉簟秋", "资源监控", "", DECISION_HIT),
+            ("青与碧", "资源监控", "同系列，含玉簟秋彩蛋", DECISION_SKIPPED_KEYWORD),
+            ("别的片", "玉簟秋专线", "", DECISION_SKIPPED_KEYWORD),
+        ], start=1):
+            with plugin.get_database().session() as session:
+                session.add(TgHitLog(
+                    plugin_id="FakePlugin", rule_id="r-test", rule_name=rule_name,
+                    chat_id=CHAT_A, message_id=message_id, title=title, detail=detail,
+                    decision=decision, destination="none",
+                ))
+                session.commit()
+        assert controller_api.api_monitor_hits(monitor._plugin, keyword="玉簟秋").data.total == 3
+        assert controller_api.api_monitor_hits(monitor._plugin, keyword="青与碧").data.total == 1
+        combined = controller_api.api_monitor_hits(
+            monitor._plugin, keyword="玉簟秋", decision=DECISION_HIT
+        ).data
+        assert combined.total == 1 and combined.items[0].title == "玉簟秋"
+        # 空关键词即不过滤
+        assert controller_api.api_monitor_hits(monitor._plugin, keyword="  ").data.total == 3
+
+    def test_clear_hits_respects_filter_and_kind(self, plugin, monitor):
+        """清理流水：不带条件清空本来源，带条件只删筛选结果，且不波及另一种来源。"""
+        for message_id, (title, kind) in enumerate([
+            ("玉簟秋", "monitor"), ("青与碧", "monitor"), ("玉簟秋", "monitor"),
+            ("玉簟秋", KIND_FORWARD),
+        ], start=1):
+            with plugin.get_database().session() as session:
+                session.add(TgHitLog(
+                    plugin_id="FakePlugin", rule_id="r-test", rule_name="规则",
+                    chat_id=CHAT_A, message_id=message_id, title=title, kind=kind,
+                    decision=DECISION_HIT, destination="none",
+                ))
+                session.commit()
+
+        cleared = controller_api.api_monitor_hits_clear(
+            monitor._plugin, api_schemas.MonitorHitsClearRequest(keyword="玉簟秋")
+        )
+        assert cleared.data.deleted == 2
+        assert "已删除 2 条" in cleared.message
+        assert controller_api.api_monitor_hits(monitor._plugin).data.total == 1
+        # 转发流水不受监控清理影响（同表不同 kind）
+        assert monitor.hits(kind=KIND_FORWARD)["total"] == 1
+
+        # 不带条件 = 清空该来源剩余全部
+        emptied = controller_api.api_monitor_hits_clear(
+            monitor._plugin, api_schemas.MonitorHitsClearRequest()
+        )
+        assert emptied.data.deleted == 1
+        assert controller_api.api_monitor_hits(monitor._plugin).data.total == 0
+        assert monitor.hits(kind=KIND_FORWARD)["total"] == 1
 
     def test_status_shape(self, monitor):
         data = controller_api.api_monitor_status(monitor._plugin).data

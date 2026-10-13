@@ -688,8 +688,16 @@ class _StubPlugin(FakePlugin):
     def api_forward_status(self):
         return controller_api.api_forward_status(self)
 
-    def api_forward_hits(self, page=1, page_size=20, decision=""):
-        return controller_api.api_forward_hits(self, page=page, page_size=page_size, decision=decision)
+    def api_forward_hits(self, page=1, page_size=20, decision="", keyword=""):
+        return controller_api.api_forward_hits(self, page=page, page_size=page_size,
+                                               decision=decision, keyword=keyword)
+
+    def api_forward_hits_clear(self, request):
+        return controller_api.api_forward_hits_clear(self, request)
+
+    def api_monitor_hits(self, page=1, page_size=20, decision="", keyword=""):
+        return controller_api.api_monitor_hits(self, page=page, page_size=page_size,
+                                               decision=decision, keyword=keyword)
 
     def api_forward_test(self, request):
         return controller_api.api_forward_test(self, request)
@@ -718,6 +726,38 @@ class TestForwardApi:
         assert response.data.rules[0].id.startswith("f")
         assert response.data.watched_chats == 1
         assert api_plugin.api_forward_rules().data.rules[0].target_id == TARGET
+
+    def test_hits_keyword_filter_and_clear_scoped_to_forward(self, api_plugin):
+        """转发流水的关键词筛选与清理：只动 kind=forward，监控流水毫发无伤。"""
+        db = api_plugin.get_database()
+        with db.session() as session:
+            session.add(TgHitLog(
+                plugin_id="_StubPlugin", kind=KIND_MONITOR, rule_id="r-1", rule_name="监控规则",
+                chat_id=CHAT_A, message_id=1, title="玉簟秋", decision=DECISION_HIT,
+            ))
+            for message_id in (2, 3):
+                session.add(TgHitLog(
+                    plugin_id="_StubPlugin", kind=KIND_FORWARD, rule_id="f-1", rule_name="转发规则",
+                    chat_id=CHAT_A, message_id=message_id,
+                    title="玉簟秋" if message_id == 2 else "青与碧", decision=DECISION_HIT,
+                ))
+            session.commit()
+
+        assert api_plugin.api_forward_hits(keyword="玉簟秋").data.total == 1
+        assert api_plugin.api_forward_hits().data.total == 2
+
+        cleared = api_plugin.api_forward_hits_clear(
+            api_schemas.MonitorHitsClearRequest(keyword="玉簟秋")
+        )
+        assert cleared.data.deleted == 1
+        assert api_plugin.api_forward_hits().data.total == 1
+        # 监控侧的同类流水不受影响
+        assert api_plugin.api_monitor_hits(keyword="玉簟秋").data.total == 1
+
+        assert api_plugin.api_forward_hits_clear(
+            api_schemas.MonitorHitsClearRequest()
+        ).data.deleted == 1
+        assert api_plugin.api_forward_hits().data.total == 0
 
     def test_save_rejects_missing_target(self, api_plugin):
         request = api_schemas.ForwardRulesSaveRequest(

@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from ..core.pan115_client import Pan115Error
 from ..core.pan115_login import Pan115QrError
 from ..core.telegram import TelegramOperationError
+from ..model.hit_log import KIND_MONITOR
 from . import schemas as api_schemas
 
 
@@ -49,6 +50,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/monitor/rules", plugin.api_monitor_rules, ["GET"], "获取 TG 资源监控规则"),
         ("/monitor/rules", plugin.api_monitor_rules_save, ["PUT", "POST"], "保存 TG 资源监控规则"),
         ("/monitor/hits", plugin.api_monitor_hits, ["GET"], "查询监控命中流水"),
+        ("/monitor/hits/clear", plugin.api_monitor_hits_clear, ["POST"], "清理监控命中流水（清空或按筛选删除）"),
         ("/monitor/status", plugin.api_monitor_status, ["GET"], "获取监控运行状态"),
         ("/monitor/test", plugin.api_monitor_test, ["POST"], "用一段文本测试规则处理结果"),
         ("/cache/settings", plugin.api_cache_settings, ["GET"], "获取消息缓存设置"),
@@ -63,6 +65,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/forward/rules", plugin.api_forward_rules_save, ["PUT", "POST"], "保存 TG 通用转发规则"),
         ("/forward/status", plugin.api_forward_status, ["GET"], "获取转发运行状态"),
         ("/forward/hits", plugin.api_forward_hits, ["GET"], "查询转发命中流水"),
+        ("/forward/hits/clear", plugin.api_forward_hits_clear, ["POST"], "清理转发命中流水（清空或按筛选删除）"),
         ("/forward/test", plugin.api_forward_test, ["POST"], "用一段文本测试转发规则"),
     ]
     return [
@@ -168,6 +171,7 @@ def api_overview(plugin):
         "notify": {
             "on_hit": _config_flag(config, "notify_on_hit", True),
             "on_error": _config_flag(config, "notify_on_error", True),
+            "on_search": _config_flag(config, "notify_on_search", True),
         },
         "tg": _safe_status(plugin, "_credentials", {}),
         "pan115": _safe_status(plugin, "_pan115", {}),
@@ -399,11 +403,23 @@ def _rules_payload_after_save(module, request: api_schemas.MonitorRulesSaveReque
     )
 
 
-def api_monitor_hits(plugin, page: int = 1, page_size: int = 20, decision: str = ""):
-    """分页查询命中流水（可按决策过滤）。"""
+def api_monitor_hits(plugin, page: int = 1, page_size: int = 20, decision: str = "",
+                     keyword: str = ""):
+    """分页查询命中流水（可按决策与关键词过滤；关键词匹配片名 / 规则名 / 说明）。"""
     module = _monitor(plugin)
-    data = _invoke(lambda: module.hits(page=page, page_size=page_size, decision=decision))
+    data = _invoke(lambda: module.hits(page=page, page_size=page_size,
+                                       decision=decision, keyword=keyword))
     return _envelope(api_schemas.MonitorHitsData.model_validate(data))
+
+
+def api_monitor_hits_clear(plugin, request: api_schemas.MonitorHitsClearRequest):
+    """清理监控流水：带 decision / keyword 时只删筛选结果，都不带即清空监控流水。"""
+    module = _monitor(plugin)
+    data = _invoke(lambda: module.clear_hits(kind=KIND_MONITOR,
+                                             decision=request.decision,
+                                             keyword=request.keyword))
+    return _envelope(api_schemas.MonitorHitsClearData.model_validate(data),
+                     message=str(data.get("message") or "已清理流水"))
 
 
 def api_monitor_status(plugin):
@@ -559,11 +575,22 @@ def api_forward_status(plugin):
     return _envelope(api_schemas.ForwardStatusData.model_validate(data))
 
 
-def api_forward_hits(plugin, page: int = 1, page_size: int = 20, decision: str = ""):
-    """分页查询转发流水（可按决策过滤）。"""
+def api_forward_hits(plugin, page: int = 1, page_size: int = 20, decision: str = "",
+                     keyword: str = ""):
+    """分页查询转发流水（可按决策与关键词过滤）。"""
     module = _forward(plugin)
-    data = _invoke(lambda: module.hits(page=page, page_size=page_size, decision=decision))
+    data = _invoke(lambda: module.hits(page=page, page_size=page_size,
+                                       decision=decision, keyword=keyword))
     return _envelope(api_schemas.MonitorHitsData.model_validate(data))
+
+
+def api_forward_hits_clear(plugin, request: api_schemas.MonitorHitsClearRequest):
+    """清理转发流水：带 decision / keyword 时只删筛选结果，都不带即清空转发流水。"""
+    module = _forward(plugin)
+    data = _invoke(lambda: module.clear_hits(decision=request.decision,
+                                             keyword=request.keyword))
+    return _envelope(api_schemas.MonitorHitsClearData.model_validate(data),
+                     message=str(data.get("message") or "已清理流水"))
 
 
 def api_forward_test(plugin, request: api_schemas.ForwardTestRequest):

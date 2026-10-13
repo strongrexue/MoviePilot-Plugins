@@ -205,12 +205,21 @@ class ForwardModule:
 
     # ------------------------------------------------------------------ 查询与状态
 
-    def hits(self, *, page: int = 1, page_size: int = 20, decision: str = "") -> dict:
+    def hits(self, *, page: int = 1, page_size: int = 20, decision: str = "",
+             keyword: str = "") -> dict:
         """分页读取转发流水（复用监控模块的流水实现，按 kind=forward 过滤）。"""
         monitor = getattr(self._plugin, "_monitor", None)
         if monitor is None:
             return {"items": [], "total": 0, "page": max(1, int(page or 1)), "page_size": int(page_size or 20)}
-        return monitor.hits(page=page, page_size=page_size, decision=decision, kind=KIND_FORWARD)
+        return monitor.hits(page=page, page_size=page_size, decision=decision,
+                            keyword=keyword, kind=KIND_FORWARD)
+
+    def clear_hits(self, *, decision: str = "", keyword: str = "") -> dict:
+        """清空 / 按筛选删除转发流水（只删 kind=forward，不影响监控流水）。"""
+        monitor = getattr(self._plugin, "_monitor", None)
+        if monitor is None:
+            return {"deleted": 0, "message": "监控模块未就绪，暂不能清理流水"}
+        return monitor.clear_hits(kind=KIND_FORWARD, decision=decision, keyword=keyword)
 
     def status(self) -> dict:
         """转发模块运行态（供状态接口与前端展示）。"""

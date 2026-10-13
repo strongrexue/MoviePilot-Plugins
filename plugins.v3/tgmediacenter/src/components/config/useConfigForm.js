@@ -43,6 +43,7 @@ export const configDefaults = {
   // 通知（P7 启用：走 MP 通知渠道 post_message）
   notify_on_hit: true,
   notify_on_error: true,
+  notify_on_search: true,
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

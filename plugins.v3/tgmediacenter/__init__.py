@@ -39,7 +39,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.6.4"
+    plugin_version = "1.6.5"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -245,6 +245,7 @@ class TgMediaCenter(_PluginBase):
             # 通知
             "notify_on_hit": True,
             "notify_on_error": True,
+            "notify_on_search": True,
             # 一次性执行
             "onlyonce": False,
         }
@@ -335,9 +336,15 @@ class TgMediaCenter(_PluginBase):
         """保存监控规则。"""
         return api_controller.api_monitor_rules_save(self, request)
 
-    def api_monitor_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+    def api_monitor_hits(self, page: int = 1, page_size: int = 20, decision: str = "",
+                         keyword: str = ""):
         """分页查询命中流水。"""
-        return api_controller.api_monitor_hits(self, page=page, page_size=page_size, decision=decision)
+        return api_controller.api_monitor_hits(self, page=page, page_size=page_size,
+                                               decision=decision, keyword=keyword)
+
+    def api_monitor_hits_clear(self, request: api_schemas.MonitorHitsClearRequest):
+        """清理监控命中流水（清空或按筛选删除）。"""
+        return api_controller.api_monitor_hits_clear(self, request)
 
     def api_monitor_status(self):
         """监控运行状态。"""
@@ -395,9 +402,15 @@ class TgMediaCenter(_PluginBase):
         """转发运行状态。"""
         return api_controller.api_forward_status(self)
 
-    def api_forward_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+    def api_forward_hits(self, page: int = 1, page_size: int = 20, decision: str = "",
+                         keyword: str = ""):
         """分页查询转发流水。"""
-        return api_controller.api_forward_hits(self, page=page, page_size=page_size, decision=decision)
+        return api_controller.api_forward_hits(self, page=page, page_size=page_size,
+                                               decision=decision, keyword=keyword)
+
+    def api_forward_hits_clear(self, request: api_schemas.MonitorHitsClearRequest):
+        """清理转发命中流水（清空或按筛选删除）。"""
+        return api_controller.api_forward_hits_clear(self, request)
 
     def api_forward_test(self, request: api_schemas.ForwardTestRequest):
         """用一段文本测试转发规则。"""

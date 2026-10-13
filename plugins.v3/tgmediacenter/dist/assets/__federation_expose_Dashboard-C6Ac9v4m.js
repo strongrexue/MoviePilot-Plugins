@@ -9,9 +9,16 @@ const _hoisted_2 = {
   key: 0,
   class: "tg-recent"
 };
-const _hoisted_3 = { class: "tg-recent-media" };
-const _hoisted_4 = { class: "tg-recent-meta" };
-const _hoisted_5 = {
+const _hoisted_3 = { class: "tg-recent-title" };
+const _hoisted_4 = { class: "tg-recent-count" };
+const _hoisted_5 = { class: "tg-recent-media" };
+const _hoisted_6 = { class: "tg-recent-meta" };
+const _hoisted_7 = { class: "tg-recent-actions" };
+const _hoisted_8 = {
+  key: 1,
+  class: "tg-recent-hint"
+};
+const _hoisted_9 = {
   key: 1,
   class: "tg-empty"
 };
@@ -22,8 +29,17 @@ const {computed,onMounted,ref} = await importShared('vue');
  * 插件仪表盘卡片（宿主首页的模块卡片）。
  *
  * 与详情页（Page.vue）共用 ``/overview`` 聚合接口：卡片只放"一眼可见"的
- * 汇总（TG / 115 / 缓存 / 队列）+ 最近几条监控流水，详细排查去详情页。
+ * 汇总（TG / 115 / 缓存 / 队列）+ 最近几条监控流水。
+ *
+ * 流水默认只显示摘要（``SUMMARY_LIMIT`` 条，避免首页卡片被拉长）；想往下翻用
+ * 「加载更多」，按 20 条一页走 ``/monitor/hits`` 分页接口追加，最多 ``MAX_HITS`` 条。
+ * 完整流水与关键词搜索在插件「资源监控」面板（宿主未提供可靠的插件页深链，
+ * 所以这里不跳转，只用一行提示指路）。
  */
+const SUMMARY_LIMIT = 5;
+const PAGE_STEP = 20;
+const MAX_HITS = 100;
+
 
 const _sfc_main = {
   __name: 'Dashboard',
@@ -37,14 +53,22 @@ const _sfc_main = {
 const props = __props;
 
 const loading = ref(false);
+const loadingMore = ref(false);
 const loadError = ref('');
 const data = ref(null);
+const extraHits = ref([]);
+const loadedPages = ref(0);
+const hitsTotal = ref(0);
 
 const dashboardPluginId = () => String(props.pluginId || '').trim() || 'TgMediaCenter';
 
 async function loadData() {
   loading.value = true;
   loadError.value = '';
+  // 概览刷新会重置追加的流水（拿到最新一屏），避免新旧两批混在一起
+  extraHits.value = [];
+  loadedPages.value = 0;
+  hitsTotal.value = 0;
   try {
     data.value = unwrap(await getPluginApi(props.api, dashboardPluginId(), 'overview', { timeoutMs: 15000 }));
   } catch (error) {
@@ -60,7 +84,55 @@ const cache = computed(() => data.value?.cache || {});
 const monitor = computed(() => data.value?.monitor || {});
 const forward = computed(() => data.value?.forward || {});
 const pipeline = computed(() => monitor.value.pipeline || {});
-const recent = computed(() => (data.value?.recent_hits || []).slice(0, 5));
+
+const hitKey = (item) => `${item.kind}-${item.id}`;
+
+const recent = computed(() => {
+  const base = (data.value?.recent_hits || []).slice(0, SUMMARY_LIMIT);
+  if (!extraHits.value.length) return base
+  // 追加页与摘要来自同一张表，按 kind+id 去重，避免同一条出现两次
+  const seen = new Set(base.map(hitKey));
+  const merged = [...base];
+  for (const item of extraHits.value) {
+    if (seen.has(hitKey(item))) continue
+    seen.add(hitKey(item));
+    merged.push(item);
+  }
+  return merged
+});
+
+const canLoadMore = computed(() => {
+  if (loadingMore.value) return false
+  if (recent.value.length >= MAX_HITS) return false
+  // 还没点过：先让点，拿到 total 后再按剩量判断
+  if (!loadedPages.value) return true
+  return hitsTotal.value > recent.value.length
+});
+
+async function loadMore() {
+  if (loadingMore.value || !canLoadMore.value) return
+  loadingMore.value = true;
+  loadError.value = '';
+  try {
+    const nextPage = loadedPages.value + 1;
+    const params = new URLSearchParams({
+      page: String(nextPage),
+      page_size: String(PAGE_STEP),
+    });
+    const res = unwrap(await getPluginApi(
+      props.api, dashboardPluginId(), `monitor/hits?${params.toString()}`, { timeoutMs: 15000 },
+    ));
+    loadedPages.value = nextPage;
+    hitsTotal.value = res?.total || 0;
+    const seen = new Set([...recent.value.map(hitKey)]);
+    const fresh = (res?.items || []).filter(item => !seen.has(hitKey(item)));
+    extraHits.value = [...extraHits.value, ...fresh].slice(0, MAX_HITS);
+  } catch (error) {
+    loadError.value = error?.message || '加载更多流水失败';
+  } finally {
+    loadingMore.value = false;
+  }
+}
 
 const tgOk = computed(() => Boolean(tg.value.connected && tg.value.authorized));
 const pan115Ok = computed(() => Boolean(pan115.value.enabled && pan115.value.authorized));
@@ -258,18 +330,41 @@ return (_ctx, _cache) => {
                   ]),
                   (recent.value.length)
                     ? (_openBlock(), _createElementBlock("div", _hoisted_2, [
-                        _cache[1] || (_cache[1] = _createElementVNode("div", { class: "tg-recent-title" }, "最近流水", -1)),
+                        _createElementVNode("div", _hoisted_3, [
+                          _cache[1] || (_cache[1] = _createElementVNode("span", null, "最近流水", -1)),
+                          _createElementVNode("span", _hoisted_4, _toDisplayString(recent.value.length) + _toDisplayString(hitsTotal.value ? ` / ${Math.min(hitsTotal.value, MAX_HITS)}` : '') + " 条 ", 1)
+                        ]),
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recent.value, (item) => {
                           return (_openBlock(), _createElementBlock("div", {
-                            key: `${item.kind}-${item.id}`,
+                            key: hitKey(item),
                             class: "tg-recent-row"
                           }, [
-                            _createElementVNode("span", _hoisted_3, _toDisplayString(mediaName(item)), 1),
-                            _createElementVNode("span", _hoisted_4, _toDisplayString(_unref(decisionLabel)(item.decision)) + " · " + _toDisplayString(fmtTime(item.created_at)), 1)
+                            _createElementVNode("span", _hoisted_5, _toDisplayString(mediaName(item)), 1),
+                            _createElementVNode("span", _hoisted_6, _toDisplayString(_unref(decisionLabel)(item.decision)) + " · " + _toDisplayString(fmtTime(item.created_at)), 1)
                           ]))
-                        }), 128))
+                        }), 128)),
+                        _createElementVNode("div", _hoisted_7, [
+                          (canLoadMore.value)
+                            ? (_openBlock(), _createBlock(_component_VBtn, {
+                                key: 0,
+                                size: "x-small",
+                                variant: "text",
+                                color: "primary",
+                                loading: loadingMore.value,
+                                onClick: loadMore
+                              }, {
+                                default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+                                  _createTextVNode(" 加载更多 ", -1)
+                                ]))]),
+                                _: 1
+                              }, 8, ["loading"]))
+                            : (recent.value.length >= MAX_HITS)
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_8, " 已显示最近 " + _toDisplayString(MAX_HITS) + " 条 "))
+                              : _createCommentVNode("", true),
+                          _cache[3] || (_cache[3] = _createElementVNode("span", { class: "tg-recent-hint" }, "完整流水与关键词搜索在插件「资源监控」面板", -1))
+                        ])
                       ]))
-                    : (_openBlock(), _createElementBlock("div", _hoisted_5, "暂无命中记录：规则命中后会在这里出现。"))
+                    : (_openBlock(), _createElementBlock("div", _hoisted_9, "暂无命中记录：规则命中后会在这里出现。"))
                 ], 64))
               : _createCommentVNode("", true)
         ]),
@@ -282,6 +377,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e9b62b47"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f5a27d3c"]]);
 
 export { Dashboard as default };

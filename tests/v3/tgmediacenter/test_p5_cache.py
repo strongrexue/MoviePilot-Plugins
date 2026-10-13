@@ -555,6 +555,30 @@ class TestSubscriptionSearch:
         assert hits[0].decision == DECISION_HIT
         assert "缓存回搜" in hits[0].detail
 
+    def test_search_notification_follows_switch(self, cache, subscriptions, plugin, fake_metavideo):
+        """回搜结果通知受「回搜到资源后通知我」开关控制（默认开，关掉后只回搜不打扰）。"""
+
+        def _run(message_id: int) -> int:
+            subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+            cache.check_subscriptions(trigger="测试")  # 建立基线
+            cache.history().record(CHAT_A, message_id, _text("青与碧 (2026) S01E01"))
+            cache._matcher = FakeMatcher(missing=True)
+            subscriptions["items"] = [
+                FakeSubscription("老片", media_id="1"),
+                FakeSubscription("青与碧", year="2026", media_id="2"),
+            ]
+            before = len(plugin.messages)
+            assert cache.check_subscriptions(trigger="测试")["pushed"] == 1
+            return len(plugin.messages) - before
+
+        # 默认开启：回搜到并推送后发一条汇总
+        assert _run(4301) == 1
+        assert "缓存回搜" in plugin.messages[-1]["title"]
+        # 关掉开关：回搜照常执行，只是不打扰
+        plugin.save_config(notify_on_search=False)
+        assert cache.notify_enabled() is False
+        assert _run(4302) == 0
+
     def test_already_pushed_message_not_pushed_twice(self, cache, subscriptions, plugin, fake_metavideo):
         subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
         cache.check_subscriptions(trigger="测试")

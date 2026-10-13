@@ -272,6 +272,10 @@ class CacheModule:
     def subscribe_enabled(self) -> bool:
         return bool(self._cfg("cache_subscribe_enabled", True))
 
+    def notify_enabled(self) -> bool:
+        """回搜结果通知开关（115 面板「通知」卡片里的第三个开关，默认开）。"""
+        return bool(self._cfg("notify_on_search", True))
+
     @staticmethod
     def _normalize_ids(raw: Any) -> List[int]:
         result: List[int] = []
@@ -423,6 +427,9 @@ class CacheModule:
     # ------------------------------------------------------------------ 订阅回搜
 
     def _notify(self, title: str, text: str) -> None:
+        # 通知开关在 115 面板「通知」卡片（与转存通知开关并列），关闭后只回搜不打扰
+        if not self.notify_enabled():
+            return
         func = getattr(self._plugin, "post_message", None)
         if not callable(func):
             return

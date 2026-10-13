@@ -353,13 +353,17 @@ onUnmounted(qrStopPolling)
           <VSwitch v-model="form.notify_on_error" color="primary" hide-details inset>
             <template #label><span class="p115-switch-label">转存失败后通知我</span></template>
           </VSwitch>
+          <VSwitch v-model="form.notify_on_search" color="primary" hide-details inset>
+            <template #label><span class="p115-switch-label">回搜到资源后通知我</span></template>
+          </VSwitch>
         </div>
         <div class="p115-hint">
-          这两个开关<strong>只管 115 转存</strong>：监控 / 转发命中后往 115 转存（或离线）成功、失败时，
-          通过 MoviePilot 通知渠道给你发一条消息（用哪个渠道、发给谁，跟宿主的「通知」设置一致）。
-          <strong>成功</strong>按批汇总一条（如「已转存 3 条」）；<strong>失败</strong>汇总失败条数与原因，
-          115 登录态失效会附上重新扫码的引导（同一故障 6 小时内只提醒一次）。
-          通用转发不发送通知；订阅回搜发现缺失资源时的通知始终发送，不受这两个开关影响。
+          这三个开关分别管一类通知，关闭哪类就收不到哪类（都走 MoviePilot 通知渠道，
+          用哪个渠道、发给谁跟宿主的「通知」设置一致）：
+          <br>· <strong>转存成功</strong>：监控 / 转发命中后往 115 转存（或离线）成功，按批汇总一条（如「已转存 3 条」）；
+          <br>· <strong>转存失败</strong>：汇总失败条数与原因，115 登录态失效会附上重新扫码的引导（同一故障 6 小时内只提醒一次）；
+          <br>· <strong>回搜到资源</strong>：订阅回搜在缓存里找到缺失资源并推送后的结果汇总。
+          <br>通用转发本身不发送通知（转发结果在「通用转发」面板的流水里看）。
         </div>
       </VCardText>
     </VCard>

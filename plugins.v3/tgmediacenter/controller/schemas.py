@@ -280,6 +280,24 @@ class MonitorHitsData(BaseModel):
     page_size: int = 20
 
 
+class MonitorHitsClearRequest(BaseModel):
+    """清理命中流水请求。
+
+    ``decision`` / ``keyword`` 都留空表示清空该来源（监控或转发）的全部流水；
+    任一非空则只删除符合筛选条件的记录（与列表筛选口径一致）。
+    """
+
+    decision: str = Field(default="", description="只看某个决策（留空=不限）")
+    keyword: str = Field(default="", description="关键词，匹配片名 / 规则名 / 说明（留空=不限）")
+
+
+class MonitorHitsClearData(BaseModel):
+    """清理命中流水结果。"""
+
+    deleted: int = 0
+    message: str = ""
+
+
 class MonitorChatActivity(BaseModel):
     """最近消息来源（关心的会话：监控 ∪ 转发 ∪ 缓存）。"""
 
@@ -629,6 +647,7 @@ class OverviewNotifyConfig(BaseModel):
 
     on_hit: bool = True
     on_error: bool = True
+    on_search: bool = True
 
 
 class OverviewData(BaseModel):
@@ -668,6 +687,7 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/pan115/qr_cancel": Pan115QrData,
     "/monitor/rules": MonitorRulesData,
     "/monitor/hits": MonitorHitsData,
+    "/monitor/hits/clear": MonitorHitsClearData,
     "/monitor/status": MonitorStatusData,
     "/monitor/test": MonitorTestData,
     "/cache/settings": CacheSettingsData,
@@ -680,5 +700,6 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/forward/rules": ForwardRulesData,
     "/forward/status": ForwardStatusData,
     "/forward/hits": MonitorHitsData,
+    "/forward/hits/clear": MonitorHitsClearData,
     "/forward/test": ForwardTestData,
 }

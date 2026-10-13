@@ -1163,6 +1163,51 @@ class TestPipeline:
         # 便于前端直接展示监听 ID 清单
         assert monitor.status()["watched_chat_ids"] == [CHAT_A]
 
+    def test_registered_telethon_handler_is_coroutine(self, plugin, monitor, pipeline):
+        """注册给 telethon 的回调必须是协程函数。
+
+        telethon 内部是 ``await callback(event)``（client/updates.py 的
+        ``_dispatch_update``）：注册同步回调会让**每条新消息**都抛
+        ``TypeError: 'NoneType' object can't be awaited`` 并打印
+        「Unhandled exception on _handle_event」——1.7.2 修复的真机日志刷屏。
+        """
+        import asyncio
+        import inspect
+
+        class FakeClient:
+            def __init__(self):
+                self.handlers = []
+
+            def add_event_handler(self, callback, event=None):
+                self.handlers.append(callback)
+
+        class FakeRuntime:
+            def __init__(self, client):
+                self.client = client
+
+            def is_running(self):
+                return True
+
+            def call(self, coro, timeout=None):
+                try:
+                    return asyncio.run(coro)
+                except Exception:
+                    # _resolve_watched 在假客户端上必然失败，不影响本断言
+                    return False
+
+        client = FakeClient()
+        plugin._credentials = type("Creds", (), {"_runtime": FakeRuntime(client)})()
+        pipeline._handler = None
+        pipeline._register_handler()
+
+        assert client.handlers, "应注册一个 TG 事件回调"
+        callback = client.handlers[0]
+        assert inspect.iscoroutinefunction(callback), (
+            "telethon 会对回调做 await，同步回调会每条消息报 TypeError"
+        )
+        # 同步处理逻辑本身保持同步（跑在 TG loop 线程里做库读写）
+        assert not inspect.iscoroutinefunction(pipeline._handle_event)
+
     def test_recent_sources_capped(self, plugin, monitor, pipeline):
         """来源记录有上限，不会随海量监听会话无限增长。"""
         many_ids = [100000 + index for index in range(pipeline_module._MAX_RECENT_SOURCES + 10)]

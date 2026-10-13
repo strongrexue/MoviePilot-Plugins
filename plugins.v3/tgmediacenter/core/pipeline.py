@@ -243,11 +243,25 @@ class MessagePipeline:
             "text": str(text or ""),
         })
 
+    async def _dispatch_event(self, event: Any) -> None:
+        """注册给 telethon 的回调外壳：telethon 内部是 ``await callback(event)``
+        （``telethon/client/updates.py`` 的 ``_dispatch_update``），**回调必须是协程函数**。
+
+        真正的处理逻辑 ``_handle_event`` 保持同步（在 TG loop 线程里做库读写），
+        这里只补一层异步包装——否则 telethon 会对返回的 ``None`` 做 await，
+        每条新消息都抛 ``TypeError: 'NoneType' object can't be awaited`` 并打印
+        「Unhandled exception on _handle_event」（1.7.2 修复的真机日志刷屏问题）。
+        """
+        self._handle_event(event)
+
     def _handle_event(self, event: Any) -> None:
         """Telethon 事件处理器（运行在 TG loop 线程）。
 
         关心会话 = 监控频道 ∪ 缓存频道：只有这两个集合的消息才进流水线，
         其余完全静默（仅计数），避免大流量频道把运行日志刷成噪音。
+
+        注意：本方法是同步的，**不能直接注册给 telethon**，注册请用
+        ``_dispatch_event``（异步外壳）。
         """
         try:
             chat_id = getattr(event, "chat_id", None)
@@ -1175,8 +1189,9 @@ class MessagePipeline:
             self._handler_ok = False
             return False
 
-        if self._handler is None:
-            self._handler = self._handle_event
+        # 必须注册异步外壳：telethon 对回调做 await，同步回调会每条消息报错
+        if self._handler is None or getattr(self._handler, "__name__", "") != "_dispatch_event":
+            self._handler = self._dispatch_event
 
         async def _register() -> bool:
             client = runtime.client

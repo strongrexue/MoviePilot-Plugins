@@ -90,7 +90,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.7.1"
+        self.plugin_version = "1.7.2"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -554,7 +554,7 @@ def test_overview_aggregates_modules():
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.7.1"
+    assert data.plugin_version == "1.7.2"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"

@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional
 
 from app.sdk.logging import logger
 
+from ..core import forward as forward_engine
 from ..core import links as link_utils
 from ..core import push_queue
 from ..core.cooldown import CooldownGate
@@ -51,6 +52,8 @@ from ..model.hit_log import (
     DECISION_SKIPPED_NO_LINK,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_UNRECOGNIZED,
+    KIND_FORWARD,
+    KIND_MONITOR,
     TgHitLog,
 )
 from ..services import recognizer as recognizer_service
@@ -224,6 +227,30 @@ class MessagePipeline:
         """缓存模块（P5 起）；未接线时返回 None。"""
         return getattr(self._plugin, "_cache", None)
 
+    def _forward_module(self):
+        """转发模块（P6 起）；未接线时返回 None。"""
+        return getattr(self._plugin, "_forward", None)
+
+    def _forward_watched(self, chat_id: int) -> bool:
+        """该会话是否有启用中的转发规则监听。"""
+        module = self._forward_module()
+        if module is None:
+            return False
+        try:
+            return bool(module.is_watched(int(chat_id)))
+        except Exception:  # pragma: no cover - 转发模块异常不影响监控
+            return False
+
+    def _forward_rules_for_chat(self, chat_id: int) -> List[dict]:
+        """监听该会话的启用转发规则。"""
+        module = self._forward_module()
+        if module is None:
+            return []
+        try:
+            return list(module.rules_for_chat(int(chat_id)))
+        except Exception:  # pragma: no cover
+            return []
+
     def _cached_chat(self, chat_id: int) -> bool:
         module = self._cache_module()
         if module is None:
@@ -234,7 +261,7 @@ class MessagePipeline:
             return False
 
     def _purposes(self, chat_id: int) -> List[str]:
-        """该会话被关心的用途：["监控"] / ["缓存"] / ["监控", "缓存"]。"""
+        """该会话被关心的用途：监控 / 转发 / 缓存（可叠加）。"""
         try:
             watched = bool(self._monitor.is_watched(int(chat_id)))
         except Exception:  # pragma: no cover
@@ -242,12 +269,14 @@ class MessagePipeline:
         purposes: List[str] = []
         if watched:
             purposes.append("监控")
+        if self._forward_watched(chat_id):
+            purposes.append("转发")
         if self._cached_chat(chat_id):
             purposes.append("缓存")
         return purposes
 
     def _interested_chat_ids(self) -> List[int]:
-        """关心会话 ID 清单（监控 ∪ 缓存，去重）。"""
+        """关心会话 ID 清单（监控 ∪ 转发 ∪ 缓存，去重）。"""
         ids: List[int] = []
         try:
             for chat_id in self._monitor.watched_chat_ids():
@@ -255,6 +284,14 @@ class MessagePipeline:
                     ids.append(int(chat_id))
         except Exception:  # pragma: no cover
             pass
+        module = self._forward_module()
+        if module is not None:
+            try:
+                for chat_id in module.watched_chat_ids():
+                    if int(chat_id) not in ids:
+                        ids.append(int(chat_id))
+            except Exception:  # pragma: no cover
+                pass
         module = self._cache_module()
         if module is not None:
             try:
@@ -335,13 +372,14 @@ class MessagePipeline:
     # ------------------------------------------------------------------ 批处理
 
     def _process_batch(self, chat_id: int, messages: List[Dict[str, Any]]) -> None:
-        # 只有缓存、没有监控规则的频道也要处理（缓存是监控之外独立的下游）
+        # 只有缓存、没有监控 / 转发规则的频道也要处理（缓存是独立的下游）
         rules = self._monitor.rules_for_chat(chat_id)
-        if not rules and not self._cached_chat(chat_id):
+        forward_rules = self._forward_rules_for_chat(chat_id)
+        if not rules and not forward_rules and not self._cached_chat(chat_id):
             return
         for message in messages:
             try:
-                self._process_message(chat_id, message, rules)
+                self._process_message(chat_id, message, rules, forward_rules)
             except Exception as err:  # pragma: no cover - 单条异常不中断整批
                 self._stats["failed"] += 1
                 self._last_error = str(err)
@@ -353,7 +391,8 @@ class MessagePipeline:
             f"累计处理 {self._stats['processed']} / 命中 {self._stats['hit']}"
         )
 
-    def _process_message(self, chat_id: int, message: Dict[str, Any], rules: List[dict]) -> None:
+    def _process_message(self, chat_id: int, message: Dict[str, Any], rules: List[dict],
+                         forward_rules: Optional[List[dict]] = None) -> None:
         text = str(message.get("text") or "")
         if not text.strip():
             return
@@ -363,15 +402,18 @@ class MessagePipeline:
         parsed = link_utils.parse_push_text(text)
         links = [item.raw or item.url for item in parsed.items if item.supported]
 
-        # 缓存写入（与该频道是否有监控规则无关）
+        # 缓存写入（与该频道是否有监控 / 转发规则无关）
         if self._cached_chat(chat_id):
             self._record_cache(chat_id, message_id, text, cleaned=cleaned, meta=meta, links=links)
 
-        if not rules:
+        if not rules and not forward_rules:
             return
-        for rule in rules:
+        for rule in rules or []:
             self._apply_rule(chat_id=chat_id, message_id=message_id, text=text,
                              cleaned=cleaned, meta=meta, links=links, rule=rule)
+        for rule in forward_rules or []:
+            self._apply_forward_rule(chat_id=chat_id, message_id=message_id, text=text,
+                                     cleaned=cleaned, meta=meta, links=links, rule=rule)
 
     def _record_cache(self, chat_id: int, message_id: int, text: str, *,
                       cleaned: Optional[str], meta: Optional[dict], links: List[str]) -> None:
@@ -454,17 +496,102 @@ class MessagePipeline:
                          "推送任务入队失败（请查看运行日志）", destination, links)
             self._stats["failed"] += 1
 
+    # ------------------------------------------------------------------ 转发规则（⑥）
+
+    def _apply_forward_rule(self, *, chat_id: int, message_id: int, text: str, cleaned: str,
+                            meta: Optional[dict], links: List[str], rule: dict) -> None:
+        """⑥ 通用转发：两级匹配 → 内容转换 → 入转发队列（可选置顶）。
+
+        与监控规则的区别：转发**不要求**识别成功（不认标题的播报也能转），
+        除非规则启用了「匹配订阅」——那时才需要标题来判断订阅归属。
+        """
+        rule_id = str(rule.get("id") or "")
+        rule_name = str(rule.get("name") or "")
+        destination = "tg_forward"
+
+        # 同规则同消息只处理一次（插件重载 / 事件重放时防重复转发）。
+        # 转发规则 id 用 f 前缀，与监控规则的 r 前缀不冲突，去重键不会串。
+        if self._hit_exists(rule_id, chat_id, message_id):
+            self._stats["skipped"] += 1
+            logger.debug(
+                f"[{self._plugin_id()}] 重复消息跳过（转发规则={rule_id}, chat={chat_id}, msg={message_id}）"
+            )
+            return
+
+        title = str((meta or {}).get("title") or "")
+        year = str((meta or {}).get("year") or "")
+        season = (meta or {}).get("season")
+        subscribed: Optional[bool] = None
+        if rule.get("match_subscription_keywords"):
+            try:
+                subscribed = self._matcher.is_subscribed(title=title, year=year, season=season)
+            except Exception as err:  # pragma: no cover - 订阅探测异常按无法判断
+                logger.debug(f"转发规则订阅判断失败：{err}")
+                subscribed = None
+        verdict = forward_engine.match_rule(
+            rule,
+            text=text,
+            cleaned=cleaned,
+            title=title,
+            year=year,
+            season=season,
+            is_subscribed=subscribed,
+            links=links,
+        )
+        if not verdict.get("matched"):
+            self._record(rule, chat_id, message_id, meta,
+                         forward_engine.skip_decision(verdict),
+                         verdict.get("reason") or "未命中", destination, links, kind=KIND_FORWARD)
+            return
+
+        forward_meta: Dict[str, Any] = {}
+        if rule.get("enable_transform"):
+            outcome = forward_engine.apply_transform(text, rule.get("transform_rules"))
+            forward_meta["transform"] = True
+            forward_meta["send_text"] = str(outcome.get("text") or "")[:4000]
+            if outcome.get("errors"):
+                logger.warning(
+                    f"[{self._plugin_id()}] 转发规则「{rule_name}」的转换规则有问题："
+                    + "；".join(outcome["errors"])
+                )
+        pinned = forward_engine.should_pin(rule, text=text, links=links)
+        if pinned:
+            forward_meta["pin"] = True
+        extra = {"forward": forward_meta} if forward_meta else None
+
+        task_id = self._enqueue_push(rule=rule, chat_id=chat_id, message_id=message_id,
+                                     text=text, links=links, destination=destination, extra=extra)
+        if task_id:
+            notes = []
+            if forward_meta.get("transform"):
+                notes.append("转换后发送")
+            if pinned:
+                notes.append("含置顶")
+            suffix = f"（{'、'.join(notes)}）" if notes else ""
+            self._record(rule, chat_id, message_id, meta, DECISION_HIT,
+                         f"已入转发队列 #{task_id}{suffix}", destination, links, kind=KIND_FORWARD)
+            self._stats["forward_hit"] = self._stats.get("forward_hit", 0) + 1
+        else:
+            self._record(rule, chat_id, message_id, meta, DECISION_FAILED,
+                         "转发任务入队失败（请查看运行日志）", destination, links, kind=KIND_FORWARD)
+            self._stats["failed"] += 1
+
     # ------------------------------------------------------------------ 落库
 
     def _db(self):
         return getattr(self._plugin, "get_database", lambda: None)()
 
     def _record(self, rule: dict, chat_id: int, message_id: int, meta: Optional[dict],
-                decision: str, detail: str, destination: str, links: List[str]) -> None:
-        """写命中流水（去重键冲突时静默跳过，说明已处理过）。"""
+                decision: str, detail: str, destination: str, links: List[str],
+                kind: str = KIND_MONITOR) -> None:
+        """写命中流水（去重键冲突时静默跳过，说明已处理过）。
+
+        ``kind`` 区分来源（监控 / 转发）—— 两套规则共用一张表，靠它分栏。
+        """
         # 决策过程直接落运行日志：用户在 MP 日志页能看到每条消息怎么被判的
+        prefix = "转发" if kind == KIND_FORWARD else ""
         logger.info(
-            f"[{self._plugin_id()}] 决策（chat={chat_id}, msg={message_id}, "
+            f"[{self._plugin_id()}] {prefix}决策（chat={chat_id}, msg={message_id}, "
             f"规则「{rule.get('name') or rule.get('id')}」）：{decision} —— {detail}"
         )
         db = self._db()
@@ -474,6 +601,7 @@ class MessagePipeline:
             with db.session() as session:
                 session.add(TgHitLog(
                     plugin_id=self._plugin_id(),
+                    kind=str(kind)[:16],
                     rule_id=str(rule.get("id") or "")[:64],
                     rule_name=str(rule.get("name") or "")[:128],
                     chat_id=int(chat_id),
@@ -518,8 +646,9 @@ class MessagePipeline:
             return False
 
     def _enqueue_push(self, *, rule: dict, chat_id: int, message_id: int, text: str,
-                      links: List[str], destination: str) -> Optional[int]:
-        """入队推送任务，返回任务 ID（与缓存回搜共用同一入队实现）。"""
+                      links: List[str], destination: str,
+                      extra: Optional[Dict[str, Any]] = None) -> Optional[int]:
+        """入队推送任务，返回任务 ID（监控 / 转发 / 缓存回搜共用同一入队实现）。"""
         return push_queue.enqueue_push(
             self._db(),
             self._plugin_id(),
@@ -530,6 +659,7 @@ class MessagePipeline:
             target_id=str(rule.get("target_id") or ""),
             links=links,
             text=text,
+            extra=extra,
         )
 
     # ------------------------------------------------------------------ 推送 worker
@@ -931,6 +1061,7 @@ class MessagePipeline:
             "events_unwatched": self._stats["events_unwatched"],
             "messages_enqueued": self._stats["messages_enqueued"],
             "cache_written": self._stats.get("cache_written", 0),
+            "forward_hit": self._stats.get("forward_hit", 0),
             "last_event_at": self._last_event_at,
             "recent_sources": self._recent_sources_view(),
             "watched_detail": [dict(entry) for entry in self._watched_detail],
@@ -954,6 +1085,7 @@ class MessagePipeline:
                 "count": int(record["count"]),
                 "last_at": str(record["last_at"]),
                 "watched": bool(self._monitor.is_watched(int(chat_id))),
+                "forwarded": self._forward_watched(int(chat_id)),
                 "cached": self._cached_chat(int(chat_id)),
             }
             for chat_id, record in items

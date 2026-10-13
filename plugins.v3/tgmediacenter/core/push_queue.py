@@ -1,15 +1,17 @@
-"""推送任务入队（监控流水线与缓存回搜共用）。
+"""推送任务入队（监控流水线 / 转发 / 缓存回搜共用）。
 
-两条链路都会产出推送任务：监控决策命中、缓存回搜命中。任务表结构一致，
-因此把「组 payload + 落库」这段抽成公共函数，避免两处漂移。
+三条链路都会产出推送任务：监控决策命中、转发规则命中、缓存回搜命中。任务表
+结构一致，因此把「组 payload + 落库」这段抽成公共函数，避免多处漂移。
 
 负载结构：``{"links": [...], "text": "...", "title": "..."}``（destination
-实现只依赖这三项）。
+实现只依赖这三项），``extra`` 用于追加目标专属指令（如转发规则的内容转换与
+置顶：``{"forward": {"transform": True, "send_text": "...", "pin": True}}``）；
+``extra`` 不能覆盖上面三个核心键。
 """
 from __future__ import annotations
 
 import json
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.sdk.logging import logger
 
@@ -28,15 +30,19 @@ def enqueue_push(
     links: Optional[List[str]] = None,
     text: str = "",
     title: str = "",
+    extra: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
     """写入一条待推送任务，返回任务 ID；失败返回 None。"""
     if db is None:
         return None
-    payload = {
+    payload: Dict[str, Any] = {
         "links": list(links or []),
         "text": str(text or "")[:4000],
         "title": str(title or "")[:250],
     }
+    for key, value in (extra or {}).items():
+        if key and key not in payload:
+            payload[key] = value
     try:
         with db.session() as session:
             task = TgPushTask(

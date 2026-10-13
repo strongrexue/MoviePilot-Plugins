@@ -1,7 +1,12 @@
-"""TG 转发推送目标：把命中的原消息转发到目标会话（个人号，受全局冷却约束）。
+"""TG 转发推送目标：把消息转发到目标会话（个人号，受全局冷却约束）。
 
-与 P6「通用转发规则引擎」的区别：这里只做**整条消息转发**（监控规则的
-``target_id``），不涉及两级匹配 / 内容转换 / 置顶——那些属于转发规则引擎。
+两种模式（由负载里的 ``forward`` 指令决定，见 P6 转发规则引擎）：
+- **原样转发**（默认）：``forward_messages`` 转发原消息，保留来源频道；
+- **转换后发送**（``forward.transform``）：对原文应用转换规则后 ``send_message``，
+  转发的是"改写过的内容"而不是原消息。
+
+``forward.pin`` 为真时，转发 / 发送完成后把该消息在目标会话内置顶
+（``notify=False`` 静默置顶）。置顶失败不影响"转发成功"的结论。
 
 风控纪律（沿用 MA 经验）：
 - 全局冷却：相邻两次转发至少间隔 ``tg_user_cooldown_seconds``；
@@ -18,7 +23,7 @@ from .base import Destination, PushResult
 
 
 class TgForwardDestination(Destination):
-    """转发原消息到目标会话。"""
+    """转发消息到目标会话（可选内容转换与置顶）。"""
 
     name = "tg_forward"
 
@@ -58,6 +63,8 @@ class TgForwardDestination(Destination):
         if not target_id:
             return PushResult(ok=False, message="未配置转发目标（规则的 target_id）")
 
+        forward = task.get("forward") if isinstance(task.get("forward"), dict) else {}
+
         # 全局冷却：拿不到名额就稍后由 worker 重试，不无限阻塞
         if not self._gate.acquire(timeout=15):
             wait = int(self._gate.ready_at() - _now())
@@ -67,7 +74,7 @@ class TgForwardDestination(Destination):
                 retryable=True,
             )
         try:
-            result = self._forward(runtime, int(chat_id), int(message_id), int(target_id))
+            result = self._forward(runtime, int(chat_id), int(message_id), int(target_id), forward)
         except Exception as err:
             flood = describe_flood_wait(err)
             if flood is not None:
@@ -83,23 +90,56 @@ class TgForwardDestination(Destination):
             self._gate.release()
         return result
 
-    def _forward(self, runtime: Any, chat_id: int, message_id: int, target_id: int) -> PushResult:
+    def _forward(self, runtime: Any, chat_id: int, message_id: int, target_id: int,
+                 forward: Dict[str, Any]) -> PushResult:
         """在 TG 运行时内执行转发（同步等待，带超时预算）。"""
 
-        async def _do():
+        async def _do() -> "tuple[str, bool]":
             client = runtime.client
             if client is None:
                 raise RuntimeError("TG 客户端未就绪")
             messages = await client.get_messages(chat_id, ids=message_id)
             if not messages:
                 raise RuntimeError(f"消息不存在或已被删除（chat={chat_id}, id={message_id}）")
-            await client.forward_messages(target_id, messages)
-            return True
+            if forward.get("transform"):
+                send_text = str(forward.get("send_text") or "")
+                if not send_text.strip():
+                    raise RuntimeError("转换后内容为空（检查转换规则是否把全文替换掉了）")
+                sent = await client.send_message(target_id, send_text)
+                how = "转换后发送"
+            else:
+                sent = await client.forward_messages(target_id, messages)
+                how = "转发原消息"
+            pinned = False
+            if forward.get("pin"):
+                message = _first_sent(sent)
+                if message is not None:
+                    try:
+                        await client.pin_message(target_id, message, notify=False)
+                        pinned = True
+                    except Exception as err:  # 置顶失败不算转发失败
+                        logger.warning(f"转发后置顶失败（转发仍算成功）：{err}")
+            return how, pinned
 
         # 转发本身很快，预算照旧压在同步接口网关超时之内（后台线程调用无此限制，
         # 但保持一致便于同一入口在接口里直接触发时也不超时）
-        runtime.call(_do(), timeout=30)
-        return PushResult(ok=True, message=f"已转发到 {target_id}")
+        how, pinned = runtime.call(_do(), timeout=30)
+        suffix = "（已置顶）" if pinned else ""
+        return PushResult(
+            ok=True,
+            message=f"已{how}到 {target_id}{suffix}",
+            detail={"mode": how, "pinned": pinned},
+        )
+
+
+def _first_sent(value: Any) -> Any:
+    """从 ``send_message`` / ``forward_messages`` 的返回值里取第一条消息。
+
+    ``forward_messages`` 在多条消息时返回列表，单条时返回 SentMessage。
+    """
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
 
 
 def _now() -> float:

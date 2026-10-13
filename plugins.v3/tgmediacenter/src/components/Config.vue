@@ -4,6 +4,7 @@ import ConfigTgPane from './config/ConfigTgPane.vue'
 import ConfigPan115Pane from './config/ConfigPan115Pane.vue'
 import ConfigMonitorPane from './config/ConfigMonitorPane.vue'
 import ConfigCachePane from './config/ConfigCachePane.vue'
+import ConfigForwardPane from './config/ConfigForwardPane.vue'
 import { useConfigForm } from './config/useConfigForm'
 
 const props = defineProps({
@@ -98,6 +99,12 @@ onMounted(config.loadConfig)
           />
           <ConfigCachePane
             v-else-if="activeModule === 'cache'"
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :config="config"
+          />
+          <ConfigForwardPane
+            v-else-if="activeModule === 'forward'"
             :api="props.api"
             :plugin-id="props.pluginId"
             :config="config"

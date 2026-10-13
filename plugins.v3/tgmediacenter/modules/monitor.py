@@ -22,7 +22,7 @@ from app.sdk.logging import logger
 from ..core.cooldown import CooldownGate
 from ..core.pipeline import MessagePipeline, new_rule_id
 from ..destinations import DESTINATION_VALUES
-from ..model.hit_log import DECISIONS, TgHitLog
+from ..model.hit_log import DECISIONS, KIND_MONITOR, TgHitLog
 from ..model.push_task import STATUS_DONE, STATUS_FAILED, STATUS_PENDING, TgPushTask
 from ..services.matcher import MediaMatcher
 
@@ -188,10 +188,10 @@ class MonitorModule:
         """按需启动流水线（去抖 + 临时线程，不阻塞调用方）。
 
         用户保存规则 / 保存缓存设置 / 打开状态页时触发：不必等插件重载，
-        监控与缓存即进入运行态。与 TG 连接的「打开配置页即自愈」是同一种模式。
+        监控、转发与缓存即进入运行态。与 TG 连接的「打开配置页即自愈」是同一种模式。
         """
         want_monitor = self.enabled() and bool(self.watched_chat_ids())
-        if not want_monitor and not self._cache_ready():
+        if not want_monitor and not self._forward_ready() and not self._cache_ready():
             return
         if self._pipeline is not None and self._pipeline.is_running():
             return
@@ -200,6 +200,16 @@ class MonitorModule:
             return
         self._start_attempt_at = now
         threading.Thread(target=self._start_quietly, name="tgmc.monitor.start", daemon=True).start()
+
+    def _forward_ready(self) -> bool:
+        """是否只开转发也要跑流水线（转发与监控共用同一条事件流水线）。"""
+        forward = getattr(self._plugin, "_forward", None)
+        if forward is None:
+            return False
+        try:
+            return bool(forward.enabled() and forward.watched_chat_ids())
+        except Exception:  # pragma: no cover
+            return False
 
     def _cache_ready(self) -> bool:
         """是否只开缓存也要跑流水线（缓存写入是流水线下游）。"""
@@ -233,8 +243,13 @@ class MonitorModule:
 
     # ------------------------------------------------------------------ 查询
 
-    def hits(self, *, page: int = 1, page_size: int = 20, decision: str = "") -> dict:
-        """分页读取命中流水（可按 decision 过滤）。"""
+    def hits(self, *, page: int = 1, page_size: int = 20, decision: str = "",
+             kind: str = KIND_MONITOR) -> dict:
+        """分页读取命中流水（可按 decision 与来源 kind 过滤）。
+
+        ``kind`` 区分流水来源：``monitor``（④ 资源监控）/ ``forward``（⑥ 通用转发）。
+        两套规则共用一张表，默认只看监控流水（保持既有接口语义不变）。
+        """
         from sqlalchemy import func, select
 
         page = max(1, int(page or 1))
@@ -244,6 +259,8 @@ class MonitorModule:
             return {"items": [], "total": 0, "page": page, "page_size": page_size}
         plugin_id = getattr(self._plugin, "__class__").__name__
         filters = [TgHitLog.plugin_id == plugin_id]
+        if kind:
+            filters.append(TgHitLog.kind == str(kind)[:16])
         if decision:
             filters.append(TgHitLog.decision == str(decision)[:32])
         try:
@@ -269,6 +286,7 @@ class MonitorModule:
         created = getattr(row, "created_at", None)
         return {
             "id": int(getattr(row, "id", 0) or 0),
+            "kind": str(getattr(row, "kind", "") or KIND_MONITOR),
             "rule_id": str(getattr(row, "rule_id", "") or ""),
             "rule_name": str(getattr(row, "rule_name", "") or ""),
             "chat_id": int(getattr(row, "chat_id", 0) or 0),
@@ -370,6 +388,7 @@ class MonitorModule:
             "skipped_keyword": "关键词未命中",
             "skipped_no_link": "无链接",
             "skipped_unknown": "无法判断缺失",
+            "skipped_extension": "扩展名未命中",
             "failed": "处理失败",
         }
         return [

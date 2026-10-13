@@ -1,11 +1,12 @@
 """TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
-当前进度：P5 —— 历史消息缓存。
+当前进度：P6 —— TG 通用转发（两级匹配 / 内容转换 / 置顶）。
 - 已实现：① TG 核心凭证（Telethon 运行时、登录向导、会话持久化、对话列表缓存）；
   ② 115 网盘（Cookie 登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送）；
   ④ TG 资源监控（事件接入、聚合窗口、宿主识别、缺失判断、推送队列）；
-  ⑤ 历史消息缓存（实时写入、位点增量/时间范围同步、检索统计、订阅触发回搜）。
-- 待实现：TG 通用转发（自定义豆瓣源已取消，改用「豆瓣中心」插件）。
+  ⑤ 历史消息缓存（实时写入、位点增量/时间范围同步、检索统计、订阅触发回搜）；
+  ⑥ TG 通用转发（两级匹配、内容转换、置顶，与监控共用事件流水线与全局冷却）。
+- 待实现：P7 打磨（限流退避、通知接入、README）。自定义豆瓣源已取消，改用「豆瓣中心」插件。
 """
 from typing import Any, Dict, List, Optional, Tuple
 import time
@@ -16,9 +17,10 @@ from app.sdk.plugin import _PluginBase
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
 from .model import get_models
-from .model.migration import ensure_bigint_columns
+from .model.migration import ensure_schema
 from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
+from .modules.forward import ForwardModule
 from .modules.monitor import MonitorModule
 from .modules.pan115 import Pan115Module
 
@@ -35,7 +37,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.4.6"
+    plugin_version = "1.5.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -50,6 +52,7 @@ class TgMediaCenter(_PluginBase):
         self._pan115: Optional[Pan115Module] = None
         self._monitor: Optional[MonitorModule] = None
         self._cache: Optional[CacheModule] = None
+        self._forward: Optional[ForwardModule] = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -100,27 +103,30 @@ class TgMediaCenter(_PluginBase):
 
         self._credentials = CredentialsModule(self)
         self._pan115 = Pan115Module(self)
-        # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 缓存」，事件入口要用到它
+        # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 转发 ∪ 缓存」，事件入口要用到它
         self._cache = CacheModule(self)
         # 监听宿主「新增订阅」事件：新增订阅后秒级触发缓存回搜（定时检查仍作兜底）
         self._install_subscribe_listener()
+        # ⑥ 转发模块与 ④ 监控模块共用同一条事件流水线（后者持有流水线生命周期）
+        self._forward = ForwardModule(self)
         self._monitor = MonitorModule(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
-        # push_task 的 chat_id/message_id 1.4.1 及以前是 32 位 Integer，
-        # TG 频道 ID 超出 int32 导致入队失败；存量 Postgres 库补 ALTER 为 BIGINT
+        # 存量库追平：push_task 的 chat_id/message_id 升 BIGINT（1.4.1 及以前是
+        # 32 位 Integer，TG 频道 ID 超出 int32 导致入队失败）；hit_log 补 kind 列。
         try:
-            ensure_bigint_columns(self.get_database())
+            ensure_schema(self.get_database())
         except Exception as err:  # pragma: no cover - 迁移失败不阻断启动
-            logger.warning(f"[TgMediaCenter] push_task 表结构迁移失败：{err}")
+            logger.warning(f"[TgMediaCenter] 插件表结构迁移失败：{err}")
 
-        # ④ 资源监控：启用且有监听规则时启动流水线（TG 未连接也会先起来，
+        # ④ 资源监控 / ⑥ 通用转发：启用且有监听规则时启动流水线（TG 未连接也会先起来，
         # 处理器注册由流水线健康检查在运行时就绪后自动补上）。
-        # 只开缓存（不开监控）时同样要起流水线——缓存写入是流水线的下游。
+        # 只开缓存（不开监控 / 转发）时同样要起流水线——缓存写入是流水线的下游。
         try:
             want_monitor = self._monitor.enabled() and self._monitor.watched_chat_ids()
+            want_forward = self._forward.enabled() and self._forward.watched_chat_ids()
             want_cache = self._cache.enabled() and self._cache.chat_ids()
-            if want_monitor or want_cache:
+            if want_monitor or want_forward or want_cache:
                 self._monitor.start()
         except Exception as err:  # pragma: no cover - 监控启动失败不影响其余能力
             logger.warning(f"[TgMediaCenter] 启动资源监控流水线失败：{err}")
@@ -365,6 +371,28 @@ class TgMediaCenter(_PluginBase):
         """立即检查新增订阅并回搜缓存。"""
         return api_controller.api_cache_check_subscriptions(self)
 
+    # ------------------------------------------------------------------ ⑥ TG 通用转发
+
+    def api_forward_rules(self):
+        """读取通用转发规则。"""
+        return api_controller.api_forward_rules(self)
+
+    def api_forward_rules_save(self, request: api_schemas.ForwardRulesSaveRequest):
+        """保存通用转发规则。"""
+        return api_controller.api_forward_rules_save(self, request)
+
+    def api_forward_status(self):
+        """转发运行状态。"""
+        return api_controller.api_forward_status(self)
+
+    def api_forward_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+        """分页查询转发流水。"""
+        return api_controller.api_forward_hits(self, page=page, page_size=page_size, decision=decision)
+
+    def api_forward_test(self, request: api_schemas.ForwardTestRequest):
+        """用一段文本测试转发规则。"""
+        return api_controller.api_forward_test(self, request)
+
     # ------------------------------------------------------------------ 宿主事件
 
     def on_subscribe_added(self, event) -> None:
@@ -484,6 +512,8 @@ class TgMediaCenter(_PluginBase):
                 monitor.stop()
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止资源监控流水线失败：{err}")
+        # 转发模块无自有线程（复用监控流水线），仅清引用，必须在流水线停止之后
+        self._forward = None
         # 先摘事件监听（其中会取消防抖回搜），再释放缓存模块
         self._uninstall_subscribe_listener()
         cache = getattr(self, "_cache", None)

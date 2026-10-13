@@ -58,6 +58,11 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/cache/clear", plugin.api_cache_clear, ["POST"], "清空指定频道的缓存"),
         ("/cache/search", plugin.api_cache_search, ["POST"], "检索缓存消息"),
         ("/cache/check_subscriptions", plugin.api_cache_check_subscriptions, ["POST"], "立即检查新增订阅并回搜缓存"),
+        ("/forward/rules", plugin.api_forward_rules, ["GET"], "获取 TG 通用转发规则"),
+        ("/forward/rules", plugin.api_forward_rules_save, ["PUT", "POST"], "保存 TG 通用转发规则"),
+        ("/forward/status", plugin.api_forward_status, ["GET"], "获取转发运行状态"),
+        ("/forward/hits", plugin.api_forward_hits, ["GET"], "查询转发命中流水"),
+        ("/forward/test", plugin.api_forward_test, ["POST"], "用一段文本测试转发规则"),
     ]
     return [
         {
@@ -86,6 +91,9 @@ def _invoke(callback: Callable, **kwargs):
     except Pan115Error as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
     except Pan115QrError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except ValueError as err:
+        # 业务校验失败（如转发规则缺目标会话）：属于可预期的配置问题，按 400 返回
         raise HTTPException(status_code=400, detail=str(err)) from err
     except (FutureTimeoutError, TimeoutError) as err:
         raise HTTPException(status_code=504, detail="Telegram 操作超时，请重试") from err
@@ -426,3 +434,73 @@ def api_cache_check_subscriptions(plugin):
     module = _cache(plugin)
     data = _invoke(lambda: module.check_subscriptions(trigger="手动"))
     return _envelope(api_schemas.CacheCheckSubscriptionsData.model_validate(data), message=data.get("message", ""))
+
+
+# ---------------------------------------------------------------------- ⑥ TG 通用转发
+
+# 逻辑一内两个条件的组合方式（前端下拉）
+MATCH_MODE_OPTIONS = [
+    {"value": "or", "title": "任一满足（OR）"},
+    {"value": "and", "title": "全部满足（AND）"},
+]
+
+
+def _forward(plugin):
+    """返回转发模块；插件尚未初始化时抛 503。"""
+    module = getattr(plugin, "_forward", None)
+    if module is None:
+        raise HTTPException(status_code=503, detail="插件尚未初始化，请稍后重试")
+    return module
+
+
+def _forward_rules_payload(module, rules=None) -> api_schemas.ForwardRulesData:
+    """规则读写响应（含前端下拉选项）。"""
+    source = module.rules() if rules is None else rules
+    return api_schemas.ForwardRulesData(
+        rules=[api_schemas.ForwardRule.model_validate(rule) for rule in source],
+        watched_chats=len(module.watched_chat_ids()),
+        match_modes=[api_schemas.OptionItem.model_validate(item) for item in MATCH_MODE_OPTIONS],
+        decisions=[api_schemas.OptionItem.model_validate(item) for item in module.decision_options()],
+    )
+
+
+def api_forward_rules(plugin):
+    """读取转发规则（含归一化后补齐的规则 ID）。"""
+    module = _forward(plugin)
+    data = _invoke(lambda: _forward_rules_payload(module))
+    return _envelope(data)
+
+
+def api_forward_rules_save(plugin, request: api_schemas.ForwardRulesSaveRequest):
+    """保存转发规则（校验 + 归一后整份写回配置）。
+
+    校验失败（缺转发目标、启用了过滤却没填内容）返回 400 并把原因写在 detail 里——
+    这类配置事故会让转发在运行时全军覆没，必须挡在保存这一步。
+    """
+    module = _forward(plugin)
+    payload = [rule.model_dump() for rule in (request.rules or [])]
+    data = _invoke(lambda: _forward_rules_payload(module, module.save_rules(payload)))
+    return _envelope(data, message=f"已保存 {len(data.rules)} 条转发规则")
+
+
+def api_forward_status(plugin):
+    """转发运行状态（规则数 / 监听会话 / 全局冷却 / 订阅数据源）。"""
+    module = _forward(plugin)
+    data = _invoke(lambda: module.status())
+    return _envelope(api_schemas.ForwardStatusData.model_validate(data))
+
+
+def api_forward_hits(plugin, page: int = 1, page_size: int = 20, decision: str = ""):
+    """分页查询转发流水（可按决策过滤）。"""
+    module = _forward(plugin)
+    data = _invoke(lambda: module.hits(page=page, page_size=page_size, decision=decision))
+    return _envelope(api_schemas.MonitorHitsData.model_validate(data))
+
+
+def api_forward_test(plugin, request: api_schemas.ForwardTestRequest):
+    """用一段文本测试各转发规则的处理结果（不落库、不入队、不推送）。"""
+    module = _forward(plugin)
+    if not str(request.text or "").strip():
+        raise HTTPException(status_code=400, detail="请先粘贴一条频道消息文本")
+    data = _invoke(lambda: module.test_text(request.text))
+    return _envelope(api_schemas.ForwardTestData.model_validate(data), message="测试完成（未落库、未推送）")

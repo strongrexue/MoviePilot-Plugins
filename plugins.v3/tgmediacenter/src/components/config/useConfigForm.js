@@ -37,6 +37,9 @@ export const configDefaults = {
   cache_subscribe_enabled: true,
   cache_cron: '0 */6 * * *',
   cache_subscribe_cron: '*/30 * * * *',
+  // ⑥ TG 通用转发（规则结构见 /forward/rules 接口返回；id 由后端补缺，f 前缀）
+  forward_enabled: false,
+  forward_rules: [],
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

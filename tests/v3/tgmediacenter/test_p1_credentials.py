@@ -190,6 +190,22 @@ class _StubPlugin:
     def api_cache_check_subscriptions(self):
         ...
 
+    # P6 通用转发
+    def api_forward_rules(self):
+        ...
+
+    def api_forward_rules_save(self, request):
+        ...
+
+    def api_forward_status(self):
+        ...
+
+    def api_forward_hits(self, page: int = 1, page_size: int = 20, decision: str = ""):
+        ...
+
+    def api_forward_test(self, request):
+        ...
+
 
 def test_api_routes_contract():
     """所有路由都要声明 bear 认证与 response_model。"""
@@ -224,6 +240,11 @@ def test_api_routes_contract():
         "/cache/clear",
         "/cache/search",
         "/cache/check_subscriptions",
+        # P6 通用转发（rules 同时注册 GET 与 PUT）
+        "/forward/rules",
+        "/forward/status",
+        "/forward/hits",
+        "/forward/test",
     }
     for route in routes:
         assert route["auth"] == "bear"

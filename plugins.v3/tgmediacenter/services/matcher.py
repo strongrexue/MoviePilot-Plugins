@@ -377,6 +377,17 @@ class MediaMatcher:
 
     # ------------------------------------------------------------------ 订阅匹配
 
+    def is_subscribed(self, *, title: str, year: str = "", season: Optional[int] = None) -> Optional[bool]:
+        """该媒体是否在宿主订阅列表中（⑥ 转发规则的「匹配订阅」条件）。
+
+        与 :meth:`is_missing` 里的预筛共用同一份订阅快照与匹配口径。
+        :returns: ``True`` 已订阅 / ``False`` 未订阅 / ``None`` 订阅数据源不可用
+            （无法判断，调用方据此给出「无法判断」而不是笼统判为未订阅）。
+        """
+        if not QUERIES_AVAILABLE:
+            return None
+        return self._match_subscription(title=title, year=year, season=season) is not None
+
     def _match_subscription(
         self, *, title: str, year: str, season: Optional[int]
     ) -> Optional[dict]:

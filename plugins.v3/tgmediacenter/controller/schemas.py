@@ -251,9 +251,10 @@ class MonitorRulesSaveRequest(BaseModel):
 
 
 class MonitorHit(BaseModel):
-    """命中流水条目。"""
+    """命中流水条目（监控与转发共表，靠 kind 区分）。"""
 
     id: int = 0
+    kind: str = Field(default="monitor", description="流水来源：monitor / forward")
     rule_id: str = ""
     rule_name: str = ""
     chat_id: int = 0
@@ -279,12 +280,13 @@ class MonitorHitsData(BaseModel):
 
 
 class MonitorChatActivity(BaseModel):
-    """最近消息来源（关心的会话：监控 ∪ 缓存）。"""
+    """最近消息来源（关心的会话：监控 ∪ 转发 ∪ 缓存）。"""
 
     chat_id: int = 0
     count: int = 0
     last_at: str = ""
     watched: bool = False
+    forwarded: bool = False
     cached: bool = False
 
 
@@ -315,6 +317,7 @@ class MonitorPipelineStats(BaseModel):
     events_unwatched: int = 0
     messages_enqueued: int = 0
     cache_written: int = 0
+    forward_hit: int = 0
     last_event_at: str = ""
     recent_sources: List[MonitorChatActivity] = Field(default_factory=list)
     watched_detail: List[MonitorWatchedChat] = Field(default_factory=list)
@@ -540,6 +543,91 @@ class CacheCheckSubscriptionsData(BaseModel):
     details: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------- ⑥ TG 通用转发
+
+
+class ForwardRule(BaseModel):
+    """转发规则（对齐 MA 自动化配置 8：两级匹配 + 内容转换 + 置顶）。
+
+    匹配语义：逻辑一（订阅 / 自定义关键词，按 ``match_mode`` 组合）与
+    逻辑二（文件扩展名）之间**恒为 AND**。
+    """
+
+    id: str = Field(default="", description="规则稳定 ID（f 前缀），保存时由后端补缺")
+    name: str = Field(default="", description="规则名称")
+    source_ids: List[int] = Field(default_factory=list, description="监听的来源会话 ID（可多选）")
+    target_id: int = Field(default=0, description="转发目标会话 ID（必填）")
+    match_subscription_keywords: bool = Field(default=False, description="逻辑一：只转发已订阅的媒体")
+    match_custom_keywords: bool = Field(default=False, description="逻辑一：自定义关键词过滤")
+    custom_keywords: List[str] = Field(default_factory=list, description="自定义关键词")
+    match_mode: str = Field(default="or", description="逻辑一内两条件的关系：or / and")
+    pin_links_enabled: bool = Field(default=False, description="转发后置顶该消息")
+    pin_link_keywords: List[str] = Field(default_factory=list, description="仅消息命中这些关键词时置顶")
+    match_file_extensions: bool = Field(default=False, description="逻辑二：按文件扩展名过滤")
+    file_extensions_to_match: List[str] = Field(default_factory=list, description="扩展名列表，如 mp4 / mkv")
+    enable_transform: bool = Field(default=False, description="启用内容转换")
+    transform_rules: List[str] = Field(default_factory=list, description='转换规则，每行「原文 -> 替换文」，支持正则')
+    enabled: bool = Field(default=True, description="是否启用该规则")
+
+
+class ForwardRulesData(BaseModel):
+    """转发规则读写响应。"""
+
+    rules: List[ForwardRule] = Field(default_factory=list)
+    watched_chats: int = 0
+    match_modes: List[OptionItem] = Field(default_factory=list)
+    decisions: List[OptionItem] = Field(default_factory=list)
+
+
+class ForwardRulesSaveRequest(BaseModel):
+    """保存转发规则请求。"""
+
+    rules: List[ForwardRule] = Field(default_factory=list)
+
+
+class ForwardStatusData(BaseModel):
+    """转发模块运行状态。"""
+
+    enabled: bool = False
+    rules_count: int = 0
+    watched_chats: int = 0
+    watched_chat_ids: List[int] = Field(default_factory=list)
+    transform_rules_count: int = 0
+    gate_interval: int = 5
+    flood_remaining: int = 0
+    subscriptions: int = 0
+    queries_available: bool = False
+
+
+class ForwardTestRequest(BaseModel):
+    """转发规则测试请求。"""
+
+    text: str = Field(default="", description="粘贴一条频道消息原文")
+
+
+class ForwardTestTrace(BaseModel):
+    """单条转发规则的测试结果。"""
+
+    rule_id: str = ""
+    rule_name: str = ""
+    target_id: int = 0
+    enabled: bool = True
+    matched: bool = False
+    decision: str = ""
+    reason: str = ""
+    send_text: str = Field(default="", description="转换后的发送内容（未启用转换时等于原文）")
+    pin: bool = False
+
+
+class ForwardTestData(BaseModel):
+    """转发规则测试结果（不落库、不入队、不推送）。"""
+
+    purified: str = ""
+    recognized: Optional[Dict[str, Any]] = None
+    links: List[str] = Field(default_factory=list)
+    rules: List[ForwardTestTrace] = Field(default_factory=list)
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
     "/telegram/send_code": TgSendCodeData,
@@ -567,4 +655,8 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/cache/clear": CacheClearData,
     "/cache/search": CacheSearchData,
     "/cache/check_subscriptions": CacheCheckSubscriptionsData,
+    "/forward/rules": ForwardRulesData,
+    "/forward/status": ForwardStatusData,
+    "/forward/hits": MonitorHitsData,
+    "/forward/test": ForwardTestData,
 }

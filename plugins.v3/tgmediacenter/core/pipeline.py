@@ -87,19 +87,11 @@ _AUTH_ERROR_HINTS = ("登录", "cookie", "授权", "安全密钥", "验证", "�
 # 与 core/pan115_client.py 的口径对齐：分享转存遇「已转存/重复」、离线遇
 # 「已存在/重复」都返回 ok=True + "…（跳过）"，属于成功但不是新转存——
 # 通知里必须说清，否则用户以为刚又存了一份。
-_DUPLICATE_HINTS = ("已转存", "已存在", "重复", "已保存", "此前已", "已接收")
-
 
 def _looks_like_auth_error(message: str) -> bool:
     """这条失败信息是否像 115 登录态失效（用于给通知加"重新扫码"引导）。"""
     text = str(message or "").lower()
     return any(hint in text for hint in _AUTH_ERROR_HINTS)
-
-
-def _looks_like_duplicate(message: str) -> bool:
-    """这条结果说明是否表示"115 里已经有了"（成功，但未重复保存）。"""
-    text = str(message or "")
-    return any(hint in text for hint in _DUPLICATE_HINTS)
 
 
 def _task_links(task: Dict[str, Any]) -> List[str]:
@@ -129,7 +121,7 @@ def _link_outcomes(detail: Any) -> Dict[str, Dict[str, Any]]:
         slot = result.setdefault(source, {"ok": True, "dup": False})
         if not entry.get("ok"):
             slot["ok"] = False
-        if _looks_like_duplicate(entry.get("message")):
+        if link_utils.looks_like_duplicate(entry.get("message")):
             slot["dup"] = True
     return result
 

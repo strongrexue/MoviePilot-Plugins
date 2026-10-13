@@ -420,6 +420,15 @@ onUnmounted(qrStopPolling)
           解析测试不需要 Cookie，可先用它确认链接能被正确识别（含提取码）。
           实际推送需要已保存的 Cookie 与目标目录 CID。
         </div>
+
+        <VSwitch v-model="form.interactive_push" color="primary" hide-details inset class="p115-switch">
+          <template #label><span class="p115-switch-label">允许私聊机器人发链接直接转存 115</span></template>
+        </VSwitch>
+        <div class="p115-hint">
+          开启后，私聊 MoviePilot 机器人直接发 115 分享链接 / 磁力 / ed2k，插件会转存到 115
+          并回一条回执（成功 / 失败 / 已转存过都会说清）。消息里没有链接时不会有任何回复。
+          回执与其余通知一样走宿主的「通知」渠道。
+        </div>
       </VCardText>
     </VCard>
   </div>
@@ -446,6 +455,7 @@ onUnmounted(qrStopPolling)
 .p115-hint { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.7; }
 .p115-notify { display: flex; gap: 24px; flex-wrap: wrap; }
 .p115-switch-label { font-size: 13px; }
+.p115-switch { margin-top: 12px; }
 .p115-hint code {
   padding: 1px 4px;
   border-radius: 4px;

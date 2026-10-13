@@ -182,3 +182,15 @@ def split_batches(items: list[PushItem], batch_size: int) -> list[list[PushItem]
     if size <= 0 or size >= len(items):
         return [list(items)] if items else []
     return [items[index:index + size] for index in range(0, len(items), size)]
+
+
+# 判定"115 里其实已经有了、本次没重复保存"的关键词（1.6.11 起，1.7.0 消息交互共用）。
+# 与 core/pan115_client.py 的口径对齐：分享转存遇「已转存 / 重复」、离线遇
+# 「已存在 / 重复」都会返回 ok=True + "…（跳过）"——是成功，但不是新转存。
+_DUPLICATE_HINTS = ("已转存", "已存在", "重复", "已保存", "此前已", "已接收")
+
+
+def looks_like_duplicate(message: str) -> bool:
+    """这条结果说明是否表示"115 里已经有了"（转存成功，但未重复保存）。"""
+    text = str(message or "")
+    return any(hint in text for hint in _DUPLICATE_HINTS)

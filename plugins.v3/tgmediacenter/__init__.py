@@ -1,12 +1,14 @@
 """TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
-当前进度：P7 —— 打磨（运行详情与仪表盘、通知接入、限流退避收口、测试与真实加载验证）。
+当前进度：P8 —— 消息交互（私聊发 115 / 磁力 / eD2k 链接直接转存并回执）；
+P7 打磨已完成（运行详情与仪表盘、通知接入、限流退避收口、测试与真实加载验证）。
 - 已实现：① TG 核心凭证（Telethon 运行时、登录向导、会话持久化、对话列表缓存）；
   ② 115 网盘（扫码登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送、成功/失败通知）；
   ④ TG 资源监控（事件接入、聚合窗口、宿主识别、缺失判断、推送队列）；
   ⑤ 历史消息缓存（实时写入、位点增量/时间范围同步、检索统计、订阅触发回搜）；
   ⑥ TG 通用转发（关键词/扩展名匹配、内容转换、置顶，与监控共用事件流水线与全局冷却）；
-  ⑦ 运行详情页与仪表盘（/overview 聚合）+ 插件级共享冷却门（读写共用 FloodWait 退避）。
+  ⑦ 运行详情页与仪表盘（/overview 聚合）+ 插件级共享冷却门（读写共用 FloodWait 退避）；
+  ⑧ 消息交互（监听宿主用户消息事件，私聊发链接即转存 115 并回执：新转存 / 已转存过 / 失败原因）。
 - 自定义豆瓣源（原 P3）已取消，豆瓣订阅请用「豆瓣中心」插件。
 """
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,6 +25,7 @@ from .model.migration import ensure_schema
 from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
 from .modules.forward import ForwardModule
+from .modules.interactive import InteractiveModule
 from .modules.monitor import MonitorModule
 from .modules.pan115 import Pan115Module
 
@@ -39,7 +42,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.6.11"
+    plugin_version = "1.7.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -55,6 +58,7 @@ class TgMediaCenter(_PluginBase):
         self._monitor: Optional[MonitorModule] = None
         self._cache: Optional[CacheModule] = None
         self._forward: Optional[ForwardModule] = None
+        self._interactive: Optional[InteractiveModule] = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -113,6 +117,9 @@ class TgMediaCenter(_PluginBase):
         self._cache = CacheModule(self)
         # 监听宿主「新增订阅」事件：新增订阅后秒级触发缓存回搜（定时检查仍作兜底）
         self._install_subscribe_listener()
+        # ⑧ 监听宿主「用户消息」事件：私聊发 115 / 磁力 / ed2k 链接即转存并回执
+        self._interactive = InteractiveModule(self)
+        self._install_user_message_listener()
         # ⑥ 转发模块与 ④ 监控模块共用同一条事件流水线（后者持有流水线生命周期）
         self._forward = ForwardModule(self)
         self._monitor = MonitorModule(self)
@@ -246,6 +253,8 @@ class TgMediaCenter(_PluginBase):
             "notify_on_hit": True,
             "notify_on_error": True,
             "notify_on_search": True,
+            # ⑧ 消息交互：私聊机器人发链接直接转存 115 并回执
+            "interactive_push": True,
             # 一次性执行
             "onlyonce": False,
         }
@@ -434,6 +443,54 @@ class TgMediaCenter(_PluginBase):
         except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
             logger.warning(f"[TgMediaCenter] 处理订阅事件失败：{err}")
 
+    def on_user_message(self, event) -> None:
+        """宿主「收到用户外来消息」广播事件：消息里有链接就转存 115 并回执。
+
+        与 ``on_subscribe_added`` 同理，处理器**必须定义在插件主类上**，否则宿主
+        事件分发会静默跳过（详见该方法注释）。
+        """
+        interactive = getattr(self, "_interactive", None)
+        if interactive is None:
+            return
+        try:
+            interactive.handle(event)
+        except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
+            logger.warning(f"[TgMediaCenter] 处理用户消息失败：{err}")
+
+    def _install_user_message_listener(self) -> bool:
+        """注册宿主用户消息事件监听（宿主无该事件时静默降级）。"""
+        try:
+            from app.sdk.events import eventmanager
+            from app.schemas.types import EventType
+        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
+            logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，消息转存不启用：{err}")
+            return False
+        # 事件名随宿主版本演进：拿不到就当不支持，不能用异常类兜
+        event_type = getattr(EventType, "UserMessage", None)
+        if event_type is None:  # pragma: no cover - 旧宿主无此事件
+            logger.debug("[TgMediaCenter] 宿主未提供 UserMessage 事件，消息转存不启用")
+            return False
+        try:
+            eventmanager.add_event_listener(event_type, self.on_user_message)
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] 注册用户消息监听失败：{err}")
+            return False
+        self._user_message_eventmanager = eventmanager
+        self._user_message_event_type = event_type
+        return True
+
+    def _uninstall_user_message_listener(self) -> None:
+        """移除宿主用户消息事件监听。"""
+        manager = getattr(self, "_user_message_eventmanager", None)
+        event_type = getattr(self, "_user_message_event_type", None)
+        self._user_message_eventmanager = None
+        self._user_message_event_type = None
+        if manager is not None and event_type is not None:
+            try:
+                manager.remove_event_listener(event_type, self.on_user_message)
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"[TgMediaCenter] 移除用户消息监听失败：{err}")
+
     def _install_subscribe_listener(self) -> bool:
         """注册宿主新增订阅事件监听（旧宿主无事件总线时静默降级为仅定时）。"""
         try:
@@ -539,6 +596,8 @@ class TgMediaCenter(_PluginBase):
         self._forward = None
         # 先摘事件监听（其中会取消防抖回搜），再释放缓存模块
         self._uninstall_subscribe_listener()
+        self._uninstall_user_message_listener()
+        self._interactive = None
         cache = getattr(self, "_cache", None)
         self._cache = None
         if cache is not None:

@@ -44,6 +44,7 @@ export const configDefaults = {
   notify_on_hit: true,
   notify_on_error: true,
   notify_on_search: true,
+  interactive_push: true,
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

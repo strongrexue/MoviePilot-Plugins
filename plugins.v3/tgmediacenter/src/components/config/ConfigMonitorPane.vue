@@ -81,17 +81,33 @@
         </div>
         <div v-if="(status?.watched_chat_ids?.length || 0) > 0" class="mon-sources">
           <span class="mon-events-title">监听 ID：</span>
-          <VChip
-            v-for="chatId in status.watched_chat_ids"
-            :key="`watch-${chatId}`"
-            size="x-small"
-            variant="tonal"
-            color="warning"
-            label
-            class="mon-id-chip"
-          >
-            {{ chatId }}
-          </VChip>
+          <template v-if="(status?.pipeline?.watched_detail?.length || 0) > 0">
+            <VChip
+              v-for="item in status.pipeline.watched_detail"
+              :key="`watch-${item.chat_id}`"
+              size="x-small"
+              variant="tonal"
+              :color="item.resolved ? 'success' : 'error'"
+              label
+              class="mon-id-chip"
+              :title="item.resolved ? `会话标题：${item.title}` : `反查失败：${item.error}`"
+            >
+              {{ item.chat_id }}<template v-if="item.resolved"> ▸ {{ item.title || '(无标题)' }}</template><template v-else> ▸ 反查失败</template>
+            </VChip>
+          </template>
+          <template v-else>
+            <VChip
+              v-for="chatId in status.watched_chat_ids"
+              :key="`watch-${chatId}`"
+              size="x-small"
+              variant="tonal"
+              color="warning"
+              label
+              class="mon-id-chip"
+            >
+              {{ chatId }}
+            </VChip>
+          </template>
         </div>
         <div v-if="(status?.pipeline?.recent_sources?.length || 0) > 0" class="mon-sources">
           <span class="mon-events-title">来源 ID：</span>
@@ -115,9 +131,9 @@
           density="compact"
           class="mon-events-hint"
         >
-          收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话：请逐位对照上方「监听 ID」与「来源 ID」是否一致。
-          常见原因：①规则里选错频道（名字相近的频道多选） ②对话缓存过期（到「TG 凭证」页刷新对话后重新选择并保存规则）
-          ③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。
+          收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话：请对照上方「监听 ID」（▸ 后为反查的会话标题）与「来源 ID」。
+          常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则）
+          ②规则里选错频道（名字相近的频道多选）③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。
         </VAlert>
         <VAlert
           v-if="status?.enabled && !(status?.pipeline?.events_received > 0)"

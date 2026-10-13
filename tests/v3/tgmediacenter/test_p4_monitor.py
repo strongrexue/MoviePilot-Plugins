@@ -781,6 +781,36 @@ class TestPipeline:
             pipeline._handle_event(FakeEvent())
         assert len(pipeline._recent_sources) <= limit
 
+    def test_watched_detail_in_stats(self, plugin, monitor, pipeline):
+        """stats 暴露监听会话反查结果，未反查时为空列表。"""
+        monitor.save_rules([base_rule(source_ids=[CHAT_A])])
+        assert pipeline.stats()["watched_detail"] == []
+
+        class FakeEntity:
+            title = "测试频道"
+
+        class FakeClient:
+            async def get_entity(self, chat_id):
+                if chat_id == CHAT_A:
+                    return FakeEntity()
+                raise ValueError("Could not find the input entity")
+
+        import asyncio
+        asyncio.run(pipeline._resolve_watched(FakeClient()))
+        detail = pipeline.stats()["watched_detail"]
+        assert len(detail) == 1
+        assert detail[0]["chat_id"] == CHAT_A
+        assert detail[0]["resolved"] is True
+        assert detail[0]["title"] == "测试频道"
+
+        # 反查失败的 ID 也要留在列表里并带错误信息（前端展示"反查失败"）
+        monitor.save_rules([base_rule(source_ids=[CHAT_A, CHAT_B])])
+        asyncio.run(pipeline._resolve_watched(FakeClient()))
+        detail = {item["chat_id"]: item for item in pipeline.stats()["watched_detail"]}
+        assert detail[CHAT_A]["resolved"] is True
+        assert detail[CHAT_B]["resolved"] is False
+        assert detail[CHAT_B]["error"]
+
     def test_test_text_trace_without_persistence(self, plugin, monitor, pipeline):
         monitor.save_rules([
             base_rule(id="r1", name="仅记录", destination="none"),

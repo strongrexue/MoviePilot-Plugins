@@ -182,8 +182,35 @@ class TelegramRuntime:
         with self._lock:
             self._client = client
         self._start_keep_alive()
+        self.prime_updates()
         logger.info(f"[{self._plugin_id}] TG 运行时已启动")
         return True
+
+    def prime_updates(self, limit: int = 200) -> None:
+        """连接后拉一轮对话列表：预热实体缓存与频道更新状态（异步，不阻塞启动）。
+
+        Telethon 的已知行为：会话实体缓存里没有的频道，服务端可能不下发
+        （或客户端无法解析）新消息更新——刚登录的 StringSession 尤其明显。
+        启动后主动 iter_dialogs 一轮，把账号可见的会话灌进缓存，监听才有
+        稳定的事件流。
+        """
+        client = self.client
+        if client is None:
+            return
+
+        async def _prime() -> None:
+            try:
+                count = 0
+                async for _ in client.iter_dialogs(limit=max(1, int(limit))):
+                    count += 1
+                logger.info(f"[{self._plugin_id}] TG 对话缓存预热完成（{count} 个会话）")
+            except Exception as err:
+                logger.warning(f"[{self._plugin_id}] TG 对话缓存预热失败（监听可能收不到部分频道消息）：{err}")
+
+        try:
+            self.submit(_prime())
+        except Exception as err:
+            logger.debug(f"[{self._plugin_id}] 投递对话缓存预热失败：{err}")
 
     def stop(self) -> None:
         """断开客户端并释放线程与事件循环；可重复调用。"""

@@ -57,6 +57,8 @@ from ..services import recognizer as recognizer_service
 _MAX_BATCH = 20
 # 「最近消息来源」环形记录上限：诊断「监听 ID 与真实来源 ID 是否一致」用
 _MAX_RECENT_SOURCES = 40
+# 非监听会话的"首次出现"INFO 日志上限：既让用户看到每个来源，又不被刷屏
+_MAX_UNWATCHED_LOGGED = 60
 # 推送 worker 扫描周期（秒）
 _PUSH_INTERVAL = 15.0
 # 失败重试基础退避（秒）：30 * 2^retries，上限 600
@@ -97,6 +99,10 @@ class MessagePipeline:
         # 最近消息来源：chat_id -> {"count", "last_at", "_mono"}，供状态卡与
         # 监听 ID 列表并排对照（排查「收到一堆但全是非监听」的关键证据）
         self._recent_sources: Dict[int, Dict[str, Any]] = {}
+        # 已打过"首次出现"INFO 日志的非监听会话（防刷屏）
+        self._unwatched_logged: set = set()
+        # 监听会话反查结果：[{"chat_id", "title", "resolved", "error"}]
+        self._watched_detail: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------ 生命周期
 
@@ -148,12 +154,29 @@ class MessagePipeline:
             # 只关心被规则监听的会话：其余消息连缓冲都不进
             if not self._monitor.is_watched(int(chat_id)):
                 self._stats["events_unwatched"] += 1
+                # 每个非监听来源首次出现打一条 INFO（让用户在日志里看到
+                # "哪个会话在发消息但没被监听"），之后降为 DEBUG 防刷屏
+                if int(chat_id) not in self._unwatched_logged:
+                    if len(self._unwatched_logged) < _MAX_UNWATCHED_LOGGED:
+                        self._unwatched_logged.add(int(chat_id))
+                        logger.info(
+                            f"[{self._plugin_id()}] 忽略非监听会话 {chat_id} 的消息"
+                            f"（未被任何规则监听；如需监听请把该 ID 加入规则）"
+                        )
+                    else:
+                        logger.debug(f"[{self._plugin_id()}] 忽略非监听会话 {chat_id} 的消息")
+                else:
+                    logger.debug(f"[{self._plugin_id()}] 忽略非监听会话 {chat_id} 的消息")
                 return
             self._stats["events_watched"] += 1
             self._last_event_at = datetime.now().isoformat(timespec="seconds")
             message = getattr(event, "message", None)
             message_id = int(getattr(message, "id", 0) or 0)
             text = str(getattr(event, "raw_text", "") or "")
+            logger.info(
+                f"[{self._plugin_id()}] 监听会话 {chat_id} 新消息 #{message_id}"
+                f"（{len(text)} 字），进入处理流水线"
+            )
             self.on_new_message(int(chat_id), message_id, text)
         except Exception as err:  # pragma: no cover - 事件解析异常不能影响 TG 连接
             logger.debug(f"处理 TG 新消息事件失败（忽略）：{err}")
@@ -335,6 +358,11 @@ class MessagePipeline:
     def _record(self, rule: dict, chat_id: int, message_id: int, meta: Optional[dict],
                 decision: str, detail: str, destination: str, links: List[str]) -> None:
         """写命中流水（去重键冲突时静默跳过，说明已处理过）。"""
+        # 决策过程直接落运行日志：用户在 MP 日志页能看到每条消息怎么被判的
+        logger.info(
+            f"[{self._plugin_id()}] 决策（chat={chat_id}, msg={message_id}, "
+            f"规则「{rule.get('name') or rule.get('id')}」）：{decision} —— {detail}"
+        )
         db = self._db()
         if db is None:
             return
@@ -604,6 +632,7 @@ class MessagePipeline:
             if client is None:
                 return False
             client.add_event_handler(self._handler, events.NewMessage)
+            await self._resolve_watched(client)
             return True
 
         try:
@@ -631,6 +660,35 @@ class MessagePipeline:
             except Exception as err:  # pragma: no cover - 注销失败不影响停止
                 logger.debug(f"注销 TG 新消息监听失败（忽略）：{err}")
         self._handler_ok = False
+
+    async def _resolve_watched(self, client: Any) -> None:
+        """把规则里的监听 ID 反查成会话标题（在 TG loop 内执行）。
+
+        反查成功 → 日志明确"这个 ID 是哪个频道"；失败 → 该 ID 在此账号视角
+        不存在 / 无权限 / 已失效，规则必然永远收不到它的事件。
+        """
+        detail: List[Dict[str, Any]] = []
+        for chat_id in self._monitor.watched_chat_ids():
+            entry: Dict[str, Any] = {"chat_id": int(chat_id), "title": "", "resolved": False, "error": ""}
+            try:
+                entity = await client.get_entity(int(chat_id))
+                title = (
+                    getattr(entity, "title", None)
+                    or getattr(entity, "username", None)
+                    or getattr(entity, "first_name", None)
+                    or ""
+                )
+                entry["title"] = str(title)[:60]
+                entry["resolved"] = True
+                logger.info(f"[{self._plugin_id()}] 监听会话 {chat_id} →「{entry['title']}」")
+            except Exception as err:
+                entry["error"] = str(err)[:120]
+                logger.warning(
+                    f"[{self._plugin_id()}] 监听会话 {chat_id} 反查失败（账号看不到该会话，"
+                    f"规则将收不到它的事件；请到 TG 凭证页刷新对话后重选）：{err}"
+                )
+            detail.append(entry)
+        self._watched_detail = detail
 
     def _ensure_handler(self) -> None:
         """健康检查：运行时可能因掉线重建客户端，处理器会丢，需要补注册。"""
@@ -677,6 +735,7 @@ class MessagePipeline:
             "messages_enqueued": self._stats["messages_enqueued"],
             "last_event_at": self._last_event_at,
             "recent_sources": self._recent_sources_view(),
+            "watched_detail": [dict(entry) for entry in self._watched_detail],
             "push_done": self._stats.get("push_done", 0),
             "push_pending": pending,
             "push_failed": failed,

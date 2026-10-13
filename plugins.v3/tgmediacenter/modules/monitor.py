@@ -319,6 +319,8 @@ class MonitorModule:
             "messages_enqueued": 0,
             "last_event_at": "",
             "recent_sources": [],
+            "watched_detail": [],
+            "recent_sources": [],
             "push_done": push["done"],
             "push_pending": push["pending"],
             "push_failed": push["failed"],

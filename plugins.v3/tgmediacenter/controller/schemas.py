@@ -287,6 +287,15 @@ class MonitorChatActivity(BaseModel):
     watched: bool = False
 
 
+class MonitorWatchedChat(BaseModel):
+    """监听会话反查结果（ID 是否能被当前账号解析成具体会话）。"""
+
+    chat_id: int = 0
+    title: str = ""
+    resolved: bool = False
+    error: str = ""
+
+
 class MonitorPipelineStats(BaseModel):
     """流水线运行态（与 MonitorModule.status()["pipeline"] 对应）。"""
 
@@ -305,6 +314,7 @@ class MonitorPipelineStats(BaseModel):
     messages_enqueued: int = 0
     last_event_at: str = ""
     recent_sources: List[MonitorChatActivity] = Field(default_factory=list)
+    watched_detail: List[MonitorWatchedChat] = Field(default_factory=list)
     push_done: int = 0
     push_pending: int = 0
     push_failed: int = 0

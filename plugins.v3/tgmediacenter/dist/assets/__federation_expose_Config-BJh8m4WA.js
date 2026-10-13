@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.7';
+const FRONTEND_VERSION = '1.3.8';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -2538,21 +2538,45 @@ return (_ctx, _cache) => {
             ((status.value?.watched_chat_ids?.length || 0) > 0)
               ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_10, [
                   _cache[7] || (_cache[7] = _createElementVNode$1("span", { class: "mon-events-title" }, "监听 ID：", -1)),
-                  (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(status.value.watched_chat_ids, (chatId) => {
-                    return (_openBlock$1(), _createBlock$1(_component_VChip, {
-                      key: `watch-${chatId}`,
-                      size: "x-small",
-                      variant: "tonal",
-                      color: "warning",
-                      label: "",
-                      class: "mon-id-chip"
-                    }, {
-                      default: _withCtx$1(() => [
-                        _createTextVNode$1(_toDisplayString$1(chatId), 1)
-                      ]),
-                      _: 2
-                    }, 1024))
-                  }), 128))
+                  ((status.value?.pipeline?.watched_detail?.length || 0) > 0)
+                    ? (_openBlock$1(true), _createElementBlock$1(_Fragment$1, { key: 0 }, _renderList$1(status.value.pipeline.watched_detail, (item) => {
+                        return (_openBlock$1(), _createBlock$1(_component_VChip, {
+                          key: `watch-${item.chat_id}`,
+                          size: "x-small",
+                          variant: "tonal",
+                          color: item.resolved ? 'success' : 'error',
+                          label: "",
+                          class: "mon-id-chip",
+                          title: item.resolved ? `会话标题：${item.title}` : `反查失败：${item.error}`
+                        }, {
+                          default: _withCtx$1(() => [
+                            _createTextVNode$1(_toDisplayString$1(item.chat_id), 1),
+                            (item.resolved)
+                              ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 0 }, [
+                                  _createTextVNode$1(" ▸ " + _toDisplayString$1(item.title || '(无标题)'), 1)
+                                ], 64))
+                              : (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 1 }, [
+                                  _createTextVNode$1(" ▸ 反查失败")
+                                ], 64))
+                          ]),
+                          _: 2
+                        }, 1032, ["color", "title"]))
+                      }), 128))
+                    : (_openBlock$1(true), _createElementBlock$1(_Fragment$1, { key: 1 }, _renderList$1(status.value.watched_chat_ids, (chatId) => {
+                        return (_openBlock$1(), _createBlock$1(_component_VChip, {
+                          key: `watch-${chatId}`,
+                          size: "x-small",
+                          variant: "tonal",
+                          color: "warning",
+                          label: "",
+                          class: "mon-id-chip"
+                        }, {
+                          default: _withCtx$1(() => [
+                            _createTextVNode$1(_toDisplayString$1(chatId), 1)
+                          ]),
+                          _: 2
+                        }, 1024))
+                      }), 128))
                 ]))
               : _createCommentVNode$1("", true),
             ((status.value?.pipeline?.recent_sources?.length || 0) > 0)
@@ -2585,7 +2609,7 @@ return (_ctx, _cache) => {
                   class: "mon-events-hint"
                 }, {
                   default: _withCtx$1(() => [
-                    _createTextVNode$1(" 收到 " + _toDisplayString$1(status.value.pipeline.events_received) + " 条事件，但没有一条来自监听会话：请逐位对照上方「监听 ID」与「来源 ID」是否一致。 常见原因：①规则里选错频道（名字相近的频道多选） ②对话缓存过期（到「TG 凭证」页刷新对话后重新选择并保存规则） ③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。 ", 1)
+                    _createTextVNode$1(" 收到 " + _toDisplayString$1(status.value.pipeline.events_received) + " 条事件，但没有一条来自监听会话：请对照上方「监听 ID」（▸ 后为反查的会话标题）与「来源 ID」。 常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则） ②规则里选错频道（名字相近的频道多选）③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。 ", 1)
                   ]),
                   _: 1
                 }))
@@ -3131,7 +3155,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-fea10c80"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-2f8b72b1"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

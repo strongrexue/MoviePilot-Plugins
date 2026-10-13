@@ -47,12 +47,7 @@
           </VChip>
         </div>
         <div class="fwd-status-sub">
-          <span v-if="status?.queries_available">
-            订阅数据源可用（订阅 {{ status.subscriptions ?? 0 }} 条）——「匹配订阅」条件可正常判断
-          </span>
-          <span v-else class="fwd-warn">
-            订阅数据源不可用：启用了「匹配订阅」的规则会因无法判断而全部跳过（请先在 MoviePilot 建立订阅）
-          </span>
+          <span>转发只按关键词与扩展名匹配，与订阅无关；识别仅用于展示，识别不出也能转发。</span>
         </div>
         <div class="fwd-actions">
           <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
@@ -156,16 +151,10 @@
               </div>
             </div>
 
-            <!-- 逻辑一：订阅 / 自定义关键词 -->
+            <!-- 逻辑一：自定义关键词 -->
             <div class="fwd-logic">
-              <div class="fwd-logic-title">逻辑一（订阅 / 关键词）</div>
-              <div class="fwd-logic-grid">
-                <div>
-                  <VSwitch v-model="rule.match_subscription_keywords" color="primary" hide-details inset>
-                    <template #label><span class="fwd-switch-label">匹配订阅</span></template>
-                  </VSwitch>
-                  <div class="fwd-hint">只在消息识别出的媒体已在 MoviePilot 订阅列表中时才转发。</div>
-                </div>
+              <div class="fwd-logic-title">逻辑一（关键词）</div>
+              <div class="fwd-logic-grid fwd-logic-grid-one">
                 <div>
                   <VSwitch v-model="rule.match_custom_keywords" color="primary" hide-details inset>
                     <template #label><span class="fwd-switch-label">自定义关键词</span></template>
@@ -182,20 +171,7 @@
                     hide-details
                     class="fwd-keywords"
                   />
-                  <div v-else class="fwd-hint">启用后按关键词过滤消息。</div>
-                </div>
-                <div>
-                  <VSelect
-                    v-model="rule.match_mode"
-                    :items="matchModes"
-                    item-title="title"
-                    item-value="value"
-                    label="两条件关系"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                  />
-                  <div class="fwd-hint">逻辑一内「匹配订阅」与「关键词」的组合方式。</div>
+                  <div v-else class="fwd-hint">启用后只有命中关键词的消息才转发；不启用 = 该级不设限。</div>
                 </div>
               </div>
             </div>
@@ -320,7 +296,7 @@
               <span v-if="testResult.recognized.season"> S{{ String(testResult.recognized.season).padStart(2, '0') }}</span>
               <span v-if="testResult.recognized.episode">E{{ String(testResult.recognized.episode).padStart(2, '0') }}</span>
             </span>
-            <span v-else class="fwd-test-none">无法识别（不影响不含「匹配订阅」的转发规则）</span>
+            <span v-else class="fwd-test-none">无法识别（不影响转发：转发只按关键词与扩展名匹配）</span>
           </div>
           <div v-if="testResult.links?.length" class="fwd-test-line">
             <strong>解析到 {{ testResult.links.length }} 个链接</strong>
@@ -457,16 +433,10 @@ const busy = ref('')
 const message = ref('')
 const messageOk = ref(true)
 
-const matchModes = ref([
-  { value: 'or', title: '任一满足（OR）' },
-  { value: 'and', title: '全部满足（AND）' },
-])
 const decisions = ref([
   { value: 'hit', title: '已转发' },
   { value: 'skipped_keyword', title: '关键词未命中' },
-  { value: 'skipped_not_subscribed', title: '未订阅' },
   { value: 'skipped_extension', title: '扩展名未命中' },
-  { value: 'skipped_unrecognized', title: '无法识别' },
 ])
 
 const rules = ref([])
@@ -501,10 +471,8 @@ function blankRule() {
     name: '',
     source_ids: [],
     target_id: '',
-    match_subscription_keywords: false,
     match_custom_keywords: false,
     custom_keywords: [],
-    match_mode: 'or',
     pin_links_enabled: false,
     pin_link_keywords: [],
     match_file_extensions: false,
@@ -535,7 +503,6 @@ async function loadStatus() {
 async function loadRules() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'forward/rules', { timeoutMs: 15000 }))
-    if (data?.match_modes?.length) matchModes.value = data.match_modes
     if (data?.decisions?.length) decisions.value = data.decisions
     const list = Array.isArray(data?.rules) ? data.rules : []
     rules.value = list.map(rule => ({
@@ -543,10 +510,8 @@ async function loadRules() {
       name: rule.name || '',
       source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(Number) : [],
       target_id: rule.target_id ? String(rule.target_id) : '',
-      match_subscription_keywords: Boolean(rule.match_subscription_keywords),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
-      match_mode: rule.match_mode || 'or',
       pin_links_enabled: Boolean(rule.pin_links_enabled),
       pin_link_keywords: Array.isArray(rule.pin_link_keywords) ? rule.pin_link_keywords : [],
       match_file_extensions: Boolean(rule.match_file_extensions),
@@ -675,10 +640,8 @@ async function saveRules() {
       name: String(rule.name || '').trim() || '未命名规则',
       source_ids: rule.source_ids,
       target_id: Number(rule.target_id),
-      match_subscription_keywords: Boolean(rule.match_subscription_keywords),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: (rule.custom_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
-      match_mode: rule.match_mode || 'or',
       pin_links_enabled: Boolean(rule.pin_links_enabled),
       pin_link_keywords: (rule.pin_link_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
       match_file_extensions: Boolean(rule.match_file_extensions),
@@ -841,6 +804,7 @@ onUnmounted(() => {
 .fwd-logic { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); }
 .fwd-logic-title { font-size: 12.5px; font-weight: 600; opacity: 0.8; margin-bottom: 6px; }
 .fwd-logic-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.fwd-logic-grid-one { grid-template-columns: 1fr; }
 .fwd-logic-note { align-self: end; }
 @media (max-width: 900px) {
   .fwd-rule-grid { grid-template-columns: 1fr; }

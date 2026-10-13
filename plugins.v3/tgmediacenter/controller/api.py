@@ -438,12 +438,6 @@ def api_cache_check_subscriptions(plugin):
 
 # ---------------------------------------------------------------------- ⑥ TG 通用转发
 
-# 逻辑一内两个条件的组合方式（前端下拉）
-MATCH_MODE_OPTIONS = [
-    {"value": "or", "title": "任一满足（OR）"},
-    {"value": "and", "title": "全部满足（AND）"},
-]
-
 
 def _forward(plugin):
     """返回转发模块；插件尚未初始化时抛 503。"""
@@ -459,7 +453,6 @@ def _forward_rules_payload(module, rules=None) -> api_schemas.ForwardRulesData:
     return api_schemas.ForwardRulesData(
         rules=[api_schemas.ForwardRule.model_validate(rule) for rule in source],
         watched_chats=len(module.watched_chat_ids()),
-        match_modes=[api_schemas.OptionItem.model_validate(item) for item in MATCH_MODE_OPTIONS],
         decisions=[api_schemas.OptionItem.model_validate(item) for item in module.decision_options()],
     )
 
@@ -484,7 +477,7 @@ def api_forward_rules_save(plugin, request: api_schemas.ForwardRulesSaveRequest)
 
 
 def api_forward_status(plugin):
-    """转发运行状态（规则数 / 监听会话 / 全局冷却 / 订阅数据源）。"""
+    """转发运行状态（规则数 / 监听会话 / 全局冷却 / FloodWait 退避）。"""
     module = _forward(plugin)
     data = _invoke(lambda: module.status())
     return _envelope(api_schemas.ForwardStatusData.model_validate(data))

@@ -1,9 +1,12 @@
 """P6 TG 通用转发测试。
 
-覆盖：两级匹配（逻辑一 OR/AND、逻辑二恒 AND）/ 内容转换（正则、非法正则跳过、
+覆盖：两级匹配（逻辑一关键词、逻辑二扩展名恒 AND）/ 内容转换（正则、非法正则跳过、
 顺序应用）/ 置顶判定 / 规则归一与校验 / 转发模块状态与测试预览 /
-流水线接入（命中入队带 forward 指令、未命中落 kind=forward 流水、去重）/
-tg_forward 目标（原样转发 / 转换后发送 / 置顶）/ hit_log kind 列迁移 / API 层。
+流水线接入（命中入队带 forward 指令、未命中落 kind=forward 流水、去重、
+推送 worker 把消息定位并入目标负载）/ tg_forward 目标（原样转发 / 转换后发送 /
+置顶）/ hit_log kind 列迁移 / API 层。
+
+1.5.1 起转发与订阅彻底解耦（无「匹配订阅」、无 OR/AND 组合），相关用例随之移除。
 
 宿主依赖（MetaVideo / 通知 / 插件 DB / TG 运行时）用可注入替身驱动，
 真机行为仍以部署验证为准。
@@ -11,6 +14,7 @@ tg_forward 目标（原样转发 / 转换后发送 / 置顶）/ hit_log kind 列
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 
 import pytest
@@ -30,8 +34,6 @@ from app.plugins.tgmediacenter.model.hit_log import (
     DECISION_HIT,
     DECISION_SKIPPED_EXTENSION,
     DECISION_SKIPPED_KEYWORD,
-    DECISION_SKIPPED_NOT_SUBSCRIBED,
-    DECISION_SKIPPED_UNRECOGNIZED,
     KIND_FORWARD,
     KIND_MONITOR,
     TgHitLog,
@@ -132,15 +134,14 @@ class FakePlugin:
 
 
 class FakeMatcher:
-    """订阅判断替身（转发「匹配订阅」条件用）。"""
+    """matcher 替身（流水线构造参数；转发已不查订阅，仅监控路径可能用到）。"""
 
     def __init__(self, subscribed=True) -> None:
         self.subscribed = subscribed
         self.calls = 0
 
-    def is_subscribed(self, **kwargs):
-        self.calls += 1
-        return self.subscribed
+    def is_missing(self, **kwargs):
+        return {"missing": None, "reason": "替身不做缺失判断"}
 
     def capabilities(self) -> dict:
         return {
@@ -231,10 +232,8 @@ def _rule(**overrides) -> dict:
         "name": "测试转发",
         "source_ids": [CHAT_A],
         "target_id": TARGET,
-        "match_subscription_keywords": False,
         "match_custom_keywords": False,
         "custom_keywords": [],
-        "match_mode": "or",
         "pin_links_enabled": False,
         "pin_link_keywords": [],
         "match_file_extensions": False,
@@ -280,44 +279,14 @@ class TestMatchRule:
         verdict = forward_engine.match_rule(rule, text="x", cleaned="x")
         assert verdict["matched"] is False and "未填写任何关键词" in verdict["reason"]
 
-    def test_logic_one_and_mode_requires_both(self):
+    def test_legacy_match_mode_and_subscription_fields_ignored(self):
+        """1.5.0 的「匹配订阅」与 match_mode 字段被静默忽略（与订阅解耦）。"""
         rule = _rule(
-            match_subscription_keywords=True, match_custom_keywords=True,
-            custom_keywords=["链接"], match_mode="and",
+            match_subscription_keywords=True, match_mode="and",
+            match_custom_keywords=True, custom_keywords=["链接"],
         )
-        # 订阅满足但关键词未命中 → AND 下不通过
-        verdict = forward_engine.match_rule(
-            rule, text="无关键词", cleaned="无关键词", title="青与碧", is_subscribed=True
-        )
-        assert verdict["matched"] is False and "逻辑一" in verdict["reason"]
-        ok = forward_engine.match_rule(
-            rule, text="有链接", cleaned="有链接", title="青与碧", is_subscribed=True
-        )
-        assert ok["matched"] is True
-
-    def test_logic_one_or_mode_requires_any(self):
-        rule = _rule(
-            match_subscription_keywords=True, match_custom_keywords=True,
-            custom_keywords=["链接"], match_mode="or",
-        )
-        assert forward_engine.match_rule(
-            rule, text="有链接", cleaned="有链接", title="别的剧", is_subscribed=False
-        )["matched"] is True
-
-    def test_not_subscribed_reports_reason(self):
-        rule = _rule(match_subscription_keywords=True)
-        verdict = forward_engine.match_rule(
-            rule, text="x", cleaned="x", title="青与碧", is_subscribed=False
-        )
-        assert verdict["matched"] is False
-        assert forward_engine.skip_decision(verdict) == DECISION_SKIPPED_NOT_SUBSCRIBED
-
-    def test_subscription_source_unavailable_is_not_silent(self):
-        rule = _rule(match_subscription_keywords=True)
-        verdict = forward_engine.match_rule(rule, text="x", cleaned="x", title="青与碧", is_subscribed=None)
-        assert verdict["matched"] is False
-        assert "数据源不可用" in verdict["reason"]
-        assert forward_engine.skip_decision(verdict) == DECISION_SKIPPED_UNRECOGNIZED
+        verdict = forward_engine.match_rule(rule, text="有链接", cleaned="有链接")
+        assert verdict["matched"] is True
 
     def test_extension_is_and_with_logic_one(self):
         rule = _rule(match_custom_keywords=True, custom_keywords=["链接"],
@@ -332,15 +301,10 @@ class TestMatchRule:
             rule, text="有链接 2160p.mkv", cleaned="有链接 2160p.mkv"
         )["matched"] is True
 
-    def test_match_extensions_forms(self):
+    def test_extension_forms(self):
         assert forward_engine.match_extensions("片名.mkv", ["mkv"]) == ["mkv"]
         assert forward_engine.match_extensions("【MP4】片名", ["mp4"]) == ["mp4"]
         assert forward_engine.match_extensions("片名.avi", ["mkv"]) == []
-
-    def test_normalize_match_mode(self):
-        assert forward_engine.normalize_match_mode("AND") == "and"
-        assert forward_engine.normalize_match_mode("") == "or"
-        assert forward_engine.normalize_match_mode("乱写") == "or"
 
 
 class TestTransform:
@@ -439,12 +403,11 @@ class TestForwardModule:
 
     def test_status(self, forward):
         forward.save_rules([_rule(transform_rules=["a -> b", "c -> d"])])
-        forward._matcher = lambda: FakeMatcher()  # type: ignore[assignment]
         data = forward.status()
         assert data["rules_count"] == 1
         assert data["watched_chats"] == 1
         assert data["transform_rules_count"] == 2
-        assert data["queries_available"] is True
+        assert "subscriptions" not in data and "queries_available" not in data
 
     def test_test_text_reports_match_and_transform(self, forward, fake_metavideo):
         forward.save_rules([
@@ -506,7 +469,6 @@ class TestPipelineForward:
         pipeline._process_message(CHAT_A, {"message_id": 7002, "text": text},
                                   [], forward.rules_for_chat(CHAT_A))
 
-        import json
         payload = json.loads(_tasks(plugin)[0].payload)
         assert payload["forward"]["transform"] is True
         assert "观影" in payload["forward"]["send_text"]
@@ -522,13 +484,39 @@ class TestPipelineForward:
         hits = _hits(plugin, KIND_FORWARD)
         assert hits and hits[0].decision == DECISION_SKIPPED_KEYWORD
 
-    def test_subscription_gate_uses_matcher(self, plugin, pipeline, forward, fake_metavideo):
-        pipeline._matcher = FakeMatcher(subscribed=False)
-        forward.save_rules([_rule(match_subscription_keywords=True)])
-        pipeline._process_message(CHAT_A, {"message_id": 7004, "text": _text("青与碧 (2026) S01E02")},
+    def test_normalize_drops_legacy_subscription_fields(self, forward):
+        """保存带 1.5.0 废弃字段的规则：归一后不再出现。"""
+        rules = forward.normalize_rules([_rule(
+            match_subscription_keywords=True, match_mode="and",
+        )])
+        assert "match_subscription_keywords" not in rules[0]
+        assert "match_mode" not in rules[0]
+
+    def test_execute_push_merges_message_location(self, plugin, pipeline, forward, fake_metavideo):
+        """推送 worker 必须把 chat_id/message_id/target_id 并入目标负载——
+        tg_forward 目标靠它们定位原消息（1.5.0 真机「任务缺少消息定位」的回归）。"""
+        client = FakeTGClient()
+        plugin._credentials = type("Creds", (), {"_runtime": FakeRuntime(client)})()
+        forward.save_rules([_rule()])
+        text = _text("青与碧 (2026) S01E02")
+        pipeline._process_message(CHAT_A, {"message_id": 7100, "text": text},
                                   [], forward.rules_for_chat(CHAT_A))
-        assert _tasks(plugin) == []
-        assert _hits(plugin, KIND_FORWARD)[0].decision == DECISION_SKIPPED_NOT_SUBSCRIBED
+        task = pipeline._task_view(_tasks(plugin)[0])
+        assert task["destination"] == "tg_forward"
+        payload = pipeline._push_payload(task)
+        assert payload["chat_id"] == CHAT_A
+        assert payload["message_id"] == 7100
+        assert payload["target_id"] == str(TARGET)
+        # 端到端：直接执行该任务应成功转发（而不是报「任务缺少消息定位」）
+        pipeline._execute_push(task)
+        assert client.forward_calls and client.forward_calls[0][0] == TARGET
+
+    def test_push_payload_never_merges_into_group_payload(self, plugin):
+        """合并下发的 payload 不携带单任务定位（各任务定位互不相同）。"""
+        task = {"payload": {"links": ["x"]}, "chat_id": CHAT_A, "message_id": 1, "target_id": "t"}
+        payload = MessagePipeline._push_payload(task)
+        assert payload["chat_id"] == CHAT_A  # 单任务路径需要定位
+        # 合并路径构造的 payload 只含 links/text/title（见 _execute_push_group），不调用本方法
 
     def test_duplicate_message_not_forwarded_twice(self, plugin, pipeline, forward, fake_metavideo):
         forward.save_rules([_rule()])
@@ -719,7 +707,6 @@ class TestForwardApi:
         response = api_plugin.api_forward_rules()
         data = response.data
         assert data.rules == []
-        assert {item.value for item in data.match_modes} == {"or", "and"}
         assert any(item.value == DECISION_HIT for item in data.decisions)
 
     def test_save_and_read_back(self, api_plugin):

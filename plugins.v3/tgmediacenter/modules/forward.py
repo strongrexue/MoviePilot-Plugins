@@ -22,12 +22,9 @@ from ..model.hit_log import (
     DECISION_HIT,
     DECISION_SKIPPED_EXTENSION,
     DECISION_SKIPPED_KEYWORD,
-    DECISION_SKIPPED_NOT_SUBSCRIBED,
-    DECISION_SKIPPED_UNRECOGNIZED,
     KIND_FORWARD,
 )
 from ..services import recognizer as recognizer_service
-from ..services.matcher import MediaMatcher
 
 _RULES_KEY = "forward_rules"
 
@@ -53,12 +50,6 @@ class ForwardModule:
     def enabled(self) -> bool:
         return bool(self._cfg("forward_enabled"))
 
-    def _matcher(self) -> MediaMatcher:
-        """复用监控模块的 matcher 实例（共享订阅 / 媒体库 TTL 缓存）。"""
-        monitor = getattr(self._plugin, "_monitor", None)
-        matcher = getattr(monitor, "_matcher", None) if monitor is not None else None
-        return matcher if matcher is not None else MediaMatcher()
-
     # ------------------------------------------------------------------ 规则归一
 
     def normalize_rules(self, raw: Any) -> List[dict]:
@@ -66,7 +57,8 @@ class ForwardModule:
 
         - 补稳定 ``id``（**f 前缀**，与监控规则的 r 前缀区分）；
         - ``source_ids`` / ``target_id`` 只保留能转成整数的（TG 会话 ID，含 -100 频道）；
-        - ``match_mode`` 只接受 or / and；
+        - 老数据里的 ``match_subscription_keywords`` / ``match_mode``（1.5.0 的
+          「匹配订阅」与 OR/AND 组合）自 1.5.1 起废弃，读取时静默丢弃；
         - 未启用的规则不参与匹配，但仍保存（用户可能临时停用某条）。
         """
         rules: List[dict] = []
@@ -82,10 +74,8 @@ class ForwardModule:
                 "name": str(item.get("name") or "").strip() or f"转发规则 {index + 1}",
                 "source_ids": _normalize_ids(item.get("source_ids")),
                 "target_id": _normalize_id(item.get("target_id")),
-                "match_subscription_keywords": bool(item.get("match_subscription_keywords", False)),
                 "match_custom_keywords": bool(item.get("match_custom_keywords", False)),
                 "custom_keywords": _normalize_keywords(item.get("custom_keywords")),
-                "match_mode": forward_engine.normalize_match_mode(item.get("match_mode")),
                 "pin_links_enabled": bool(item.get("pin_links_enabled", False)),
                 "pin_link_keywords": _normalize_keywords(item.get("pin_link_keywords")),
                 "match_file_extensions": bool(item.get("match_file_extensions", False)),
@@ -164,17 +154,13 @@ class ForwardModule:
         """预览各转发规则对一段文本的处理（不落库、不入队、不推送）。
 
         自己算而不走流水线：转发规则可能在监控未启动时就要能测（两条路径
-        共用同一份识别 / 订阅判断，口径一致）。
+        共用同一份净化 / 识别，口径一致）。
         """
         raw = str(text or "")
         cleaned = recognizer_service.purify_text(raw)
         meta = recognizer_service.recognize(raw)
         parsed = link_utils.parse_push_text(raw)
         links = [item.raw or item.url for item in parsed.items if item.supported]
-        title = str((meta or {}).get("title") or "")
-        year = str((meta or {}).get("year") or "")
-        season = (meta or {}).get("season")
-        matcher = self._matcher()
 
         traces: List[dict] = []
         for rule in self.rules():
@@ -189,23 +175,7 @@ class ForwardModule:
                 "send_text": "",
                 "pin": False,
             }
-            subscribed: Optional[bool] = None
-            if rule.get("match_subscription_keywords"):
-                try:
-                    subscribed = matcher.is_subscribed(title=title, year=year, season=season)
-                except Exception as err:  # pragma: no cover - 订阅探测异常按无法判断
-                    logger.debug(f"转发规则测试：订阅判断失败：{err}")
-                    subscribed = None
-            verdict = forward_engine.match_rule(
-                rule,
-                text=raw,
-                cleaned=cleaned,
-                title=title,
-                year=year,
-                season=season,
-                is_subscribed=subscribed,
-                links=links,
-            )
+            verdict = forward_engine.match_rule(rule, text=raw, cleaned=cleaned, links=links)
             if not verdict.get("matched"):
                 trace.update(decision=forward_engine.skip_decision(verdict),
                              reason=verdict.get("reason") or "未命中")
@@ -254,11 +224,6 @@ class ForwardModule:
                 flood = int(gate.flood_remaining())
             except Exception:  # pragma: no cover - 展示字段失败不影响主体
                 interval, flood = 0, 0
-        capabilities: Dict[str, Any] = {}
-        try:
-            capabilities = self._matcher().capabilities()
-        except Exception as err:  # pragma: no cover
-            logger.debug(f"读取转发模块判断能力失败：{err}")
         rules = self.rules()
         return {
             "enabled": self.enabled(),
@@ -268,19 +233,15 @@ class ForwardModule:
             "transform_rules_count": sum(len(rule.get("transform_rules") or []) for rule in rules),
             "gate_interval": interval,
             "flood_remaining": flood,
-            "subscriptions": int(capabilities.get("subscriptions") or 0),
-            "queries_available": bool(capabilities.get("queries_available")),
         }
 
     @staticmethod
     def decision_options() -> List[dict]:
-        """转发流水的决策过滤选项。"""
+        """转发流水的决策过滤选项（含 1.5.0 历史决策值，便于筛选老流水）。"""
         labels = {
             DECISION_HIT: "已转发",
             DECISION_SKIPPED_KEYWORD: "关键词未命中",
-            DECISION_SKIPPED_NOT_SUBSCRIBED: "未订阅",
             DECISION_SKIPPED_EXTENSION: "扩展名未命中",
-            DECISION_SKIPPED_UNRECOGNIZED: "无法识别",
         }
         return [{"value": value, "title": title} for value, title in labels.items()]
 

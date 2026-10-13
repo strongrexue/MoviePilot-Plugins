@@ -1,13 +1,11 @@
 """⑥ TG 通用转发：转发规则引擎（两级匹配、内容转换、置顶）。
 
-匹配语义（与设计文档 6. 转发规则、MA 自动化配置 8 对齐）：:
+匹配语义（1.5.1 起转发与订阅彻底解耦——转发只是转发，不查宿主订阅）::
 
-    逻辑一 ┌ 匹配订阅（消息识别出的媒体在宿主订阅列表里）
-           └ 自定义关键词命中
-           └─ 两者按 match_mode（OR / AND）组合；都关闭 = 逻辑一无约束
+    逻辑一 ─ 自定义关键词命中（不启用 = 逻辑一无约束）
     逻辑二 ─ 文件扩展名命中（消息里出现指定扩展名）
     ─────────────────────────────────────────────
-    最终 = 逻辑一 AND 逻辑二（两级之间恒为 AND，不受 match_mode 影响）
+    最终 = 逻辑一 AND 逻辑二（两级之间恒为 AND）
 
 内容转换：``transform_rules`` 每行 ``原文 -> 替换文``，左侧按**正则**编译，
 逐条 ``re.sub`` 顺序应用（前一条的结果喂给后一条）。非法正则只跳过该条并记进
@@ -25,20 +23,15 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..model.hit_log import (
     DECISION_SKIPPED_EXTENSION,
     DECISION_SKIPPED_KEYWORD,
-    DECISION_SKIPPED_NOT_SUBSCRIBED,
-    DECISION_SKIPPED_UNRECOGNIZED,
 )
 
 # 转换规则的左右分隔符：`原文 -> 替换文`，兼容 => 与 →（日文箭头）
 _TRANSFORM_SPLIT_RE = re.compile(r"\s*(?:->|=>|→)\s*")
-# 匹配模式
-MATCH_MODE_OR = "or"
-MATCH_MODE_AND = "and"
 
 
 def new_rule_id() -> str:
@@ -49,12 +42,6 @@ def new_rule_id() -> str:
     也避免两套规则 ID 意外重名的极小概率事件。
     """
     return "f" + uuid.uuid4().hex[:8]
-
-
-def normalize_match_mode(value: Any) -> str:
-    """匹配模式归一：只接受 or / and，其余回落 or。"""
-    mode = str(value or "").strip().lower()
-    return MATCH_MODE_AND if mode == MATCH_MODE_AND else MATCH_MODE_OR
 
 
 # ---------------------------------------------------------------------- 逻辑二：扩展名
@@ -86,60 +73,39 @@ def match_rule(
     *,
     text: str,
     cleaned: str,
-    title: str = "",
-    year: str = "",
-    season: Optional[int] = None,
-    is_subscribed: Optional[bool] = None,
     links: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """判断一条转发规则是否命中。
 
-    :param is_subscribed: 该消息识别出的媒体是否在宿主订阅里；
-        ``None`` 表示订阅数据源不可用（无法判断）——此时「匹配订阅」条件不满足，
-        原因里会写明，避免表现为「规则莫名不生效」。
+    转发不查宿主订阅、不要求识别成功——只有关键词（逻辑一）与扩展名（逻辑二）
+    两个可选条件，两级之间恒为 AND。
+
     :returns: ``{"matched": bool, "reason": str, "stage": str, "detail": dict}``
     """
     haystack = str(cleaned or text or "")
     detail: Dict[str, Any] = {}
 
-    # ---- 逻辑一：订阅 / 自定义关键词（按 match_mode 组合）
-    want_subscription = bool(rule.get("match_subscription_keywords"))
-    want_custom = bool(rule.get("match_custom_keywords"))
-    mode = normalize_match_mode(rule.get("match_mode"))
-
-    checks: List[Tuple[str, bool, str]] = []
-    if want_subscription:
-        if is_subscribed is None:
-            checks.append(("订阅", False, "订阅数据源不可用，无法判断是否已订阅"))
-        elif is_subscribed:
-            checks.append(("订阅", True, f"「{title or '未识别'}」在订阅列表中"))
-        else:
-            checks.append(("订阅", False, f"「{title or '未识别'}」不在订阅列表中"))
-    if want_custom:
+    # ---- 逻辑一：自定义关键词
+    if rule.get("match_custom_keywords"):
         keywords = [str(kw) for kw in (rule.get("custom_keywords") or []) if str(kw).strip()]
         if not keywords:
-            checks.append(("关键词", False, "已启用关键词过滤但未填写任何关键词"))
-        else:
-            hits = [kw for kw in keywords if kw in haystack]
-            checks.append(("关键词", bool(hits), f"命中关键词：{'、'.join(hits)}" if hits else "未命中任何关键词"))
-
-    if checks:
-        passed = [item for item in checks if item[1]]
-        if mode == MATCH_MODE_AND:
-            ok = len(passed) == len(checks)
-        else:
-            ok = bool(passed)
-        detail["logic_one"] = [{"name": name, "ok": hit, "note": note} for name, hit, note in checks]
-        if not ok:
-            reason = "；".join(f"{name}：{note}" for name, hit, note in checks if not hit)
             return {
                 "matched": False,
-                "reason": f"逻辑一（{mode.upper()}）未通过 —— {reason}",
+                "reason": "逻辑一：已启用关键词过滤但未填写任何关键词",
+                "stage": "logic_one",
+                "detail": detail,
+            }
+        hits = [kw for kw in keywords if kw in haystack]
+        detail["logic_one"] = {"keywords": keywords, "hits": hits}
+        if not hits:
+            return {
+                "matched": False,
+                "reason": "逻辑一：未命中任何关键词",
                 "stage": "logic_one",
                 "detail": detail,
             }
     else:
-        detail["logic_one"] = []
+        detail["logic_one"] = None
 
     # ---- 逻辑二：文件扩展名（与逻辑一恒为 AND）
     if rule.get("match_file_extensions"):
@@ -234,13 +200,6 @@ def should_pin(rule: Dict[str, Any], *, text: str, links: Optional[List[str]] = 
 
 def skip_decision(verdict: Dict[str, Any]) -> str:
     """把未命中的匹配结果归一为流水决策常量（转发面板与流水线共用同一口径）。"""
-    detail = verdict.get("detail") or {}
-    for item in detail.get("logic_one") or []:
-        if item.get("name") == "订阅" and not item.get("ok"):
-            note = str(item.get("note") or "")
-            if "无法识别" in note or "数据源" in note:
-                return DECISION_SKIPPED_UNRECOGNIZED
-            return DECISION_SKIPPED_NOT_SUBSCRIBED
     if verdict.get("stage") == "logic_two":
         return DECISION_SKIPPED_EXTENSION
     return DECISION_SKIPPED_KEYWORD

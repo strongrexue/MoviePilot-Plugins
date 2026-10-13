@@ -388,7 +388,8 @@ class MessagePipeline:
         # 每批打一条 INFO，让"消息确实被处理了"在运行日志里可见（排查静默丢弃的关键）
         logger.info(
             f"[{self._plugin_id()}] 收到 {len(messages)} 条消息（chat={chat_id}），"
-            f"累计处理 {self._stats['processed']} / 命中 {self._stats['hit']}"
+            f"累计处理 {self._stats['processed']} / 监控命中 {self._stats['hit']}"
+            f" / 转发命中 {self._stats.get('forward_hit', 0)}"
         )
 
     def _process_message(self, chat_id: int, message: Dict[str, Any], rules: List[dict],
@@ -502,8 +503,8 @@ class MessagePipeline:
                             meta: Optional[dict], links: List[str], rule: dict) -> None:
         """⑥ 通用转发：两级匹配 → 内容转换 → 入转发队列（可选置顶）。
 
-        与监控规则的区别：转发**不要求**识别成功（不认标题的播报也能转），
-        除非规则启用了「匹配订阅」——那时才需要标题来判断订阅归属。
+        转发与订阅彻底解耦（1.5.1）：只按关键词（逻辑一）与扩展名（逻辑二）匹配，
+        不查宿主订阅、不要求识别成功——不认标题的播报与普通聊天也能按规则转发。
         """
         rule_id = str(rule.get("id") or "")
         rule_name = str(rule.get("name") or "")
@@ -518,26 +519,7 @@ class MessagePipeline:
             )
             return
 
-        title = str((meta or {}).get("title") or "")
-        year = str((meta or {}).get("year") or "")
-        season = (meta or {}).get("season")
-        subscribed: Optional[bool] = None
-        if rule.get("match_subscription_keywords"):
-            try:
-                subscribed = self._matcher.is_subscribed(title=title, year=year, season=season)
-            except Exception as err:  # pragma: no cover - 订阅探测异常按无法判断
-                logger.debug(f"转发规则订阅判断失败：{err}")
-                subscribed = None
-        verdict = forward_engine.match_rule(
-            rule,
-            text=text,
-            cleaned=cleaned,
-            title=title,
-            year=year,
-            season=season,
-            is_subscribed=subscribed,
-            links=links,
-        )
+        verdict = forward_engine.match_rule(rule, text=text, cleaned=cleaned, links=links)
         if not verdict.get("matched"):
             self._record(rule, chat_id, message_id, meta,
                          forward_engine.skip_decision(verdict),
@@ -764,7 +746,7 @@ class MessagePipeline:
             return
 
         try:
-            result = target.push(task.get("payload") or {})
+            result = target.push(self._push_payload(task))
         except Exception as err:  # pragma: no cover - 目标实现未兜底的异常
             logger.warning(f"推送目标执行异常（{destination}）：{err}")
             result = None
@@ -781,11 +763,31 @@ class MessagePipeline:
             detail=result.detail,
         )
 
+    @staticmethod
+    def _push_payload(task: Dict[str, Any]) -> Dict[str, Any]:
+        """把任务负载与任务顶层定位合并成目标的入参。
+
+        ``payload`` 只存 links/text/title/forward 这类负载，但 ``tg_forward``
+        目标还需要 ``chat_id`` / ``message_id``（定位原消息）与 ``target_id``
+        （转发去向）——它们在任务表的独立列里，这里合并后传给目标，
+        目标实现仍只面对一个 dict。
+        """
+        payload = dict(task.get("payload") or {})
+        for key in ("chat_id", "message_id", "target_id"):
+            value = task.get(key)
+            if value not in (None, ""):
+                payload.setdefault(key, value)
+        return payload
+
     def _execute_push_group(self, group: List[Dict[str, Any]]) -> None:
         """合并执行：一次调用提交多条任务的链接，再按逐条结果回填各任务终态。
 
         目标必须在 ``result.detail["results"]`` 里给出每条**输入链接**的
         ``source``/``ok``；拿不到逐条结果时退回整批结论（保守：整批成功才算成功）。
+
+        注意：需要消息定位的目标（如 ``tg_forward``）不支持合并——各任务的
+        ``chat_id``/``message_id`` 互不相同，合并会张冠李戴。这类目标未声明
+        ``supports_batch``，永远走单任务路径。
         """
         first = group[0]
         destination = str(first.get("destination") or "smart")

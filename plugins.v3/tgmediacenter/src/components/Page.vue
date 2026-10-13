@@ -1,11 +1,11 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 import { decisionColor, decisionLabel } from './decision'
 
 /**
  * 插件详情页（运行详情）：TG / 115 / 缓存三张状态卡 + 监控与转发统计 +
- * 最近流水（只展示监控流水，转发流水在转发面板看）+ 快捷操作。
+ * 最近流水（监控 / 转发 可切换，分页 + 决策筛选 + 关键词搜索）+ 快捷操作。
  * 决策徽章显示中文文案（映射在 ./decision.js）。
  *
  * 数据只走一个聚合接口 ``/overview``（一次请求拿齐各模块状态与最近流水）：
@@ -99,7 +99,115 @@ const cache = computed(() => data.value?.cache || {})
 const monitor = computed(() => data.value?.monitor || {})
 const forward = computed(() => data.value?.forward || {})
 const pipeline = computed(() => monitor.value.pipeline || {})
-const recentHits = computed(() => data.value?.recent_hits || [])
+// 最近流水：监控 / 转发 两个来源，分页 + 筛选 + 搜索（与设置页同款交互）。
+// 详情页之前走 overview 的 recent_hits 摘要（写死 10 条、无翻页），1.6.7 改为
+// 直连 /monitor/hits 与 /forward/hits 分页接口，彻底去掉这个"锁"。
+const hitTab = ref('monitor')            // 'monitor' | 'forward'
+const hits = ref([])
+const hitsLoading = ref(false)
+const hitsTotal = ref(0)
+const hitsPage = ref(1)
+const hitsPageSize = 10                  // 详情页每页 10 条
+const decisionFilter = ref('')
+// 关键词用可写 computed 包一层：Vuetify clearable 清除会置 null，归一避免 .trim() 抛错
+const hitKeywordRaw = ref('')
+const hitKeyword = computed({
+  get: () => String(hitKeywordRaw.value ?? ''),
+  set: (value) => { hitKeywordRaw.value = value == null ? '' : String(value) },
+})
+
+const monitorDecisions = [
+  { value: 'hit', title: '已推送' },
+  { value: 'skipped_not_missing', title: '媒体库已存在' },
+  { value: 'skipped_not_subscribed', title: '未订阅' },
+  { value: 'skipped_unrecognized', title: '无法识别' },
+  { value: 'skipped_keyword', title: '关键词未命中' },
+  { value: 'skipped_no_link', title: '无可推链接' },
+  { value: 'skipped_unknown', title: '无法判断' },
+  { value: 'failed', title: '处理失败' },
+]
+const forwardDecisions = [
+  { value: 'hit', title: '已转发' },
+  { value: 'skipped_keyword', title: '关键词未命中' },
+  { value: 'skipped_extension', title: '扩展名未命中' },
+]
+const decisionOptions = computed(() => [
+  { value: '', title: '全部决策' },
+  ...(hitTab.value === 'forward' ? forwardDecisions : monitorDecisions),
+])
+
+const hitsPath = computed(() => (hitTab.value === 'forward' ? 'forward/hits' : 'monitor/hits'))
+
+async function loadHits() {
+  hitsLoading.value = true
+  try {
+    // 总数缩小时把越界页码夹回最后一页（轮询期间结果被删的场景）
+    const maxPage = hitsTotal.value > 0
+      ? Math.max(1, Math.ceil(hitsTotal.value / hitsPageSize))
+      : 1
+    if (hitsPage.value > maxPage) hitsPage.value = maxPage
+    const params = new URLSearchParams()
+    params.set('page', String(hitsPage.value))
+    params.set('page_size', String(hitsPageSize))
+    if (decisionFilter.value) params.set('decision', decisionFilter.value)
+    if (hitKeyword.value.trim()) params.set('keyword', hitKeyword.value.trim())
+    const res = unwrap(await getPluginApi(
+      props.api, props.pluginId, `${hitsPath.value}?${params.toString()}`, { timeoutMs: 15000 },
+    ))
+    hits.value = res?.items || []
+    hitsTotal.value = res?.total || 0
+  } catch (error) {
+    setMessage(error?.message || '流水加载失败', false)
+    hits.value = []
+  } finally {
+    hitsLoading.value = false
+  }
+}
+
+function onHitTabChange() {
+  hitsPage.value = 1
+  decisionFilter.value = ''
+  loadHits()
+}
+
+function onDecisionFilter() {
+  hitsPage.value = 1
+  loadHits()
+}
+
+function prevHits() {
+  if (hitsPage.value <= 1) return
+  hitsPage.value -= 1
+  loadHits()
+}
+
+function nextHits() {
+  if (hitsPage.value * hitsPageSize >= hitsTotal.value) return
+  hitsPage.value += 1
+  loadHits()
+}
+
+// 关键词输入防抖 300ms：边打字边查会把后端打满（流水可能上万行）
+let keywordTimer = null
+watch(hitKeyword, () => {
+  clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(() => {
+    hitsPage.value = 1
+    loadHits()
+  }, 300)
+})
+
+// 来源会话 ID → 标题：合并监控与转发两个状态卡的 watched_detail（两 tab 共用一个映射）
+const chatTitleMap = computed(() => {
+  const map = {}
+  for (const which of ['monitor', 'forward']) {
+    const detail = data.value?.[which]?.pipeline?.watched_detail || []
+    for (const w of detail) {
+      if (w.resolved && w.title) map[w.chat_id] = w.title
+    }
+  }
+  return map
+})
 
 const tgState = computed(() => {
   const item = tg.value
@@ -140,13 +248,6 @@ function fmtTime(value) {
   return String(value || '').replace('T', ' ') || '—'
 }
 
-function chatLabel(chatId) {
-  const detail = pipeline.value.watched_detail || []
-  const found = detail.find(item => item.chat_id === chatId)
-  if (found && found.resolved && found.title) return found.title
-  return String(chatId ?? '')
-}
-
 function mediaName(item) {
   if (!item.title) return '—'
   const year = item.year ? ` (${item.year})` : ''
@@ -166,15 +267,22 @@ function mediaName(item) {
 }
 
 onMounted(async () => {
-  await loadOverview()
-  // 轻量轮询：详情页常开着看状态，30 秒刷新一次（动作按钮执行后也会立即刷新）
-  refreshTimer = window.setInterval(loadOverview, 30000)
+  await Promise.all([loadOverview(), loadHits()])
+  // 轻量轮询：详情页常开着看状态，30 秒刷新一次；流水刷新保持当前页（不重置页码）
+  refreshTimer = window.setInterval(() => {
+    loadOverview()
+    loadHits()
+  }, 30000)
 })
 
 onUnmounted(() => {
   if (refreshTimer) {
     window.clearInterval(refreshTimer)
     refreshTimer = null
+  }
+  if (keywordTimer) {
+    window.clearTimeout(keywordTimer)
+    keywordTimer = null
   }
 })
 </script>
@@ -324,15 +432,48 @@ onUnmounted(() => {
         </VBtn>
       </div>
 
-      <!-- 最近流水 -->
+      <!-- 最近流水：监控 / 转发 可切换，分页 + 筛选 + 搜索 -->
       <VCard flat class="tg-card mt-3">
         <VCardItem density="compact">
           <VCardTitle class="text-subtitle-2">最近流水</VCardTitle>
           <template #append>
-            <span class="text-caption text-medium-emphasis">监控最近 10 条（转发流水在转发面板查看）</span>
+            <VBtnToggle
+              v-model="hitTab"
+              density="comfortable"
+              variant="outlined"
+              divided
+              mandatory
+              @update:model-value="onHitTabChange"
+            >
+              <VBtn value="monitor" size="small">监控</VBtn>
+              <VBtn value="forward" size="small">转发</VBtn>
+            </VBtnToggle>
           </template>
         </VCardItem>
         <VCardText>
+          <div class="tg-hits-tools">
+            <VSelect
+              v-model="decisionFilter"
+              :items="decisionOptions"
+              item-title="title"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="tg-filter"
+              @update:model-value="onDecisionFilter"
+            />
+            <VTextField
+              v-model="hitKeyword"
+              placeholder="按片名 / 规则 / 说明搜索"
+              prepend-inner-icon="mdi-magnify"
+              density="compact"
+              variant="outlined"
+              hide-details
+              clearable
+              class="tg-hits-search"
+            />
+          </div>
           <VTable density="compact" class="tg-hits">
             <thead>
               <tr>
@@ -345,10 +486,10 @@ onUnmounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in recentHits" :key="`${item.kind}-${item.id}`">
+              <tr v-for="item in hits" :key="`${hitTab}-${item.id}`">
                 <td class="tg-nowrap tg-dim">{{ fmtTime(item.created_at) }}</td>
                 <td>{{ item.rule_name }}</td>
-                <td class="tg-nowrap">{{ chatLabel(item.chat_id) }}</td>
+                <td class="tg-nowrap">{{ chatTitleMap[item.chat_id] || item.chat_id }}</td>
                 <td>{{ mediaName(item) }}</td>
                 <td class="tg-nowrap">
                   <VChip size="x-small" variant="tonal" :color="decisionColor(item.decision)" label>
@@ -357,13 +498,34 @@ onUnmounted(() => {
                 </td>
                 <td class="tg-dim">{{ item.detail }}</td>
               </tr>
-              <tr v-if="!recentHits.length">
+              <tr v-if="!hits.length">
                 <td colspan="6" class="tg-empty">暂无流水</td>
               </tr>
             </tbody>
           </VTable>
+          <div class="tg-pager">
+            <VBtn
+              size="small"
+              variant="text"
+              :disabled="hitsPage <= 1 || hitsLoading"
+              prepend-icon="mdi-chevron-left"
+              @click="prevHits"
+            >
+              上一页
+            </VBtn>
+            <span class="tg-pager-info">第 {{ hitsPage }} 页 · 共 {{ hitsTotal }} 条</span>
+            <VBtn
+              size="small"
+              variant="text"
+              :disabled="hitsPage * hitsPageSize >= hitsTotal || hitsLoading"
+              append-icon="mdi-chevron-right"
+              @click="nextHits"
+            >
+              下一页
+            </VBtn>
+          </div>
           <div class="tg-note">
-            「来源」列与资源监控流水同口径：监听会话 ID 反查标题；完整流水与筛选在「监控」设置页查看。
+            「来源」列与资源监控流水同口径：监听会话 ID 反查标题；完整流水与筛选在对应设置面板查看。
           </div>
         </VCardText>
       </VCard>
@@ -396,4 +558,9 @@ onUnmounted(() => {
 .tg-dim { opacity: 0.75; }
 .tg-empty { text-align: center; padding: 16px; opacity: 0.6; }
 .tg-note { margin-top: 8px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6; }
+.tg-hits-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.tg-filter { flex: 0 0 160px; max-width: 200px; }
+.tg-hits-search { flex: 1 1 220px; max-width: 320px; }
+.tg-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.tg-pager-info { font-size: 12px; opacity: 0.7; }
 </style>

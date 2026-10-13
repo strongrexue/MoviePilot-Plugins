@@ -90,7 +90,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.6.8"
+        self.plugin_version = "1.6.9"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -297,6 +297,17 @@ class _Target:
 
 
 class TestPushNotifications:
+    def test_media_label_format(self):
+        assert MessagePipeline._media_label(
+            {"title": "美人余", "year": "2026", "season": 1, "episode": 1, "episode_end": 11}
+        ) == "美人余 (2026) S01E01-E11"
+        assert MessagePipeline._media_label(
+            {"title": "青与碧", "year": "2026", "season": 1, "episode": 1}
+        ) == "青与碧 (2026) S01E01"
+        assert MessagePipeline._media_label({"title": "无季"}) == "无季"
+        assert MessagePipeline._media_label(None) == ""
+        assert MessagePipeline._media_label({}) == ""
+
     def test_success_notification_aggregates(self, push_env, monkeypatch):
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
         target = _Target("pan115", ok=True, message="115 推送完成：成功 1")
@@ -309,6 +320,8 @@ class TestPushNotifications:
         assert len(push_env.messages) == 1
         assert "115 转存完成" in push_env.messages[0]["title"]
         assert "青与碧" in push_env.messages[0]["text"]
+        # 1.6.9：转存完成通知末尾附上真实链接，便于直接点开核对
+        assert "https://115.com/s/abc" in push_env.messages[0]["text"]
 
     def test_failure_notification_lists_reason(self, push_env, monkeypatch):
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
@@ -426,7 +439,7 @@ def test_overview_aggregates_modules():
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.6.8"
+    assert data.plugin_version == "1.6.9"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"

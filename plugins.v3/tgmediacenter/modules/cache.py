@@ -537,6 +537,10 @@ class CacheModule:
             # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
             if item.get("media_note"):
                 extra.append(f"媒体库未收录：{item['media_note']}")
+            channels = item.get("channels") or []
+            if channels:
+                joined = "、".join(str(c) for c in channels)
+                extra.append(f"来源会话：{joined}")
             if extra:
                 line += "（" + "；".join(extra) + "）"
             lines.append(line)
@@ -613,6 +617,7 @@ class CacheModule:
                 skipped += 1
                 _count_reason(reasons, "入队失败")
         reason_text = _reason_text(reasons)
+        channels = sorted({int(item.get("chat_id") or 0) for item in candidates if item.get("chat_id")})
         logger.info(
             f"[{self._plugin_id()}] 缓存回搜结果：「{title}」候选 {len(candidates)} 条，"
             f"推送 {pushed} 条，跳过 {skipped} 条"
@@ -626,6 +631,7 @@ class CacheModule:
             "reasons": reasons,
             "reason_text": reason_text,
             "media_note": media_note,
+            "channels": channels,
         }
 
     def _remember_check(self, *, new: int, pushed: int, error: str) -> None:

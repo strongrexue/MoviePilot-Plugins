@@ -502,7 +502,8 @@ class MessagePipeline:
             return
 
         task_id = self._enqueue_push(rule=rule, chat_id=chat_id, message_id=message_id,
-                                     text=text, links=links, destination=destination)
+                                     text=text, links=links, destination=destination,
+                                     title=self._media_label(meta))
         if task_id:
             self._record(rule, chat_id, message_id, meta, DECISION_HIT,
                          f"已入推送队列 #{task_id}", destination, links)
@@ -557,7 +558,8 @@ class MessagePipeline:
         extra = {"forward": forward_meta} if forward_meta else None
 
         task_id = self._enqueue_push(rule=rule, chat_id=chat_id, message_id=message_id,
-                                     text=text, links=links, destination=destination, extra=extra)
+                                     text=text, links=links, destination=destination,
+                                     title=self._media_label(meta), extra=extra)
         if task_id:
             notes = []
             if forward_meta.get("transform"):
@@ -645,8 +647,12 @@ class MessagePipeline:
 
     def _enqueue_push(self, *, rule: dict, chat_id: int, message_id: int, text: str,
                       links: List[str], destination: str,
+                      title: str = "",
                       extra: Optional[Dict[str, Any]] = None) -> Optional[int]:
-        """入队推送任务，返回任务 ID（监控 / 转发 / 缓存回搜共用同一入队实现）。"""
+        """入队推送任务，返回任务 ID（监控 / 转发 / 缓存回搜共用同一入队实现）。
+
+        ``title`` 取自识别结果，用于通知里直接显示片名（而非退化为「消息 #ID」）。
+        """
         return push_queue.enqueue_push(
             self._db(),
             self._plugin_id(),
@@ -657,8 +663,33 @@ class MessagePipeline:
             target_id=str(rule.get("target_id") or ""),
             links=links,
             text=text,
+            title=title,
             extra=extra,
         )
+
+    @staticmethod
+    def _media_label(meta: Optional[dict]) -> str:
+        """把识别结果拼成通知 / 流水用的简报文案，如「美人余 (2026) S01E01-E11」。"""
+        if not meta:
+            return ""
+        title = str(meta.get("title") or "").strip()
+        if not title:
+            return ""
+        parts: List[str] = [title]
+        year = str(meta.get("year") or "").strip()
+        if year:
+            parts.append(f"({year})")
+        season = meta.get("season")
+        episode = meta.get("episode")
+        episode_end = meta.get("episode_end")
+        if season:
+            seg = f"S{int(season):02d}"
+            if episode:
+                seg += f"E{int(episode):02d}"
+                if episode_end and int(episode_end) != int(episode):
+                    seg += f"-E{int(episode_end):02d}"
+            parts.append(seg)
+        return " ".join(parts)
 
     # ------------------------------------------------------------------ 推送 worker
 
@@ -701,8 +732,9 @@ class MessagePipeline:
             return
         if str(via or "").strip().lower() != "pan115":
             return
+        links = _task_links(task)
         if outcome == "done":
-            self._cycle["pan115_done"].append(self._task_label(task))
+            self._cycle["pan115_done"].append((self._task_label(task), links))
             return
         self._cycle["pan115_failed"].append((self._task_label(task), str(message or "")))
 
@@ -713,7 +745,12 @@ class MessagePipeline:
         failed_115 = list(cycle.get("pan115_failed") or [])
 
         if done and self._notifier.enabled("notify_on_hit", True):
-            text = "已转存到 115（" + str(len(done)) + " 条）：\n" + "\n".join(f"· {item}" for item in done[:8])
+            lines: List[str] = []
+            for label, links in done[:8]:
+                lines.append(f"· {label}")
+                for url in links[:3]:
+                    lines.append(f"  {url}")
+            text = "已转存到 115（" + str(len(done)) + " 条）：\n" + "\n".join(lines)
             if len(done) > 8:
                 text += f"\n…另有 {len(done) - 8} 条"
             self._notifier.send(f"TG媒体中心 · 115 转存完成（{len(done)} 条）", text)

@@ -157,7 +157,11 @@ class FakeMatcher:
 
 
 class FakeSubscription:
-    def __init__(self, name, year="", season=None, media_source="themoviedb", media_id="", lack_episode=2):
+    def __init__(
+        self, name, year="", season=None, media_source="themoviedb",
+        media_id="", lack_episode=2, sub_id=0,
+    ):
+        self.id = sub_id
         self.name = name
         self.year = year
         self.season = season
@@ -610,7 +614,7 @@ class TestSettingsAndStatus:
         # 5 段式才接受；非法值退回默认（非法 cron 会拖垮宿主定时注册）
         saved = cache.save_settings({"cron": "*/30 * * * *", "subscribe_cron": "不是 cron"})
         assert saved["cron"] == "*/30 * * * *"
-        assert saved["subscribe_cron"] == "*/5 * * * *"
+        assert saved["subscribe_cron"] == "*/30 * * * *"
         assert plugin.config["cache_cron"] == "*/30 * * * *"
 
     def test_is_cached_chat_respects_enabled(self, plugin, cache):
@@ -828,59 +832,211 @@ def fake_eventmanager(monkeypatch):
     return manager
 
 
+
+# ---------------------------------------------------------------------- 订阅事件（实时回搜）
+
+
+class FakeEventManager:
+    """记录注册与移除的事件总线替身。"""
+
+    def __init__(self) -> None:
+        self.added: list = []
+        self.removed: list = []
+
+    def add_event_listener(self, event_type, handler) -> None:
+        self.added.append((event_type, handler))
+
+    def remove_event_listener(self, event_type, handler) -> None:
+        self.removed.append((event_type, handler))
+
+
+class _FakeEventType:
+    SubscribeAdded = "subscribe.added"
+
+
+class _FakeEvent:
+    """宿主广播事件替身（payload 走 event_data）。"""
+
+    def __init__(self, data: dict) -> None:
+        self.event_data = data
+
+
+@pytest.fixture()
+def fake_eventmanager(monkeypatch):
+    import sys
+    import types
+
+    manager = FakeEventManager()
+    events_mod = types.ModuleType("app.sdk.events")
+    events_mod.eventmanager = manager
+    types_mod = types.ModuleType("app.schemas.types")
+    types_mod.EventType = _FakeEventType
+    monkeypatch.setitem(sys.modules, "app.sdk.events", events_mod)
+    monkeypatch.setitem(sys.modules, "app.schemas.types", types_mod)
+    return manager
+
+
+def _wait_event_search(cache, runs: int = 1, timeout: float = 5.0) -> None:
+    """等待第 runs 次事件回搜真正执行完。"""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if cache.event_runs >= runs:
+            with cache._lock:
+                busy = cache._state.get("checking")
+            if not busy:
+                time.sleep(0.05)  # 让统计落盘
+                return
+        time.sleep(0.02)
+    raise AssertionError(f"事件回搜未在 {timeout}s 内执行完（runs={cache.event_runs}）")
+
+
 class TestSubscribeEvent:
-    def test_install_and_uninstall(self, cache, fake_eventmanager):
-        assert cache.install_event_listener() is True
+    def test_handler_lives_on_plugin_class(self):
+        """事件处理器必须定义在插件主类上：宿主只通过插件实例解析器绑定运行实例
+        （plugin_id = owner_class.__name__），普通类的绑定方法会被静默跳过。"""
+        inspect = __import__("inspect")
+        from app.plugins.tgmediacenter import TgMediaCenter
+
+        assert inspect.isfunction(TgMediaCenter.on_subscribe_added)
+        assert TgMediaCenter.on_subscribe_added.__qualname__ == "TgMediaCenter.on_subscribe_added"
+
+    @staticmethod
+    def _plugin_instance(cache):
+        """插件主类实例（不跑 __init__，只挂缓存模块）。"""
+        from app.plugins.tgmediacenter import TgMediaCenter
+
+        instance = TgMediaCenter.__new__(TgMediaCenter)
+        instance._cache = cache
+        instance._subscribe_eventmanager = None
+        instance._subscribe_event_type = None
+        return instance
+
+    def test_install_registers_plugin_method(self, cache, fake_eventmanager):
+        """注册给宿主的是主类绑定方法（owner_class 可被宿主 plugins resolver 解析）。"""
+        plugin = self._plugin_instance(cache)
+        assert plugin._install_subscribe_listener() is True
+        assert len(fake_eventmanager.added) == 1
+        event_type, handler = fake_eventmanager.added[0]
+        assert event_type == "subscribe.added"
+        assert handler.__self__ is plugin
+        assert type(handler.__self__).__name__ == "TgMediaCenter"
         assert cache.event_listener_installed is True
-        assert len(fake_eventmanager.added) == 1
-        # 幂等：重复安装不再注册
-        assert cache.install_event_listener() is True
-        assert len(fake_eventmanager.added) == 1
-        handler = fake_eventmanager.added[0][1]
-        cache.uninstall_event_listener()
+        # 卸载：同一引用被移除
+        plugin._uninstall_subscribe_listener()
+        assert fake_eventmanager.removed == [(event_type, handler)]
         assert cache.event_listener_installed is False
-        assert fake_eventmanager.removed == [fake_eventmanager.added[0]]
-        assert handler is not None
+
+    def test_uninstall_without_install_is_safe(self, cache):
+        """未安装（宿主无事件总线）时卸载不抛异常。"""
+        plugin = self._plugin_instance(cache)
+        plugin._uninstall_subscribe_listener()
+        assert cache.event_listener_installed is False
 
     def test_install_degrades_without_host_bus(self, cache):
         """宿主无事件总线时静默降级为仅定时，不抛异常。"""
-        assert cache.install_event_listener() is False
+        plugin = self._plugin_instance(cache)
+        assert plugin._install_subscribe_listener() is False
         assert cache.event_listener_installed is False
-        # 卸载也不会出事
-        cache.uninstall_event_listener()
+        plugin._uninstall_subscribe_listener()
 
-    def test_event_triggers_debounced_check(
-        self, cache, plugin, subscriptions, monkeypatch, fake_metavideo, fake_eventmanager
+    def test_event_searches_subscription_by_id(
+        self, cache, plugin, subscriptions, monkeypatch, fake_metavideo
     ):
-        import time
+        """新增订阅事件：按 subscribe_id 定位订阅并回搜（不依赖快照「新增」判断）。"""
+        import app.plugins.tgmediacenter.modules.cache as cache_module
+        from app.plugins.tgmediacenter.modules.cache import _SUB_SNAPSHOT_KEY
 
+        monkeypatch.setattr(cache_module, "_EVENT_DEBOUNCE_SECONDS", 0.05)
+        plugin.save_config(cache_subscribe_enabled=True)
+        # 缓存里已有该片资源
+        cache.history().record(CHAT_A, 7001, _text("美人余 (2026) S01E01", "https://115.com/s/aaa?password=1"))
+        # 快照里已存在该订阅：事件路径仍应回搜（删了重加的场景）
+        plugin.save_data(_SUB_SNAPSHOT_KEY, {"themoviedb|777|": {"name": "美人余", "year": "2026"}})
+        subscriptions["items"] = [FakeSubscription("美人余", year="2026", media_id="777", sub_id=42)]
+
+        cache.on_subscribe_event(_FakeEvent({"subscribe_id": 42, "mediainfo": {"title": "美人余", "year": "2026"}}))
+        _wait_event_search(cache)
+
+        assert _count(plugin, TgPushTask) == 1
+        state = cache.subscribe_state()
+        assert state["last_check_new"] == 1
+        assert state["last_check_pushed"] == 1
+
+    def test_event_falls_back_to_mediainfo(
+        self, cache, plugin, subscriptions, monkeypatch, fake_metavideo
+    ):
+        """订阅 ID 在宿主订阅查询里还看不到时，用事件 mediainfo 兜底回搜。"""
         import app.plugins.tgmediacenter.modules.cache as cache_module
 
         monkeypatch.setattr(cache_module, "_EVENT_DEBOUNCE_SECONDS", 0.05)
         plugin.save_config(cache_subscribe_enabled=True)
-        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="123")]
-        cache.install_event_listener()
-        assert cache.subscribe_state()["event_listener"] is True
+        cache.history().record(CHAT_A, 7002, _text("美人余 (2026) S01E02", "https://115.com/s/bbb?password=2"))
+        # 订阅在列表里，但 ID 与事件对不上（模拟事务/缓存窗口）→ 用 mediainfo 兜底
+        subscriptions["items"] = [FakeSubscription("美人余", year="2026", media_id="777", sub_id=42)]
 
-        # 连发两次事件 → 防抖合并为一次检查
-        cache._on_subscribe_added(None)
-        cache._on_subscribe_added(None)
-        deadline = time.monotonic() + 5
-        while cache.subscribe_state()["last_check_at"] == "" and time.monotonic() < deadline:
-            time.sleep(0.02)
-        state = cache.subscribe_state()
-        assert state["last_check_at"] != ""
-        assert state["last_check_new"] == 0  # 首次运行只建立基线，不计新增
+        cache.on_subscribe_event(_FakeEvent({
+            "subscribe_id": 999,
+            "mediainfo": {"title": "美人余", "year": "2026", "media_source": "themoviedb", "media_id": "777"},
+        }))
+        _wait_event_search(cache)
 
-    def test_event_ignored_when_subscribe_disabled(self, cache, plugin, fake_eventmanager, monkeypatch):
+        assert _count(plugin, TgPushTask) == 1
+        assert cache.subscribe_state()["last_check_pushed"] == 1
+
+    def test_event_builds_baseline_first(
+        self, cache, plugin, subscriptions, monkeypatch, fake_metavideo
+    ):
+        """无基线时先建完整基线，避免把事件订阅并入快照后其余存量订阅被误判为新增。"""
+        import app.plugins.tgmediacenter.modules.cache as cache_module
+        from app.plugins.tgmediacenter.modules.cache import _SUB_SNAPSHOT_KEY
+
+        monkeypatch.setattr(cache_module, "_EVENT_DEBOUNCE_SECONDS", 0.05)
+        plugin.save_config(cache_subscribe_enabled=True)
+        cache.history().record(CHAT_A, 7003, _text("美人余 (2026) S01E01", "https://115.com/s/ccc?password=3"))
+        subscriptions["items"] = [
+            FakeSubscription("美人余", year="2026", media_id="777", sub_id=42),
+            FakeSubscription("别的剧", year="2025", media_id="888", sub_id=43),
+        ]
+
+        cache.on_subscribe_event(_FakeEvent({"subscribe_id": 42, "mediainfo": {"title": "美人余"}}))
+        _wait_event_search(cache)
+
+        saved = plugin.get_data(_SUB_SNAPSHOT_KEY) or {}
+        assert "themoviedb|777|" in saved
+        assert "themoviedb|888|" in saved  # 存量订阅也进了基线，不会下次被当新增
+        assert _count(plugin, TgPushTask) == 1
+
+    def test_event_dedupes_against_hit_log(
+        self, cache, plugin, subscriptions, monkeypatch, fake_metavideo
+    ):
+        """已推送过的资源被命中流水拦住，不会重复入队。"""
+        import app.plugins.tgmediacenter.modules.cache as cache_module
+
+        monkeypatch.setattr(cache_module, "_EVENT_DEBOUNCE_SECONDS", 0.05)
+        plugin.save_config(cache_subscribe_enabled=True)
+        cache.history().record(CHAT_A, 7004, _text("美人余 (2026) S01E01", "https://115.com/s/ddd?password=4"))
+        subscriptions["items"] = [FakeSubscription("美人余", year="2026", media_id="777", sub_id=42)]
+
+        cache.on_subscribe_event(_FakeEvent({"subscribe_id": 42, "mediainfo": {"title": "美人余"}}))
+        _wait_event_search(cache)
+        assert _count(plugin, TgPushTask) == 1
+        # 再次事件（例如删除后重新添加）：命中流水拦掉，不重复推送
+        cache.on_subscribe_event(_FakeEvent({"subscribe_id": 42, "mediainfo": {"title": "美人余"}}))
+        _wait_event_search(cache, runs=2)
+        assert _count(plugin, TgPushTask) == 1
+
+    def test_event_ignored_when_subscribe_disabled(self, cache, plugin, monkeypatch):
         import app.plugins.tgmediacenter.modules.cache as cache_module
 
         monkeypatch.setattr(cache_module, "_EVENT_DEBOUNCE_SECONDS", 0.05)
         plugin.save_config(cache_subscribe_enabled=False)
-        cache._on_subscribe_added(None)
+        cache.on_subscribe_event(_FakeEvent({"subscribe_id": 1, "mediainfo": {"title": "美人余"}}))
         assert cache._evt_timer is None
+        assert cache._pending_events == []
 
-    def test_status_reports_event_listener(self, cache, plugin, fake_eventmanager):
-        plugin.save_config(cache_subscribe_enabled=True)
-        cache.install_event_listener()
+    def test_status_reports_event_listener(self, cache, fake_eventmanager):
+        plugin = self._plugin_instance(cache)
+        plugin._install_subscribe_listener()
         assert cache.status()["subscribe"]["event_listener"] is True

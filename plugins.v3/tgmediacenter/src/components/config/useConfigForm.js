@@ -36,7 +36,7 @@ export const configDefaults = {
   cache_batch_size: 200,
   cache_subscribe_enabled: true,
   cache_cron: '0 */6 * * *',
-  cache_subscribe_cron: '*/5 * * * *',
+  cache_subscribe_cron: '*/30 * * * *',
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

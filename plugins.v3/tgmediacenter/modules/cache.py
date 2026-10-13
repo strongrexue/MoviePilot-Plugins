@@ -47,7 +47,7 @@ _SUB_SNAPSHOT_KEY = "cache_sub_snapshot_v2"
 _SUB_STATE_KEY = "cache_sub_state"
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
-DEFAULT_SUBSCRIBE_CRON = "*/5 * * * *"
+DEFAULT_SUBSCRIBE_CRON = "*/30 * * * *"
 # 订阅事件防抖秒数：批量添加订阅时合并为一次回搜
 _EVENT_DEBOUNCE_SECONDS = 5.0
 
@@ -60,13 +60,12 @@ class CacheModule:
         self._history = HistoryCacheService(plugin)
         self._matcher = MediaMatcher()
         self._lock = threading.Lock()
-        # 订阅新增事件监听（实时回搜）
+        # 订阅事件防抖（事件处理器挂在插件主类上，见 TgMediaCenter.on_subscribe_added）
         self._evt_lock = threading.Lock()
         self._evt_timer: Optional[threading.Timer] = None
         self._listener_installed = False
-        self._eventmanager: Any = None
-        self._event_type: Any = None
-        self._event_handler = self._on_subscribe_added
+        self._pending_events: List[dict] = []
+        self._event_runs = 0
         self._state: Dict[str, Any] = {
             "last_check_at": "",
             "last_check_new": 0,
@@ -77,58 +76,54 @@ class CacheModule:
 
     # ------------------------------------------------------ 订阅事件（实时回搜）
 
-    def install_event_listener(self) -> bool:
-        """监听宿主「新增订阅」事件，新增订阅后秒级触发缓存回搜。
-
-        宿主事件总线不可用（旧版本 / 测试桩缺失）时静默降级为仅定时检查。
-        """
-        if self._listener_installed:
-            return True
-        try:
-            from app.sdk.events import eventmanager
-            from app.schemas.types import EventType
-        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
-            logger.debug(
-                f"[{self._plugin_id()}] 宿主事件总线不可用，订阅回搜仅按定时执行：{err}"
+    def mark_event_listener(self, installed: bool) -> None:
+        """登记事件监听状态（注册动作在插件主类，宿主只解析插件实例方法）。"""
+        self._listener_installed = bool(installed)
+        if installed:
+            logger.info(
+                f"[{self._plugin_id()}] 已监听宿主新增订阅事件：新增订阅后 "
+                f"{_EVENT_DEBOUNCE_SECONDS:.0f} 秒内回搜缓存"
             )
-            return False
-        try:
-            self._eventmanager = eventmanager
-            self._event_type = EventType.SubscribeAdded
-            eventmanager.add_event_listener(self._event_type, self._event_handler)
-            self._listener_installed = True
-            logger.info(f"[{self._plugin_id()}] 已监听宿主新增订阅事件（实时回搜已启用）")
-            return True
-        except Exception as err:  # pragma: no cover
-            logger.warning(f"[{self._plugin_id()}] 注册订阅事件监听失败：{err}")
-            self._eventmanager = None
-            self._event_type = None
-            return False
-
-    def uninstall_event_listener(self) -> None:
-        """移除事件监听并取消待执行的防抖任务。"""
-        self._cancel_event_timer()
-        if not self._listener_installed or self._eventmanager is None:
-            return
-        try:
-            self._eventmanager.remove_event_listener(self._event_type, self._event_handler)
-        except Exception as err:  # pragma: no cover
-            logger.debug(f"[{self._plugin_id()}] 移除订阅事件监听失败：{err}")
-        self._listener_installed = False
-        self._eventmanager = None
-        self._event_type = None
 
     @property
     def event_listener_installed(self) -> bool:
         return self._listener_installed
 
-    def _on_subscribe_added(self, event: Any = None) -> None:
-        """宿主新增订阅事件回调：防抖 5 秒后跑一次快照对比（全流程幂等）。"""
+    @property
+    def event_runs(self) -> int:
+        """事件触发的回搜已执行次数（可观测性 / 测试用）。"""
+        with self._lock:
+            return int(self._event_runs)
+
+    def on_subscribe_event(self, event: Any = None) -> None:
+        """宿主新增订阅事件入口：收集订阅 ID 并防抖触发回搜。
+
+        与定时检查的「快照对比」不同，事件路径**按订阅精准回搜**——
+        删除后重新添加的订阅（快照里已存在）同样会回搜，重复推送由
+        命中流水拦掉，因入队失败而没写流水的则是补推。
+        """
         if not (self.enabled() and self.subscribe_enabled()):
             return
+        payload = _event_payload(event)
+        sid = _as_int(payload.get("subscribe_id"))
+        info = payload.get("mediainfo")
+        info = info if isinstance(info, dict) else {}
+        if not sid and not info:
+            logger.debug(f"[{self._plugin_id()}] 订阅事件缺少 subscribe_id 与 mediainfo，忽略")
+            return
+        with self._lock:
+            self._pending_events.append({"id": sid, "info": info})
+        logger.info(
+            f"[{self._plugin_id()}] 收到新增订阅事件"
+            f"（subscribe_id={sid if sid else '未提供'}），{_EVENT_DEBOUNCE_SECONDS:.0f} 秒后回搜缓存"
+        )
+        self._schedule_event_check()
+
+    def _schedule_event_check(self) -> None:
+        """重置防抖定时器：批量添加订阅合并为一次回搜。"""
         with self._evt_lock:
             self._cancel_event_timer(locked=True)
-            timer = threading.Timer(_EVENT_DEBOUNCE_SECONDS, self._event_check_job)
+            timer = threading.Timer(_EVENT_DEBOUNCE_SECONDS, self._run_pending_search)
             timer.daemon = True
             self._evt_timer = timer
             timer.start()
@@ -143,16 +138,106 @@ class CacheModule:
         if timer is not None:
             timer.cancel()
 
-    def _event_check_job(self) -> None:
+    def cancel_event_timer(self) -> None:
+        """取消待执行的防抖回搜（插件停止时调用）。"""
+        self._cancel_event_timer()
+
+    def _run_pending_search(self) -> None:
+        """防抖到点：对事件带来的订阅逐个回搜。"""
         try:
-            result = self.check_subscriptions(trigger="订阅事件")
-            if result.get("checked"):
-                logger.info(
-                    f"[{self._plugin_id()}] 订阅事件触发回搜：新增 {result.get('new', 0)}，"
-                    f"推送 {result.get('pushed', 0)}"
-                )
+            with self._lock:
+                if self._state.get("checking"):
+                    # 定时检查/手动检查正在进行：稍后重试（pending 不丢）
+                    self._schedule_event_check()
+                    return
+                self._state["checking"] = True
+                events = list(self._pending_events)
+                self._pending_events.clear()
+            try:
+                self._search_event_subscriptions(events)
+            finally:
+                with self._lock:
+                    self._state["checking"] = False
         except Exception as err:  # pragma: no cover
             logger.warning(f"[{self._plugin_id()}] 订阅事件回搜失败：{err}")
+
+    def _search_event_subscriptions(self, events: List[dict]) -> dict:
+        """按事件里的订阅 ID / 媒体信息回搜缓存并推送。"""
+        with self._lock:
+            self._event_runs += 1
+        targets: List[tuple] = []
+        items: List[Any] = []
+        if any(item.get("id") for item in events):
+            try:
+                items = list(matcher_service.iter_subscriptions())
+            except Exception as err:
+                logger.warning(f"[{self._plugin_id()}] 订阅事件回搜：读取宿主订阅失败：{err}")
+                items = []
+        by_id: Dict[int, Any] = {}
+        for item in items:
+            value = _as_int(getattr(item, "id", None))
+            if value:
+                by_id[value] = item
+
+        for event in events:
+            sid = _as_int(event.get("id"))
+            info = event.get("info") if isinstance(event.get("info"), dict) else {}
+            entry: dict = {}
+            key = ""
+            if sid:
+                snapshot_item = by_id.get(sid)
+                if snapshot_item is not None:
+                    key, entry = _snapshot_entry(snapshot_item)
+                elif info:
+                    # 订阅查询里还看不到（事务/缓存窗口）时用事件里的媒体信息兜底
+                    logger.info(
+                        f"[{self._plugin_id()}] 订阅事件回搜：订阅 {sid} 不在订阅列表中，"
+                        f"改用事件媒体信息回搜"
+                    )
+            if not entry and info:
+                key, entry = _entry_from_mediainfo(info)
+            if not entry:
+                logger.info(f"[{self._plugin_id()}] 订阅事件回搜：订阅 {sid or '未知'} 无可用信息，跳过")
+                continue
+            targets.append((key, entry))
+
+        if not targets:
+            self._remember_check(new=0, pushed=0, error="")
+            return {"checked": True, "new": 0, "pushed": 0, "message": "订阅事件无可回搜目标"}
+
+        # 快照并入：事件已处理的订阅不该在下次定时检查里再被当作「新增」。
+        # 无基线时先建立完整基线，否则并入后会把其余存量订阅误判为新增。
+        previous = self._plugin.get_data(_SUB_SNAPSHOT_KEY)
+        if not isinstance(previous, dict) or not previous:
+            self._check_subscriptions_locked(trigger="订阅事件（建基线）")
+            previous = self._plugin.get_data(_SUB_SNAPSHOT_KEY)
+        merged = dict(previous) if isinstance(previous, dict) else {}
+        for key, entry in targets:
+            merged[key] = entry
+        self._plugin.save_data(_SUB_SNAPSHOT_KEY, merged)
+
+        logger.info(f"[{self._plugin_id()}] 订阅事件回搜：{len(targets)} 个订阅")
+        pushed_total = 0
+        details: List[dict] = []
+        for key, sub in targets:
+            try:
+                result = self._search_subscription(sub)
+            except Exception as err:  # 单个订阅失败不影响其余
+                logger.warning(f"[{self._plugin_id()}] 订阅「{sub.get('name')}」缓存回搜失败：{err}")
+                result = {"name": sub.get("name"), "candidates": 0, "pushed": 0, "error": str(err)}
+            pushed_total += int(result.get("pushed") or 0)
+            details.append(result)
+        self._remember_check(new=len(targets), pushed=pushed_total, error="")
+        if pushed_total:
+            lines = [
+                f"· {item.get('name')}：候选 {item.get('candidates', 0)} 条，推送 {item.get('pushed', 0)} 条"
+                for item in details
+            ]
+            self._notify(
+                "TG媒体中心 缓存回搜",
+                f"新增订阅 {len(targets)} 个，命中并推送 {pushed_total} 条资源：\n" + "\n".join(lines),
+            )
+        return {"checked": True, "new": len(targets), "pushed": pushed_total, "details": details}
 
     # ------------------------------------------------------------------ 配置
 
@@ -668,16 +753,51 @@ def _normalize_cron(raw: Any, fallback: str) -> str:
 
 
 def _snapshot_entry(item: Any) -> "tuple[str, dict]":
-    """把一条订阅归一为 (快照键, 订阅信息)。"""
-    name = str(getattr(item, "name", "") or "")
-    year = str(getattr(item, "year", "") or "")
-    season = getattr(item, "season", None)
-    media_source = str(getattr(item, "media_source", "") or "")
-    media_id = str(getattr(item, "media_id", "") or "")
+    """把一条订阅快照归一为 (快照键, 订阅信息)。"""
+    return _entry_from_fields(
+        name=getattr(item, "name", ""),
+        year=getattr(item, "year", ""),
+        season=getattr(item, "season", None),
+        media_source=getattr(item, "media_source", ""),
+        media_id=getattr(item, "media_id", ""),
+        lack_episode=getattr(item, "lack_episode", None),
+    )
+
+
+def _entry_from_mediainfo(info: dict) -> "tuple[str, dict]":
+    """把宿主事件 payload 里的 mediainfo 归一为 (快照键, 订阅信息)。
+
+    事件里订阅 ID 可能查不到（刚删除 / 事务未提交），此时用 mediainfo 兜底：
+    host ``MediaInfo.to_dict()`` 的标题字段是 ``title``（订阅名同源）。
+    """
+    return _entry_from_fields(
+        name=info.get("title") or info.get("name") or "",
+        year=info.get("year") or "",
+        season=info.get("season"),
+        media_source=info.get("media_source") or "",
+        media_id=info.get("media_id") or "",
+    )
+
+
+def _entry_from_fields(
+    *,
+    name: Any,
+    year: Any,
+    season: Any,
+    media_source: Any,
+    media_id: Any,
+    lack_episode: Any = None,
+) -> "tuple[str, dict]":
+    """订阅字段 → (快照键, 订阅信息)；键优先媒体来源+ID，回退片名+年份+季。"""
+    name = str(name or "").strip()
+    year = str(year or "")
+    media_source = str(media_source or "")
+    media_id = str(media_id or "")
+    season_text = season if season is not None else ""
     if media_source or media_id:
-        key = f"{media_source}|{media_id}|{season if season is not None else ''}"
+        key = f"{media_source}|{media_id}|{season_text}"
     elif name:
-        key = f"name|{name}|{year}|{season if season is not None else ''}"
+        key = f"name|{name}|{year}|{season_text}"
     else:
         return "", {}
     return key, {
@@ -686,8 +806,24 @@ def _snapshot_entry(item: Any) -> "tuple[str, dict]":
         "season": season,
         "media_source": media_source,
         "media_id": media_id,
-        "lack_episode": getattr(item, "lack_episode", None),
+        "lack_episode": lack_episode,
     }
+
+
+def _event_payload(event: Any) -> dict:
+    """从宿主事件对象里取出 dict payload（兼容 event_data / data 两种属性）。"""
+    for attr in ("event_data", "data"):
+        value = getattr(event, attr, None)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _destination_options() -> List[dict]:

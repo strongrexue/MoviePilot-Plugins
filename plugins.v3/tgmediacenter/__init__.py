@@ -35,7 +35,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.4.3"
+    plugin_version = "1.4.4"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -102,8 +102,8 @@ class TgMediaCenter(_PluginBase):
         self._pan115 = Pan115Module(self)
         # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 缓存」，事件入口要用到它
         self._cache = CacheModule(self)
-        # 监听宿主「新增订阅」事件：新增订阅秒级触发缓存回搜（定时检查仍作兜底）
-        self._cache.install_event_listener()
+        # 监听宿主「新增订阅」事件：新增订阅后秒级触发缓存回搜（定时检查仍作兜底）
+        self._install_subscribe_listener()
         self._monitor = MonitorModule(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
@@ -229,7 +229,7 @@ class TgMediaCenter(_PluginBase):
             # 定时任务
             "douban_cron": "0 13 * * *",
             "cache_cron": "0 */6 * * *",
-            "cache_subscribe_cron": "*/5 * * * *",
+            "cache_subscribe_cron": "*/30 * * * *",
             # 通知
             "notify_on_hit": True,
             "notify_on_error": True,
@@ -365,6 +365,60 @@ class TgMediaCenter(_PluginBase):
         """立即检查新增订阅并回搜缓存。"""
         return api_controller.api_cache_check_subscriptions(self)
 
+    # ------------------------------------------------------------------ 宿主事件
+
+    def on_subscribe_added(self, event) -> None:
+        """宿主「新增订阅」广播事件：交给缓存模块做防抖精准回搜。
+
+        处理器**必须定义在插件主类上**：宿主事件分发只通过插件实例解析器
+        （``plugin_id = owner_class.__name__``）绑定运行实例；定义在普通类
+        （如 CacheModule）上的绑定方法会被判定「未绑定显式 resolver」静默跳过，
+        这也是 1.4.3 事件没生效的原因。
+        """
+        cache = getattr(self, "_cache", None)
+        if cache is None:
+            return
+        try:
+            cache.on_subscribe_event(event)
+        except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
+            logger.warning(f"[TgMediaCenter] 处理订阅事件失败：{err}")
+
+    def _install_subscribe_listener(self) -> bool:
+        """注册宿主新增订阅事件监听（旧宿主无事件总线时静默降级为仅定时）。"""
+        try:
+            from app.sdk.events import eventmanager
+            from app.schemas.types import EventType
+        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
+            logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，订阅回搜仅按定时执行：{err}")
+            return False
+        try:
+            eventmanager.add_event_listener(EventType.SubscribeAdded, self.on_subscribe_added)
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] 注册订阅事件监听失败：{err}")
+            return False
+        self._subscribe_eventmanager = eventmanager
+        self._subscribe_event_type = EventType.SubscribeAdded
+        cache = getattr(self, "_cache", None)
+        if cache is not None:
+            cache.mark_event_listener(True)
+        return True
+
+    def _uninstall_subscribe_listener(self) -> None:
+        """移除宿主订阅事件监听并取消待执行的防抖回搜。"""
+        manager = getattr(self, "_subscribe_eventmanager", None)
+        event_type = getattr(self, "_subscribe_event_type", None)
+        self._subscribe_eventmanager = None
+        self._subscribe_event_type = None
+        if manager is not None and event_type is not None:
+            try:
+                manager.remove_event_listener(event_type, self.on_subscribe_added)
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"[TgMediaCenter] 移除订阅事件监听失败：{err}")
+        cache = getattr(self, "_cache", None)
+        if cache is not None:
+            cache.cancel_event_timer()
+            cache.mark_event_listener(False)
+
     # ------------------------------------------------------------------ 其它扩展点
 
     def get_database_models(self) -> Optional[List[type]]:
@@ -381,8 +435,10 @@ class TgMediaCenter(_PluginBase):
         监控流水线自带 worker 线程（聚合窗口 + 推送队列扫描），不需要宿主定时任务；
         这里注册两个缓存相关周期任务：
         - 缓存增量同步（``cache_cron``，默认每 6 小时）：按位点补齐断线窗口漏掉的消息；
-        - 订阅回搜检查（``cache_subscribe_cron``，默认每 5 分钟）：对比订阅快照，
-          新增订阅自动回搜缓存并推送。
+        - 订阅回搜兜底检查（``cache_subscribe_cron``，默认每 30 分钟）：对比订阅快照，
+          新增订阅自动回搜缓存并推送。实时路径是宿主「新增订阅」事件
+          （``on_subscribe_added``），定时检查只兜底——插件离线期间新增的订阅事件
+          不会补发，且事件总线不可用时要还能发现新增。
 
         :note: ``trigger`` 必须是 ``CronTrigger`` 对象；本方法整体兜底，
             任何异常都只记录日志并降级为空列表（注册异常会拖垮 TG 自愈）。
@@ -428,13 +484,11 @@ class TgMediaCenter(_PluginBase):
                 monitor.stop()
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止资源监控流水线失败：{err}")
+        # 先摘事件监听（其中会取消防抖回搜），再释放缓存模块
+        self._uninstall_subscribe_listener()
         cache = getattr(self, "_cache", None)
         self._cache = None
         if cache is not None:
-            try:
-                cache.uninstall_event_listener()
-            except Exception as err:  # pragma: no cover
-                logger.warning(f"[TgMediaCenter] 移除订阅事件监听失败：{err}")
             try:
                 cache.cancel_sync()
             except Exception as err:  # pragma: no cover

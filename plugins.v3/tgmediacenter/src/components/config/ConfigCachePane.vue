@@ -238,7 +238,7 @@
           />
           <VTextField
             v-model="settings.subscribe_cron"
-            label="订阅检查定时（cron）"
+            label="订阅兜底检查定时（cron）"
             density="compact"
             variant="outlined"
             hide-details
@@ -391,9 +391,10 @@
       </VCardItem>
       <VCardText>
         <div class="cache-hint">
-          流程：MoviePilot 新增订阅 → 插件监听订阅事件秒级触发回搜（定时检查兜底，默认每 5 分钟）→
-          在缓存里按标题回搜 → 逐条判缺失（订阅门禁 + 媒体库）→ 过滤无链接 / 已推送 → 入推送队列 → 通知结果。
-          首次运行只建立基线，不会把存量订阅一次性全推。
+          实时路径：MoviePilot 新增订阅 → 插件收到订阅事件 → 防抖后<strong>按该订阅</strong>回搜缓存（删除后重新添加同样回搜，
+          已推过的由命中流水拦掉，不会重复推送）。兜底路径：定时对比订阅快照（默认每 30 分钟，
+          用于插件离线期间的新增订阅——事件不会补发）。命中后逐条判缺失（订阅门禁 + 媒体库）→
+          过滤无链接 / 已推送 → 入推送队列 → 通知结果。首次运行只建立基线。
         </div>
         <div class="cache-actions">
           <span class="cache-hint">缺失判断：</span>
@@ -416,6 +417,10 @@
             立即检查新增订阅
           </VBtn>
           <span v-if="checkResult" class="cache-hint">{{ checkResult }}</span>
+        </div>
+        <div class="cache-hint">
+          「立即检查」= 手动跑一次快照对比，用于升级后补跑、排查漏推送；
+          日常新增订阅走上面的实时事件路径，不需要手动点。
         </div>
         <div v-if="checkDetails.length" class="cache-details">
           <div v-for="(item, index) in checkDetails" :key="index" class="cache-detail">

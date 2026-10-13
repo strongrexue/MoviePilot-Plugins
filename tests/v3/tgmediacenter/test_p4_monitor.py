@@ -31,6 +31,7 @@ from app.plugins.tgmediacenter.model.hit_log import (
     DECISION_SKIPPED_KEYWORD,
     DECISION_SKIPPED_NO_LINK,
     DECISION_SKIPPED_NOT_MISSING,
+    DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_UNRECOGNIZED,
     TgHitLog,
@@ -442,6 +443,48 @@ class TestMatcher:
         assert result["missing"] is True
         assert "缺 3 集" in result["reason"]
 
+    def test_require_subscription_gates_unsubscribed(self, monkeypatch):
+        """方案 A 订阅门禁：订阅数据源可用但资源未订阅 → 判「未订阅」，不落媒体库。"""
+        matcher = self._matcher_with_subscriptions(monkeypatch, [
+            FakeSubscription("其他剧集", year="2023", season=1, lack_episode=0),
+        ])
+        module = FakeMediaServerModule(None)
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        result = matcher.is_missing(
+            title="测试剧集", year="2023", media_type="tv", season=1, episode=2,
+            require_subscription=True,
+        )
+        assert result["missing"] is False
+        assert result["reason"] == "未订阅"
+        assert result["source"] == "subscription"
+        # 关键：门禁生效时压根不该去查媒体服务器
+        assert module.calls == 0
+
+    def test_require_subscription_off_falls_back_to_mediaserver(self, monkeypatch):
+        """未开启订阅门禁（默认）时，未订阅资源仍按媒体库判断——旧行为保持不变。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([]))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+        module = FakeMediaServerModule(None)
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        result = MediaMatcher().is_missing(title="测试电影", year="2023", media_type="movie")
+        assert result["missing"] is True
+        assert result["source"] == "mediaserver"
+        assert module.calls == 1
+
+    def test_require_subscription_skipped_when_queries_unavailable(self, monkeypatch):
+        """订阅数据源不可用时门禁不生效（没配订阅不能全盘拦截），仍按媒体库判断。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+        module = FakeMediaServerModule(None)
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        result = MediaMatcher().is_missing(
+            title="测试电影", year="2023", media_type="movie", require_subscription=True,
+        )
+        assert result["missing"] is True
+        assert result["source"] == "mediaserver"
+
     def test_subscription_year_mismatch_not_matched(self, monkeypatch):
         matcher = self._matcher_with_subscriptions(monkeypatch, [
             FakeSubscription("测试剧集", year="2019", season=1, lack_episode=0),
@@ -690,6 +733,32 @@ class TestPipeline:
         self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
         logs = query_all(TgHitLog, plugin)
         assert logs[0].decision == DECISION_SKIPPED_NOT_MISSING
+
+    def test_only_if_missing_unsubscribed_skips(self, plugin, monitor, pipeline, monkeypatch):
+        """方案 A：订阅可用但该资源未订阅 → 仅缺失判「未订阅」跳过，而非「媒体库已存在」。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("其他剧集", year="2023", season=1, lack_episode=0),
+        ]))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", False)
+        monitor.save_rules([base_rule(match_only_if_missing=True)])
+        self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_SKIPPED_NOT_SUBSCRIBED
+        assert query_all(TgPushTask, plugin) == []
+
+    def test_only_if_missing_hit_when_subscription_lacks(self, plugin, monitor, pipeline, monkeypatch):
+        """已订阅且有缺集 → 命中推送（门禁不该误伤已订阅资源）。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("测试剧集", year="", season=1, lack_episode=3),
+        ]))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", False)
+        monitor.save_rules([base_rule(match_only_if_missing=True)])
+        self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_HIT
+        assert query_all(TgPushTask, plugin)
 
     def test_only_if_missing_hit_when_missing(self, plugin, monitor, pipeline, monkeypatch):
         monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)

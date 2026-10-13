@@ -402,6 +402,7 @@
             <tr>
               <th>时间</th>
               <th>规则</th>
+              <th>来源</th>
               <th>媒体</th>
               <th>决策</th>
               <th>说明</th>
@@ -411,12 +412,12 @@
             <tr v-for="item in hits" :key="item.id">
               <td class="mon-hits-time">{{ item.created_at }}</td>
               <td>{{ item.rule_name }}</td>
+              <td class="mon-hits-source">
+                {{ chatTitleMap[item.chat_id] || item.chat_id }}
+              </td>
               <td>
-                <span v-if="item.title">{{ item.title }}</span>
+                <span v-if="item.title">{{ mediaName(item) }}</span>
                 <span v-else class="mon-hits-none">—</span>
-                <span v-if="item.season || item.episode" class="mon-hits-se">
-                  S{{ String(item.season ?? 1).padStart(2, '0') }}E{{ String(item.episode ?? 0).padStart(2, '0') }}
-                </span>
               </td>
               <td>
                 <VChip size="x-small" variant="tonal" :color="decisionColor(item.decision)" label>
@@ -426,7 +427,7 @@
               <td class="mon-hits-detail">{{ item.detail }}</td>
             </tr>
             <tr v-if="!hits.length">
-              <td colspan="5" class="mon-hits-empty">暂无记录</td>
+              <td colspan="6" class="mon-hits-empty">暂无记录</td>
             </tr>
           </tbody>
         </VTable>
@@ -493,6 +494,7 @@ const destinations = ref([
 const decisions = ref([
   { value: 'hit', title: '已推送' },
   { value: 'skipped_not_missing', title: '不缺（已存在）' },
+  { value: 'skipped_not_subscribed', title: '未订阅' },
   { value: 'skipped_unrecognized', title: '无法识别' },
   { value: 'skipped_keyword', title: '关键词未命中' },
   { value: 'skipped_no_link', title: '无链接' },
@@ -756,6 +758,7 @@ function decisionColor(value) {
   if (value === 'hit') return 'success'
   if (value === 'failed') return 'error'
   if (value === 'skipped_unknown') return 'warning'
+  if (value === 'skipped_not_subscribed') return 'grey'
   return 'default'
 }
 
@@ -763,6 +766,28 @@ const matcherReady = computed(() => {
   const matcher = status.value?.matcher || {}
   return Boolean(matcher.mediaserver_available || (matcher.subscriptions ?? 0) > 0)
 })
+
+// 监听会话 ID → 反查标题（来自状态卡 watched_detail），命中流水「来源」列展示用
+const chatTitleMap = computed(() => {
+  const map = {}
+  for (const w of (status.value?.pipeline?.watched_detail || [])) {
+    if (w.resolved && w.title) map[w.chat_id] = w.title
+  }
+  return map
+})
+
+// 媒体列完整名：片名（年份）+ 电视剧 SxxExx（如「青与碧 (2026) S01E02」）
+function mediaName(item) {
+  if (!item.title) return ''
+  const year = item.year ? ` (${item.year})` : ''
+  let name = `${item.title}${year}`
+  if (item.season || item.episode) {
+    const s = String(item.season ?? 1).padStart(2, '0')
+    const e = String(item.episode ?? 0).padStart(2, '0')
+    name += ` S${s}E${e}`
+  }
+  return name
+}
 
 onMounted(async () => {
   await refreshAll()
@@ -833,6 +858,7 @@ onUnmounted(() => {
 .mon-filter { flex: 0 0 160px; max-width: 200px; }
 .mon-hits { font-size: 12.5px; }
 .mon-hits-time { white-space: nowrap; opacity: 0.75; }
+.mon-hits-source { white-space: nowrap; opacity: 0.8; }
 .mon-hits-se { margin-left: 6px; opacity: 0.75; }
 .mon-hits-none { opacity: 0.4; }
 .mon-hits-detail { opacity: 0.75; }

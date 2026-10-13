@@ -46,6 +46,7 @@ from ..model.hit_log import (
     DECISION_HIT,
     DECISION_SKIPPED_KEYWORD,
     DECISION_SKIPPED_NOT_MISSING,
+    DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_NO_LINK,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_UNRECOGNIZED,
@@ -62,6 +63,20 @@ _PUSH_INTERVAL = 15.0
 # 失败重试基础退避（秒）：30 * 2^retries，上限 600
 _RETRY_BASE_SECONDS = 30.0
 _RETRY_MAX_SECONDS = 600.0
+
+
+def _decision_for_skip(verdict: dict) -> "tuple[str, str]":
+    """把"缺失判断未命中"的 verdict 归一为（决策常量, 人类可读原因）。
+
+    - 无法判断缺失 → skipped_unknown
+    - 未订阅（方案 A 门禁）→ skipped_not_subscribed
+    - 其余（订阅已齐全 / 媒体库已存在）→ skipped_not_missing
+    """
+    if verdict.get("missing") is None:
+        return DECISION_SKIPPED_UNKNOWN, verdict.get("reason") or "无法判断缺失"
+    if verdict.get("reason") == "未订阅":
+        return DECISION_SKIPPED_NOT_SUBSCRIBED, verdict.get("reason")
+    return DECISION_SKIPPED_NOT_MISSING, verdict.get("reason") or "媒体库已存在"
 
 
 class MessagePipeline:
@@ -306,14 +321,13 @@ class MessagePipeline:
                 season=meta.get("season"),
                 episode=meta.get("episode"),
                 episode_end=meta.get("episode_end"),
+                # 方案 A 订阅门禁：仅缺失开启时，未订阅的资源直接跳过，
+                # 不再误标成"媒体库已存在"（订阅数据源可用时生效）。
+                require_subscription=True,
             )
-            if verdict.get("missing") is None:
-                self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_UNKNOWN,
-                             verdict.get("reason") or "无法判断缺失", destination, links)
-                return
-            if not verdict.get("missing"):
-                self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_NOT_MISSING,
-                             verdict.get("reason") or "媒体库已存在", destination, links)
+            if verdict.get("missing") is None or not verdict.get("missing"):
+                decision, reason = _decision_for_skip(verdict)
+                self._record(rule, chat_id, message_id, meta, decision, reason, destination, links)
                 return
 
         # 115 类目标必须拿到可推送的链接；TG 转发 / 仅记录不需要
@@ -812,15 +826,13 @@ class MessagePipeline:
                         season=meta.get("season"),
                         episode=meta.get("episode"),
                         episode_end=meta.get("episode_end"),
+                        require_subscription=True,
                     )
                 except Exception as err:  # pragma: no cover
                     verdict = {"missing": None, "reason": f"缺失判断异常：{err}"}
-                if verdict.get("missing") is None:
-                    trace.update(decision=DECISION_SKIPPED_UNKNOWN, reason=verdict.get("reason") or "无法判断缺失")
-                    traces.append(trace)
-                    continue
-                if not verdict.get("missing"):
-                    trace.update(decision=DECISION_SKIPPED_NOT_MISSING, reason=verdict.get("reason") or "媒体库已存在")
+                if verdict.get("missing") is None or not verdict.get("missing"):
+                    decision, reason = _decision_for_skip(verdict)
+                    trace.update(decision=decision, reason=reason)
                     traces.append(trace)
                     continue
             destination = str(rule.get("destination") or "smart")

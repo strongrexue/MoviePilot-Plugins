@@ -162,15 +162,21 @@ class MediaMatcher:
         season: Optional[int] = None,
         episode: Optional[int] = None,
         episode_end: Optional[int] = None,
+        require_subscription: bool = False,
     ) -> dict:
         """判断媒体是否缺失。
 
         :param episode_end: 集区间结束（如 "S01E01-E09" 的 9）；与 episode 一起
             表达"这批资源覆盖的集范围"，缺失判断按区间逐一比对。
+        :param require_subscription: 开启「仅缺失」订阅门禁——当订阅数据源可用、但
+            该资源未命中任何订阅时，直接判为"未订阅"跳过，不再落媒体库比对。
+            这是方案 A 的语义：监控只处理「已订阅 + 缺失」的资源，未订阅的绝不推送，
+            也不会被误标成"媒体库已存在"。订阅数据源不可用时（未配置订阅）退回旧逻辑，
+            继续按媒体库判断，避免"没配订阅就全盘拦截"。
         :returns: ``{"missing": bool|None, "reason": str, "source": str, "detail": str}``
             ``missing=None`` 表示无法判断（无数据源）。
         """
-        key = self._cache_key(title, year, media_type, season, episode, episode_end)
+        key = self._cache_key(title, year, media_type, season, episode, episode_end, require_subscription)
         cached = self._cache_get(key)
         if cached is not None:
             return cached
@@ -178,6 +184,7 @@ class MediaMatcher:
         result = self._decide(
             title=title, year=year, media_type=media_type, season=season,
             episode=episode, episode_end=episode_end,
+            require_subscription=require_subscription,
         )
         self._cache_put(key, result)
         return result
@@ -191,6 +198,7 @@ class MediaMatcher:
         season: Optional[int],
         episode: Optional[int],
         episode_end: Optional[int],
+        require_subscription: bool = False,
     ) -> dict:
         # 1) 订阅快照预筛（不需要媒体服务器）
         subscription = self._match_subscription(title=title, year=year, season=season)
@@ -210,6 +218,15 @@ class MediaMatcher:
                     "source": "subscription",
                     "detail": f"订阅「{subscription.get('name') or title}」",
                 }
+        elif require_subscription and QUERIES_AVAILABLE:
+            # 方案 A 订阅门禁：订阅数据源可用，但本资源未命中任何订阅 → 直接跳过，
+            # 不再去查媒体库（否则会被误标成"媒体库已存在"，与用户预期不符）。
+            return {
+                "missing": False,
+                "reason": "未订阅",
+                "source": "subscription",
+                "detail": f"「{title}」未在订阅列表中，按仅缺失规则跳过",
+            }
 
         # 2) 媒体服务器存在性（主力）
         exists = self._query_media_exists(
@@ -390,11 +407,13 @@ class MediaMatcher:
 
     @staticmethod
     def _cache_key(title: str, year: str, media_type: str, season: Optional[int],
-                   episode: Optional[int], episode_end: Optional[int] = None) -> str:
+                   episode: Optional[int], episode_end: Optional[int] = None,
+                   require_subscription: bool = False) -> str:
         return "|".join([
             _normalize_title(title), str(year or ""), str(media_type or ""),
             str(season if season is not None else ""), str(episode if episode is not None else ""),
             str(episode_end if episode_end is not None else ""),
+            str(require_subscription),
         ])
 
     def _cache_get(self, key: str) -> Optional[dict]:

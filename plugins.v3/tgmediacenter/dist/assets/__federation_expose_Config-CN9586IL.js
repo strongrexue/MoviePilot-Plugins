@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.9';
+const FRONTEND_VERSION = '1.3.10';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -1952,14 +1952,11 @@ const _hoisted_33 = {
   class: "mon-test-line"
 };
 const _hoisted_34 = { class: "mon-hits-time" };
-const _hoisted_35 = { key: 0 };
-const _hoisted_36 = {
+const _hoisted_35 = { class: "mon-hits-source" };
+const _hoisted_36 = { key: 0 };
+const _hoisted_37 = {
   key: 1,
   class: "mon-hits-none"
-};
-const _hoisted_37 = {
-  key: 2,
-  class: "mon-hits-se"
 };
 const _hoisted_38 = { class: "mon-hits-detail" };
 const _hoisted_39 = { key: 0 };
@@ -2009,6 +2006,7 @@ const destinations = ref$2([
 const decisions = ref$2([
   { value: 'hit', title: '已推送' },
   { value: 'skipped_not_missing', title: '不缺（已存在）' },
+  { value: 'skipped_not_subscribed', title: '未订阅' },
   { value: 'skipped_unrecognized', title: '无法识别' },
   { value: 'skipped_keyword', title: '关键词未命中' },
   { value: 'skipped_no_link', title: '无链接' },
@@ -2271,6 +2269,7 @@ function decisionColor(value) {
   if (value === 'hit') return 'success'
   if (value === 'failed') return 'error'
   if (value === 'skipped_unknown') return 'warning'
+  if (value === 'skipped_not_subscribed') return 'grey'
   return 'default'
 }
 
@@ -2278,6 +2277,28 @@ const matcherReady = computed$1(() => {
   const matcher = status.value?.matcher || {};
   return Boolean(matcher.mediaserver_available || (matcher.subscriptions ?? 0) > 0)
 });
+
+// 监听会话 ID → 反查标题（来自状态卡 watched_detail），命中流水「来源」列展示用
+const chatTitleMap = computed$1(() => {
+  const map = {};
+  for (const w of (status.value?.pipeline?.watched_detail || [])) {
+    if (w.resolved && w.title) map[w.chat_id] = w.title;
+  }
+  return map
+});
+
+// 媒体列完整名：片名（年份）+ 电视剧 SxxExx（如「青与碧 (2026) S01E02」）
+function mediaName(item) {
+  if (!item.title) return ''
+  const year = item.year ? ` (${item.year})` : '';
+  let name = `${item.title}${year}`;
+  if (item.season || item.episode) {
+    const s = String(item.season ?? 1).padStart(2, '0');
+    const e = String(item.episode ?? 0).padStart(2, '0');
+    name += ` S${s}E${e}`;
+  }
+  return name
+}
 
 onMounted$1(async () => {
   await refreshAll();
@@ -3068,6 +3089,7 @@ return (_ctx, _cache) => {
                   _createElementVNode$1("tr", null, [
                     _createElementVNode$1("th", null, "时间"),
                     _createElementVNode$1("th", null, "规则"),
+                    _createElementVNode$1("th", null, "来源"),
                     _createElementVNode$1("th", null, "媒体"),
                     _createElementVNode$1("th", null, "决策"),
                     _createElementVNode$1("th", null, "说明")
@@ -3080,13 +3102,11 @@ return (_ctx, _cache) => {
                     }, [
                       _createElementVNode$1("td", _hoisted_34, _toDisplayString$1(item.created_at), 1),
                       _createElementVNode$1("td", null, _toDisplayString$1(item.rule_name), 1),
+                      _createElementVNode$1("td", _hoisted_35, _toDisplayString$1(chatTitleMap.value[item.chat_id] || item.chat_id), 1),
                       _createElementVNode$1("td", null, [
                         (item.title)
-                          ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_35, _toDisplayString$1(item.title), 1))
-                          : (_openBlock$1(), _createElementBlock$1("span", _hoisted_36, "—")),
-                        (item.season || item.episode)
-                          ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_37, " S" + _toDisplayString$1(String(item.season ?? 1).padStart(2, '0')) + "E" + _toDisplayString$1(String(item.episode ?? 0).padStart(2, '0')), 1))
-                          : _createCommentVNode$1("", true)
+                          ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_36, _toDisplayString$1(mediaName(item)), 1))
+                          : (_openBlock$1(), _createElementBlock$1("span", _hoisted_37, "—"))
                       ]),
                       _createElementVNode$1("td", null, [
                         _createVNode$1(_component_VChip, {
@@ -3107,7 +3127,7 @@ return (_ctx, _cache) => {
                   (!hits.value.length)
                     ? (_openBlock$1(), _createElementBlock$1("tr", _hoisted_39, [...(_cache[28] || (_cache[28] = [
                         _createElementVNode$1("td", {
-                          colspan: "5",
+                          colspan: "6",
                           class: "mon-hits-empty"
                         }, "暂无记录", -1)
                       ]))]))
@@ -3155,7 +3175,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cb464943"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b912b633"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

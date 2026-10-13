@@ -23,6 +23,7 @@ Base = plugin_declarative_base()
 # 因此不存在 skipped_duplicate 决策。
 DECISION_HIT = "hit"                      # 命中且判定应推送（已入推送队列）
 DECISION_SKIPPED_NOT_MISSING = "skipped_not_missing"    # 识别成功但媒体库/订阅显示不缺
+DECISION_SKIPPED_NOT_SUBSCRIBED = "skipped_not_subscribed"  # 仅缺失开启且未订阅（方案 A 门禁）
 DECISION_SKIPPED_UNRECOGNIZED = "skipped_unrecognized"  # 标题无法识别
 DECISION_SKIPPED_KEYWORD = "skipped_keyword"            # 自定义关键词未命中
 DECISION_SKIPPED_NO_LINK = "skipped_no_link"            # 没有可推送的链接
@@ -32,6 +33,7 @@ DECISION_FAILED = "failed"                # 处理过程出错
 DECISIONS = (
     DECISION_HIT,
     DECISION_SKIPPED_NOT_MISSING,
+    DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_UNRECOGNIZED,
     DECISION_SKIPPED_KEYWORD,
     DECISION_SKIPPED_NO_LINK,

@@ -305,9 +305,8 @@ onUnmounted(qrStopPolling)
         </div>
 
         <div class="p115-hint">
-          登录只用<strong>扫码</strong>：115 对浏览器 Cookie 有设备风控——读账号/空间可以通过，
-          但「列目录 / 转存 / 离线」这类文件接口会返回 <code>请先验证安全密钥</code>；
-          扫码绑定 App 设备（如支付宝小程序）不会触发该验证。
+          登录只用<strong>扫码</strong>（App 通道）：115 对网页 Cookie 有设备风控，文件接口会要求「安全密钥」验证，
+          扫码绑定的 App 设备不会触发该验证，所以设备列表只保留 App 端。
           扫码成功后 Cookie 自动保存在插件内部（不显示在界面上），也不会被「保存配置」清空；
           Cookie 失效时重新扫码即可。
         </div>
@@ -339,7 +338,7 @@ onUnmounted(qrStopPolling)
         </VRow>
         <div class="p115-hint">
           转存与离线下载都保存到该 CID（在 115 里打开目标文件夹，地址栏 <code>cid=</code> 后面就是）。
-          单批上限用于分批提交，避免一次提交过多被 115 拒绝；CMS 联动属二期能力，本版本不提供。
+          单批上限用于分批提交，避免一次提交过多被 115 拒绝。
         </div>
       </VCardText>
     </VCard>

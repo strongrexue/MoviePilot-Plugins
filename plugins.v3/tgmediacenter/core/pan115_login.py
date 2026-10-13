@@ -53,7 +53,6 @@ QRCODE_APPS: dict[str, str] = {
     "android": "Android 通用",
     "ios": "iOS 通用",
     "tv": "115 TV 端",
-    "web": "网页版（可能要求安全密钥）",
 }
 DEFAULT_APP = "alipaymini"
 

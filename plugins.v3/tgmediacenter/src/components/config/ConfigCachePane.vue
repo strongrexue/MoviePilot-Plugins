@@ -8,8 +8,7 @@
         </template>
         <VCardTitle class="text-subtitle-2">启用消息缓存</VCardTitle>
         <VCardSubtitle class="text-caption">
-          把指定频道 / 群组的历史消息归档到本地库：关心会话的新消息实时入库，历史消息按时间范围回溯补齐；
-          MoviePilot 新增订阅时自动回搜缓存，命中且缺失则推送（开关随底部「保存配置」生效）。
+          关心会话的新消息实时入库，历史消息按时间范围回溯补齐；新增订阅自动回搜缓存并推送缺失（随「保存配置」生效）。
         </VCardSubtitle>
       </VCardItem>
     </VCard>
@@ -124,21 +123,9 @@
               hide-details
               @update:model-value="syncSettingsToForm"
             />
-            <div class="cache-chats-add">
-              <VTextField
-                v-model="manualId"
-                label="手动添加会话 ID"
-                placeholder="-1001234567890"
-                density="compact"
-                variant="outlined"
-                hide-details
-                class="cache-chats-input"
-                @keyup.enter="addManualId"
-              />
-              <VBtn size="small" variant="text" prepend-icon="mdi-plus" @click="addManualId">添加</VBtn>
-            </div>
             <div class="cache-hint">
-              与「资源监控」的监听频道互相独立：只缓存不监控、或两者重叠都可以。ID 与监控规则共用同一套会话 ID。
+              与「资源监控」的监听频道互相独立：只缓存不监控、或两者重叠都可以。
+              看不到想要的会话，先到「TG 凭证」页刷新对话列表再点「刷新状态」。
             </div>
           </div>
 
@@ -387,7 +374,7 @@
     <!-- 订阅回搜 -->
     <VCard flat class="cache-card">
       <VCardItem>
-        <VCardTitle class="text-subtitle-2">订阅回搜（对标 MA 新版）</VCardTitle>
+        <VCardTitle class="text-subtitle-2">订阅回搜</VCardTitle>
       </VCardItem>
       <VCardText>
         <div class="cache-hint">
@@ -492,7 +479,6 @@ const busy = ref('')
 const message = ref('')
 const messageOk = ref(true)
 const dialogs = ref([])
-const manualId = ref('')
 
 const settings = ref({
   chat_ids: [],
@@ -634,30 +620,6 @@ async function saveSettings() {
   }
 }
 
-function isNumericId(value) {
-  return /^-?\d+$/.test(String(value ?? '').trim())
-}
-
-function addManualId() {
-  const parts = String(manualId.value || '').split(/[,，\s]+/).map(part => part.trim()).filter(Boolean)
-  const added = []
-  for (const part of parts) {
-    if (!isNumericId(part)) continue
-    const id = Number(part)
-    if (id && !settings.value.chat_ids.includes(id)) {
-      settings.value.chat_ids.push(id)
-      added.push(id)
-    }
-  }
-  manualId.value = ''
-  syncSettingsToForm()
-  if (!added.length) {
-    setMessage('没有可添加的数字 ID（检查格式，如 -1001234567890）', false)
-  } else {
-    setMessage(`已添加 ${added.length} 个会话 ID（记得点「保存缓存设置」）`)
-  }
-}
-
 // ------------------------------------------------------------------ 同步与清空
 
 async function startSync() {
@@ -766,7 +728,7 @@ const dialogOptions = computed(() =>
   })),
 )
 
-// 下拉选项 = 对话列表 + 已选中的手动 / 状态里的 ID（否则手动加的 ID 在 chips 里显示不出名称）
+// 下拉选项 = 对话列表 + 已保存 / 状态里的 ID（缓存里没有的 ID 仍兜底显示，老配置不变空白）
 const selectItems = computed(() => {
   const items = dialogOptions.value.slice()
   const known = new Set(items.map(item => item.value))
@@ -858,8 +820,6 @@ onUnmounted(() => {
   .cache-grid, .cache-grid-cron { grid-template-columns: 1fr; }
 }
 .cache-chats { display: flex; flex-direction: column; gap: 8px; }
-.cache-chats-add { display: flex; gap: 6px; align-items: center; }
-.cache-chats-input { flex: 1 1 auto; }
 .cache-range { display: flex; flex-direction: column; gap: 8px; }
 .cache-dates { display: flex; gap: 8px; }
 .cache-options { display: flex; flex-direction: column; gap: 8px; }

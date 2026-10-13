@@ -12,6 +12,9 @@ class Pan115Destination(Destination):
     """把任务里的链接批量推送到 115。"""
 
     name = "pan115"
+    # 支持一次调用提交多条链接（115 模块内部再按 batch_max_size 分批）：
+    # 让推送 worker 把多条待推送任务合并成一次调用，避免"一条链接一次客户端"
+    supports_batch = True
 
     def __init__(self, plugin: Any) -> None:
         self._plugin = plugin

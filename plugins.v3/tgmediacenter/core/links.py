@@ -35,6 +35,9 @@ class PushItem:
     code: str = ""      # 分享链接的 share_code
     password: str = ""  # 分享提取码
     raw: str = ""
+    # 这条链接来自哪个「输入链接」（可能是一段含多个链接的正文）。
+    # 合并下发时用它把 115 的逐条结果回填到对应的推送任务上。
+    source: str = ""
 
     @property
     def supported(self) -> bool:
@@ -159,12 +162,17 @@ def parse_push_text(text: str) -> ParsedLinks:
 
 
 def make_items(links: Iterable[str]) -> list[PushItem]:
-    """把一串链接转成条目（用于接口直接传入链接数组的场景）。"""
+    """把一串链接转成条目（用于接口直接传入链接数组的场景）。
+
+    每条条目都会记住自己的 ``source``（原始输入链接），合并下发时用于回填结果。
+    """
     items: list[PushItem] = []
     for link in links or []:
-        parsed = parse_push_text(link)
-        if parsed.items:
-            items.extend(parsed.items)
+        text = str(link)
+        parsed = parse_push_text(text)
+        for item in parsed.items:
+            item.source = text
+        items.extend(parsed.items)
     return items
 
 

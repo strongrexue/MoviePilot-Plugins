@@ -295,6 +295,22 @@ def test_push_dry_run_parses_without_cookie():
     assert "未实际提交" in result["message"]
 
 
+def test_push_results_track_input_link():
+    """逐条结果要带上"来自哪条输入链接"：合并下发时靠它把结果回填到任务。"""
+    module = Pan115Module(_StubPlugin())
+    link = "https://115.com/s/swabc?password=1a2b"
+    result = module.push([link, "magnet:?xt=urn:btih:" + "c" * 40], dry_run=True)
+    assert [item["source"] for item in result["results"]] == [link, "magnet:?xt=urn:btih:" + "c" * 40]
+
+
+def test_make_items_marks_source():
+    """make_items 给每条条目记下原始输入链接（含"一段正文多个链接"的情形）。"""
+    text = "【合集】 https://115.com/s/swaaa1 提取码：1111 https://115.com/s/swbbb2 提取码：2222"
+    items = link_utils.make_items([text])
+    assert [item.code for item in items] == ["swaaa1", "swbbb2"]
+    assert all(item.source == text for item in items)
+
+
 def test_push_requires_cookie_for_real_run():
     """真实推送在缺少 Cookie 时必须给出可操作提示。"""
     module = Pan115Module(_StubPlugin())

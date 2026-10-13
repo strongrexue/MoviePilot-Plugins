@@ -587,6 +587,90 @@ class TestMatcher:
         matcher.is_missing(title="测试电影", media_type="movie")
         assert module.calls == 1  # 第二次命中缓存
 
+    def test_subscription_lack_does_not_override_media_library(self, monkeypatch):
+        """核心回归（1.4.4 真机踩坑）：新建订阅 lack_episode 默认等于总集数，
+        不能据此判"缺"——媒体库已有 S01E10 就该判不缺，而不是把全部候选推出去。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("美人余", year="2026", season=1, lack_episode=34),
+        ]))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+
+        class Exist:
+            seasons = {1: list(range(1, 11))}  # 库里 E01-E10
+
+        module = FakeMediaServerModule(Exist())
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        result = MediaMatcher().is_missing(
+            title="美人余", year="2026", media_type="tv", season=1, episode=10,
+            require_subscription=True,
+        )
+        assert result["missing"] is False
+        assert result["source"] == "mediaserver"
+        assert module.calls == 1
+
+    def test_subscription_lack_falls_back_when_media_library_unavailable(self, monkeypatch):
+        """媒体库不可用时才用订阅的缺集数兜底（此时没有更权威的数据源）。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("测试剧集", year="2023", season=1, lack_episode=3),
+        ]))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", False)
+        result = MediaMatcher().is_missing(
+            title="测试剧集", year="2023", media_type="tv", season=1, episode=2,
+            require_subscription=True,
+        )
+        assert result["missing"] is True
+        assert result["source"] == "subscription"
+        assert "缺 3 集" in result["reason"]
+
+    def test_media_lookup_cached_across_episodes(self, monkeypatch):
+        """逐集判断共用一次 media_exists：34 条候选不该打 34 次媒体服务器。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+
+        class Exist:
+            seasons = {1: list(range(1, 11))}
+
+        module = FakeMediaServerModule(Exist())
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        matcher = MediaMatcher()
+        for episode in range(1, 11):
+            verdict = matcher.is_missing(
+                title="美人余", media_type="tv", season=1, episode=episode,
+            )
+            assert verdict["missing"] is False
+        assert module.calls == 1
+
+    def test_media_lookup_not_queried_when_subscription_complete(self, monkeypatch):
+        """订阅 lack_episode=0 的快速通道保留：此时不必查媒体库。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("测试剧集", year="2023", season=1, lack_episode=0),
+        ]))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+        module = FakeMediaServerModule(None)
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        result = MediaMatcher().is_missing(
+            title="测试剧集", year="2023", media_type="tv", season=1, episode=2,
+        )
+        assert result["missing"] is False
+        assert module.calls == 0
+
+    def test_media_lookup_without_instance_returns_unknown(self, monkeypatch):
+        """媒体服务器没实例时不能当成"不存在"（宿主会返回 None），要退回订阅判断。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("测试剧集", year="2023", season=1, lack_episode=2),
+        ]))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(None))
+        result = MediaMatcher().is_missing(
+            title="测试剧集", year="2023", media_type="tv", season=1, episode=2,
+        )
+        assert result["missing"] is True
+        assert result["source"] == "subscription"
+
     def test_capabilities_do_not_raise(self):
         caps = MediaMatcher().capabilities()
         assert "subscriptions" in caps and "mediaserver" in caps
@@ -1011,6 +1095,146 @@ class _FakeDest:
 
     def push(self, task):
         return self._result
+
+
+class _BatchDest:
+    """支持合并下发（``supports_batch``）的目标替身：一次调用处理全部链接并回报逐条结果。"""
+
+    supports_batch = True
+
+    def __init__(self, fail_links=()):
+        self.calls = []
+        self._fail = set(fail_links)
+
+    def push(self, task):
+        links = list(task.get("links") or [])
+        self.calls.append(links)
+        failed = [link for link in links if link in self._fail]
+        results = [
+            {"source": link, "ok": link not in self._fail,
+             "message": "转存成功" if link not in self._fail else "转存失败"}
+            for link in links
+        ]
+        return PushResult(
+            ok=not failed,
+            message=f"成功 {len(links) - len(failed)}，失败 {len(failed)}",
+            retryable=False,
+            detail={"results": results},
+        )
+
+
+# ---------------------------------------------------------------------- 合并下发
+
+
+class TestPushCoalescing:
+    """同一目标的多条待推送任务应合并成一次调用（1.4.4 真机：16 行"第 1/1 批"）。"""
+
+    def _enqueue(self, plugin, links, message_id):
+        from app.plugins.tgmediacenter.core import push_queue
+
+        values = [links] if isinstance(links, str) else list(links)
+        return push_queue.enqueue_push(
+            plugin.get_database(), "FakePlugin",
+            rule_id="r-coalesce", chat_id=CHAT_A, message_id=message_id,
+            destination="pan115", links=values, text="测试", title="测试剧集",
+        )
+
+    def test_same_destination_tasks_merged_into_single_call(self, plugin, pipeline, monkeypatch):
+        for index in range(3):
+            self._enqueue(plugin, f"https://115.com/s/swtest{index}?password=abcd", 100 + index)
+        dest = _BatchDest()
+        monkeypatch.setattr(pipeline_module, "resolve_destination", lambda name, plug, gate: dest)
+
+        groups = pipeline._group_tasks(pipeline._claim_pending_tasks())
+        assert len(groups) == 1 and len(groups[0]) == 3
+        pipeline._execute_push_group(groups[0])
+
+        assert len(dest.calls) == 1  # 一次调用处理 3 条链接
+        assert len(dest.calls[0]) == 3
+        rows = query_all(TgPushTask, plugin)
+        assert all(row.status == STATUS_DONE for row in rows)
+
+    def test_without_batch_flag_tasks_stay_separate(self, plugin, pipeline, monkeypatch):
+        for index in range(3):
+            self._enqueue(plugin, f"https://115.com/s/swtest{index}?password=abcd", 200 + index)
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plug, gate: _FakeDest(PushResult(ok=True, message="完成")))
+        groups = pipeline._group_tasks(pipeline._claim_pending_tasks())
+        assert [len(group) for group in groups] == [1, 1, 1]
+
+    def test_group_caps_links_per_call(self, plugin, pipeline, monkeypatch):
+        for index in range(3):
+            self._enqueue(
+                plugin,
+                [f"https://115.com/s/sw{index}{n}?password=abcd" for n in range(8)],
+                300 + index,
+            )
+        monkeypatch.setattr(pipeline_module, "resolve_destination", lambda name, plug, gate: _BatchDest())
+        groups = pipeline._group_tasks(pipeline._claim_pending_tasks())
+        # 8 + 8 = 16 ≤ 20，第三个任务的 8 条会另起一组
+        assert [len(group) for group in groups] == [2, 1]
+
+    def test_failed_link_only_affects_its_task(self, plugin, pipeline, monkeypatch):
+        bad = "https://115.com/s/swfail?password=abcd"
+        self._enqueue(plugin, "https://115.com/s/swok1?password=abcd", 400)
+        self._enqueue(plugin, bad, 401)
+        dest = _BatchDest(fail_links=[bad])
+        monkeypatch.setattr(pipeline_module, "resolve_destination", lambda name, plug, gate: dest)
+        groups = pipeline._group_tasks(pipeline._claim_pending_tasks())
+        pipeline._execute_push_group(groups[0])
+
+        rows = {row.message_id: row for row in query_all(TgPushTask, plugin)}
+        assert rows[400].status == STATUS_DONE
+        # 整批只有这一条失败（succeeded 为 0）→ 值得重试，错误信息留下证据
+        assert rows[401].status == STATUS_PENDING and rows[401].retries == 1
+        assert "成功 0，失败 1" in rows[401].error
+
+    def test_group_without_per_link_results_falls_back_to_batch_verdict(self, plugin, pipeline, monkeypatch):
+        self._enqueue(plugin, "https://115.com/s/swok?password=abcd", 500)
+        self._enqueue(plugin, "https://115.com/s/swok?password=abcd", 501)
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plug, gate: _BatchDestNoDetail())
+        groups = pipeline._group_tasks(pipeline._claim_pending_tasks())
+        pipeline._execute_push_group(groups[0])
+        rows = query_all(TgPushTask, plugin)
+        assert all(row.status == STATUS_DONE for row in rows)
+
+    def test_unreported_link_not_marked_done(self, plugin, pipeline, monkeypatch):
+        """有逐条结果但某条链接没被回报 = 没处理：不能因为整批 ok 就"假完成"。"""
+        good = "https://115.com/s/swgood?password=abcd"
+        other = "https://115.com/s/swother?password=abcd"
+        self._enqueue(plugin, good, 600)
+        self._enqueue(plugin, other, 601)
+
+        class PartialDest:
+            supports_batch = True
+
+            def push(self, task):
+                return PushResult(
+                    ok=True, message="部分", retryable=False,
+                    detail={"results": [{"source": good, "ok": True, "message": "转存成功"}]},
+                )
+
+        monkeypatch.setattr(pipeline_module, "resolve_destination", lambda name, plug, gate: PartialDest())
+        groups = pipeline._group_tasks(pipeline._claim_pending_tasks())
+        pipeline._execute_push_group(groups[0])
+        rows = {row.message_id: row for row in query_all(TgPushTask, plugin)}
+        assert rows[600].status == STATUS_DONE
+        assert rows[601].status == STATUS_PENDING and rows[601].retries == 1
+        assert "成功 0，失败 1" in rows[601].error
+
+
+class _BatchDestNoDetail:
+    """声明支持合并但不回报逐条结果：worker 用整批结论兜底。"""
+
+    supports_batch = True
+
+    def __init__(self):
+        self.calls = 0
+
+    def push(self, task):
+        self.calls += 1
+        return PushResult(ok=True, message="完成", retryable=False)
 
 
 # ---------------------------------------------------------------------- 推送目标

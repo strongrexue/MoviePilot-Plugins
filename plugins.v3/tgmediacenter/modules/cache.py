@@ -228,15 +228,7 @@ class CacheModule:
             pushed_total += int(result.get("pushed") or 0)
             details.append(result)
         self._remember_check(new=len(targets), pushed=pushed_total, error="")
-        if pushed_total:
-            lines = [
-                f"· {item.get('name')}：候选 {item.get('candidates', 0)} 条，推送 {item.get('pushed', 0)} 条"
-                for item in details
-            ]
-            self._notify(
-                "TG媒体中心 缓存回搜",
-                f"新增订阅 {len(targets)} 个，命中并推送 {pushed_total} 条资源：\n" + "\n".join(lines),
-            )
+        self._notify_search_result(len(targets), details)
         return {"checked": True, "new": len(targets), "pushed": pushed_total, "details": details}
 
     # ------------------------------------------------------------------ 配置
@@ -503,15 +495,7 @@ class CacheModule:
             details.append(result)
 
         self._remember_check(new=len(new_keys), pushed=pushed_total, error="")
-        if pushed_total:
-            lines = [
-                f"· {item.get('name')}：候选 {item.get('candidates', 0)} 条，推送 {item.get('pushed', 0)} 条"
-                for item in details
-            ]
-            self._notify(
-                "TG媒体中心 缓存回搜",
-                f"新增订阅 {len(new_keys)} 个，命中并推送 {pushed_total} 条资源：\n" + "\n".join(lines),
-            )
+        self._notify_search_result(len(new_keys), details)
         return {
             "checked": True,
             "new": len(new_keys),
@@ -519,6 +503,29 @@ class CacheModule:
             "details": details,
             "message": f"新增订阅 {len(new_keys)} 个，推送 {pushed_total} 条",
         }
+
+    def _notify_search_result(self, new_count: int, details: List[dict]) -> None:
+        """回搜结果通知。
+
+        两种口径都要发：**推了**要说清推了几条；**一条没推**更要说清为什么
+        （媒体库已存在 / 已推送过），否则界面上就是"什么都没发生"，
+        用户无法判断是漏推还是正常跳过（1.4.3 真机反馈"新增订阅插件没有任何输出"）。
+        """
+        candidates = sum(int(item.get("candidates") or 0) for item in details)
+        pushed = sum(int(item.get("pushed") or 0) for item in details)
+        if not candidates and not pushed:
+            return
+        lines = [
+            f"· {item.get('name')}：候选 {item.get('candidates', 0)} 条，推送 {item.get('pushed', 0)} 条"
+            + (f"（{item.get('reason_text')}）" if item.get("reason_text") else "")
+            for item in details
+            if int(item.get("candidates") or 0) or int(item.get("pushed") or 0)
+        ]
+        if pushed:
+            header = f"新增订阅 {new_count} 个，命中并推送 {pushed} 条资源："
+        else:
+            header = f"新增订阅 {new_count} 个，候选 {candidates} 条，无需推送："
+        self._notify("TG媒体中心 缓存回搜", header + "\n" + "\n".join(lines))
 
     def _search_subscription(self, sub: dict) -> dict:
         """对单个订阅在缓存里回搜并推送。"""
@@ -533,15 +540,18 @@ class CacheModule:
         )
         pushed = 0
         skipped = 0
+        reasons: Dict[str, int] = {}
         for item in candidates:
             links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
             if not links:
                 skipped += 1
+                _count_reason(reasons, "无可用链接")
                 continue
             chat_id = int(item.get("chat_id") or 0)
             message_id = int(item.get("message_id") or 0)
             if self._hit_exists(chat_id, message_id):
                 skipped += 1
+                _count_reason(reasons, "已推送过")
                 continue
             verdict = self._matcher.is_missing(
                 title=str(item.get("title") or title),
@@ -554,6 +564,13 @@ class CacheModule:
             )
             if verdict.get("missing") is not True:
                 skipped += 1
+                label = _skip_label(verdict)
+                _count_reason(reasons, label)
+                logger.debug(
+                    f"[{self._plugin_id()}] 缓存回搜跳过：{item.get('title') or title}"
+                    f"（chat={chat_id}, msg={message_id}）{label}"
+                    f"｜{verdict.get('reason') or ''}"
+                )
                 continue
             task_id = push_queue.enqueue_push(
                 self._db(),
@@ -572,11 +589,20 @@ class CacheModule:
                 pushed += 1
             else:
                 skipped += 1
+                _count_reason(reasons, "入队失败")
+        reason_text = _reason_text(reasons)
+        logger.info(
+            f"[{self._plugin_id()}] 缓存回搜结果：「{title}」候选 {len(candidates)} 条，"
+            f"推送 {pushed} 条，跳过 {skipped} 条"
+            + (f"（{reason_text}）" if reason_text else "")
+        )
         return {
             "name": title,
             "candidates": len(candidates),
             "pushed": pushed,
             "skipped": skipped,
+            "reasons": reasons,
+            "reason_text": reason_text,
         }
 
     def _remember_check(self, *, new: int, pushed: int, error: str) -> None:
@@ -824,6 +850,36 @@ def _as_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _count_reason(bucket: Dict[str, int], label: str) -> None:
+    """累计跳过原因（回搜结果说明用）。"""
+    key = str(label or "其他").strip() or "其他"
+    bucket[key] = int(bucket.get(key) or 0) + 1
+
+
+def _skip_label(verdict: dict) -> str:
+    """把判定结果压成一句人话（决定跳过原因归类）。
+
+    归类要粗（媒体库已存在 / 未订阅 / 无缺集 / 无法判断），
+    否则"逐集"的原因会把说明撑成 34 种写法。
+    """
+    if verdict.get("missing") is None:
+        return "无法判断（无媒体库数据源）"
+    source = str(verdict.get("source") or "")
+    if source == "mediaserver":
+        return "媒体库已存在"
+    if source == "subscription":
+        return "未订阅" if verdict.get("reason") == "未订阅" else "订阅无缺集"
+    return str(verdict.get("reason") or "跳过")
+
+
+def _reason_text(bucket: Dict[str, int]) -> str:
+    """跳过原因汇总文本：``媒体库已存在 30、已推送过 3、无可用链接 1``。"""
+    if not bucket:
+        return ""
+    ordered = sorted(bucket.items(), key=lambda item: (-int(item[1]), item[0]))
+    return "、".join(f"{label} {count}" for label, count in ordered)
 
 
 def _destination_options() -> List[dict]:

@@ -399,7 +399,8 @@ class Pan115Module:
             result["processed"] = total
             result["batches"] = len(link_utils.split_batches(supported, self.batch_size(batch_size)))
             result["results"] = [
-                {"target": item.describe(), "ok": True, "message": "解析成功（仅测试）"} for item in supported
+                {"target": item.describe(), "source": item.source, "ok": True, "message": "解析成功（仅测试）"}
+                for item in supported
             ]
             result["message"] = f"解析到 {len(supported)} 条可推送链接（{result['batches']} 批），未实际提交"
             return result
@@ -432,7 +433,13 @@ class Pan115Module:
                     result["failed"] += 1
                 result["processed"] += 1
                 if len(result["results"]) < 50:
-                    result["results"].append({"target": item.describe(), "ok": ok, "message": message})
+                    # source = 调用方传入的那条链接，供合并下发时把结果回填到任务
+                    result["results"].append({
+                        "target": item.describe(),
+                        "source": item.source,
+                        "ok": ok,
+                        "message": message,
+                    })
                 time.sleep(_ITEM_INTERVAL_SECONDS)
             if result["processed"] >= max_items or time.monotonic() > deadline:
                 break

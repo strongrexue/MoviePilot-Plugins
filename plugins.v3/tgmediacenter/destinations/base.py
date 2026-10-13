@@ -38,6 +38,11 @@ class Destination(Protocol):
     """推送目标协议。"""
 
     name: str
+    # 可选属性：为 True 时推送 worker 会把同一目标的多条待推送任务**合并成一次
+    # push 调用**（payload.links 为各任务链接的拼接）。目标需在 ``PushResult.detail``
+    # 的 ``results[].source`` 里回报每条输入链接的结果，worker 据此回填各任务终态。
+    # 未声明（或不支持多条链接）的目标一律逐任务调用。
+    supports_batch: bool
 
     def available(self) -> bool:
         """当前是否可用（未配置时让调用方尽早失败并给出原因）。"""

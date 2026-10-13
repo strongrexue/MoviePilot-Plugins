@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.4.4';
+const FRONTEND_VERSION = '1.4.5';
 
 const {resolveComponent:_resolveComponent$6,createVNode:_createVNode$6,withCtx:_withCtx$6,openBlock:_openBlock$6,createBlock:_createBlock$6} = await importShared('vue');
 
@@ -4292,7 +4292,9 @@ return (_ctx, _cache) => {
             _cache[44] || (_cache[44] = _createElementVNode$1("div", { class: "cache-hint" }, [
               _createTextVNode$1(" 实时路径：MoviePilot 新增订阅 → 插件收到订阅事件 → 防抖后"),
               _createElementVNode$1("strong", null, "按该订阅"),
-              _createTextVNode$1("回搜缓存（删除后重新添加同样回搜， 已推过的由命中流水拦掉，不会重复推送）。兜底路径：定时对比订阅快照（默认每 30 分钟， 用于插件离线期间的新增订阅——事件不会补发）。命中后逐条判缺失（订阅门禁 + 媒体库）→ 过滤无链接 / 已推送 → 入推送队列 → 通知结果。首次运行只建立基线。 ")
+              _createTextVNode$1("回搜缓存（删除后重新添加同样回搜， 已推过的由命中流水拦掉，不会重复推送）。兜底路径：定时对比订阅快照（默认每 30 分钟， 用于插件离线期间的新增订阅——事件不会补发）。命中后逐条判缺失（"),
+              _createElementVNode$1("strong", null, "以媒体库逐集比对为准"),
+              _createTextVNode$1("， 未订阅的按门禁跳过；媒体库不可用时才退回订阅缺集数）→ 过滤无链接 / 已推送 → 入推送队列（同一目标合并下发的链接数不超过 20 条）→ 通知结果（含跳过原因汇总，一条没推也会说明原因）。 首次运行只建立基线。 ")
             ], -1)),
             _createElementVNode$1("div", _hoisted_31, [
               _cache[41] || (_cache[41] = _createElementVNode$1("span", { class: "cache-hint" }, "缺失判断：", -1)),
@@ -4424,7 +4426,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-35445ea3"]]);
+const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-7ca261a9"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

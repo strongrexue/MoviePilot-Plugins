@@ -1,16 +1,26 @@
 """缺失判断服务（matcher）：依据 MoviePilot 自身的媒体库与订阅状态。
 
-两级数据源（都是宿主**只读**能力，插件不重复建设）：
-1. **订阅快照预筛**：``app.sdk.queries.list_subscriptions()`` 按标题+年份匹配订阅，
-   ``lack_episode`` 为 0 说明不缺（可省掉一次媒体库查询）；
-2. **媒体服务器存在性（主力）**：``MediaServerHelper`` 取已启用实例，
+数据源（都是宿主**只读**能力，插件不重复建设）：
+1. **媒体服务器存在性（权威）**：``MediaServerHelper`` 取已启用实例，
    ``module.media_exists(MediaInfo(...))`` → None 表示不存在；剧集返回
-   ``seasons: {季: [已存在集]}``，据此判断目标集是否缺失。
+   ``seasons: {季: [已存在集]}``，据此逐集比对目标集是否缺失。
+   —— "媒体库里到底有没有这一集"只有它说了算。
+2. **订阅快照（门禁 + 兜底）**：``list_subscriptions()`` 按标题+年份+季匹配订阅。
+   - ``lack_episode`` 为 0 → 可直接判"不缺"（省掉一次媒体库查询的快速通道）；
+   - 开启「仅缺失」且资源未订阅 → 判"未订阅"跳过（方案 A 门禁）；
+   - 媒体库不可用时，才用 ``lack_episode > 0`` 作为缺集依据。
+
+   注意 ``lack_episode`` **不能单独判"缺"**：宿主新建订阅时
+   （``app/chain/subscribe/create.py`` 的 ``__fill_subscribe_lack_episode``）
+   直接令 ``lack_episode = total_episode``，要等订阅刷新任务比对过媒体库才会收敛。
+   若拿它当权威，刚订阅的剧会把缓存里全部候选都判成缺集（1.4.4 真机踩坑：
+   媒体库已有 S01E01-E10，34 条候选全被推送）。
 
 两级都不可用（未配置媒体服务器、也没有订阅）时返回 ``missing=None``
 （"无法判断"），由调用方决定跳过还是放行——不静默当成"不缺"。
 
-性能：TG 消息可能密集，对判断结果做 60 秒 TTL 内存缓存，键为归一化媒体身份。
+性能：TG 消息可能密集，对判断结果做 60 秒 TTL 内存缓存（键为归一化媒体身份）；
+媒体服务器查询另有一层按「片名+年份+类型+季」的缓存，避免同一部剧逐集重复查询。
 """
 from __future__ import annotations
 
@@ -95,6 +105,16 @@ def _normalize_title(value: Any) -> str:
     return _NORMALIZE_RE.sub("", text)
 
 
+def _as_int(value: Any) -> Optional[int]:
+    """宽松转 int：None / 空串 / 非法值都返回 None（宿主字段类型不保证）。"""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _titles_match(left: str, right: str) -> bool:
     """两个标题是否指向同一媒体（相等或一方包含另一方）。"""
     a, b = _normalize_title(left), _normalize_title(right)
@@ -138,6 +158,8 @@ class MediaMatcher:
         self._ttl = max(1, int(ttl_seconds or _CACHE_TTL_SECONDS))
         self._lock = threading.Lock()
         self._cache: Dict[str, Dict[str, Any]] = {}
+        # 媒体服务器查询缓存：键 = 片名|年份|类型|季，值 = (queried, exists, seasons)
+        self._media_cache: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ 能力探测
 
@@ -213,6 +235,12 @@ class MediaMatcher:
             继续按媒体库判断，避免"没配订阅就全盘拦截"。
         :returns: ``{"missing": bool|None, "reason": str, "source": str, "detail": str}``
             ``missing=None`` 表示无法判断（无数据源）。
+
+        判定顺序（媒体库优先，"缺"必须由媒体库或订阅兜底给出）：
+        1. 订阅 lack_episode<=0 → 不缺（快速通道）；
+        2. 未订阅 + 门禁开启 → 未订阅（跳过）；
+        3. 媒体服务器存在性 → **权威结论**（含逐集比对）；
+        4. 媒体库不可用 → 退回订阅 lack_episode>0 判缺，否则无法判断。
         """
         key = self._cache_key(title, year, media_type, season, episode, episode_end, require_subscription)
         cached = self._cache_get(key)
@@ -238,23 +266,17 @@ class MediaMatcher:
         episode_end: Optional[int],
         require_subscription: bool = False,
     ) -> dict:
-        # 1) 订阅快照预筛（不需要媒体服务器）
+        # 1) 订阅快照：只用于「不缺」的快速排除与「未订阅」门禁（见函数 docstring）
         subscription = self._match_subscription(title=title, year=year, season=season)
+        lack = None
         if subscription is not None:
-            lack = subscription.get("lack_episode")
-            if lack is not None and int(lack) <= 0:
+            lack = _as_int(subscription.get("lack_episode"))
+            if lack is not None and lack <= 0:
                 return {
                     "missing": False,
                     "reason": "订阅已存在且无缺集",
                     "source": "subscription",
                     "detail": f"订阅「{subscription.get('name') or title}」lack_episode={lack}",
-                }
-            if lack is not None and int(lack) > 0:
-                return {
-                    "missing": True,
-                    "reason": f"订阅缺 {int(lack)} 集",
-                    "source": "subscription",
-                    "detail": f"订阅「{subscription.get('name') or title}」",
                 }
         elif require_subscription and QUERIES_AVAILABLE:
             # 方案 A 订阅门禁：订阅数据源可用，但本资源未命中任何订阅 → 直接跳过，
@@ -266,7 +288,7 @@ class MediaMatcher:
                 "detail": f"「{title}」未在订阅列表中，按仅缺失规则跳过",
             }
 
-        # 2) 媒体服务器存在性（主力）
+        # 2) 媒体服务器存在性（主力，权威）：缺不缺由媒体库说了算
         exists = self._query_media_exists(
             title=title, year=year, media_type=media_type, season=season,
             episode=episode, episode_end=episode_end,
@@ -274,7 +296,16 @@ class MediaMatcher:
         if exists is not None:
             return exists
 
-        # 3) 无数据源
+        # 3) 媒体库不可用：退回订阅的缺集数（不能因为查不到媒体库就当"不缺"）
+        if lack is not None and lack > 0:
+            return {
+                "missing": True,
+                "reason": f"订阅缺 {lack} 集（媒体库不可用，按订阅判断）",
+                "source": "subscription",
+                "detail": f"订阅「{subscription.get('name') or title}」lack_episode={lack}",
+            }
+
+        # 4) 无数据源
         return {
             "missing": None,
             "reason": "未配置媒体服务器与订阅，无法判断缺失",
@@ -331,38 +362,18 @@ class MediaMatcher:
         episode_end: Optional[int] = None,
     ) -> Optional[dict]:
         """查询媒体服务器；返回判断字典，不可用时返回 None。"""
-        if not MEDIASERVER_AVAILABLE:
+        queried, exists, seasons = self._lookup_media(
+            title=title, year=year, media_type=media_type, season=season
+        )
+        if not queried:
             return None
-        try:
-            helper = MediaServerHelper()
-            # 注意：iterate_module_instances 产出的 ServiceInfo 里，带 media_exists 的
-            # 是 **module**（媒体服务器模块基类实例，其内部会遍历该类型的全部服务）；
-            # instance 是具体某个服务器实例（如 Emby 客户端对象），没有该方法——
-            # 取错层级会报 "'Emby' object has no attribute 'media_exists'"。
-            module = None
-            for service in helper.iterate_module_instances():
-                candidate = getattr(service, "module", None) or getattr(service, "instance", None)
-                if candidate is not None and hasattr(candidate, "media_exists"):
-                    module = candidate
-                    break
-            if module is None:
-                return None
-            mediainfo = self._build_media_info(
-                title=title, year=year, media_type=media_type, season=season
-            )
-            exist = module.media_exists(mediainfo)
-        except Exception as err:
-            logger.info(f"查询媒体服务器存在性失败（按无法判断处理）：{err}")
-            return None
-
-        if exist is None:
+        if not exists:
             return {
                 "missing": True,
                 "reason": "媒体库中不存在",
                 "source": "mediaserver",
                 "detail": f"「{title}」在已配置媒体服务器中未找到",
             }
-        seasons = getattr(exist, "seasons", None) or {}
         if media_type == "tv" and season is not None:
             owned = self._episodes_of(seasons, season)
             if episode is None:
@@ -401,6 +412,69 @@ class MediaMatcher:
             "source": "mediaserver",
             "detail": f"「{title}」已存在",
         }
+
+    # ------------------------------------------------------- 媒体库查询（带缓存）
+
+    def _lookup_media(
+        self, *, title: str, year: str, media_type: str, season: Optional[int]
+    ) -> "tuple[bool, bool, dict]":
+        """按「片名+年份+类型+季」查询媒体库，返回 ``(是否查到, 是否存在, 季集表)``。
+
+        调用方会逐集调用本方法（一条消息一集），但``media_exists`` 是按整部剧
+        查询的——没有这层缓存，34 条候选就会打 34 次同样的媒体服务器请求。
+        ``queried=False`` 表示无法查询（未配置媒体服务器 / 查询异常），
+        调用方据此退回"无法判断"，不能当成"不存在"。
+        """
+        key = "|".join([
+            _normalize_title(title), str(year or ""), str(media_type or ""),
+            str(season if season is not None else ""),
+        ])
+        with self._lock:
+            entry = self._media_cache.get(key)
+            if entry and time.monotonic() - entry["at"] <= self._ttl:
+                return entry["value"]
+        value = self._fetch_media_exists(
+            title=title, year=year, media_type=media_type, season=season
+        )
+        with self._lock:
+            if len(self._media_cache) > 256:
+                self._media_cache.clear()
+            self._media_cache[key] = {"at": time.monotonic(), "value": value}
+        return value
+
+    def _fetch_media_exists(
+        self, *, title: str, year: str, media_type: str, season: Optional[int]
+    ) -> "tuple[bool, bool, dict]":
+        """真正调用媒体服务器（无缓存）；异常与不可用都返回 ``queried=False``。"""
+        if not MEDIASERVER_AVAILABLE:
+            return (False, False, {})
+        try:
+            helper = MediaServerHelper()
+            # 注意：iterate_module_instances 产出的 ServiceInfo 里，带 media_exists 的
+            # 是 **module**（媒体服务器模块基类实例，其内部会遍历该类型的全部服务）；
+            # instance 是具体某个服务器实例（如 Emby 客户端对象），没有该方法——
+            # 取错层级会报 "'Emby' object has no attribute 'media_exists'"。
+            module = None
+            for service in helper.iterate_module_instances():
+                candidate = getattr(service, "module", None) or getattr(service, "instance", None)
+                if candidate is not None and hasattr(candidate, "media_exists"):
+                    module = candidate
+                    break
+            if module is None:
+                # 没有可用实例：宿主 media_exists 会因循环体不执行而返回 None，
+                # 若在这里当成"不存在"，就会把全部资源误判为缺失
+                return (False, False, {})
+            mediainfo = self._build_media_info(
+                title=title, year=year, media_type=media_type, season=season
+            )
+            exist = module.media_exists(mediainfo)
+        except Exception as err:
+            logger.info(f"查询媒体服务器存在性失败（按无法判断处理）：{err}")
+            return (False, False, {})
+        if exist is None:
+            return (True, False, {})
+        seasons = getattr(exist, "seasons", None) or {}
+        return (True, True, seasons if isinstance(seasons, dict) else {})
 
     @staticmethod
     def _episodes_of(seasons: Any, season: int) -> set:

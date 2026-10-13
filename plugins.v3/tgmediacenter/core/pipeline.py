@@ -61,9 +61,42 @@ _MAX_BATCH = 20
 _MAX_RECENT_SOURCES = 40
 # 推送 worker 扫描周期（秒）
 _PUSH_INTERVAL = 15.0
+# 合并下发：同一目标的多条待推送任务合成一次调用，单次链接数上限。
+# 逐条调用会让每条链接都走一遍"新建客户端 + 风控间隔"——一次回搜 34 条链接
+# 就是 34 次调用、拖上一分钟，还更容易触发 115 风控（1.4.4 真机观察到的
+# 连续 16 行"已完成第 1/1 批"）。上限同时也避开 115 模块的单次条目上限。
+_PUSH_GROUP_MAX_LINKS = 20
 # 失败重试基础退避（秒）：30 * 2^retries，上限 600
 _RETRY_BASE_SECONDS = 30.0
 _RETRY_MAX_SECONDS = 600.0
+
+
+def _task_links(task: Dict[str, Any]) -> List[str]:
+    """取任务负载里的链接列表。"""
+    payload = task.get("payload")
+    if not isinstance(payload, dict):
+        return []
+    return [str(link) for link in (payload.get("links") or []) if str(link).strip()]
+
+
+def _link_outcomes(detail: Any) -> Dict[str, Dict[str, Any]]:
+    """把目标的逐条结果整理成 ``{输入链接: {"ok": bool}}``（合并下发回填用）。
+
+    同一输入链接可能被解析出多条条目（一段正文含多个链接）：任一条失败即视为失败。
+    """
+    result: Dict[str, Dict[str, Any]] = {}
+    if not isinstance(detail, dict):
+        return result
+    for entry in detail.get("results") or []:
+        if not isinstance(entry, dict):
+            continue
+        source = str(entry.get("source") or "").strip()
+        if not source:
+            continue
+        slot = result.setdefault(source, {"ok": True})
+        if not entry.get("ok"):
+            slot["ok"] = False
+    return result
 
 
 def _decision_for_skip(verdict: dict) -> "tuple[str, str]":
@@ -506,8 +539,47 @@ class MessagePipeline:
         if now - self._last_push_cycle < _PUSH_INTERVAL:
             return
         self._last_push_cycle = now
-        for task in self._claim_pending_tasks():
-            self._execute_push(task)
+        for group in self._group_tasks(self._claim_pending_tasks()):
+            if len(group) == 1:
+                self._execute_push(group[0])
+            else:
+                self._execute_push_group(group)
+
+    def _group_tasks(self, tasks: List[Dict[str, Any]]) -> "List[List[Dict[str, Any]]]":
+        """把可合并的任务分组（保持原顺序）。
+
+        合并条件：同一 destination + target_id，目标声明 ``supports_batch``，
+        且累计链接数不超过 ``_PUSH_GROUP_MAX_LINKS``。不满足的一律各自成组
+        （走原来的单任务路径）。
+        """
+        groups: List[List[Dict[str, Any]]] = []
+        opened: Dict[str, List[Dict[str, Any]]] = {}
+        counts: Dict[str, int] = {}
+        for task in tasks:
+            destination = str(task.get("destination") or "smart")
+            links = _task_links(task)
+            if len(links) < 1 or not self._supports_batch(destination, task):
+                groups.append([task])
+                continue
+            key = f"{destination}|{task.get('target_id') or ''}"
+            current = opened.get(key)
+            if current is not None and counts.get(key, 0) + len(links) <= _PUSH_GROUP_MAX_LINKS:
+                current.append(task)
+                counts[key] = counts.get(key, 0) + len(links)
+                continue
+            current = [task]
+            opened[key] = current
+            counts[key] = len(links)
+            groups.append(current)
+        return groups
+
+    def _supports_batch(self, destination: str, task: Dict[str, Any]) -> bool:
+        """该任务的目标是否支持一次提交多条链接。"""
+        try:
+            target = resolve_destination(destination, self._plugin, self._gate)
+        except Exception:  # pragma: no cover - 未知目标交给单任务路径报错
+            return False
+        return bool(getattr(target, "supports_batch", False))
 
     def _claim_pending_tasks(self) -> List[Dict[str, Any]]:
         """领取待处理任务（带重试退避：退避窗口内的失败任务不提前重试）。"""
@@ -578,6 +650,70 @@ class MessagePipeline:
             retryable=result.retryable,
             detail=result.detail,
         )
+
+    def _execute_push_group(self, group: List[Dict[str, Any]]) -> None:
+        """合并执行：一次调用提交多条任务的链接，再按逐条结果回填各任务终态。
+
+        目标必须在 ``result.detail["results"]`` 里给出每条**输入链接**的
+        ``source``/``ok``；拿不到逐条结果时退回整批结论（保守：整批成功才算成功）。
+        """
+        first = group[0]
+        destination = str(first.get("destination") or "smart")
+        try:
+            target = resolve_destination(destination, self._plugin, self._gate)
+        except Exception as err:
+            for task in group:
+                self._finish_task(task, ok=False, message=f"未知推送目标 {destination}：{err}", retryable=False)
+            return
+
+        links: List[str] = []
+        spans: List["tuple[Dict[str, Any], int, int]"] = []
+        for task in group:
+            start = len(links)
+            links.extend(_task_links(task))
+            spans.append((task, start, len(links)))
+        payload = {
+            "links": links,
+            "text": str((first.get("payload") or {}).get("text") or ""),
+            "title": str((first.get("payload") or {}).get("title") or "")[:250],
+        }
+        try:
+            result = target.push(payload)
+        except Exception as err:  # pragma: no cover - 目标实现未兜底的异常
+            logger.warning(f"合并推送异常（{destination}）：{err}")
+            for task in group:
+                self._finish_task(task, ok=False, message=f"推送异常：{err}", retryable=True)
+            return
+        if result is None:
+            return
+
+        outcomes = _link_outcomes(result.detail)
+        logger.info(
+            f"[{self._plugin_id()}] 合并推送：{len(group)} 条任务 / {len(links)} 条链接"
+            f"（{destination}）→ {result.message}"
+        )
+        for task, start, end in spans:
+            task_links = links[start:end]
+            if not outcomes:
+                # 目标完全不回报逐条结果：只能用整批结论兜底（保守：整批成功才算成功）
+                succeeded = len(task_links) if result.ok else 0
+                failed = len(task_links) - succeeded
+                ok, retryable = bool(result.ok), bool(result.retryable)
+            else:
+                known = [outcomes.get(link) for link in task_links]
+                known = [entry for entry in known if entry]
+                succeeded = sum(1 for entry in known if entry["ok"])
+                # 没进结果的链接 = 没被处理（未识别 / 超时 / 超上限），计入失败并交回队列
+                failed = len(task_links) - succeeded
+                ok = len(known) == len(task_links) and failed == 0
+                retryable = len(known) < len(task_links) or (failed > 0 and succeeded == 0)
+            self._finish_task(
+                task,
+                ok=ok,
+                message=f"合并推送（{len(task_links)} 条）：成功 {succeeded}，失败 {failed}",
+                retryable=retryable,
+                detail={"batch": True, "links": len(task_links)},
+            )
 
     def _finish_task(self, task: Dict[str, Any], *, ok: bool, message: str,
                      retryable: bool, detail: Optional[dict] = None) -> None:

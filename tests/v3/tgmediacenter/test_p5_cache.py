@@ -177,6 +177,37 @@ class FakeQueryPage:
         self.total = len(self.items)
 
 
+class FakeMediaServerModule:
+    """媒体服务器模块替身：只实现 media_exists，记录调用次数。"""
+
+    def __init__(self, result) -> None:
+        self._result = result
+        self.calls = 0
+
+    def media_exists(self, mediainfo, itemid=None, server=None):
+        self.calls += 1
+        return self._result
+
+
+class _FakeEmbyInstance:
+    """镜像真机结构：ServiceInfo.instance 是服务器对象，没有 media_exists。"""
+
+
+class FakeMediaServerService:
+    def __init__(self, module) -> None:
+        self.module = module
+        self.instance = _FakeEmbyInstance()
+        self.name = "emby"
+
+
+class FakeMediaServerHelper:
+    def __init__(self, module) -> None:
+        self._module = module
+
+    def iterate_module_instances(self):
+        return iter([FakeMediaServerService(self._module)])
+
+
 class FakeRuntime:
     """TG 运行时替身：``call`` 直接返回预置批次（不真的跑协程）。"""
 
@@ -581,6 +612,49 @@ class TestSubscriptionSearch:
         cache.check_subscriptions(trigger="测试")
         assert plugin.messages
         assert "缓存回搜" in plugin.messages[-1]["title"]
+
+    def test_skip_reasons_reported_and_notified(self, cache, subscriptions, plugin, fake_metavideo):
+        """一条都没推时也要说清为什么（媒体库已存在），否则界面等于"什么都没发生"。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4601, _text("青与碧 (2026) S01E01"))
+        cache.history().record(CHAT_A, 4602, _text("青与碧 (2026) S01E02"))
+        cache._matcher = FakeMatcher(missing=False)
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", media_id="2"),
+        ]
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 0
+        detail = result["details"][0]
+        assert detail["candidates"] == 2
+        assert detail["skipped"] == 2
+        assert detail["reason_text"] == "订阅无缺集 2"
+        assert plugin.messages
+        assert "无需推送" in plugin.messages[-1]["text"]
+        assert "订阅无缺集 2" in plugin.messages[-1]["text"]
+
+    def test_skip_reason_marks_media_library_hit(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
+        """真机口径：媒体库已有的候选要归类成"媒体库已存在"（而不是笼统的跳过）。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4701, _text("青与碧 (2026) S01E01"))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+
+        class Exist:
+            seasons = {1: [1]}
+
+        module = FakeMediaServerModule(Exist())
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        cache._matcher = MediaMatcher()
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", year="2026", season=1, media_id="2"),
+        ]
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 0
+        assert result["details"][0]["reason_text"] == "媒体库已存在 1"
+        assert module.calls == 1
 
     def test_disabled_module_skips_check(self, plugin, fake_metavideo):
         plugin.save_config(cache_enabled=False)

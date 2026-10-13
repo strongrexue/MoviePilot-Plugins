@@ -79,6 +79,46 @@
             最近事件 {{ status.pipeline.last_event_at }}
           </span>
         </div>
+        <div v-if="(status?.watched_chat_ids?.length || 0) > 0" class="mon-sources">
+          <span class="mon-events-title">监听 ID：</span>
+          <VChip
+            v-for="chatId in status.watched_chat_ids"
+            :key="`watch-${chatId}`"
+            size="x-small"
+            variant="tonal"
+            color="warning"
+            label
+            class="mon-id-chip"
+          >
+            {{ chatId }}
+          </VChip>
+        </div>
+        <div v-if="(status?.pipeline?.recent_sources?.length || 0) > 0" class="mon-sources">
+          <span class="mon-events-title">来源 ID：</span>
+          <VChip
+            v-for="source in status.pipeline.recent_sources.slice(0, 12)"
+            :key="`src-${source.chat_id}`"
+            size="x-small"
+            variant="tonal"
+            :color="source.watched ? 'success' : 'default'"
+            label
+            class="mon-id-chip"
+          >
+            {{ source.chat_id }} ×{{ source.count }}
+          </VChip>
+          <span class="mon-events-last">绿=已监听，灰=未监听</span>
+        </div>
+        <VAlert
+          v-if="status?.enabled && (status?.pipeline?.events_received > 0) && !(status?.pipeline?.events_watched > 0)"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mon-events-hint"
+        >
+          收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话：请逐位对照上方「监听 ID」与「来源 ID」是否一致。
+          常见原因：①规则里选错频道（名字相近的频道多选） ②对话缓存过期（到「TG 凭证」页刷新对话后重新选择并保存规则）
+          ③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。
+        </VAlert>
         <VAlert
           v-if="status?.enabled && !(status?.pipeline?.events_received > 0)"
           type="warning"
@@ -732,6 +772,8 @@ onUnmounted(() => {
 .mon-events-title { opacity: 0.7; }
 .mon-events-last { opacity: 0.6; }
 .mon-events-hint { margin-top: 8px; font-size: 12px; }
+.mon-sources { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+.mon-id-chip { font-family: monospace; }
 .mon-flood { color: rgb(var(--v-theme-warning)); }
 .mon-matcher { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; }
 .mon-matcher-chip { margin-left: 0; }

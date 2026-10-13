@@ -55,6 +55,8 @@ from ..services import recognizer as recognizer_service
 
 # 单频道批量消息条数上限：超过即无视聚合窗口立即处理（防大频道刷爆缓冲）
 _MAX_BATCH = 20
+# 「最近消息来源」环形记录上限：诊断「监听 ID 与真实来源 ID 是否一致」用
+_MAX_RECENT_SOURCES = 40
 # 推送 worker 扫描周期（秒）
 _PUSH_INTERVAL = 15.0
 # 失败重试基础退避（秒）：30 * 2^retries，上限 600
@@ -92,6 +94,9 @@ class MessagePipeline:
             "events_unwatched": 0,  # 非监听会话被丢弃的条数
             "messages_enqueued": 0, # 进入流水线处理的条数
         }
+        # 最近消息来源：chat_id -> {"count", "last_at", "_mono"}，供状态卡与
+        # 监听 ID 列表并排对照（排查「收到一堆但全是非监听」的关键证据）
+        self._recent_sources: Dict[int, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ 生命周期
 
@@ -139,6 +144,7 @@ class MessagePipeline:
             if chat_id is None:
                 return
             self._stats["events_received"] += 1
+            self._record_source(int(chat_id))
             # 只关心被规则监听的会话：其余消息连缓冲都不进
             if not self._monitor.is_watched(int(chat_id)):
                 self._stats["events_unwatched"] += 1
@@ -151,6 +157,21 @@ class MessagePipeline:
             self.on_new_message(int(chat_id), message_id, text)
         except Exception as err:  # pragma: no cover - 事件解析异常不能影响 TG 连接
             logger.debug(f"处理 TG 新消息事件失败（忽略）：{err}")
+
+    def _record_source(self, chat_id: int) -> None:
+        """记录最近消息来源（TG 线程内只做字典自增，足够便宜）。"""
+        record = self._recent_sources.get(chat_id)
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        if record is None:
+            if len(self._recent_sources) >= _MAX_RECENT_SOURCES:
+                # 淘汰最久未活跃的来源，避免无限增长
+                oldest = min(self._recent_sources, key=lambda cid: self._recent_sources[cid]["_mono"])
+                self._recent_sources.pop(oldest, None)
+            self._recent_sources[chat_id] = {"count": 1, "last_at": now_iso, "_mono": time.monotonic()}
+        else:
+            record["count"] += 1
+            record["last_at"] = now_iso
+            record["_mono"] = time.monotonic()
 
     # ------------------------------------------------------------------ worker 主循环
 
@@ -589,7 +610,10 @@ class MessagePipeline:
             ok = runtime.call(_register(), timeout=10)
             self._handler_ok = bool(ok)
             if ok:
-                logger.info(f"[{self._plugin_id()}] 已注册 TG 新消息监听（client={id(runtime.client)}）")
+                logger.info(
+                    f"[{self._plugin_id()}] 已注册 TG 新消息监听（client={id(runtime.client)}），"
+                    f"监听会话 ID：{self._monitor.watched_chat_ids()}"
+                )
             else:
                 logger.warning(f"[{self._plugin_id()}] TG 新消息监听注册失败（客户端不可用）")
             return bool(ok)
@@ -652,12 +676,30 @@ class MessagePipeline:
             "events_unwatched": self._stats["events_unwatched"],
             "messages_enqueued": self._stats["messages_enqueued"],
             "last_event_at": self._last_event_at,
+            "recent_sources": self._recent_sources_view(),
             "push_done": self._stats.get("push_done", 0),
             "push_pending": pending,
             "push_failed": failed,
             "started_at": self._started_at,
             "last_error": self._last_error,
         }
+
+    def _recent_sources_view(self) -> List[dict]:
+        """最近消息来源（按活跃时间倒序，最多 24 条，带是否被监听标记）。"""
+        items = sorted(
+            self._recent_sources.items(),
+            key=lambda pair: pair[1]["_mono"],
+            reverse=True,
+        )[:24]
+        return [
+            {
+                "chat_id": int(chat_id),
+                "count": int(record["count"]),
+                "last_at": str(record["last_at"]),
+                "watched": self._monitor.is_watched(int(chat_id)),
+            }
+            for chat_id, record in items
+        ]
 
     def _push_counts(self) -> tuple:
         db = self._db()

@@ -278,6 +278,15 @@ class MonitorHitsData(BaseModel):
     page_size: int = 20
 
 
+class MonitorChatActivity(BaseModel):
+    """最近消息来源（诊断监听 ID 与真实来源 ID 是否一致）。"""
+
+    chat_id: int = 0
+    count: int = 0
+    last_at: str = ""
+    watched: bool = False
+
+
 class MonitorPipelineStats(BaseModel):
     """流水线运行态（与 MonitorModule.status()["pipeline"] 对应）。"""
 
@@ -295,6 +304,7 @@ class MonitorPipelineStats(BaseModel):
     events_unwatched: int = 0
     messages_enqueued: int = 0
     last_event_at: str = ""
+    recent_sources: List[MonitorChatActivity] = Field(default_factory=list)
     push_done: int = 0
     push_pending: int = 0
     push_failed: int = 0
@@ -312,6 +322,7 @@ class MonitorStatusData(BaseModel):
     enabled: bool = False
     rules_count: int = 0
     watched_chats: int = 0
+    watched_chat_ids: List[int] = Field(default_factory=list)
     pipeline: MonitorPipelineStats = Field(default_factory=MonitorPipelineStats)
     matcher: Dict[str, Any] = Field(default_factory=dict)
     gate_interval: int = 5

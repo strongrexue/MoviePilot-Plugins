@@ -35,7 +35,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.4.2"
+    plugin_version = "1.4.3"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -102,6 +102,8 @@ class TgMediaCenter(_PluginBase):
         self._pan115 = Pan115Module(self)
         # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 缓存」，事件入口要用到它
         self._cache = CacheModule(self)
+        # 监听宿主「新增订阅」事件：新增订阅秒级触发缓存回搜（定时检查仍作兜底）
+        self._cache.install_event_listener()
         self._monitor = MonitorModule(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
@@ -429,6 +431,10 @@ class TgMediaCenter(_PluginBase):
         cache = getattr(self, "_cache", None)
         self._cache = None
         if cache is not None:
+            try:
+                cache.uninstall_event_listener()
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[TgMediaCenter] 移除订阅事件监听失败：{err}")
             try:
                 cache.cancel_sync()
             except Exception as err:  # pragma: no cover

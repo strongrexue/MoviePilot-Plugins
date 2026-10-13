@@ -790,3 +790,97 @@ class TestBigintAndMatcherStatus:
         status = cache.status()
         assert status["matcher"]["queries_available"] is True
         assert status["matcher"]["subscriptions"] == 3
+
+
+# ---------------------------------------------------------------------- 订阅事件（实时回搜）
+
+
+class FakeEventManager:
+    """记录注册与移除的事件总线替身。"""
+
+    def __init__(self) -> None:
+        self.added: list = []
+        self.removed: list = []
+
+    def add_event_listener(self, event_type, handler) -> None:
+        self.added.append((event_type, handler))
+
+    def remove_event_listener(self, event_type, handler) -> None:
+        self.removed.append((event_type, handler))
+
+
+class _FakeEventType:
+    SubscribeAdded = "subscribe.added"
+
+
+@pytest.fixture()
+def fake_eventmanager(monkeypatch):
+    import sys
+    import types
+
+    manager = FakeEventManager()
+    events_mod = types.ModuleType("app.sdk.events")
+    events_mod.eventmanager = manager
+    types_mod = types.ModuleType("app.schemas.types")
+    types_mod.EventType = _FakeEventType
+    monkeypatch.setitem(sys.modules, "app.sdk.events", events_mod)
+    monkeypatch.setitem(sys.modules, "app.schemas.types", types_mod)
+    return manager
+
+
+class TestSubscribeEvent:
+    def test_install_and_uninstall(self, cache, fake_eventmanager):
+        assert cache.install_event_listener() is True
+        assert cache.event_listener_installed is True
+        assert len(fake_eventmanager.added) == 1
+        # 幂等：重复安装不再注册
+        assert cache.install_event_listener() is True
+        assert len(fake_eventmanager.added) == 1
+        handler = fake_eventmanager.added[0][1]
+        cache.uninstall_event_listener()
+        assert cache.event_listener_installed is False
+        assert fake_eventmanager.removed == [fake_eventmanager.added[0]]
+        assert handler is not None
+
+    def test_install_degrades_without_host_bus(self, cache):
+        """宿主无事件总线时静默降级为仅定时，不抛异常。"""
+        assert cache.install_event_listener() is False
+        assert cache.event_listener_installed is False
+        # 卸载也不会出事
+        cache.uninstall_event_listener()
+
+    def test_event_triggers_debounced_check(
+        self, cache, plugin, subscriptions, monkeypatch, fake_metavideo, fake_eventmanager
+    ):
+        import time
+
+        import app.plugins.tgmediacenter.modules.cache as cache_module
+
+        monkeypatch.setattr(cache_module, "_EVENT_DEBOUNCE_SECONDS", 0.05)
+        plugin.save_config(cache_subscribe_enabled=True)
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="123")]
+        cache.install_event_listener()
+        assert cache.subscribe_state()["event_listener"] is True
+
+        # 连发两次事件 → 防抖合并为一次检查
+        cache._on_subscribe_added(None)
+        cache._on_subscribe_added(None)
+        deadline = time.monotonic() + 5
+        while cache.subscribe_state()["last_check_at"] == "" and time.monotonic() < deadline:
+            time.sleep(0.02)
+        state = cache.subscribe_state()
+        assert state["last_check_at"] != ""
+        assert state["last_check_new"] == 0  # 首次运行只建立基线，不计新增
+
+    def test_event_ignored_when_subscribe_disabled(self, cache, plugin, fake_eventmanager, monkeypatch):
+        import app.plugins.tgmediacenter.modules.cache as cache_module
+
+        monkeypatch.setattr(cache_module, "_EVENT_DEBOUNCE_SECONDS", 0.05)
+        plugin.save_config(cache_subscribe_enabled=False)
+        cache._on_subscribe_added(None)
+        assert cache._evt_timer is None
+
+    def test_status_reports_event_listener(self, cache, plugin, fake_eventmanager):
+        plugin.save_config(cache_subscribe_enabled=True)
+        cache.install_event_listener()
+        assert cache.status()["subscribe"]["event_listener"] is True

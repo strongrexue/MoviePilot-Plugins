@@ -48,6 +48,8 @@ _SUB_STATE_KEY = "cache_sub_state"
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
 DEFAULT_SUBSCRIBE_CRON = "*/5 * * * *"
+# 订阅事件防抖秒数：批量添加订阅时合并为一次回搜
+_EVENT_DEBOUNCE_SECONDS = 5.0
 
 
 class CacheModule:
@@ -58,6 +60,13 @@ class CacheModule:
         self._history = HistoryCacheService(plugin)
         self._matcher = MediaMatcher()
         self._lock = threading.Lock()
+        # 订阅新增事件监听（实时回搜）
+        self._evt_lock = threading.Lock()
+        self._evt_timer: Optional[threading.Timer] = None
+        self._listener_installed = False
+        self._eventmanager: Any = None
+        self._event_type: Any = None
+        self._event_handler = self._on_subscribe_added
         self._state: Dict[str, Any] = {
             "last_check_at": "",
             "last_check_new": 0,
@@ -65,6 +74,85 @@ class CacheModule:
             "last_error": "",
             "checking": False,
         }
+
+    # ------------------------------------------------------ 订阅事件（实时回搜）
+
+    def install_event_listener(self) -> bool:
+        """监听宿主「新增订阅」事件，新增订阅后秒级触发缓存回搜。
+
+        宿主事件总线不可用（旧版本 / 测试桩缺失）时静默降级为仅定时检查。
+        """
+        if self._listener_installed:
+            return True
+        try:
+            from app.sdk.events import eventmanager
+            from app.schemas.types import EventType
+        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
+            logger.debug(
+                f"[{self._plugin_id()}] 宿主事件总线不可用，订阅回搜仅按定时执行：{err}"
+            )
+            return False
+        try:
+            self._eventmanager = eventmanager
+            self._event_type = EventType.SubscribeAdded
+            eventmanager.add_event_listener(self._event_type, self._event_handler)
+            self._listener_installed = True
+            logger.info(f"[{self._plugin_id()}] 已监听宿主新增订阅事件（实时回搜已启用）")
+            return True
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[{self._plugin_id()}] 注册订阅事件监听失败：{err}")
+            self._eventmanager = None
+            self._event_type = None
+            return False
+
+    def uninstall_event_listener(self) -> None:
+        """移除事件监听并取消待执行的防抖任务。"""
+        self._cancel_event_timer()
+        if not self._listener_installed or self._eventmanager is None:
+            return
+        try:
+            self._eventmanager.remove_event_listener(self._event_type, self._event_handler)
+        except Exception as err:  # pragma: no cover
+            logger.debug(f"[{self._plugin_id()}] 移除订阅事件监听失败：{err}")
+        self._listener_installed = False
+        self._eventmanager = None
+        self._event_type = None
+
+    @property
+    def event_listener_installed(self) -> bool:
+        return self._listener_installed
+
+    def _on_subscribe_added(self, event: Any = None) -> None:
+        """宿主新增订阅事件回调：防抖 5 秒后跑一次快照对比（全流程幂等）。"""
+        if not (self.enabled() and self.subscribe_enabled()):
+            return
+        with self._evt_lock:
+            self._cancel_event_timer(locked=True)
+            timer = threading.Timer(_EVENT_DEBOUNCE_SECONDS, self._event_check_job)
+            timer.daemon = True
+            self._evt_timer = timer
+            timer.start()
+
+    def _cancel_event_timer(self, locked: bool = False) -> None:
+        if not locked:
+            with self._evt_lock:
+                self._cancel_event_timer(locked=True)
+                return
+        timer = self._evt_timer
+        self._evt_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _event_check_job(self) -> None:
+        try:
+            result = self.check_subscriptions(trigger="订阅事件")
+            if result.get("checked"):
+                logger.info(
+                    f"[{self._plugin_id()}] 订阅事件触发回搜：新增 {result.get('new', 0)}，"
+                    f"推送 {result.get('pushed', 0)}"
+                )
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[{self._plugin_id()}] 订阅事件回搜失败：{err}")
 
     # ------------------------------------------------------------------ 配置
 
@@ -426,6 +514,7 @@ class CacheModule:
             return {
                 "enabled": self.subscribe_enabled(),
                 "checking": bool(self._state.get("checking")),
+                "event_listener": self._listener_installed,
                 "last_check_at": str(stored.get("last_check_at") or ""),
                 "last_check_new": int(stored.get("last_check_new") or 0),
                 "last_check_pushed": int(stored.get("last_check_pushed") or 0),

@@ -79,6 +79,16 @@
             新增订阅 {{ status.subscribe.last_check_new ?? 0 }} · 推送 {{ status.subscribe.last_check_pushed ?? 0 }} 条
           </span>
           <span v-else>订阅回搜尚未运行（首次运行只建立订阅基线）</span>
+          <VChip
+            size="x-small"
+            variant="tonal"
+            :color="status?.subscribe?.event_listener ? 'success' : 'warning'"
+            label
+            class="ml-2"
+            :title="status?.subscribe?.event_listener ? '已监听宿主新增订阅事件，新增订阅秒级回搜' : '宿主事件总线不可用，仅按定时检查（默认每 5 分钟）'"
+          >
+            {{ status?.subscribe?.event_listener ? '实时回搜已启用' : '仅定时检查' }}
+          </VChip>
         </div>
         <VAlert
           v-if="status?.sync?.last_error || status?.subscribe?.last_error"
@@ -381,8 +391,8 @@
       </VCardItem>
       <VCardText>
         <div class="cache-hint">
-          流程：定时读取 MoviePilot 订阅 → 与上次快照对比出「新增订阅」→ 在缓存里按标题回搜 →
-          逐条判缺失（订阅门禁 + 媒体库）→ 过滤无链接 / 已推送 → 入推送队列 → 通知结果。
+          流程：MoviePilot 新增订阅 → 插件监听订阅事件秒级触发回搜（定时检查兜底，默认每 5 分钟）→
+          在缓存里按标题回搜 → 逐条判缺失（订阅门禁 + 媒体库）→ 过滤无链接 / 已推送 → 入推送队列 → 通知结果。
           首次运行只建立基线，不会把存量订阅一次性全推。
         </div>
         <div class="cache-actions">
@@ -393,6 +403,7 @@
           <VChip size="small" variant="tonal" :color="status?.matcher?.queries_available ? 'info' : 'default'" label>
             订阅 {{ status?.matcher?.subscriptions ?? 0 }}
           </VChip>
+          <span class="cache-hint">徽章随状态每 10 秒自动刷新</span>
         </div>
         <div class="cache-actions">
           <VBtn

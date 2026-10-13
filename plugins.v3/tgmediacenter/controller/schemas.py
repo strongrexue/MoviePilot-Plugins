@@ -400,6 +400,7 @@ class CacheSubscribeState(BaseModel):
 
     enabled: bool = True
     checking: bool = False
+    event_listener: bool = False
     last_check_at: str = ""
     last_check_new: int = 0
     last_check_pushed: int = 0

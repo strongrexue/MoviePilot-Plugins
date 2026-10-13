@@ -199,10 +199,10 @@
               />
               <div
                 class="mon-rule-switch"
-                title="规则总开关：关闭后这条规则暂停监听——不识别、不推送、也就没有通知。改动要点底部「保存规则」才生效，与通知设置无关（通知在「115 网盘」面板）。"
+                title="规则总开关：关闭后这条规则暂停监听（不识别、不推送、也就没有通知）；改动随底部「保存规则」生效。"
               >
                 <VSwitch v-model="rule.enabled" color="success" hide-details inset density="compact" />
-                <span class="mon-switch-label">启用监听</span>
+                <span class="mon-switch-label">启用规则</span>
               </div>
               <VBtn
                 size="small"
@@ -309,8 +309,7 @@
             保存规则（即时生效）
           </VBtn>
           <span class="mon-hint">
-            「保存规则」把上面的所有改动立即写进配置并生效；每条规则右上角的「启用监听」开关只是其中一项改动，
-            决定这条规则是否参与监控（关闭后不识别、不推送、也没有通知，但规则本身保留）。
+            「保存规则」把所有改动（含每条规则右上角的「启用规则」开关）立即写进配置并生效。
           </span>
         </div>
       </VCardText>
@@ -458,6 +457,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, putPluginApi, unwrap } from '../api'
+// 流水「决策」文案与详情页 / 仪表盘共用同一份映射（避免同一决策在不同页面文案不一致）
+import { decisionLabel, decisionColor } from '../decision'
 
 /**
  * ④ TG 资源监控面板。
@@ -737,11 +738,6 @@ const targetItems = computed(() => {
   return items
 })
 
-function decisionLabel(value) {
-  const found = decisions.value.find(item => item.value === value)
-  return found ? found.title : value
-}
-
 // 关心会话的用途标注（监控 / 缓存 / 两者）
 function purposeLabel(purposes) {
   const list = Array.isArray(purposes) ? purposes : []
@@ -753,14 +749,6 @@ function sourceColor(source) {
   if (source?.watched && source?.cached) return 'primary'
   if (source?.watched) return 'success'
   if (source?.cached) return 'info'
-  return 'default'
-}
-
-function decisionColor(value) {
-  if (value === 'hit') return 'success'
-  if (value === 'failed') return 'error'
-  if (value === 'skipped_unknown') return 'warning'
-  if (value === 'skipped_not_subscribed') return 'grey'
   return 'default'
 }
 

@@ -22,7 +22,7 @@ from app.sdk.logging import logger
 from ..core.cooldown import CooldownGate
 from ..core.pipeline import MessagePipeline, new_rule_id
 from ..destinations import DESTINATION_VALUES
-from ..model.hit_log import DECISIONS, KIND_MONITOR, TgHitLog
+from ..model.hit_log import DECISION_LABELS, DECISIONS, KIND_MONITOR, TgHitLog
 from ..model.push_task import STATUS_DONE, STATUS_FAILED, STATUS_PENDING, TgPushTask
 from ..services.matcher import MediaMatcher
 
@@ -382,18 +382,7 @@ class MonitorModule:
 
     @staticmethod
     def decision_options() -> List[dict]:
-        """命中流水的决策过滤选项。"""
-        labels = {
-            "hit": "已推送",
-            "skipped_not_missing": "不缺（已存在）",
-            "skipped_not_subscribed": "未订阅",
-            "skipped_unrecognized": "无法识别",
-            "skipped_keyword": "关键词未命中",
-            "skipped_no_link": "无链接",
-            "skipped_unknown": "无法判断缺失",
-            "skipped_extension": "扩展名未命中",
-            "failed": "处理失败",
-        }
+        """命中流水的决策过滤选项（文案取自 hit_log.DECISION_LABELS，与前端同源）。"""
         return [
-            {"value": value, "title": labels.get(value, value)} for value in DECISIONS
+            {"value": value, "title": DECISION_LABELS.get(value, value)} for value in DECISIONS
         ]

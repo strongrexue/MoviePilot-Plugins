@@ -86,6 +86,13 @@
                 hide-details
                 class="fwd-rule-name"
               />
+              <div
+                class="fwd-rule-switch"
+                title="规则总开关：关闭后这条转发规则不生效（不转发、也不会有通知）；改动随底部「保存配置」生效。"
+              >
+                <VSwitch v-model="rule.enabled" color="success" hide-details inset density="compact" />
+                <span class="fwd-switch-label">启用规则</span>
+              </div>
               <VBtn
                 size="small"
                 variant="text"
@@ -610,8 +617,8 @@ async function saveRules() {
       file_extensions_to_match: (rule.file_extensions_to_match || []).map(ext => String(ext).trim().replace(/^\./, '')).filter(Boolean),
       enable_transform: Boolean(rule.enable_transform),
       transform_rules: (rule.transform_rules || []).map(line => String(line).trim()).filter(Boolean),
-      // 规则行不再提供启用开关：保存即启用，停用=删除规则
-      enabled: true,
+      // 转存 / 转发等既有规则行保留启用开关：关掉即暂停该规则（不生效、无通知）
+      enabled: rule.enabled !== false,
     }))
     const data = unwrap(await putPluginApi(props.api, props.pluginId, 'forward/rules', { rules: payload }, { timeoutMs: 30000 }))
     if (Array.isArray(data?.rules)) {
@@ -777,6 +784,8 @@ onUnmounted(() => {
 .fwd-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-bottom: 10px; }
 .fwd-rule-head { display: flex; gap: 10px; align-items: center; }
 .fwd-rule-name { flex: 1 1 auto; }
+.fwd-rule-switch { display: flex; align-items: center; gap: 2px; }
+.fwd-switch-label { font-size: 13px; color: rgba(var(--v-theme-on-surface), 0.7); white-space: nowrap; }
 .fwd-rule-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-top: 10px; }
 .fwd-logic { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); }
 .fwd-logic-title { font-size: 12.5px; font-weight: 600; opacity: 0.8; margin-bottom: 6px; }

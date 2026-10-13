@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -28,6 +29,7 @@ from app.plugins.tgmediacenter.destinations import (
 from app.plugins.tgmediacenter.destinations.base import PushResult
 from app.plugins.tgmediacenter.model.hit_log import (
     DECISION_HIT,
+    DECISION_LABELS,
     DECISION_SKIPPED_KEYWORD,
     DECISION_SKIPPED_NO_LINK,
     DECISION_SKIPPED_NOT_MISSING,
@@ -49,6 +51,18 @@ from app.plugins.tgmediacenter.services.matcher import MediaMatcher
 
 CHAT_A = -1001234567890
 CHAT_B = -1009999999999
+
+FRONTEND_DECISION_JS = (
+    Path(__file__).resolve().parents[3]
+    / "plugins.v3" / "tgmediacenter" / "src" / "components" / "decision.js"
+)
+
+
+def _frontend_decision_labels() -> dict:
+    """从 ``src/components/decision.js`` 解析决策中文映射（跨端一致性的前端一侧）。"""
+    text = FRONTEND_DECISION_JS.read_text(encoding="utf-8")
+    block = text.split("const DECISION_LABELS = {", 1)[1].split("}", 1)[0]
+    return {m.group(1): m.group(2) for m in re.finditer(r"(\w+):\s*'([^']+)'", block)}
 
 
 # ---------------------------------------------------------------------- 测试替身
@@ -1544,11 +1558,18 @@ class TestMonitorApi:
         assert data.rules == []
         assert [item.value for item in data.destinations] == list(DESTINATION_VALUES)
         assert any(item.value == DECISION_HIT for item in data.decisions)
-        # 真机踩坑：后端 decisions 会覆盖前端内置列表，缺 label 时流水 chip 显示英文原值
+        # 真机踩坑：筛选项文案来自后端，流水徽章文案来自前端 decision.js，两处必须一致
         not_subscribed = next(
             item for item in data.decisions if item.value == DECISION_SKIPPED_NOT_SUBSCRIBED
         )
         assert not_subscribed.title == "未订阅"
+
+    def test_decision_labels_consistent_across_layers(self, monitor):
+        """决策中文文案三层同源：后端选项 = hit_log.DECISION_LABELS = 前端 decision.js。"""
+        data = controller_api.api_monitor_rules(monitor._plugin).data
+        backend = {item.value: item.title for item in data.decisions}
+        assert backend == dict(DECISION_LABELS)
+        assert _frontend_decision_labels() == dict(DECISION_LABELS)
 
     def test_save_rules_generates_ids(self, monitor):
         request = _SaveRequest([{"name": "转存", "source_ids": [CHAT_A]}])

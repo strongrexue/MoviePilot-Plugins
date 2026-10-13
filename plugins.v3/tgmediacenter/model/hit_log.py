@@ -50,6 +50,21 @@ DECISIONS = (
     DECISION_FAILED,
 )
 
+# 决策中文文案：后端筛选选项（monitor.decision_options）的唯一来源。
+# 注意：前端 ``src/components/decision.js`` 的 DECISION_LABELS 必须与之逐字一致，
+# 否则筛选项文案与流水徽章文案会对不上（同一决策在两个页面显示不同中文）。
+DECISION_LABELS = {
+    DECISION_HIT: "命中推送",
+    DECISION_SKIPPED_NOT_MISSING: "媒体库已存在",
+    DECISION_SKIPPED_NOT_SUBSCRIBED: "未订阅",
+    DECISION_SKIPPED_UNRECOGNIZED: "无法识别",
+    DECISION_SKIPPED_KEYWORD: "关键词未命中",
+    DECISION_SKIPPED_NO_LINK: "无可推链接",
+    DECISION_SKIPPED_UNKNOWN: "无法判断",
+    DECISION_SKIPPED_EXTENSION: "扩展名未命中",
+    DECISION_FAILED: "处理失败",
+}
+
 
 class TgHitLog(Base):
     """监控命中流水。"""

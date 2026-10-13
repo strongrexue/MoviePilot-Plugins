@@ -677,8 +677,8 @@ class MessagePipeline:
 
     @staticmethod
     def _empty_cycle() -> Dict[str, Any]:
-        """本轮推送结果桶（成功 / 失败分目标归类）。"""
-        return {"pan115_done": [], "pan115_failed": [], "other_failed": []}
+        """本轮推送结果桶（只记 115 转存；通用转发不发通知）。"""
+        return {"pan115_done": [], "pan115_failed": []}
 
     @staticmethod
     def _task_label(task: Dict[str, Any]) -> str:
@@ -691,26 +691,25 @@ class MessagePipeline:
         return f"消息 #{task.get('message_id')}（{links} 条链接）"
 
     def _note_outcome(self, *, task: Dict[str, Any], via: str, outcome: str, message: str) -> None:
-        """把推送终态记进本轮通知桶（只记 done / failed，重试挂起的不算）。"""
+        """把 115 转存的推送终态记进本轮通知桶（重试挂起的不算）。
+
+        通知只覆盖 115 转存（用户明确要求）：通用转发（tg_forward）的成败
+        不进通知桶，转发结果去详情页 / 转发面板看。
+        """
         if outcome not in ("done", "failed"):
             return
-        name = str(via or "").strip().lower()
-        if outcome == "done":
-            if name == "pan115":
-                self._cycle["pan115_done"].append(self._task_label(task))
+        if str(via or "").strip().lower() != "pan115":
             return
-        entry = (self._task_label(task), str(message or ""))
-        if name == "pan115":
-            self._cycle["pan115_failed"].append(entry)
-        else:
-            self._cycle["other_failed"].append(entry)
+        if outcome == "done":
+            self._cycle["pan115_done"].append(self._task_label(task))
+            return
+        self._cycle["pan115_failed"].append((self._task_label(task), str(message or "")))
 
     def _flush_notifications(self) -> None:
-        """本轮推送结束后发汇总通知（成功 / 失败各一条，开关可关）。"""
+        """本轮 115 转存结束后发汇总通知（成功 / 失败各一条，开关可关）。"""
         cycle = self._cycle or {}
         done = list(cycle.get("pan115_done") or [])
         failed_115 = list(cycle.get("pan115_failed") or [])
-        failed_other = list(cycle.get("other_failed") or [])
 
         if done and self._notifier.enabled("notify_on_hit", True):
             text = "已转存到 115（" + str(len(done)) + " 条）：\n" + "\n".join(f"· {item}" for item in done[:8])
@@ -718,23 +717,20 @@ class MessagePipeline:
                 text += f"\n…另有 {len(done) - 8} 条"
             self._notifier.send(f"TG媒体中心 · 115 转存完成（{len(done)} 条）", text)
 
-        total = len(failed_115) + len(failed_other)
+        total = len(failed_115)
         if total and self._notifier.enabled("notify_on_error", True):
             credential_issue = any(_looks_like_auth_error(msg) for _, msg in failed_115)
-            lines: List[str] = []
-            if failed_115:
-                lines.append(f"115 推送失败 {len(failed_115)} 条：")
-                lines += [f"· {label} —— {msg}" for label, msg in failed_115[:6]]
-            if failed_other:
-                lines.append(f"其他推送失败 {len(failed_other)} 条：")
-                lines += [f"· {label} —— {msg}" for label, msg in failed_other[:6]]
-            shown = min(len(failed_115), 6) + min(len(failed_other), 6)
+            lines: List[str] = [
+                f"115 转存失败 {total} 条：",
+            ]
+            lines += [f"· {label} —— {msg}" for label, msg in failed_115[:6]]
+            shown = min(total, 6)
             if total > shown:
                 lines.append(f"…另有 {total - shown} 条")
             if credential_issue:
                 lines.append("看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
             self._notifier.send(
-                f"TG媒体中心 · 推送失败（{total} 条）",
+                f"TG媒体中心 · 115 转存失败（{total} 条）",
                 "\n".join(lines),
                 # 登录态失效属"需要人工介入且会长时间持续"的故障：6 小时内只提醒一次
                 key="pan115_credential" if credential_issue else "",

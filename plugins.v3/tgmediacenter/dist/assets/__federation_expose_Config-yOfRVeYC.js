@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.6.0';
+const FRONTEND_VERSION = '1.6.1';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -1797,7 +1797,7 @@ return (_ctx, _cache) => {
                 inset: ""
               }, {
                 label: _withCtx$4(() => [...(_cache[23] || (_cache[23] = [
-                  _createElementVNode$4("span", { class: "p115-switch-label" }, "推送成功通知", -1)
+                  _createElementVNode$4("span", { class: "p115-switch-label" }, "转存成功后通知我", -1)
                 ]))]),
                 _: 1
               }, 8, ["modelValue"]),
@@ -1809,17 +1809,19 @@ return (_ctx, _cache) => {
                 inset: ""
               }, {
                 label: _withCtx$4(() => [...(_cache[24] || (_cache[24] = [
-                  _createElementVNode$4("span", { class: "p115-switch-label" }, "推送失败通知", -1)
+                  _createElementVNode$4("span", { class: "p115-switch-label" }, "转存失败后通知我", -1)
                 ]))]),
                 _: 1
               }, 8, ["modelValue"])
             ]),
             _cache[25] || (_cache[25] = _createElementVNode$4("div", { class: "p115-hint" }, [
-              _createTextVNode$4(" 走 MoviePilot 通知渠道（与宿主通知设置一致）。"),
+              _createTextVNode$4(" 这两个开关"),
+              _createElementVNode$4("strong", null, "只管 115 转存"),
+              _createTextVNode$4("：监控 / 转发命中后往 115 转存（或离线）成功、失败时， 通过 MoviePilot 通知渠道给你发一条消息（用哪个渠道、发给谁，跟宿主的「通知」设置一致）。 "),
               _createElementVNode$4("strong", null, "成功"),
-              _createTextVNode$4("按批汇总一条（如「已转存 3 条」）； "),
+              _createTextVNode$4("按批汇总一条（如「已转存 3 条」）；"),
               _createElementVNode$4("strong", null, "失败"),
-              _createTextVNode$4("汇总失败条数与原因，115 登录态失效会额外提示重新扫码（同一故障 6 小时内只提醒一次）。 订阅回搜的结果通知不受这两个开关影响。 ")
+              _createTextVNode$4("汇总失败条数与原因， 115 登录态失效会附上重新扫码的引导（同一故障 6 小时内只提醒一次）。 通用转发不发送通知；订阅回搜发现缺失资源时的通知始终发送，不受这两个开关影响。 ")
             ], -1))
           ]),
           _: 1
@@ -1928,7 +1930,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-30a19665"]]);
+const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-48cb4acd"]]);
 
 const {resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3,toDisplayString:_toDisplayString$3,openBlock:_openBlock$3,createBlock:_createBlock$3,createCommentVNode:_createCommentVNode$3,createElementVNode:_createElementVNode$3,createElementBlock:_createElementBlock$3,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
 

@@ -1,10 +1,12 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from './api'
+import { decisionColor, decisionLabel } from './decision'
 
 /**
  * 插件详情页（运行详情）：TG / 115 / 缓存三张状态卡 + 监控与转发统计 +
- * 最近流水 + 快捷操作。
+ * 最近流水（只展示监控流水，转发流水在转发面板看）+ 快捷操作。
+ * 决策徽章显示中文文案（映射在 ./decision.js）。
  *
  * 数据只走一个聚合接口 ``/overview``（一次请求拿齐各模块状态与最近流水）：
  * 详情页是"总览"，逐个模块并发拉取既慢又容易半屏空白；后端对每个模块单独
@@ -155,17 +157,6 @@ function mediaName(item) {
     name += ` S${s}E${e}`
   }
   return name
-}
-
-function decisionColor(value) {
-  if (value === 'hit') return 'success'
-  if (value === 'failed') return 'error'
-  if (String(value || '').startsWith('skipped')) return 'default'
-  return 'primary'
-}
-
-function kindLabel(kind) {
-  return kind === 'forward' ? '转发' : '监控'
 }
 
 onMounted(async () => {
@@ -332,7 +323,7 @@ onUnmounted(() => {
         <VCardItem density="compact">
           <VCardTitle class="text-subtitle-2">最近流水</VCardTitle>
           <template #append>
-            <span class="text-caption text-medium-emphasis">监控与转发各取最近 10 条</span>
+            <span class="text-caption text-medium-emphasis">监控最近 10 条（转发流水在转发面板查看）</span>
           </template>
         </VCardItem>
         <VCardText>
@@ -340,7 +331,6 @@ onUnmounted(() => {
             <thead>
               <tr>
                 <th class="tg-nowrap">时间</th>
-                <th class="tg-nowrap">来源</th>
                 <th>规则</th>
                 <th>媒体</th>
                 <th class="tg-nowrap">决策</th>
@@ -350,27 +340,22 @@ onUnmounted(() => {
             <tbody>
               <tr v-for="item in recentHits" :key="`${item.kind}-${item.id}`">
                 <td class="tg-nowrap tg-dim">{{ fmtTime(item.created_at) }}</td>
-                <td class="tg-nowrap">
-                  <VChip size="x-small" variant="tonal" :color="item.kind === 'forward' ? 'info' : 'primary'" label>
-                    {{ kindLabel(item.kind) }}
-                  </VChip>
-                </td>
                 <td>{{ item.rule_name }}</td>
                 <td>{{ mediaName(item) }}</td>
                 <td class="tg-nowrap">
                   <VChip size="x-small" variant="tonal" :color="decisionColor(item.decision)" label>
-                    {{ item.decision }}
+                    {{ decisionLabel(item.decision) }}
                   </VChip>
                 </td>
                 <td class="tg-dim">{{ item.detail }}</td>
               </tr>
               <tr v-if="!recentHits.length">
-                <td colspan="6" class="tg-empty">暂无流水</td>
+                <td colspan="5" class="tg-empty">暂无流水</td>
               </tr>
             </tbody>
           </VTable>
           <div class="tg-note">
-            来源会话标题取自监听反查结果；完整流水与筛选在各模块的「设置」页查看。
+            会话标题取自监听反查结果；完整流水与筛选在「监控」设置页查看。
           </div>
         </VCardText>
       </VCard>

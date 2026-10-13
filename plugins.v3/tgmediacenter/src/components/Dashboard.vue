@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getPluginApi, unwrap } from './api'
+import { decisionLabel } from './decision'
 
 /**
  * 插件仪表盘卡片（宿主首页的模块卡片）。
  *
  * 与详情页（Page.vue）共用 ``/overview`` 聚合接口：卡片只放"一眼可见"的
- * 汇总（TG / 115 / 缓存 / 队列）+ 最近几条流水，详细排查去详情页。
+ * 汇总（TG / 115 / 缓存 / 队列）+ 最近几条监控流水，详细排查去详情页。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -117,11 +118,8 @@ onMounted(loadData)
         <div v-if="recent.length" class="tg-recent">
           <div class="tg-recent-title">最近流水</div>
           <div v-for="item in recent" :key="`${item.kind}-${item.id}`" class="tg-recent-row">
-            <VChip size="x-small" variant="tonal" :color="item.kind === 'forward' ? 'info' : 'primary'" label>
-              {{ item.kind === 'forward' ? '转发' : '监控' }}
-            </VChip>
             <span class="tg-recent-media">{{ mediaName(item) }}</span>
-            <span class="tg-recent-meta">{{ item.decision }} · {{ fmtTime(item.created_at) }}</span>
+            <span class="tg-recent-meta">{{ decisionLabel(item.decision) }} · {{ fmtTime(item.created_at) }}</span>
           </div>
         </div>
         <div v-else class="tg-empty">暂无命中记录：规则命中后会在这里出现。</div>

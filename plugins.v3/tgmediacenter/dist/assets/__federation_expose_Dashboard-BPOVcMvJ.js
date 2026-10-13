@@ -1,7 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, g as getPluginApi } from './_plugin-vue_export-helper--Uc9iKY6.js';
+import { d as decisionLabel } from './decision-pgT01eSj.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,unref:_unref} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "tg-chips" };
@@ -22,7 +23,7 @@ const {computed,onMounted,ref} = await importShared('vue');
  * 插件仪表盘卡片（宿主首页的模块卡片）。
  *
  * 与详情页（Page.vue）共用 ``/overview`` 聚合接口：卡片只放"一眼可见"的
- * 汇总（TG / 115 / 缓存 / 队列）+ 最近几条流水，详细排查去详情页。
+ * 汇总（TG / 115 / 缓存 / 队列）+ 最近几条监控流水，详细排查去详情页。
  */
 
 const _sfc_main = {
@@ -257,19 +258,8 @@ return (_ctx, _cache) => {
                             key: `${item.kind}-${item.id}`,
                             class: "tg-recent-row"
                           }, [
-                            _createVNode(_component_VChip, {
-                              size: "x-small",
-                              variant: "tonal",
-                              color: item.kind === 'forward' ? 'info' : 'primary',
-                              label: ""
-                            }, {
-                              default: _withCtx(() => [
-                                _createTextVNode(_toDisplayString(item.kind === 'forward' ? '转发' : '监控'), 1)
-                              ]),
-                              _: 2
-                            }, 1032, ["color"]),
                             _createElementVNode("span", _hoisted_3, _toDisplayString(mediaName(item)), 1),
-                            _createElementVNode("span", _hoisted_4, _toDisplayString(item.decision) + " · " + _toDisplayString(fmtTime(item.created_at)), 1)
+                            _createElementVNode("span", _hoisted_4, _toDisplayString(_unref(decisionLabel)(item.decision)) + " · " + _toDisplayString(fmtTime(item.created_at)), 1)
                           ]))
                         }), 128))
                       ]))
@@ -286,6 +276,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f18e7767"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cd94a12a"]]);
 
 export { Dashboard as default };

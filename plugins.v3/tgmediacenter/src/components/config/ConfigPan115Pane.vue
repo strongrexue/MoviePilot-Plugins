@@ -348,16 +348,18 @@ onUnmounted(qrStopPolling)
       <VCardText>
         <div class="p115-notify">
           <VSwitch v-model="form.notify_on_hit" color="primary" hide-details inset>
-            <template #label><span class="p115-switch-label">推送成功通知</span></template>
+            <template #label><span class="p115-switch-label">转存成功后通知我</span></template>
           </VSwitch>
           <VSwitch v-model="form.notify_on_error" color="primary" hide-details inset>
-            <template #label><span class="p115-switch-label">推送失败通知</span></template>
+            <template #label><span class="p115-switch-label">转存失败后通知我</span></template>
           </VSwitch>
         </div>
         <div class="p115-hint">
-          走 MoviePilot 通知渠道（与宿主通知设置一致）。<strong>成功</strong>按批汇总一条（如「已转存 3 条」）；
-          <strong>失败</strong>汇总失败条数与原因，115 登录态失效会额外提示重新扫码（同一故障 6 小时内只提醒一次）。
-          订阅回搜的结果通知不受这两个开关影响。
+          这两个开关<strong>只管 115 转存</strong>：监控 / 转发命中后往 115 转存（或离线）成功、失败时，
+          通过 MoviePilot 通知渠道给你发一条消息（用哪个渠道、发给谁，跟宿主的「通知」设置一致）。
+          <strong>成功</strong>按批汇总一条（如「已转存 3 条」）；<strong>失败</strong>汇总失败条数与原因，
+          115 登录态失效会附上重新扫码的引导（同一故障 6 小时内只提醒一次）。
+          通用转发不发送通知；订阅回搜发现缺失资源时的通知始终发送，不受这两个开关影响。
         </div>
       </VCardText>
     </VCard>

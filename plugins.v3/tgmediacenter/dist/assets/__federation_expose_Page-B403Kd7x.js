@@ -1,7 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper--Uc9iKY6.js';
+import { a as decisionColor, d as decisionLabel } from './decision-pgT01eSj.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,renderList:_renderList} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,renderList:_renderList,unref:_unref} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "tg-grid" };
@@ -13,15 +14,15 @@ const _hoisted_3 = {
 const _hoisted_4 = { class: "tg-actions" };
 const _hoisted_5 = { class: "tg-nowrap tg-dim" };
 const _hoisted_6 = { class: "tg-nowrap" };
-const _hoisted_7 = { class: "tg-nowrap" };
-const _hoisted_8 = { class: "tg-dim" };
-const _hoisted_9 = { key: 0 };
+const _hoisted_7 = { class: "tg-dim" };
+const _hoisted_8 = { key: 0 };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
 /**
  * 插件详情页（运行详情）：TG / 115 / 缓存三张状态卡 + 监控与转发统计 +
- * 最近流水 + 快捷操作。
+ * 最近流水（只展示监控流水，转发流水在转发面板看）+ 快捷操作。
+ * 决策徽章显示中文文案（映射在 ./decision.js）。
  *
  * 数据只走一个聚合接口 ``/overview``（一次请求拿齐各模块状态与最近流水）：
  * 详情页是"总览"，逐个模块并发拉取既慢又容易半屏空白；后端对每个模块单独
@@ -172,17 +173,6 @@ function mediaName(item) {
     name += ` S${s}E${e}`;
   }
   return name
-}
-
-function decisionColor(value) {
-  if (value === 'hit') return 'success'
-  if (value === 'failed') return 'error'
-  if (String(value || '').startsWith('skipped')) return 'default'
-  return 'primary'
-}
-
-function kindLabel(kind) {
-  return kind === 'forward' ? '转发' : '监控'
 }
 
 onMounted(async () => {
@@ -653,7 +643,7 @@ return (_ctx, _cache) => {
             default: _withCtx(() => [
               _createVNode(_component_VCardItem, { density: "compact" }, {
                 append: _withCtx(() => [...(_cache[34] || (_cache[34] = [
-                  _createElementVNode("span", { class: "text-caption text-medium-emphasis" }, "监控与转发各取最近 10 条", -1)
+                  _createElementVNode("span", { class: "text-caption text-medium-emphasis" }, "监控最近 10 条（转发流水在转发面板查看）", -1)
                 ]))]),
                 default: _withCtx(() => [
                   _createVNode(_component_VCardTitle, { class: "text-subtitle-2" }, {
@@ -675,7 +665,6 @@ return (_ctx, _cache) => {
                       _cache[36] || (_cache[36] = _createElementVNode("thead", null, [
                         _createElementVNode("tr", null, [
                           _createElementVNode("th", { class: "tg-nowrap" }, "时间"),
-                          _createElementVNode("th", { class: "tg-nowrap" }, "来源"),
                           _createElementVNode("th", null, "规则"),
                           _createElementVNode("th", null, "媒体"),
                           _createElementVNode("th", { class: "tg-nowrap" }, "决策"),
@@ -688,41 +677,28 @@ return (_ctx, _cache) => {
                             key: `${item.kind}-${item.id}`
                           }, [
                             _createElementVNode("td", _hoisted_5, _toDisplayString(fmtTime(item.created_at)), 1),
+                            _createElementVNode("td", null, _toDisplayString(item.rule_name), 1),
+                            _createElementVNode("td", null, _toDisplayString(mediaName(item)), 1),
                             _createElementVNode("td", _hoisted_6, [
                               _createVNode(_component_VChip, {
                                 size: "x-small",
                                 variant: "tonal",
-                                color: item.kind === 'forward' ? 'info' : 'primary',
+                                color: _unref(decisionColor)(item.decision),
                                 label: ""
                               }, {
                                 default: _withCtx(() => [
-                                  _createTextVNode(_toDisplayString(kindLabel(item.kind)), 1)
+                                  _createTextVNode(_toDisplayString(_unref(decisionLabel)(item.decision)), 1)
                                 ]),
                                 _: 2
                               }, 1032, ["color"])
                             ]),
-                            _createElementVNode("td", null, _toDisplayString(item.rule_name), 1),
-                            _createElementVNode("td", null, _toDisplayString(mediaName(item)), 1),
-                            _createElementVNode("td", _hoisted_7, [
-                              _createVNode(_component_VChip, {
-                                size: "x-small",
-                                variant: "tonal",
-                                color: decisionColor(item.decision),
-                                label: ""
-                              }, {
-                                default: _withCtx(() => [
-                                  _createTextVNode(_toDisplayString(item.decision), 1)
-                                ]),
-                                _: 2
-                              }, 1032, ["color"])
-                            ]),
-                            _createElementVNode("td", _hoisted_8, _toDisplayString(item.detail), 1)
+                            _createElementVNode("td", _hoisted_7, _toDisplayString(item.detail), 1)
                           ]))
                         }), 128)),
                         (!recentHits.value.length)
-                          ? (_openBlock(), _createElementBlock("tr", _hoisted_9, [...(_cache[35] || (_cache[35] = [
+                          ? (_openBlock(), _createElementBlock("tr", _hoisted_8, [...(_cache[35] || (_cache[35] = [
                               _createElementVNode("td", {
-                                colspan: "6",
+                                colspan: "5",
                                 class: "tg-empty"
                               }, "暂无流水", -1)
                             ]))]))
@@ -731,7 +707,7 @@ return (_ctx, _cache) => {
                     ]),
                     _: 1
                   }),
-                  _cache[37] || (_cache[37] = _createElementVNode("div", { class: "tg-note" }, " 来源会话标题取自监听反查结果；完整流水与筛选在各模块的「设置」页查看。 ", -1))
+                  _cache[37] || (_cache[37] = _createElementVNode("div", { class: "tg-note" }, " 会话标题取自监听反查结果；完整流水与筛选在「监控」设置页查看。 ", -1))
                 ]),
                 _: 1
               })
@@ -748,6 +724,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-73f20d86"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c32bb685"]]);
 
 export { Page as default };

@@ -141,20 +141,20 @@ def _safe_status(plugin, attr: str, fallback: Any) -> Any:
 
 
 def _recent_hits(plugin, limit: int = 10) -> List[dict]:
-    """监控 + 转发的最近流水（同表分栏，合并按时间倒序取前 N 条）。"""
-    items: List[dict] = []
-    for attr, module_kind in (("_monitor", "monitor"), ("_forward", "forward")):
-        module = getattr(plugin, attr, None)
-        if module is None:
-            continue
-        try:
-            page = module.hits(page=1, page_size=max(1, int(limit)), kind=module_kind)
-        except Exception as err:  # pragma: no cover - 单边失败不影响另一边
-            logger.debug(f"读取 {attr} 流水失败：{err}")
-            continue
-        for item in page.get("items") or []:
-            if isinstance(item, dict):
-                items.append(item)
+    """监控模块的最近流水（只展示监控；转发流水去「转发」设置页看）。
+
+    仪表盘 / 详情页的"最近流水"定位是资源监控结果总览，转发记录混在一起
+    反而干扰排查，所以这里只取监控流水。
+    """
+    module = getattr(plugin, "_monitor", None)
+    if module is None:
+        return []
+    try:
+        page = module.hits(page=1, page_size=max(1, int(limit)), kind="monitor")
+    except Exception as err:  # pragma: no cover - 单边失败不影响整页
+        logger.debug(f"读取监控流水失败：{err}")
+        return []
+    items = [item for item in (page.get("items") or []) if isinstance(item, dict)]
     items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
     return items[: max(1, int(limit))]
 

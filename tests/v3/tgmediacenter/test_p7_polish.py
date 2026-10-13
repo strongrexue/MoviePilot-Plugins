@@ -2,8 +2,8 @@
 
 覆盖：
 - ``core.notify.Notifier``：正常发送 / 按 key 节流 / 渠道缺失 / 渠道异常吞掉 / 开关读取；
-- 流水线的推送结果汇总通知：成功汇总、失败汇总、开关关闭、登录态失效引导与节流；
-- ``/overview`` 聚合：各模块状态拼装、单模块异常容错、最近流水合并排序。
+- 流水线的 115 转存汇总通知：成功汇总、失败汇总、开关关闭、登录态失效引导与节流、转发不通知；
+- ``/overview`` 聚合：各模块状态拼装、单模块异常容错、最近流水（仅监控）排序。
 
 宿主依赖（通知渠道 / 插件 DB / 各模块）用可注入替身驱动，真机行为以部署验证为准。
 """
@@ -90,7 +90,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.6.0"
+        self.plugin_version = "1.6.1"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -320,7 +320,7 @@ class TestPushNotifications:
         pipeline._execute_push(task)
         pipeline._flush_notifications()
         assert len(push_env.messages) == 1
-        assert "推送失败" in push_env.messages[0]["title"]
+        assert "115 转存失败" in push_env.messages[0]["title"]
         assert "分享链接已失效" in push_env.messages[0]["text"]
 
     def test_credential_failure_adds_guidance_and_throttles(self, push_env, monkeypatch):
@@ -376,7 +376,8 @@ class TestPushNotifications:
         assert len(push_env.messages) == 1
         assert "115 转存完成" in push_env.messages[0]["title"]
 
-    def test_forward_failure_goes_to_other_bucket(self, push_env, monkeypatch):
+    def test_forward_failure_not_notified(self, push_env, monkeypatch):
+        """通用转发不发通知（通知只覆盖 115 转存），转发结果去详情页看。"""
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
         target = _Target("tg_forward", ok=False, message="任务缺少消息定位", retryable=False)
         monkeypatch.setattr(pipeline_module, "resolve_destination",
@@ -385,8 +386,21 @@ class TestPushNotifications:
         pipeline._cycle = pipeline._empty_cycle()
         pipeline._execute_push(task)
         pipeline._flush_notifications()
-        assert len(push_env.messages) == 1
-        assert "其他推送失败" in push_env.messages[0]["text"]
+        assert push_env.messages == []
+        assert pipeline._cycle.get("other_failed") is None
+
+    def test_forward_success_also_not_notified(self, push_env, monkeypatch):
+        """转发成功同样不进通知桶（桶里只有 pan115 两类）。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("tg_forward", ok=True, message="转发完成")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env, destination="tg_forward")
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        pipeline._flush_notifications()
+        assert push_env.messages == []
+        assert pipeline._cycle == {"pan115_done": [], "pan115_failed": []}
 
 
 # ---------------------------------------------------------------------- /overview
@@ -396,12 +410,10 @@ def test_overview_aggregates_modules():
     """聚合接口把各模块状态与最近流水一次返回。"""
     hits = {
         "items": [
-            {"id": 2, "kind": "forward", "rule_name": "资源转发", "decision": "hit",
-             "created_at": "2026-10-13T14:34:25", "title": "青与碧", "year": "2026"},
             {"id": 1, "kind": "monitor", "rule_name": "资源转存", "decision": "hit",
              "created_at": "2026-10-13T14:00:00", "title": "青与碧", "year": "2026"},
         ],
-        "total": 2,
+        "total": 1,
     }
     plugin = OverviewPlugin(
         _credentials=ModuleStub({"connected": True, "authorized": True, "phone_masked": "138****8888"}),
@@ -411,11 +423,10 @@ def test_overview_aggregates_modules():
         _forward=ModuleStub({"enabled": True, "rules_count": 2}),
     )
     plugin._monitor.hits = lambda **kwargs: hits
-    plugin._forward.hits = lambda **kwargs: hits
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.6.0"
+    assert data.plugin_version == "1.6.1"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"
@@ -425,8 +436,8 @@ def test_overview_aggregates_modules():
     assert data.notify.on_hit is True and data.notify.on_error is False
 
 
-def test_overview_recent_hits_sorted_and_limited():
-    """最近流水：监控 + 转发合并后按时间倒序，且不超过上限。"""
+def test_overview_recent_hits_monitor_only():
+    """最近流水只取监控（转发流水不进总览），按时间倒序且不超过上限。"""
     monitor_hits = {
         "items": [
             {"id": 1, "kind": "monitor", "created_at": "2026-10-13T10:00:00"},
@@ -436,10 +447,9 @@ def test_overview_recent_hits_sorted_and_limited():
     }
     forward_hits = {
         "items": [
-            {"id": 2, "kind": "forward", "created_at": "2026-10-13T11:00:00"},
-            {"id": 4, "kind": "forward", "created_at": "2026-10-13T13:00:00"},
+            {"id": 2, "kind": "forward", "created_at": "2026-10-13T13:00:00"},
         ],
-        "total": 2,
+        "total": 1,
     }
     plugin = OverviewPlugin(
         _credentials=ModuleStub({}),
@@ -453,7 +463,8 @@ def test_overview_recent_hits_sorted_and_limited():
 
     data = controller_api.api_overview(plugin).data
     ids = [item.id for item in data.recent_hits]
-    assert ids == [4, 3, 2, 1]
+    assert ids == [3, 1]
+    assert all(item.kind == "monitor" for item in data.recent_hits)
 
 
 def test_overview_survives_module_failure():

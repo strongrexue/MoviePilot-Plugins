@@ -192,6 +192,122 @@ class FakeMediaServerHelper:
         return iter([FakeMediaServerService(self._module)])
 
 
+# ---------------------------------------------- 媒体库查询分层（1.4.6）用的替身
+
+
+class FakeExist:
+    """宿主 ``ExistMediaInfo`` 的最小替身。"""
+
+    def __init__(self, seasons=None, itemid="", server="emby") -> None:
+        self.seasons = dict(seasons or {})
+        self.itemid = itemid
+        self.server = server
+
+
+class FakeLibrary:
+    def __init__(self, id="lib-1", type="电视剧", name="剧集") -> None:
+        self.id = id
+        self.item_id = id
+        self.type = type
+        self.name = name
+
+
+class FakeLibraryItem:
+    """媒体库条目（``get_items`` 的产出）。"""
+
+    def __init__(self, item_id, title, year="", item_type="Series", original_title="") -> None:
+        self.item_id = item_id
+        self.id = item_id
+        self.title = title
+        self.original_title = original_title
+        self.year = year
+        self.item_type = item_type
+
+
+class FakeItemInfo:
+    def __init__(self, year="") -> None:
+        self.year = year
+
+
+class FakeEmbyClient:
+    """Emby 客户端替身：只带分层查询用到的公开方法。"""
+
+    def __init__(self, items=None, item_years=None, episodes=("", {}), libraries=None) -> None:
+        self._items = list(items or [])
+        self._item_years = dict(item_years or {})
+        self._episodes = episodes
+        self._libraries = [FakeLibrary()] if libraries is None else list(libraries)
+        self.library_calls = 0
+        self.library_items_calls = 0
+        self.episode_probe_calls = 0
+
+    def get_librarys(self, *args, **kwargs):
+        self.library_calls += 1
+        return list(self._libraries)
+
+    def get_items_count(self, parent, *args, **kwargs):
+        return len(self._items)
+
+    def get_items(self, parent, *args, **kwargs):
+        self.library_items_calls += 1
+        return iter(list(self._items))
+
+    def get_iteminfo(self, itemid):
+        year = self._item_years.get(str(itemid))
+        return FakeItemInfo(year=year) if year is not None else None
+
+    def get_tv_episodes(self, **kwargs):
+        self.episode_probe_calls += 1
+        return self._episodes
+
+
+class FakeHelperWithInstance:
+    """把指定模块 + 自造客户端实例装配成 MediaServerHelper。"""
+
+    def __init__(self, module, instance) -> None:
+        self._module = module
+        self._instance = instance
+
+    def iterate_module_instances(self):
+        class _Service:
+            name = "emby"
+            module = self._module
+            instance = self._instance
+
+        return iter([_Service()])
+
+
+class FakeYearSensitiveModule:
+    """真机 Emby 行为镜像：带年份查不到，不带年份才查得到。"""
+
+    def __init__(self, exist=None) -> None:
+        self._exist = exist
+        self.calls = 0
+        self.years = []
+
+    def media_exists(self, mediainfo, itemid=None, server=None):
+        self.calls += 1
+        self.years.append(getattr(mediainfo, "year", None))
+        if itemid:
+            return self._exist
+        return self._exist if not getattr(mediainfo, "year", None) else None
+
+
+class FakeLibraryOnlyModule:
+    """只在给定 itemid 时命中（模拟"必须靠条目索引才找得到"的库）。"""
+
+    def __init__(self, exist=None) -> None:
+        self._exist = exist
+        self.calls = 0
+        self.itemids = []
+
+    def media_exists(self, mediainfo, itemid=None, server=None):
+        self.calls += 1
+        self.itemids.append(itemid)
+        return self._exist if itemid else None
+
+
+
 @pytest.fixture()
 def fake_metavideo(monkeypatch):
     """给识别服务注入可控制的 MetaVideo 替身。"""
@@ -471,7 +587,9 @@ class TestMatcher:
         result = MediaMatcher().is_missing(title="测试电影", year="2023", media_type="movie")
         assert result["missing"] is True
         assert result["source"] == "mediaserver"
-        assert module.calls == 1
+        # 1.4.6 起：按年份未命中会再按"仅片名"复核一次（宿主按年份精确匹配，
+        # 资源名年份与库内年份常有偏差），因此这里是 2 次而不是 1 次
+        assert module.calls == 2
 
     def test_require_subscription_skipped_when_queries_unavailable(self, monkeypatch):
         """订阅数据源不可用时门禁不生效（没配订阅不能全盘拦截），仍按媒体库判断。"""
@@ -513,7 +631,8 @@ class TestMatcher:
         result = matcher.is_missing(title="测试电影", year="2023", media_type="movie")
         assert result["missing"] is True
         assert result["source"] == "mediaserver"
-        assert module.calls == 1
+        # 年份未命中 → 再按"仅片名"复核一次（见 test_require_subscription_off_...）
+        assert module.calls == 2
 
     def test_mediaserver_tv_episode_present_and_missing(self, monkeypatch):
         monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
@@ -674,6 +793,116 @@ class TestMatcher:
     def test_capabilities_do_not_raise(self):
         caps = MediaMatcher().capabilities()
         assert "subscriptions" in caps and "mediaserver" in caps
+
+
+class TestMediaLibraryLayers:
+    """媒体库查询分层（1.4.6）：宿主 Emby 系按"片名+年份"精确匹配，
+    资源名年份/名称与库内不一致时会被判成"库里没有"→ 整部剧全推出去。
+    分层放宽必须能兜住，且放宽的命中不能更松到误判"已有"。"""
+
+    def _patch(self, monkeypatch, module, instance):
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+        monkeypatch.setattr(
+            matcher_module, "MediaServerHelper", lambda: FakeHelperWithInstance(module, instance)
+        )
+
+    def test_year_mismatch_falls_back_to_title_only(self, monkeypatch):
+        """资源名年份（2026）与库内刮削年份不一致：仅片名命中即算已有。"""
+        exist = FakeExist({1: list(range(1, 11))})
+        module = FakeYearSensitiveModule(exist)
+        self._patch(monkeypatch, module, FakeEmbyClient())
+        result = MediaMatcher().is_missing(
+            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=5
+        )
+        assert result["missing"] is False
+        assert result["source"] == "mediaserver"
+        assert module.years == ["2026", None]  # 先按年份、再放宽到仅片名
+
+    def test_title_only_hit_rejected_when_library_year_differs(self, monkeypatch):
+        """同名不同年（翻拍）：仅片名命中但库内年份不符 → 不采用，避免漏推。"""
+        exist = FakeExist({1: list(range(1, 11))}, itemid="s1")
+        module = FakeYearSensitiveModule(exist)
+        instance = FakeEmbyClient(item_years={"s1": "2019"}, episodes=("", {}))
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="红楼梦", year="2026", media_type="tv", season=1, episode=5
+        )
+        assert result["missing"] is True
+        assert "2019" in result["detail"]
+
+    def test_library_index_matches_suffixed_name(self, monkeypatch):
+        """库里的名字带后缀（"林间鸽踪 (2026)"），精确匹配失败 → 条目索引兜底。"""
+        exist = FakeExist({1: list(range(1, 11))})
+        module = FakeLibraryOnlyModule(exist)
+        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "林间鸽踪 (2026)", year="2026")])
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=5
+        )
+        assert result["missing"] is False
+        assert module.itemids[-1] == "s1"  # 用条目 ID 复核过
+
+    def test_library_index_requires_compatible_year(self, monkeypatch):
+        exist = FakeExist({1: list(range(1, 11))})
+        module = FakeLibraryOnlyModule(exist)
+        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "红楼梦", year="1987")])
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="红楼梦", year="2026", media_type="tv", season=1, episode=5
+        )
+        assert result["missing"] is True
+        assert all(itemid != "s1" for itemid in module.itemids)
+
+    def test_library_index_built_once_within_ttl(self, monkeypatch):
+        module = FakeLibraryOnlyModule(None)
+        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "林间鸽踪", year="2026")])
+        self._patch(monkeypatch, module, instance)
+        matcher = MediaMatcher()
+        matcher.is_missing(title="林间鸽踪", year="2026", media_type="tv", season=1, episode=1)
+        matcher.is_missing(title="另一部剧", year="2026", media_type="tv", season=1, episode=1)
+        assert instance.library_calls == 1  # 索引有 TTL 缓存
+
+    def test_library_index_skipped_when_too_large(self, monkeypatch):
+        module = FakeLibraryOnlyModule(FakeExist({1: [1]}))
+        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "林间鸽踪", year="2026")])
+        monkeypatch.setattr(matcher_module, "_LIBRARY_INDEX_MAX_ITEMS", 0)
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=1
+        )
+        assert result["missing"] is True
+        assert instance.library_items_calls == 0
+
+    def test_diagnosis_reports_series_without_episodes(self, monkeypatch):
+        """库里有条目但一集都没入库：原因要写清楚（否则用户只看到"没找到"）。"""
+        module = FakeLibraryOnlyModule(None)
+        instance = FakeEmbyClient(episodes=("s1", {}))
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=1
+        )
+        assert result["missing"] is True
+        assert "没有任何已入库的集" in result["detail"]
+
+    def test_diagnosis_reports_no_matching_series(self, monkeypatch):
+        module = FakeLibraryOnlyModule(None)
+        instance = FakeEmbyClient(episodes=("", {}))
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=1
+        )
+        assert "没有同名剧集条目" in result["detail"]
+
+    def test_diagnosis_survives_instance_without_probe(self, monkeypatch):
+        """实例没有探测方法时不能炸（不同媒体服务器方法面不同）。"""
+        module = FakeLibraryOnlyModule(None)
+        self._patch(monkeypatch, module, _FakeEmbyInstance())
+        result = MediaMatcher().is_missing(
+            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=1
+        )
+        assert result["missing"] is True
+        assert result["source"] == "mediaserver"
 
 
 # ---------------------------------------------------------------------- 冷却门

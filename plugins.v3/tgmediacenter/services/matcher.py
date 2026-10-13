@@ -5,6 +5,11 @@
    ``module.media_exists(MediaInfo(...))`` → None 表示不存在；剧集返回
    ``seasons: {季: [已存在集]}``，据此逐集比对目标集是否缺失。
    —— "媒体库里到底有没有这一集"只有它说了算。
+   媒体库查询按**逐层放宽**进行（见 ``_fetch_media_exists``）：片名+年份 →
+   仅片名 → 媒体库条目索引模糊匹配。原因是宿主 Emby/Jellyfin 系按
+   ``Name == 片名 and ProductionYear == 年份`` **精确**匹配，而资源名里的年份
+   与媒体库刮削年份常常对不上（未刮削的条目更甚），真机表现为"库里明明有，
+   插件却说没有"→ 回搜把整部剧全推出去（1.4.5 真机踩坑）。
 2. **订阅快照（门禁 + 兜底）**：``list_subscriptions()`` 按标题+年份+季匹配订阅。
    - ``lack_episode`` 为 0 → 可直接判"不缺"（省掉一次媒体库查询的快速通道）；
    - 开启「仅缺失」且资源未订阅 → 判"未订阅"跳过（方案 A 门禁）；
@@ -27,7 +32,7 @@ from __future__ import annotations
 import re
 import threading
 import time
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from app.sdk.logging import logger
 
@@ -63,6 +68,10 @@ _NORMALIZE_RE = re.compile(r"[\s·・:：\-_－—\-]+")
 _SUB_PAGE_SIZE = 200
 # 翻页硬上限，防异常宿主死循环
 _SUB_MAX_PAGES = 100
+# 媒体库条目索引的缓存 TTL（秒）
+_LIBRARY_INDEX_TTL = 300
+# 索引规模上限：媒体库条目多于该值时不做索引兜底（避免拉取超大响应）
+_LIBRARY_INDEX_MAX_ITEMS = 5000
 
 
 def iter_subscriptions() -> "Iterator[Any]":
@@ -115,15 +124,65 @@ def _as_int(value: Any) -> Optional[int]:
         return None
 
 
-def _titles_match(left: str, right: str) -> bool:
-    """两个标题是否指向同一媒体（相等或一方包含另一方）。"""
+def _title_score(left: Any, right: Any) -> int:
+    """归一标题匹配打分：2=完全相等，1=一方包含另一方，0=不匹配。"""
     a, b = _normalize_title(left), _normalize_title(right)
     if not a or not b:
-        return False
+        return 0
     if a == b:
-        return True
-    # 季/集后缀等差异常见，包含关系足够宽松地覆盖中英文标题混用
-    return a in b or b in a
+        return 2
+    return 1 if (a in b or b in a) else 0
+
+
+def _titles_match(left: str, right: str) -> bool:
+    """两个标题是否指向同一媒体（相等或一方包含另一方）。"""
+    return _title_score(left, right) > 0
+
+
+def _safe_call(target: Any, method: str, *args: Any, **kwargs: Any) -> Any:
+    """调用宿主对象的方法；方法不存在或抛异常一律返回 None。
+
+    媒体服务器"探测"属于尽力而为：不同宿主版本/不同服务器类型的方法面不同，
+    任何一步失败都不该把主流程（缺失判断）带崩。
+    """
+    func = getattr(target, method, None)
+    if not callable(func):
+        return None
+    try:
+        return func(*args, **kwargs)
+    except Exception as err:  # pragma: no cover - 依赖宿主实现，按不可用处理
+        logger.debug(f"调用媒体服务器 {method} 失败（忽略）：{err}")
+        return None
+
+
+def _safe_list(target: Any, method: str, *args: Any) -> list:
+    """调用宿主方法并物化成 list（生成器内部异常也算失败）。"""
+    result = _safe_call(target, method, *args)
+    if result is None:
+        return []
+    try:
+        return list(result)
+    except Exception as err:  # pragma: no cover
+        logger.debug(f"展开媒体服务器 {method} 结果失败（忽略）：{err}")
+        return []
+
+
+def _library_kind(value: Any) -> str:
+    """媒体库类型归一：``电视剧/tvshows`` → tv，``电影/movies`` → movie。"""
+    text = str(getattr(value, "value", value) or "").strip().lower()
+    if not text:
+        return ""
+    if "剧" in text or text in ("tv", "tvshows", "series"):
+        return "tv"
+    if "电影" in text or text in ("movie", "movies", "film"):
+        return "movie"
+    return ""
+
+
+def _seasons_of(exist: Any) -> dict:
+    """从 ``ExistMediaInfo`` 取季集表（类型不符按空处理）。"""
+    seasons = getattr(exist, "seasons", None) or {}
+    return seasons if isinstance(seasons, dict) else {}
 
 
 def _years_compatible(left: Any, right: Any) -> bool:
@@ -158,8 +217,11 @@ class MediaMatcher:
         self._ttl = max(1, int(ttl_seconds or _CACHE_TTL_SECONDS))
         self._lock = threading.Lock()
         self._cache: Dict[str, Dict[str, Any]] = {}
-        # 媒体服务器查询缓存：键 = 片名|年份|类型|季，值 = (queried, exists, seasons)
+        # 媒体服务器查询缓存：键 = 片名|年份|类型|季，值 = (queried, exists, seasons, note)
         self._media_cache: Dict[str, Dict[str, Any]] = {}
+        # 媒体库条目索引（归一标题 → 条目列表），仅在精确查询未命中时按需构建
+        self._library_index: Optional[Dict[str, List[dict]]] = None
+        self._library_index_at: float = 0.0
 
     # ------------------------------------------------------------------ 能力探测
 
@@ -362,7 +424,7 @@ class MediaMatcher:
         episode_end: Optional[int] = None,
     ) -> Optional[dict]:
         """查询媒体服务器；返回判断字典，不可用时返回 None。"""
-        queried, exists, seasons = self._lookup_media(
+        queried, exists, seasons, note = self._lookup_media(
             title=title, year=year, media_type=media_type, season=season
         )
         if not queried:
@@ -372,7 +434,9 @@ class MediaMatcher:
                 "missing": True,
                 "reason": "媒体库中不存在",
                 "source": "mediaserver",
-                "detail": f"「{title}」在已配置媒体服务器中未找到",
+                "note": note,
+                "detail": f"「{title}」在已配置媒体服务器中未找到"
+                + (f"（{note}）" if note else ""),
             }
         if media_type == "tv" and season is not None:
             owned = self._episodes_of(seasons, season)
@@ -417,8 +481,8 @@ class MediaMatcher:
 
     def _lookup_media(
         self, *, title: str, year: str, media_type: str, season: Optional[int]
-    ) -> "tuple[bool, bool, dict]":
-        """按「片名+年份+类型+季」查询媒体库，返回 ``(是否查到, 是否存在, 季集表)``。
+    ) -> "tuple[bool, bool, dict, str]":
+        """按「片名+年份+类型+季」查询媒体库，返回 ``(是否查到, 是否存在, 季集表, 说明)``。
 
         调用方会逐集调用本方法（一条消息一集），但``media_exists`` 是按整部剧
         查询的——没有这层缓存，34 条候选就会打 34 次同样的媒体服务器请求。
@@ -444,37 +508,276 @@ class MediaMatcher:
 
     def _fetch_media_exists(
         self, *, title: str, year: str, media_type: str, season: Optional[int]
-    ) -> "tuple[bool, bool, dict]":
-        """真正调用媒体服务器（无缓存）；异常与不可用都返回 ``queried=False``。"""
+    ) -> "tuple[bool, bool, dict, str]":
+        """真正调用媒体服务器（无缓存）。
+
+        返回 ``(queried, exists, seasons, note)``，``note`` 是未命中时的可读原因。
+        ``queried=False`` 表示查不动（未配置实例 / 调用异常），调用方据此退回
+        "无法判断"，绝不能当成"不存在"。
+
+        查询**逐层放宽**，任一命中即返回：
+
+        1. **片名 + 年份**：宿主原生口径（MP 自己也是这么查的）；
+        2. **仅片名（忽略年份）**：宿主 Emby/Jellyfin 系按
+           ``Name == 片名 and ProductionYear == 年份`` 精确匹配，资源名里的年份
+           与媒体库刮削年份常有偏差；命中后用 ``get_iteminfo`` 复核库中年份，
+           同名不同年的翻拍剧不会被误判"已有"；
+        3. **媒体库条目索引模糊匹配**（归一标题相等或互相包含）：兜住
+           "库里的名字比资源名多后缀"（如 ``林间鸽踪 (2026)``、双语标题），
+           要求年份相容，拿到 ``item_id`` 后用 ``media_exists(itemid=...)`` 复核。
+        """
         if not MEDIASERVER_AVAILABLE:
-            return (False, False, {})
+            return (False, False, {}, "")
+        module = None
+        instances: List[tuple] = []
         try:
             helper = MediaServerHelper()
-            # 注意：iterate_module_instances 产出的 ServiceInfo 里，带 media_exists 的
-            # 是 **module**（媒体服务器模块基类实例，其内部会遍历该类型的全部服务）；
-            # instance 是具体某个服务器实例（如 Emby 客户端对象），没有该方法——
-            # 取错层级会报 "'Emby' object has no attribute 'media_exists'"。
-            module = None
             for service in helper.iterate_module_instances():
-                candidate = getattr(service, "module", None) or getattr(service, "instance", None)
-                if candidate is not None and hasattr(candidate, "media_exists"):
-                    module = candidate
-                    break
-            if module is None:
-                # 没有可用实例：宿主 media_exists 会因循环体不执行而返回 None，
-                # 若在这里当成"不存在"，就会把全部资源误判为缺失
-                return (False, False, {})
-            mediainfo = self._build_media_info(
-                title=title, year=year, media_type=media_type, season=season
-            )
-            exist = module.media_exists(mediainfo)
+                instance = getattr(service, "instance", None)
+                if instance is not None:
+                    instances.append((str(getattr(service, "name", "") or ""), instance))
+                if module is None:
+                    # iterate_module_instances 产出的 ServiceInfo 里，带 media_exists 的
+                    # 是 **module**（媒体服务器模块基类实例，其内部会遍历该类型的全部服务）；
+                    # instance 是具体某个服务器实例（如 Emby 客户端对象），没有该方法——
+                    # 取错层级会报 "'Emby' object has no attribute 'media_exists'"。
+                    candidate = getattr(service, "module", None) or instance
+                    if candidate is not None and hasattr(candidate, "media_exists"):
+                        module = candidate
         except Exception as err:
             logger.info(f"查询媒体服务器存在性失败（按无法判断处理）：{err}")
-            return (False, False, {})
-        if exist is None:
-            return (True, False, {})
-        seasons = getattr(exist, "seasons", None) or {}
-        return (True, True, seasons if isinstance(seasons, dict) else {})
+            return (False, False, {}, "")
+        if module is None:
+            # 没有可用实例：宿主 media_exists 会因循环体不执行而返回 None，
+            # 若在这里当成"不存在"，就会把全部资源误判为缺失
+            return (False, False, {}, "")
+
+        # 1) 片名 + 年份；2) 仅片名
+        plans: List[tuple] = [("片名+年份", year)]
+        if year:
+            plans.append(("仅片名", ""))
+        rejected = ""
+        for label, attempt_year in plans:
+            ok, exist = self._call_media_exists(
+                module, title=title, year=attempt_year, media_type=media_type, season=season
+            )
+            if not ok:
+                return (False, False, {}, "")
+            if exist is None:
+                continue
+            if label == "仅片名":
+                lib_year, accepted = self._verify_year(instances, exist, year)
+                if not accepted:
+                    rejected = (
+                        f"仅按片名命中但库中年份为 {lib_year}（资源年份 {year}），已忽略"
+                    )
+                    logger.info(f"媒体库查询：「{title}」{rejected}")
+                    break
+                logger.info(
+                    f"媒体库查询：「{title}」按年份 {year} 未命中，改用仅片名命中"
+                )
+            return (True, True, _seasons_of(exist), "")
+
+        # 3) 媒体库条目索引模糊匹配
+        item_id, server_name = self._match_library_item(
+            instances, title=title, year=year, media_type=media_type
+        )
+        if item_id:
+            for attempt_year in ([year, ""] if year else [""]):
+                ok, exist = self._call_media_exists(
+                    module, title=title, year=attempt_year, media_type=media_type,
+                    season=season, item_id=item_id, server=server_name,
+                )
+                if ok and exist is not None:
+                    logger.info(
+                        f"媒体库查询：「{title}」按条目名索引命中（item_id={item_id}，"
+                        f"年份口径 {attempt_year or '不限'}）"
+                    )
+                    return (True, True, _seasons_of(exist), "")
+
+        note = self._diagnose_not_found(
+            instances, title=title, year=year, media_type=media_type
+        )
+        if rejected:
+            note = f"{note}；{rejected}" if note else rejected
+        logger.info(
+            f"媒体库查询：「{title}」({year or '-'}) 未命中"
+            + (f"：{note}" if note else "（已放宽到仅片名与条目索引）")
+        )
+        return (True, False, {}, note)
+
+    @staticmethod
+    def _call_media_exists(
+        module: Any, *, title: str, year: str, media_type: str, season: Optional[int],
+        item_id: str = "", server: str = "",
+    ) -> "tuple[bool, Any]":
+        """调用一次 ``media_exists``；返回 ``(是否调用成功, 结果)``。
+
+        ``是否调用成功=False`` 才表示"查不动"（构造/调用失败）；结果为 None
+        表示"查过了，媒体库里没有"。
+        """
+        try:
+            mediainfo = MediaMatcher._build_media_info(
+                title=title, year=year, media_type=media_type, season=season
+            )
+        except Exception as err:
+            logger.info(f"构造媒体信息失败（按无法判断处理）：{err}")
+            return (False, None)
+        kwargs: Dict[str, Any] = {}
+        if item_id:
+            kwargs["itemid"] = item_id
+        if server:
+            kwargs["server"] = server
+        try:
+            return (True, module.media_exists(mediainfo, **kwargs))
+        except TypeError:
+            # 自定义/旧版模块不支持 itemid、server 参数
+            return (False, None)
+        except Exception as err:
+            logger.info(f"调用媒体服务器存在性检查失败（按无法判断处理）：{err}")
+            return (False, None)
+
+    @staticmethod
+    def _verify_year(
+        instances: List[tuple], exist: Any, year: str
+    ) -> "tuple[str, bool]":
+        """仅片名命中后的年份复核：返回 ``(库中年份, 是否接受)``。
+
+        查不到库中年份时不阻止命中（宁可用起来，也不要因为拿不到年份就全推出去）；
+        只有明确拿到不相容的年份才拒绝，避免同名不同年的翻拍剧被误判"媒体库已有"。
+        """
+        item_id = str(getattr(exist, "itemid", "") or "")
+        server = str(getattr(exist, "server", "") or "")
+        if not item_id or not year:
+            return "", True
+        for name, client in instances:
+            if server and name and name != server:
+                continue
+            info = _safe_call(client, "get_iteminfo", item_id)
+            lib_year = str(getattr(info, "year", "") or "") if info is not None else ""
+            if not lib_year:
+                continue
+            return lib_year, _years_compatible(year, lib_year)
+        return "", True
+
+    # ------------------------------------------------------- 媒体库条目索引（兜底）
+
+    def _match_library_item(
+        self, instances: List[tuple], *, title: str, year: str, media_type: str
+    ) -> "tuple[str, str]":
+        """在媒体库条目索引里按归一标题模糊匹配，返回 ``(item_id, 实例名)``。
+
+        宿主按 ``Name == 片名`` 精确匹配，库里的名字带年份/副标题/多语言后缀时
+        就匹配不上（真机现象："媒体库里明明有，插件却说没有"）。
+        年份不相容的候选不采用，同名不同年的翻拍剧不会被误判"已有"。
+        """
+        index = self._library_index_for(instances)
+        if not index:
+            return "", ""
+        wanted = "movie" if media_type == "movie" else "tv"
+        best_id, best_server, best_score = "", "", 0
+        for key, entries in index.items():
+            score = _title_score(title, key)
+            if score <= 0:
+                continue
+            for entry in entries:
+                if entry.get("kind") != wanted:
+                    continue
+                if not _years_compatible(year, entry.get("year")):
+                    continue
+                exact_year = 1 if entry.get("year") and str(entry.get("year")) == str(year) else 0
+                total = score * 2 + exact_year
+                if total > best_score:
+                    best_score, best_id, best_server = total, str(entry.get("item_id") or ""), str(
+                        entry.get("server") or ""
+                    )
+        return best_id, best_server
+
+    def _library_index_for(self, instances: List[tuple]) -> Dict[str, List[dict]]:
+        """取（必要时构建）媒体库条目索引；构建失败返回空表。"""
+        now = time.monotonic()
+        with self._lock:
+            if (
+                self._library_index is not None
+                and now - self._library_index_at <= _LIBRARY_INDEX_TTL
+            ):
+                return self._library_index
+        index: Dict[str, List[dict]] = {}
+        for name, client in instances:
+            for library in _safe_list(client, "get_librarys"):
+                kind = _library_kind(getattr(library, "type", None))
+                if not kind:
+                    continue
+                library_id = getattr(library, "id", None) or getattr(library, "item_id", None)
+                if not library_id:
+                    continue
+                count = getattr(library, "item_count", None)
+                if count is None:
+                    count = _safe_call(client, "get_items_count", library_id)
+                try:
+                    if count is not None and int(count) > _LIBRARY_INDEX_MAX_ITEMS:
+                        logger.info(
+                            f"媒体库 {name} 条目数 {count} 超过索引上限 "
+                            f"{_LIBRARY_INDEX_MAX_ITEMS}，跳过条目索引兜底"
+                        )
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                for item in _safe_list(client, "get_items", library_id):
+                    if _library_kind(getattr(item, "item_type", None)) != kind:
+                        continue
+                    item_id = str(getattr(item, "item_id", "") or "")
+                    if not item_id:
+                        continue
+                    entry = {
+                        "item_id": item_id,
+                        "year": str(getattr(item, "year", "") or ""),
+                        "kind": kind,
+                        "server": name,
+                    }
+                    for raw in (getattr(item, "title", ""), getattr(item, "original_title", "")):
+                        key = _normalize_title(raw)
+                        if not key:
+                            continue
+                        bucket = index.setdefault(key, [])
+                        if entry not in bucket:
+                            bucket.append(entry)
+        with self._lock:
+            self._library_index = index
+            self._library_index_at = now
+        if not index:
+            logger.debug("媒体库条目索引为空（未取到剧集/电影条目）")
+        return index
+
+    def _diagnose_not_found(
+        self, instances: List[tuple], *, title: str, year: str, media_type: str
+    ) -> str:
+        """媒体库未命中时给出可读原因，区分"没这条"与"有条目但没集"。"""
+        if media_type == "movie":
+            return "媒体库中没有匹配的电影条目"
+        for _name, client in instances:
+            func = getattr(client, "get_tv_episodes", None)
+            if not callable(func):
+                continue
+            try:
+                item_id, seasons = func(title=title, year=year)
+            except TypeError:
+                continue
+            except Exception as err:  # pragma: no cover - 探测失败只作说明
+                return f"探测剧集条目出错：{err}"
+            if item_id is None:
+                return "媒体服务器查询失败（请求未成功）"
+            if not item_id:
+                return "媒体库中没有同名剧集条目（宿主按片名+年份精确匹配失败）"
+            owned = 0
+            if isinstance(seasons, dict):
+                for value in seasons.values():
+                    if isinstance(value, (list, tuple, set)):
+                        owned += len(value)
+            if not owned:
+                return f"剧集条目在库（item_id={item_id}）但没有任何已入库的集"
+            return f"剧集条目在库且已入库 {owned} 集"
+        return ""
 
     @staticmethod
     def _episodes_of(seasons: Any, season: int) -> set:

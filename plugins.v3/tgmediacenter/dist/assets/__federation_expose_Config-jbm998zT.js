@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.4.5';
+const FRONTEND_VERSION = '1.4.6';
 
 const {resolveComponent:_resolveComponent$6,createVNode:_createVNode$6,withCtx:_withCtx$6,openBlock:_openBlock$6,createBlock:_createBlock$6} = await importShared('vue');
 
@@ -4294,7 +4294,11 @@ return (_ctx, _cache) => {
               _createElementVNode$1("strong", null, "按该订阅"),
               _createTextVNode$1("回搜缓存（删除后重新添加同样回搜， 已推过的由命中流水拦掉，不会重复推送）。兜底路径：定时对比订阅快照（默认每 30 分钟， 用于插件离线期间的新增订阅——事件不会补发）。命中后逐条判缺失（"),
               _createElementVNode$1("strong", null, "以媒体库逐集比对为准"),
-              _createTextVNode$1("， 未订阅的按门禁跳过；媒体库不可用时才退回订阅缺集数）→ 过滤无链接 / 已推送 → 入推送队列（同一目标合并下发的链接数不超过 20 条）→ 通知结果（含跳过原因汇总，一条没推也会说明原因）。 首次运行只建立基线。 ")
+              _createTextVNode$1("， 未订阅的按门禁跳过；媒体库不可用时才退回订阅缺集数）→ 过滤无链接 / 已推送 → 入推送队列（同一目标合并下发的链接数不超过 20 条）→ 通知结果（含跳过原因与媒体库未收录原因，一条没推也会说明原因）。 首次运行只建立基线。 "),
+              _createElementVNode$1("br"),
+              _createTextVNode$1(" 媒体库查询按"),
+              _createElementVNode$1("strong", null, "片名+年份 → 仅片名 → 库内条目名索引"),
+              _createTextVNode$1("逐层放宽： 宿主按「片名 + 年份」精确匹配，资源名里的年份/名称与媒体库刮削结果不一致时会被判成「库里没有」， 逐层放宽容忍这类偏差（放宽命中会复核库内年份，同名不同年的翻拍剧不会被误判「已有」）。 ")
             ], -1)),
             _createElementVNode$1("div", _hoisted_31, [
               _cache[41] || (_cache[41] = _createElementVNode$1("span", { class: "cache-hint" }, "缺失判断：", -1)),
@@ -4426,7 +4430,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-7ca261a9"]]);
+const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-2a856e34"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

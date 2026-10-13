@@ -656,6 +656,34 @@ class TestSubscriptionSearch:
         assert result["details"][0]["reason_text"] == "媒体库已存在 1"
         assert module.calls == 1
 
+    def test_push_notification_reports_library_miss_reason(self, cache, subscriptions, plugin, fake_metavideo):
+        """1.4.6：全推出去时必须说清"为什么判定媒体库没有"（真机：库里明明有）。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4801, _text("青与碧 (2026) S01E01"))
+
+        class FakeLibraryMissing:
+            def is_missing(self, **kwargs):
+                return {
+                    "missing": True,
+                    "reason": "媒体库中不存在",
+                    "source": "mediaserver",
+                    "note": "媒体库中没有同名剧集条目（宿主按片名+年份精确匹配失败）",
+                    "detail": "「青与碧」在已配置媒体服务器中未找到",
+                }
+
+        cache._matcher = FakeLibraryMissing()
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", media_id="2"),
+        ]
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 1
+        assert result["details"][0]["media_note"]
+        text = plugin.messages[-1]["text"]
+        assert "媒体库未收录" in text
+        assert "没有同名剧集条目" in text
+
     def test_disabled_module_skips_check(self, plugin, fake_metavideo):
         plugin.save_config(cache_enabled=False)
         module = CacheModule(plugin)

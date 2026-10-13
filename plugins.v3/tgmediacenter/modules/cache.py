@@ -515,12 +515,24 @@ class CacheModule:
         pushed = sum(int(item.get("pushed") or 0) for item in details)
         if not candidates and not pushed:
             return
-        lines = [
-            f"· {item.get('name')}：候选 {item.get('candidates', 0)} 条，推送 {item.get('pushed', 0)} 条"
-            + (f"（{item.get('reason_text')}）" if item.get("reason_text") else "")
-            for item in details
-            if int(item.get("candidates") or 0) or int(item.get("pushed") or 0)
-        ]
+        lines: List[str] = []
+        for item in details:
+            if not (int(item.get("candidates") or 0) or int(item.get("pushed") or 0)):
+                continue
+            line = (
+                f"· {item.get('name')}：候选 {item.get('candidates', 0)} 条，"
+                f"推送 {item.get('pushed', 0)} 条"
+            )
+            extra: List[str] = []
+            if item.get("reason_text"):
+                extra.append(str(item["reason_text"]))
+            # 全推出去时必须说清"为什么判定媒体库没有"——否则用户只知道推了，
+            # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
+            if item.get("media_note"):
+                extra.append(f"媒体库未收录：{item['media_note']}")
+            if extra:
+                line += "（" + "；".join(extra) + "）"
+            lines.append(line)
         if pushed:
             header = f"新增订阅 {new_count} 个，命中并推送 {pushed} 条资源："
         else:
@@ -541,6 +553,7 @@ class CacheModule:
         pushed = 0
         skipped = 0
         reasons: Dict[str, int] = {}
+        media_note = ""
         for item in candidates:
             links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
             if not links:
@@ -562,6 +575,8 @@ class CacheModule:
                 episode_end=item.get("episode_end"),
                 require_subscription=True,
             )
+            if verdict.get("missing") is True and verdict.get("reason") == "媒体库中不存在":
+                media_note = media_note or str(verdict.get("note") or "")
             if verdict.get("missing") is not True:
                 skipped += 1
                 label = _skip_label(verdict)
@@ -603,6 +618,7 @@ class CacheModule:
             "skipped": skipped,
             "reasons": reasons,
             "reason_text": reason_text,
+            "media_note": media_note,
         }
 
     def _remember_check(self, *, new: int, pushed: int, error: str) -> None:

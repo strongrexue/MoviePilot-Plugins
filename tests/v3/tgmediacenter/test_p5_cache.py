@@ -259,12 +259,14 @@ class TestRecord:
         assert service.record(CHAT_A, 1001, text) is False
         assert _count(plugin) == 1
 
-    def test_record_advances_cursor(self, plugin, service, fake_metavideo):
+    def test_record_does_not_advance_cursor(self, plugin, service, fake_metavideo):
+        """实时写入不得推进同步位点：否则回溯从频道最新处开始，历史全部漏掉（1.4.0 实测踩坑）。"""
         service.record(CHAT_A, 1001, _text("青与碧 (2026) S01E02"))
-        assert service.cursor_of(CHAT_A) == 1001
-        # 位点只前进不后退
+        assert service.cursor_of(CHAT_A) == 0
+        # 位点仍只前进不后退
         service.set_cursor(CHAT_A, 900)
-        assert service.cursor_of(CHAT_A) == 1001
+        service.record(CHAT_A, 500, _text("青与碧 (2026) S01E01"))
+        assert service.cursor_of(CHAT_A) == 900
 
     def test_record_skips_empty_text(self, plugin, service):
         assert service.record(CHAT_A, 1002, "   ") is False
@@ -379,6 +381,26 @@ class TestSync:
         service = HistoryCacheService(plugin)
         assert service.start_sync([], mode=MODE_ALL, runtime=FakeRuntime([]))["started"] is False
 
+    def test_sync_continues_when_full_batch_has_media_only(self, plugin, fake_metavideo):
+        """满批里混入纯媒体消息：终止判断按原始扫描数，不得提前收工（1.4.0 实测踩坑）。"""
+        service = HistoryCacheService(plugin)
+        runtime = FakeRuntime([
+            # 第 1 批：原始 2 条（1 条纯媒体），scanned=2 == batch → 必须继续
+            {"messages": [_msg(1, _text("青与碧 (2026) S01E01"))],
+             "scanned": 2, "max_id": 2},
+            # 第 2 批：原始 2 条全无正文，scanned=2 → 继续且位点按原始 ID 推进
+            {"messages": [], "scanned": 2, "max_id": 4},
+            # 第 3 批：空 → 收工
+            {"messages": []},
+        ])
+        service.start_sync([CHAT_A], mode=MODE_ALL, runtime=runtime, batch=2)
+        service._thread.join(timeout=10)
+        assert _count(plugin) == 1
+        assert service.cursor_of(CHAT_A) == 4
+        progress = service.progress()
+        assert progress["processed"] == 4
+        assert progress["inserted"] == 1
+
 
 # ---------------------------------------------------------------------- 维护
 
@@ -386,6 +408,7 @@ class TestSync:
 class TestMaintenance:
     def test_stats_reports_counts_and_cursor(self, plugin, service, fake_metavideo):
         service.record(CHAT_A, 3001, _text("青与碧 (2026) S01E01"))
+        service.set_cursor(CHAT_A, 3001)  # 位点由同步推进，record 不再碰它
         stats = service.stats([CHAT_A, CHAT_B])
         by_id = {item["chat_id"]: item for item in stats}
         assert by_id[CHAT_A]["count"] == 1
@@ -394,6 +417,7 @@ class TestMaintenance:
 
     def test_clear_removes_rows_and_cursor(self, plugin, service, fake_metavideo):
         service.record(CHAT_A, 3002, _text("青与碧 (2026) S01E02"))
+        service.set_cursor(CHAT_A, 3002)
         assert service.clear([CHAT_A]) == 1
         assert _count(plugin) == 0
         assert service.cursor_of(CHAT_A) == 0
@@ -427,6 +451,46 @@ class TestSubscriptionSearch:
         assert result["baseline"] is True
         assert result["pushed"] == 0
         assert _count(plugin, TgPushTask) == 0
+
+    def test_baseline_covers_all_pages(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
+        """宿主无参调用只返回第一页 50 条：基线必须翻页读全量（1.4.0 实测踩坑）。"""
+        all_subs = [
+            FakeSubscription(f"批量剧集{i:03d}", year="2026", media_id=str(1000 + i))
+            for i in range(120)
+        ]
+
+        def _paged(filters=None, page=None):
+            request = page or {}
+            num = int(request.get("page", 1))
+            size = int(request.get("count", 50))
+            return FakeQueryPage(all_subs[(num - 1) * size: num * size])
+
+        monkeypatch.setattr(matcher_module, "list_subscriptions", _paged)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["baseline"] is True
+        assert result["subscriptions"] == 120
+
+    def test_subscription_gate_sees_beyond_first_page(self, monkeypatch):
+        """订阅门禁必须翻页读全量：排在第 51 个之后的订阅不能被误判「未订阅」。"""
+        all_subs = [
+            FakeSubscription(f"填充{i:03d}", year="2020", media_id=str(i))
+            for i in range(60)
+        ]
+        all_subs.append(FakeSubscription("青与碧", year="2026", season=1, lack_episode=3, media_id="999"))
+
+        def _paged(filters=None, page=None):
+            request = page or {}
+            num = int(request.get("page", 1))
+            size = int(request.get("count", 50))
+            return FakeQueryPage(all_subs[(num - 1) * size: num * size])
+
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", _paged)
+        result = MediaMatcher().is_missing(
+            title="青与碧", year="2026", season=1, require_subscription=True,
+        )
+        assert result["missing"] is True
+        assert "未订阅" not in result["reason"]
 
     def test_new_subscription_triggers_search_and_push(self, cache, subscriptions, plugin, fake_metavideo):
         # 第一次：建立基线

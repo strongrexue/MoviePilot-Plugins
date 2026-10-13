@@ -283,8 +283,8 @@ class CacheModule:
 
     def _check_subscriptions_locked(self, *, trigger: str) -> dict:
         try:
-            page = matcher_service.list_subscriptions()
-            items = list(getattr(page, "items", None) or [])
+            # 翻页读全量：无参调用只返回第一页 50 条，基线会漏掉其余订阅（1.4.0 实测踩坑）
+            items = list(matcher_service.iter_subscriptions())
         except Exception as err:
             self._remember_check(new=0, pushed=0, error=f"读取订阅失败：{err}")
             logger.warning(f"[{self._plugin_id()}] 读取宿主订阅失败：{err}")

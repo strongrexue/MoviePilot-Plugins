@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from app.sdk.logging import logger
 
@@ -49,6 +49,44 @@ except Exception:  # pragma: no cover - 无宿主环境
 _CACHE_TTL_SECONDS = 60
 # 归一化时丢弃的字符
 _NORMALIZE_RE = re.compile(r"[\s·・:：\-_－—\-]+")
+# 订阅翻页的页大小（宿主 MAX_QUERY_PAGE_SIZE=200）
+_SUB_PAGE_SIZE = 200
+# 翻页硬上限，防异常宿主死循环
+_SUB_MAX_PAGES = 100
+
+
+def iter_subscriptions() -> "Iterator[Any]":
+    """翻页读取全部宿主订阅。
+
+    宿主 ``list_subscriptions()`` 无参调用只返回第一页（默认页大小 50），
+    订阅多于 50 时必须显式翻页——否则订阅回搜基线不全，且订阅门禁会把
+    第 2 页之后的订阅误判为「未订阅」（1.4.0 实测踩坑）。
+    """
+    if not QUERIES_AVAILABLE or list_subscriptions is None:
+        return
+    page_num = 1
+    while page_num <= _SUB_MAX_PAGES:
+        try:
+            try:
+                page = list_subscriptions(None, {"page": page_num, "count": _SUB_PAGE_SIZE})
+            except TypeError:
+                # 宿主签名不支持分页参数（或测试桩是无参 lambda）：退回无参调用
+                page = list_subscriptions()
+        except Exception as err:
+            logger.warning(f"读取宿主订阅失败（第 {page_num} 页）：{err}")
+            return
+        items = list(getattr(page, "items", None) or [])
+        yield from items
+        if len(items) < _SUB_PAGE_SIZE:
+            # 不足一页说明已是最后一页（测试桩返回全量时同样在此收束）
+            return
+        total = getattr(page, "total", None)
+        try:
+            if total is not None and page_num * _SUB_PAGE_SIZE >= int(total):
+                return
+        except (TypeError, ValueError):
+            pass
+        page_num += 1
 
 
 def _normalize_title(value: Any) -> str:
@@ -253,32 +291,31 @@ class MediaMatcher:
         if not QUERIES_AVAILABLE:
             return None
         try:
-            page = list_subscriptions()
-            items = list(getattr(page, "items", None) or [])
+            # 必须翻页读全量：只取第一页会把第 51 个之后的订阅误判成「未订阅」
+            for item in iter_subscriptions():
+                name = str(getattr(item, "name", "") or "")
+                item_year = str(getattr(item, "year", "") or "")
+                item_season = getattr(item, "season", None)
+                if not _titles_match(title, name):
+                    continue
+                if not _years_compatible(year, item_year):
+                    continue
+                if season is not None and item_season is not None:
+                    try:
+                        if int(item_season) != int(season):
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                return {
+                    "name": name,
+                    "year": item_year,
+                    "season": item_season,
+                    "lack_episode": getattr(item, "lack_episode", None),
+                    "state": getattr(item, "state", None),
+                }
         except Exception as err:
             logger.debug(f"读取宿主订阅失败：{err}")
             return None
-        for item in items:
-            name = str(getattr(item, "name", "") or "")
-            item_year = str(getattr(item, "year", "") or "")
-            item_season = getattr(item, "season", None)
-            if not _titles_match(title, name):
-                continue
-            if not _years_compatible(year, item_year):
-                continue
-            if season is not None and item_season is not None:
-                try:
-                    if int(item_season) != int(season):
-                        continue
-                except (TypeError, ValueError):
-                    pass
-            return {
-                "name": name,
-                "year": item_year,
-                "season": item_season,
-                "lack_episode": getattr(item, "lack_episode", None),
-                "state": getattr(item, "state", None),
-            }
         return None
 
     # ------------------------------------------------------------------ 媒体服务器

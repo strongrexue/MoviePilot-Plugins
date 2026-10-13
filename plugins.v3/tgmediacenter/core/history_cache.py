@@ -29,8 +29,10 @@ from ..model.message_cache import TgMessageCache
 from ..services import recognizer as recognizer_service
 from ..services.matcher import _normalize_title
 
-# 位点在插件数据里的键
-CURSOR_KEY = "cache_cursor"
+# 位点在插件数据里的键。
+# v2：1.4.0 的位点被实时写入推进过（回溯从"频道最新"开始，历史全被跳过），
+# 换键作废旧位点，升级后首次回溯会重新完整扫描（已有数据靠唯一约束幂等去重）。
+CURSOR_KEY = "cache_cursor_v2"
 # 同步模式
 MODE_ALL = "all"          # 所有消息
 MODE_RELATIVE = "relative"  # 相对时间（最近 N 天）
@@ -176,17 +178,16 @@ class HistoryCacheService:
             links = [item.raw or item.url for item in parsed.items if item.supported]
         # 净化后为空说明整条都是广告行：仍缓存原文，避免检索时找不到
         stored_text = cleaned or body
-        inserted = self._insert_rows([self._row(
+        # 注意：实时写入不推进同步位点——位点语义是"回溯/增量同步扫到哪里"，
+        # 若被实时消息推进，回溯会从频道最新处开始，历史消息全部漏掉（1.4.0 实测踩坑）。
+        return bool(self._insert_rows([self._row(
             chat_id=int(chat_id),
             message_id=int(message_id),
             message_date=to_naive_utc(message_date) or now_utc(),
             text=stored_text,
             links=links,
             meta=meta,
-        )])
-        if inserted:
-            self.set_cursor(chat_id, message_id)
-        return bool(inserted)
+        )]))
 
     def _row(self, *, chat_id: int, message_id: int, message_date: Optional[datetime],
              text: str, links: List[str], meta: Optional[dict]) -> TgMessageCache:
@@ -347,10 +348,14 @@ class HistoryCacheService:
 
             failures = 0
             fetched = payload.get("messages") or []
-            if not fetched:
+            # 终止判断必须用原始扫描数：一批 200 条里若混有无正文消息，
+            # 过滤后条数 < batch 会被误判为"已到频道末尾"提前收工（1.4.0 实测踩坑）。
+            scanned = int(payload.get("scanned") or len(fetched))
+            if not fetched and scanned < batch:
                 break
             rows: List[TgMessageCache] = []
             max_id = cursor
+            raw_max_id = int(payload.get("max_id") or 0)
             stop = False
             for item in fetched:
                 message_id = int(item.get("id") or 0)
@@ -377,14 +382,17 @@ class HistoryCacheService:
                     links=item.get("links") or [],
                     meta=item.get("meta"),
                 ))
+            if raw_max_id > max_id:
+                # 整批纯媒体（过滤后 fetched 为空）时也要按原始消息推进位点，否则原地打转
+                max_id = raw_max_id
             inserted = self._insert_rows(rows)
             with self._lock:
-                self._state["processed"] += len(fetched)
+                self._state["processed"] += scanned
                 self._state["inserted"] += int(inserted)
             if max_id > cursor:
                 cursor = max_id
                 self.set_cursor(chat_id, cursor)
-            if stop or len(fetched) < batch:
+            if stop or scanned < batch:
                 break
             time.sleep(_BATCH_SLEEP)
 
@@ -396,6 +404,7 @@ class HistoryCacheService:
         """
         entity = await client.get_entity(int(chat_id))
         messages: List[dict] = []
+        max_raw_id = 0
         async for message in client.iter_messages(
             entity,
             limit=int(batch),
@@ -403,6 +412,10 @@ class HistoryCacheService:
             reverse=True,
         ):
             messages.append(message)
+            try:
+                max_raw_id = max(max_raw_id, int(getattr(message, "id", 0) or 0))
+            except (TypeError, ValueError):
+                continue
         payload: List[dict] = []
         for message in messages:
             text = str(getattr(message, "message", "") or "")
@@ -417,7 +430,9 @@ class HistoryCacheService:
                 "meta": meta,
                 "links": [item.raw or item.url for item in parsed.items if item.supported],
             })
-        return {"messages": payload}
+        # scanned = 本批原始消息数（含被过滤的纯媒体），同步终止判断依赖它；
+        # max_id = 本批原始最大消息 ID（纯媒体批次也要推进位点，否则原地打转）
+        return {"messages": payload, "scanned": len(messages), "max_id": max_raw_id}
 
     # ------------------------------------------------------------------ 检索
 

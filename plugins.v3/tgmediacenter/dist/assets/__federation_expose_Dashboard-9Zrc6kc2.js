@@ -11,14 +11,15 @@ const _hoisted_2 = {
 };
 const _hoisted_3 = { class: "tg-recent-title" };
 const _hoisted_4 = { class: "tg-recent-count" };
-const _hoisted_5 = { class: "tg-recent-media" };
-const _hoisted_6 = { class: "tg-recent-meta" };
-const _hoisted_7 = { class: "tg-recent-actions" };
-const _hoisted_8 = {
+const _hoisted_5 = { class: "tg-recent-list" };
+const _hoisted_6 = { class: "tg-recent-media" };
+const _hoisted_7 = { class: "tg-recent-meta" };
+const _hoisted_8 = { class: "tg-recent-actions" };
+const _hoisted_9 = {
   key: 1,
   class: "tg-recent-hint"
 };
-const _hoisted_9 = {
+const _hoisted_10 = {
   key: 1,
   class: "tg-empty"
 };
@@ -334,16 +335,18 @@ return (_ctx, _cache) => {
                           _cache[1] || (_cache[1] = _createElementVNode("span", null, "最近流水", -1)),
                           _createElementVNode("span", _hoisted_4, _toDisplayString(recent.value.length) + _toDisplayString(hitsTotal.value ? ` / ${Math.min(hitsTotal.value, MAX_HITS)}` : '') + " 条 ", 1)
                         ]),
-                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recent.value, (item) => {
-                          return (_openBlock(), _createElementBlock("div", {
-                            key: hitKey(item),
-                            class: "tg-recent-row"
-                          }, [
-                            _createElementVNode("span", _hoisted_5, _toDisplayString(mediaName(item)), 1),
-                            _createElementVNode("span", _hoisted_6, _toDisplayString(_unref(decisionLabel)(item.decision)) + " · " + _toDisplayString(fmtTime(item.created_at)), 1)
-                          ]))
-                        }), 128)),
-                        _createElementVNode("div", _hoisted_7, [
+                        _createElementVNode("div", _hoisted_5, [
+                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recent.value, (item) => {
+                            return (_openBlock(), _createElementBlock("div", {
+                              key: hitKey(item),
+                              class: "tg-recent-row"
+                            }, [
+                              _createElementVNode("span", _hoisted_6, _toDisplayString(mediaName(item)), 1),
+                              _createElementVNode("span", _hoisted_7, _toDisplayString(_unref(decisionLabel)(item.decision)) + " · " + _toDisplayString(fmtTime(item.created_at)), 1)
+                            ]))
+                          }), 128))
+                        ]),
+                        _createElementVNode("div", _hoisted_8, [
                           (canLoadMore.value)
                             ? (_openBlock(), _createBlock(_component_VBtn, {
                                 key: 0,
@@ -359,12 +362,12 @@ return (_ctx, _cache) => {
                                 _: 1
                               }, 8, ["loading"]))
                             : (recent.value.length >= MAX_HITS)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_8, " 已显示最近 " + _toDisplayString(MAX_HITS) + " 条 "))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_9, " 已显示最近 " + _toDisplayString(MAX_HITS) + " 条 "))
                               : _createCommentVNode("", true),
                           _cache[3] || (_cache[3] = _createElementVNode("span", { class: "tg-recent-hint" }, "完整流水与关键词搜索在插件「资源监控」面板", -1))
                         ])
                       ]))
-                    : (_openBlock(), _createElementBlock("div", _hoisted_9, "暂无命中记录：规则命中后会在这里出现。"))
+                    : (_openBlock(), _createElementBlock("div", _hoisted_10, "暂无命中记录：规则命中后会在这里出现。"))
                 ], 64))
               : _createCommentVNode("", true)
         ]),
@@ -377,6 +380,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f5a27d3c"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8126f131"]]);
 
 export { Dashboard as default };

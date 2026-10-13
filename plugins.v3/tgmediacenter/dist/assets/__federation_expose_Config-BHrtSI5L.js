@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.6.5';
+const FRONTEND_VERSION = '1.6.6';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -2107,7 +2107,14 @@ const hits = ref$4([]);
 const hitsTotal = ref$4(0);
 const hitsPage = ref$4(1);
 const decisionFilter = ref$4('');
-const hitKeyword = ref$4('');
+// 关键词用可写 computed 包一层：Vuetify 的 clearable 清除按钮会把模型置为 null，
+// 直接 ref('') 收 null 会让各处 .trim() 抛错（1.6.6 真机反馈：清空关键词后列表不刷新），
+// 这里在入口统一归一成字符串，模板与脚本就都不用到处防 null。
+const hitKeywordRaw = ref$4('');
+const hitKeyword = computed$3({
+  get: () => String(hitKeywordRaw.value ?? ''),
+  set: (value) => { hitKeywordRaw.value = value == null ? '' : String(value); },
+});
 const clearDialog = ref$4(false);
 const clearTarget = ref$4('filtered');
 const clearing = ref$4(false);
@@ -2211,9 +2218,16 @@ watch$1(hitKeyword, () => {
   }, 300);
 });
 
+// 当前是否有筛选条件（删除对话框据此说明"删多少"，与后端删除口径严格一致）
+const hasFilter = computed$3(() => Boolean(decisionFilter.value || hitKeyword.value.trim()));
+const filterText = computed$3(() => [
+  decisionFilter.value ? `决策=${decisionLabel(decisionFilter.value)}` : '',
+  hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
+].filter(Boolean).join(' / '));
+
 function askClear(target) {
-  if (target === 'filtered' && !hitsTotal.value) {
-    setMessage('当前筛选没有可删除的流水');
+  if (!hitsTotal.value) {
+    setMessage(target === 'all' ? '当前视图没有可清空的流水' : '当前筛选没有可删除的流水');
     return
   }
   clearTarget.value = target;
@@ -2224,10 +2238,11 @@ async function runClear() {
   if (clearing.value) return
   clearing.value = true;
   try {
-    // 不带条件即清空本面板（后端按 kind 隔离，不会碰到转发流水）
-    const payload = clearTarget.value === 'all'
-      ? {}
-      : { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() };
+    // 无论点哪个删除按钮，都只删「当前视图」：带上决策与关键词筛选，
+    // 没有筛选才是清空本类全部（后端按 kind 隔离，不会碰到转发流水）。
+    // 1.6.6 真机反馈：原来「清空本类流水」忽略筛选直接删整个 kind，对话框却
+    // 显示筛选后的条数——用户确认「共 3 条」结果丢了全部流水。
+    const payload = { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() };
     const data = unwrap(await postPluginApi(
       props.api, props.pluginId, 'monitor/hits/clear', payload, { timeoutMs: 30000 },
     ));
@@ -3232,7 +3247,7 @@ return (_ctx, _cache) => {
                 size: "small",
                 variant: "text",
                 color: "error",
-                disabled: !hitsTotal.value && !hitKeyword.value,
+                disabled: !hitsTotal.value,
                 onClick: _cache[5] || (_cache[5] = $event => (askClear('all')))
               }, {
                 default: _withCtx$3(() => [...(_cache[34] || (_cache[34] = [
@@ -3347,25 +3362,22 @@ return (_ctx, _cache) => {
             }),
             _createVNode$3(_component_VCardText, { class: "text-body-2" }, {
               default: _withCtx$3(() => [
-                (clearTarget.value === 'all')
+                (hasFilter.value)
                   ? (_openBlock$3(), _createElementBlock$3(_Fragment$3, { key: 0 }, [
-                      _cache[39] || (_cache[39] = _createTextVNode$3(" 将删除本面板的", -1)),
-                      _cache[40] || (_cache[40] = _createElementVNode$3("strong", null, "全部监控流水", -1)),
-                      _createTextVNode$3("（共 " + _toDisplayString$3(hitsTotal.value) + " 条），删除后不可恢复； 通用转发的流水不受影响。 ", 1)
-                    ], 64))
-                  : (_openBlock$3(), _createElementBlock$3(_Fragment$3, { key: 1 }, [
-                      _cache[41] || (_cache[41] = _createTextVNode$3(" 将删除当前筛选出的 ", -1)),
+                      _cache[39] || (_cache[39] = _createTextVNode$3(" 当前有筛选条件，将只删除筛选出的 ", -1)),
                       _createElementVNode$3("strong", null, _toDisplayString$3(hitsTotal.value), 1),
-                      _cache[42] || (_cache[42] = _createTextVNode$3(" 条流水 ", -1)),
-                      (decisionFilter.value || hitKeyword.value.trim())
+                      _cache[40] || (_cache[40] = _createTextVNode$3(" 条流水 ", -1)),
+                      (filterText.value)
                         ? (_openBlock$3(), _createElementBlock$3(_Fragment$3, { key: 0 }, [
-                            _createTextVNode$3(" （筛选：" + _toDisplayString$3([
-                decisionFilter.value ? `决策=${_unref$2(decisionLabel)(decisionFilter.value)}` : '',
-                hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
-              ].filter(Boolean).join(' / ')) + "） ", 1)
+                            _createTextVNode$3("（筛选：" + _toDisplayString$3(filterText.value) + "）", 1)
                           ], 64))
                         : _createCommentVNode$3("", true),
-                      _cache[43] || (_cache[43] = _createTextVNode$3(" ，删除后不可恢复。 ", -1))
+                      _cache[41] || (_cache[41] = _createTextVNode$3(" ，删除后不可恢复；未筛选部分不受影响。如需清空全部，请先清除筛选条件。 ", -1))
+                    ], 64))
+                  : (_openBlock$3(), _createElementBlock$3(_Fragment$3, { key: 1 }, [
+                      _cache[42] || (_cache[42] = _createTextVNode$3(" 将删除本面板的", -1)),
+                      _cache[43] || (_cache[43] = _createElementVNode$3("strong", null, "全部监控流水", -1)),
+                      _createTextVNode$3("（共 " + _toDisplayString$3(hitsTotal.value) + " 条），删除后不可恢复； 通用转发的流水不受影响。 ", 1)
                     ], 64))
               ]),
               _: 1
@@ -3406,7 +3418,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-e9fe8381"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-1dea115f"]]);
 
 const {resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createTextVNode:_createTextVNode$2,withCtx:_withCtx$2,toDisplayString:_toDisplayString$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,createElementVNode:_createElementVNode$2,Fragment:_Fragment$2,createElementBlock:_createElementBlock$2,renderList:_renderList$2,withKeys:_withKeys} = await importShared('vue');
 
@@ -4713,7 +4725,14 @@ const hits = ref$2([]);
 const hitsTotal = ref$2(0);
 const hitsPage = ref$2(1);
 const decisionFilter = ref$2('');
-const hitKeyword = ref$2('');
+// 关键词用可写 computed 包一层：Vuetify 的 clearable 清除按钮会把模型置为 null，
+// 直接 ref('') 收 null 会让各处 .trim() 抛错（1.6.6 真机反馈：清空关键词后列表不刷新），
+// 这里在入口统一归一成字符串，模板与脚本就都不用到处防 null。
+const hitKeywordRaw = ref$2('');
+const hitKeyword = computed$1({
+  get: () => String(hitKeywordRaw.value ?? ''),
+  set: (value) => { hitKeywordRaw.value = value == null ? '' : String(value); },
+});
 const clearDialog = ref$2(false);
 const clearTarget = ref$2('filtered');
 const clearing = ref$2(false);
@@ -4827,9 +4846,16 @@ watch(hitKeyword, () => {
   }, 300);
 });
 
+// 当前是否有筛选条件（删除对话框据此说明"删多少"，与后端删除口径严格一致）
+const hasFilter = computed$1(() => Boolean(decisionFilter.value || hitKeyword.value.trim()));
+const filterText = computed$1(() => [
+  decisionFilter.value ? `决策=${decisionLabel(decisionFilter.value)}` : '',
+  hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
+].filter(Boolean).join(' / '));
+
 function askClear(target) {
-  if (target === 'filtered' && !hitsTotal.value) {
-    setMessage('当前筛选没有可删除的流水');
+  if (!hitsTotal.value) {
+    setMessage(target === 'all' ? '当前视图没有可清空的流水' : '当前筛选没有可删除的流水');
     return
   }
   clearTarget.value = target;
@@ -4840,10 +4866,11 @@ async function runClear() {
   if (clearing.value) return
   clearing.value = true;
   try {
-    // 不带条件即清空本面板（后端按 kind 隔离，不会碰到监控流水）
-    const payload = clearTarget.value === 'all'
-      ? {}
-      : { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() };
+    // 无论点哪个删除按钮，都只删「当前视图」：带上决策与关键词筛选，
+    // 没有筛选才是清空本类全部（后端按 kind 隔离，不会碰到监控流水）。
+    // 1.6.6 真机反馈：原来「清空本类流水」忽略筛选直接删整个 kind，对话框却
+    // 显示筛选后的条数——用户确认「共 3 条」结果丢了全部流水。
+    const payload = { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() };
     const data = unwrap(await postPluginApi(
       props.api, props.pluginId, 'forward/hits/clear', payload, { timeoutMs: 30000 },
     ));
@@ -5745,7 +5772,7 @@ return (_ctx, _cache) => {
                 size: "small",
                 variant: "text",
                 color: "error",
-                disabled: !hitsTotal.value && !hitKeyword.value,
+                disabled: !hitsTotal.value,
                 onClick: _cache[5] || (_cache[5] = $event => (askClear('all')))
               }, {
                 default: _withCtx$1(() => [...(_cache[38] || (_cache[38] = [
@@ -5860,25 +5887,22 @@ return (_ctx, _cache) => {
             }),
             _createVNode$1(_component_VCardText, { class: "text-body-2" }, {
               default: _withCtx$1(() => [
-                (clearTarget.value === 'all')
+                (hasFilter.value)
                   ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 0 }, [
-                      _cache[43] || (_cache[43] = _createTextVNode$1(" 将删除本面板的", -1)),
-                      _cache[44] || (_cache[44] = _createElementVNode$1("strong", null, "全部转发流水", -1)),
-                      _createTextVNode$1("（共 " + _toDisplayString$1(hitsTotal.value) + " 条），删除后不可恢复； 资源监控的流水不受影响。 ", 1)
-                    ], 64))
-                  : (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 1 }, [
-                      _cache[45] || (_cache[45] = _createTextVNode$1(" 将删除当前筛选出的 ", -1)),
+                      _cache[43] || (_cache[43] = _createTextVNode$1(" 当前有筛选条件，将只删除筛选出的 ", -1)),
                       _createElementVNode$1("strong", null, _toDisplayString$1(hitsTotal.value), 1),
-                      _cache[46] || (_cache[46] = _createTextVNode$1(" 条流水 ", -1)),
-                      (decisionFilter.value || hitKeyword.value.trim())
+                      _cache[44] || (_cache[44] = _createTextVNode$1(" 条流水 ", -1)),
+                      (filterText.value)
                         ? (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 0 }, [
-                            _createTextVNode$1(" （筛选：" + _toDisplayString$1([
-                decisionFilter.value ? `决策=${_unref$1(decisionLabel)(decisionFilter.value)}` : '',
-                hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
-              ].filter(Boolean).join(' / ')) + "） ", 1)
+                            _createTextVNode$1("（筛选：" + _toDisplayString$1(filterText.value) + "）", 1)
                           ], 64))
                         : _createCommentVNode$1("", true),
-                      _cache[47] || (_cache[47] = _createTextVNode$1(" ，删除后不可恢复。 ", -1))
+                      _cache[45] || (_cache[45] = _createTextVNode$1(" ，删除后不可恢复；未筛选部分不受影响。如需清空全部，请先清除筛选条件。 ", -1))
+                    ], 64))
+                  : (_openBlock$1(), _createElementBlock$1(_Fragment$1, { key: 1 }, [
+                      _cache[46] || (_cache[46] = _createTextVNode$1(" 将删除本面板的", -1)),
+                      _cache[47] || (_cache[47] = _createElementVNode$1("strong", null, "全部转发流水", -1)),
+                      _createTextVNode$1("（共 " + _toDisplayString$1(hitsTotal.value) + " 条），删除后不可恢复； 资源监控的流水不受影响。 ", 1)
                     ], 64))
               ]),
               _: 1
@@ -5919,7 +5943,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigForwardPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-760c25b3"]]);
+const ConfigForwardPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cd06622a"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

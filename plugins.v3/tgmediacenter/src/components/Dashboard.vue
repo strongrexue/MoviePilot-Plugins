@@ -194,9 +194,13 @@ onMounted(loadData)
               {{ recent.length }}{{ hitsTotal ? ` / ${Math.min(hitsTotal, MAX_HITS)}` : '' }} 条
             </span>
           </div>
-          <div v-for="item in recent" :key="hitKey(item)" class="tg-recent-row">
-            <span class="tg-recent-media">{{ mediaName(item) }}</span>
-            <span class="tg-recent-meta">{{ decisionLabel(item.decision) }} · {{ fmtTime(item.created_at) }}</span>
+          <!-- 列表在卡片内滚动：宿主仪表盘网格可能给卡片固定高度，
+               不限制高度时「加载更多」追加的行会被裁掉，看起来像没生效 -->
+          <div class="tg-recent-list">
+            <div v-for="item in recent" :key="hitKey(item)" class="tg-recent-row">
+              <span class="tg-recent-media">{{ mediaName(item) }}</span>
+              <span class="tg-recent-meta">{{ decisionLabel(item.decision) }} · {{ fmtTime(item.created_at) }}</span>
+            </div>
           </div>
           <div class="tg-recent-actions">
             <VBtn
@@ -232,6 +236,9 @@ onMounted(loadData)
 .tg-recent { margin-top: 10px; }
 .tg-recent-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; opacity: 0.7; margin-bottom: 4px; }
 .tg-recent-count { font-size: 11px; }
+/* 列表区限高滚动：默认 5 条摘要一眼看完，加载更多后最多展示约 6 行，
+   其余在卡片内滚动，「加载更多」按钮固定在滚动区外始终可见可点 */
+.tg-recent-list { max-height: 132px; overflow-y: auto; overscroll-behavior: contain; }
 .tg-recent-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 0; }
 .tg-recent-media { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tg-recent-meta { flex: 0 0 auto; font-size: 11.5px; opacity: 0.7; }

@@ -358,8 +358,9 @@ class TestSync:
 
     def test_time_window_absolute(self):
         since, until = HistoryCacheService._time_window(MODE_ABSOLUTE, 30, "2026-01-01", "2026-01-31")
-        assert since.isoformat().startswith("2026-01-01")
-        assert until.hour == 23 and until.minute == 59
+        # 用户输入的日期按本地时间理解：本地 01-01 00:00 换算成库内 UTC 口径
+        assert since == datetime(2026, 1, 1).astimezone(timezone.utc).replace(tzinfo=None)
+        assert until == datetime(2026, 1, 31, 23, 59, 59).astimezone(timezone.utc).replace(tzinfo=None)
 
     def test_time_window_all(self):
         assert HistoryCacheService._time_window(MODE_ALL, 30, "", "") == (None, None)
@@ -460,6 +461,63 @@ class TestMaintenance:
     def test_total_count(self, plugin, service, fake_metavideo):
         service.record(CHAT_A, 3003, _text("青与碧 (2026) S01E03"))
         assert service.total_count() == 1
+
+
+# ---------------------------------------------------------------------- 时区口径
+
+
+def _local_utc_offset() -> timedelta:
+    """当前运行环境的 UTC 偏移（东八区为 +8 小时）。"""
+    return datetime.now(timezone.utc).astimezone().utcoffset() or timedelta(0)
+
+
+class TestTimezoneDisplay:
+    """库内 UTC 无时区时间 → 本地时间展示（1.6.6 真机反馈：缓存管理「最新消息」慢 8 小时）。"""
+
+    def test_utc_to_local_naive_shifts_by_local_offset(self):
+        utc_naive = datetime(2026, 10, 13, 9, 29, 16)
+        local = history_module.utc_to_local_naive(utc_naive)
+        expected = utc_naive.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+        assert local == expected
+        # 展示值必须比库内 UTC 值大一个本地时区偏移（东八区环境即 +8 小时）
+        assert local - utc_naive == _local_utc_offset()
+        # 带时区的入参同样按 UTC 解释
+        assert history_module.utc_to_local_naive(
+            datetime(2026, 10, 13, 9, 29, 16, tzinfo=timezone.utc)
+        ) == local
+        # None / 非 datetime 安全透传
+        assert history_module.utc_to_local_naive(None) is None
+        assert history_module.utc_to_local_naive("2026-10-13") is None
+
+    def test_stats_latest_date_is_local(self, plugin, service, fake_metavideo):
+        service.record(CHAT_A, 3101, _text("青与碧 (2026) S01E01"))
+        with plugin.get_database().session() as session:
+            stored = session.execute(select(TgMessageCache.message_date)).scalar_one()
+        assert stored.tzinfo is None  # 库内是 UTC 无时区时间
+        shown = service.stats([CHAT_A])[0]["latest_date"]
+        assert shown == stored.replace(tzinfo=timezone.utc).astimezone().replace(
+            tzinfo=None).isoformat(timespec="seconds")
+        # 展示值比库内 UTC 值大一个本地时区偏移（东八区即 +8 小时；截断到秒后比较）
+        assert datetime.fromisoformat(shown) - stored.replace(microsecond=0) == _local_utc_offset()
+
+    def test_search_message_date_is_local(self, plugin, service, fake_metavideo):
+        service.record(CHAT_A, 3102, _text("青与碧 (2026) S01E02"))
+        with plugin.get_database().session() as session:
+            stored = session.execute(select(TgMessageCache.message_date)).scalar_one()
+        shown = service.search("青与碧")[0]["message_date"]
+        assert datetime.fromisoformat(shown) - stored.replace(microsecond=0) == _local_utc_offset()
+
+    def test_parse_date_treats_input_as_local(self):
+        # 用户输入的日期按本地时间理解，再换算成库内 UTC 口径
+        parsed = history_module._parse_date("2026-01-01")
+        assert parsed == datetime(2026, 1, 1).astimezone(timezone.utc).replace(tzinfo=None)
+        # 显式带时区的输入按原样尊重
+        assert history_module._parse_date("2026-01-01T00:00:00+00:00") == datetime(2026, 1, 1)
+        # 截止日期仍是本地当天 23:59:59
+        until = history_module._parse_date("2026-01-31", end_of_day=True)
+        assert until == datetime(2026, 1, 31, 23, 59, 59).astimezone(timezone.utc).replace(tzinfo=None)
+        assert history_module._parse_date("") is None
+        assert history_module._parse_date("不是日期") is None
 
 
 # ---------------------------------------------------------------------- 订阅回搜

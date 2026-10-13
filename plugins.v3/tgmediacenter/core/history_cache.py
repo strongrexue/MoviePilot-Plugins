@@ -61,6 +61,25 @@ def to_naive_utc(value: Any) -> Optional[datetime]:
     return value
 
 
+def utc_to_local_naive(value: Any) -> Optional[datetime]:
+    """把库内的 UTC 无时区时间换算为**本地**无时区时间（展示专用）。
+
+    库内 ``message_date`` 一律是 UTC 无时区 datetime（Telegram 侧也是 UTC），
+    直接展示会比东八区慢 8 小时（1.6.6 真机反馈：缓存管理「最新消息」时间不对）。
+    而流水 ``created_at`` / 同步进度用的是容器本地时间，两套口径混在一起用户
+    会看晕，因此统一在**出口**换算，库内存储与比较口径不变。
+
+    只用于展示：相对时间范围（``now_utc() - timedelta``）等内部比较仍走 UTC。
+    """
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+
+
 def now_utc() -> datetime:
     """当前 UTC 无时区时间。"""
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -530,7 +549,8 @@ class HistoryCacheService:
             "media_type": str(getattr(row, "media_type", "") or ""),
             "text": str(getattr(row, "text", "") or ""),
             "links": _loads_list(getattr(row, "links_json", "") or "[]"),
-            "message_date": date.isoformat(timespec="seconds") if date else "",
+            # 与缓存统计同一口径：UTC 入库、本地时间展示
+            "message_date": utc_to_local_naive(date).isoformat(timespec="seconds") if date else "",
         }
 
     # ------------------------------------------------------------------ 维护
@@ -563,7 +583,8 @@ class HistoryCacheService:
                 int(row[0]): {
                     "chat_id": int(row[0]),
                     "count": int(row[1] or 0),
-                    "latest_date": row[2].isoformat(timespec="seconds") if row[2] else "",
+                    # 库内是 UTC 无时区时间，展示前换算为本地时间（1.6.6：-8h 反馈）
+                    "latest_date": utc_to_local_naive(row[2]).isoformat(timespec="seconds") if row[2] else "",
                     "latest_message_id": int(row[3] or 0),
                     "cursor": int(cursors.get(int(row[0]), 0) or 0),
                 }
@@ -644,7 +665,12 @@ def _loads_list(raw: str) -> List[str]:
 
 
 def _parse_date(value: Any, *, end_of_day: bool = False) -> Optional[datetime]:
-    """解析前端传入的日期（``YYYY-MM-DD`` 或 ISO 时间串）。"""
+    """解析前端传入的日期（``YYYY-MM-DD`` 或 ISO 时间串）。
+
+    用户输入的日期按**本地时间**理解（东八区用户填 10-01 指本地 10-01 00:00），
+    而库内 ``message_date`` 是 UTC 无时区时间，因此这里把本地边界换算成 UTC
+    口径再参与比较——与「最新消息」的本地展示口径对齐（1.6.6）。
+    """
     text = str(value or "").strip()
     if not text:
         return None
@@ -657,7 +683,8 @@ def _parse_date(value: Any, *, end_of_day: bool = False) -> Optional[datetime]:
             return None
     if end_of_day and len(text) <= 10:
         parsed = parsed.replace(hour=23, minute=59, second=59)
-    return to_naive_utc(parsed)
+    # 无时区输入按本地时间解释；astimezone 对 naive 值即按系统本地时区处理
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _flood_wait_seconds(err: BaseException) -> int:

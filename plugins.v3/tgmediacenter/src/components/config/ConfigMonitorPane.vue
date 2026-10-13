@@ -420,7 +420,7 @@
             size="small"
             variant="text"
             color="error"
-            :disabled="!hitsTotal && !hitKeyword"
+            :disabled="!hitsTotal"
             @click="askClear('all')"
           >
             清空本类流水
@@ -490,19 +490,14 @@
           {{ clearTarget === 'all' ? '清空监控流水' : '删除筛选结果' }}
         </VCardTitle>
         <VCardText class="text-body-2">
-          <template v-if="clearTarget === 'all'">
-            将删除本面板的<strong>全部监控流水</strong>（共 {{ hitsTotal }} 条），删除后不可恢复；
-            通用转发的流水不受影响。
+          <template v-if="hasFilter">
+            当前有筛选条件，将只删除筛选出的 <strong>{{ hitsTotal }}</strong> 条流水
+            <template v-if="filterText">（筛选：{{ filterText }}）</template>
+            ，删除后不可恢复；未筛选部分不受影响。如需清空全部，请先清除筛选条件。
           </template>
           <template v-else>
-            将删除当前筛选出的 <strong>{{ hitsTotal }}</strong> 条流水
-            <template v-if="decisionFilter || hitKeyword.trim()">
-              （筛选：{{ [
-                decisionFilter ? `决策=${decisionLabel(decisionFilter)}` : '',
-                hitKeyword.trim() ? `关键词=${hitKeyword.trim()}` : '',
-              ].filter(Boolean).join(' / ') }}）
-            </template>
-            ，删除后不可恢复。
+            将删除本面板的<strong>全部监控流水</strong>（共 {{ hitsTotal }} 条），删除后不可恢复；
+            通用转发的流水不受影响。
           </template>
         </VCardText>
         <VCardActions>
@@ -573,7 +568,14 @@ const hitsTotal = ref(0)
 const hitsPage = ref(1)
 const hitsPageSize = 20
 const decisionFilter = ref('')
-const hitKeyword = ref('')
+// 关键词用可写 computed 包一层：Vuetify 的 clearable 清除按钮会把模型置为 null，
+// 直接 ref('') 收 null 会让各处 .trim() 抛错（1.6.6 真机反馈：清空关键词后列表不刷新），
+// 这里在入口统一归一成字符串，模板与脚本就都不用到处防 null。
+const hitKeywordRaw = ref('')
+const hitKeyword = computed({
+  get: () => String(hitKeywordRaw.value ?? ''),
+  set: (value) => { hitKeywordRaw.value = value == null ? '' : String(value) },
+})
 const clearDialog = ref(false)
 const clearTarget = ref('filtered')
 const clearing = ref(false)
@@ -677,9 +679,16 @@ watch(hitKeyword, () => {
   }, 300)
 })
 
+// 当前是否有筛选条件（删除对话框据此说明"删多少"，与后端删除口径严格一致）
+const hasFilter = computed(() => Boolean(decisionFilter.value || hitKeyword.value.trim()))
+const filterText = computed(() => [
+  decisionFilter.value ? `决策=${decisionLabel(decisionFilter.value)}` : '',
+  hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
+].filter(Boolean).join(' / '))
+
 function askClear(target) {
-  if (target === 'filtered' && !hitsTotal.value) {
-    setMessage('当前筛选没有可删除的流水')
+  if (!hitsTotal.value) {
+    setMessage(target === 'all' ? '当前视图没有可清空的流水' : '当前筛选没有可删除的流水')
     return
   }
   clearTarget.value = target
@@ -690,10 +699,11 @@ async function runClear() {
   if (clearing.value) return
   clearing.value = true
   try {
-    // 不带条件即清空本面板（后端按 kind 隔离，不会碰到转发流水）
-    const payload = clearTarget.value === 'all'
-      ? {}
-      : { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() }
+    // 无论点哪个删除按钮，都只删「当前视图」：带上决策与关键词筛选，
+    // 没有筛选才是清空本类全部（后端按 kind 隔离，不会碰到转发流水）。
+    // 1.6.6 真机反馈：原来「清空本类流水」忽略筛选直接删整个 kind，对话框却
+    // 显示筛选后的条数——用户确认「共 3 条」结果丢了全部流水。
+    const payload = { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() }
     const data = unwrap(await postPluginApi(
       props.api, props.pluginId, 'monitor/hits/clear', payload, { timeoutMs: 30000 },
     ))

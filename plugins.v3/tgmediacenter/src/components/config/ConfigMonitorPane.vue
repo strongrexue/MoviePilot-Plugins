@@ -135,7 +135,7 @@
         >
           收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话。
           常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则）
-          ②规则里选错频道（名字相近的频道多选）③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。
+          ②规则里选错频道（名字相近的频道多选）③账号已退出该频道（重新加入后刷新对话列表重选）。
         </VAlert>
         <VAlert
           v-if="status?.enabled && !(status?.pipeline?.events_received > 0)"
@@ -224,23 +224,8 @@
                   variant="outlined"
                   hide-details
                 />
-                <div class="mon-chats-add">
-                  <VTextField
-                    v-model="manualIds[rule.id || index]"
-                    label="手动添加会话 ID"
-                    placeholder="-1001234567890"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    class="mon-chats-input"
-                    @keyup.enter="addManualId(rule, index)"
-                  />
-                  <VBtn size="small" variant="text" prepend-icon="mdi-plus" @click="addManualId(rule, index)">
-                    添加
-                  </VBtn>
-                </div>
                 <div class="mon-hint">
-                  下拉项来自「TG 凭证」页的对话列表缓存；没有缓存时可手动输入 ID（频道 / 群组 ID，含 -100 前缀）。
+                  下拉项来自「TG 凭证」页的对话列表缓存；看不到想要的会话，先到「TG 凭证」页刷新对话列表再点「刷新状态」。
                 </div>
               </div>
 
@@ -255,23 +240,26 @@
                   variant="outlined"
                   hide-details
                 />
-                <VTextField
+                <VSelect
                   v-if="rule.destination === 'tg_forward'"
                   v-model="rule.target_id"
-                  label="转发目标会话 ID"
-                  placeholder="-1003229693136"
+                  :items="targetItems"
+                  item-title="title"
+                  item-value="value"
+                  label="转发目标频道 / 群组"
                   density="compact"
                   variant="outlined"
                   hide-details
                   class="mon-target-id"
-                  :error="Boolean(rule.target_id) && !isNumericId(rule.target_id)"
-                  error-message="需要数字会话 ID"
                 />
                 <div v-if="rule.destination === 'smart'" class="mon-hint">
                   智能：115 已启用且已登录时转存到 115，否则仅记录。
                 </div>
                 <div v-if="rule.destination === 'pan115'" class="mon-hint">
                   推送到 115（分享转存 / 磁力 / eD2k 离线），需在「115 网盘」页完成扫码登录。
+                </div>
+                <div v-if="rule.destination === 'tg_forward'" class="mon-hint">
+                  转发原消息到所选会话；目标必须是当前账号能看到的会话。
                 </div>
               </div>
 
@@ -505,7 +493,6 @@ const decisions = ref([
 ])
 const rules = ref([])
 const dialogs = ref([])
-const manualIds = ref({})
 
 const testText = ref('')
 const testResult = ref(null)
@@ -583,7 +570,7 @@ async function loadDialogs() {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'telegram/dialogs', { timeoutMs: 15000 }))
     dialogs.value = data?.dialogs || []
   } catch {
-    // 对话列表拉不到不影响规则编辑（可手动输 ID）
+    // 对话列表拉不到不影响规则编辑（下拉为空，可刷新后再选）
     dialogs.value = []
   }
 }
@@ -629,30 +616,6 @@ function addRule() {
 function removeRule(index) {
   rules.value.splice(index, 1)
   syncRulesToForm()
-}
-
-function isNumericId(value) {
-  return /^-?\d+$/.test(String(value ?? '').trim())
-}
-
-function addManualId(rule, index) {
-  const raw = String(manualIds.value[rule.id || index] || '')
-  const parts = raw.split(/[,，\s]+/).map(part => part.trim()).filter(Boolean)
-  const added = []
-  for (const part of parts) {
-    if (!isNumericId(part)) continue
-    const id = Number(part)
-    if (id && !rule.source_ids.includes(id)) {
-      rule.source_ids.push(id)
-      added.push(id)
-    }
-  }
-  manualIds.value[rule.id || index] = ''
-  if (!added.length) {
-    setMessage('没有可添加的数字 ID（检查格式，如 -1001234567890）', false)
-  } else {
-    setMessage(`已添加 ${added.length} 个会话 ID`)
-  }
 }
 
 async function saveRules() {
@@ -735,7 +698,7 @@ const dialogOptions = computed(() =>
   })),
 )
 
-// 下拉选项 = 对话列表 + 已选中的手动 ID（否则手动添加的 ID 在 chips 里显示不出名称）
+// 下拉选项 = 对话列表 + 已保存但不在缓存里的 ID（老规则/缓存过期时保证 chips 仍能显示）
 const selectItems = computed(() => {
   const items = dialogOptions.value.slice()
   const known = new Set(items.map(item => item.value))
@@ -746,6 +709,20 @@ const selectItems = computed(() => {
         items.push({ title: String(id), value: id })
         known.add(id)
       }
+    }
+  }
+  return items
+})
+
+// 转发目标下拉（推送目标 = TG 转发时）：同一份对话缓存 + 已保存的目标值兜底
+const targetItems = computed(() => {
+  const items = dialogOptions.value.slice()
+  const known = new Set(items.map(item => item.value))
+  for (const rule of rules.value) {
+    const id = Number(rule.target_id)
+    if (id && !known.has(id)) {
+      items.push({ title: String(id), value: id })
+      known.add(id)
     }
   }
   return items
@@ -849,8 +826,6 @@ onUnmounted(() => {
 @media (max-width: 900px) {
   .mon-rule-grid { grid-template-columns: 1fr; }
 }
-.mon-chats-add { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
-.mon-chats-input { flex: 1 1 auto; }
 .mon-target { display: flex; flex-direction: column; gap: 8px; }
 .mon-target-id { margin-top: 0; }
 .mon-match { display: flex; flex-direction: column; gap: 4px; }

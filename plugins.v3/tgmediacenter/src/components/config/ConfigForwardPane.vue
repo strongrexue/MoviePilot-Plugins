@@ -113,40 +113,24 @@
                   variant="outlined"
                   hide-details
                 />
-                <div class="fwd-chats-add">
-                  <VTextField
-                    v-model="manualIds[rule.id || index]"
-                    label="手动添加会话 ID"
-                    placeholder="-1001234567890"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    class="fwd-chats-input"
-                    @keyup.enter="addManualId(rule, index)"
-                  />
-                  <VBtn size="small" variant="text" prepend-icon="mdi-plus" @click="addManualId(rule, index)">
-                    添加
-                  </VBtn>
-                </div>
                 <div class="fwd-hint">
-                  下拉项来自「TG 凭证」页的对话列表缓存；没有缓存时可手动输入 ID（含 -100 前缀）。
+                  下拉项来自「TG 凭证」页的对话列表缓存；看不到想要的会话，先到「TG 凭证」页刷新对话列表再点「刷新状态」。
                 </div>
               </div>
 
               <div class="fwd-target">
-                <VTextField
+                <VSelect
                   v-model="rule.target_id"
-                  label="转发目标会话 ID"
-                  placeholder="-1003229693136"
+                  :items="targetItems"
+                  item-title="title"
+                  item-value="value"
+                  label="转发目标频道 / 群组"
                   density="compact"
                   variant="outlined"
                   hide-details
-                  :error="Boolean(rule.target_id) && !isNumericId(rule.target_id)"
-                  error-message="需要数字会话 ID"
                 />
                 <div class="fwd-hint">
-                  转发到该会话（个人号，受全局冷却与 FloodWait 退避约束）。
-                  目标必须是当前账号能看到的会话，否则转发会失败并重试。
+                  转发到该会话（受全局冷却与 FloodWait 退避约束）。目标必须是当前账号能看到的会话，否则转发会失败并重试。
                 </div>
               </div>
             </div>
@@ -441,7 +425,6 @@ const decisions = ref([
 
 const rules = ref([])
 const dialogs = ref([])
-const manualIds = ref({})
 // 转换规则用多行文本编辑（提交时拆行）；键与规则 id 对应
 const transformText = ref({})
 
@@ -605,31 +588,11 @@ function isNumericId(value) {
   return /^-?\d+$/.test(String(value ?? '').trim())
 }
 
-function addManualId(rule, index) {
-  const raw = String(manualIds.value[rule.id || index] || '')
-  const parts = raw.split(/[,，\s]+/).map(part => part.trim()).filter(Boolean)
-  const added = []
-  for (const part of parts) {
-    if (!isNumericId(part)) continue
-    const id = Number(part)
-    if (id && !rule.source_ids.includes(id)) {
-      rule.source_ids.push(id)
-      added.push(id)
-    }
-  }
-  manualIds.value[rule.id || index] = ''
-  if (!added.length) {
-    setMessage('没有可添加的数字 ID（检查格式，如 -1001234567890）', false)
-  } else {
-    setMessage(`已添加 ${added.length} 个会话 ID`)
-  }
-}
-
 async function saveRules() {
   if (busy.value) return
   const missing = rules.value.find(rule => !isNumericId(rule.target_id))
   if (missing) {
-    setMessage(`规则「${missing.name || '未命名'}」还没填转发目标会话 ID`, false)
+    setMessage(`规则「${missing.name || '未命名'}」还没选择转发目标`, false)
     return
   }
   busy.value = 'save'
@@ -722,7 +685,7 @@ const dialogOptions = computed(() =>
   })),
 )
 
-// 下拉选项 = 对话列表 + 已选中的手动 ID（否则手动添加的 ID 在 chips 里显示不出名称）
+// 下拉选项 = 对话列表 + 已保存但不在缓存里的 ID（老规则/缓存过期时保证 chips 仍能显示）
 const selectItems = computed(() => {
   const items = dialogOptions.value.slice()
   const known = new Set(items.map(item => item.value))
@@ -733,6 +696,20 @@ const selectItems = computed(() => {
         items.push({ title: String(id), value: id })
         known.add(id)
       }
+    }
+  }
+  return items
+})
+
+// 转发目标下拉：同一份对话缓存 + 已保存的目标值兜底
+const targetItems = computed(() => {
+  const items = dialogOptions.value.slice()
+  const known = new Set(items.map(item => item.value))
+  for (const rule of rules.value) {
+    const id = Number(rule.target_id)
+    if (id && !known.has(id)) {
+      items.push({ title: String(id), value: id })
+      known.add(id)
     }
   }
   return items
@@ -810,8 +787,6 @@ onUnmounted(() => {
   .fwd-rule-grid { grid-template-columns: 1fr; }
   .fwd-logic-grid { grid-template-columns: 1fr; }
 }
-.fwd-chats-add { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
-.fwd-chats-input { flex: 1 1 auto; }
 .fwd-target { display: flex; flex-direction: column; gap: 6px; }
 .fwd-switch-label { font-size: 13px; }
 .fwd-keywords { margin-top: 6px; }

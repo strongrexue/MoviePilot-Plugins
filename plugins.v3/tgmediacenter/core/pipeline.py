@@ -733,10 +733,29 @@ class MessagePipeline:
         if str(via or "").strip().lower() != "pan115":
             return
         links = _task_links(task)
+        chat_id = int(task.get("chat_id") or 0)
         if outcome == "done":
-            self._cycle["pan115_done"].append((self._task_label(task), links))
+            # 元组带上 chat_id：通知里按任务分块、各自标注来源频道
+            self._cycle["pan115_done"].append((self._task_label(task), links, chat_id))
             return
         self._cycle["pan115_failed"].append((self._task_label(task), str(message or "")))
+
+    def _dialog_names(self) -> Dict[int, str]:
+        """对话缓存里的 ID → 标题映射（展示增强，失败不影响主体）。"""
+        credentials = getattr(self._plugin, "_credentials", None)
+        if credentials is None:
+            return {}
+        try:
+            dialogs = credentials.cached_dialogs() or []
+        except Exception:  # pragma: no cover
+            return {}
+        result: Dict[int, str] = {}
+        for item in dialogs:
+            try:
+                result[int(item.get("id"))] = str(item.get("name") or "")
+            except (TypeError, ValueError, AttributeError):
+                continue
+        return result
 
     def _flush_notifications(self) -> None:
         """本轮 115 转存结束后发汇总通知（成功 / 失败各一条，开关可关）。"""
@@ -745,11 +764,18 @@ class MessagePipeline:
         failed_115 = list(cycle.get("pan115_failed") or [])
 
         if done and self._notifier.enabled("notify_on_hit", True):
+            names = self._dialog_names()
             lines: List[str] = []
-            for label, links in done[:8]:
-                lines.append(f"· {label}")
+            shown = done[:8]
+            for label, links, chat_id in shown:
+                # 去「· 」、链接行左对齐（首字对齐）；每条任务一个块，自带来源
+                lines.append(label)
                 for url in links[:3]:
-                    lines.append(f"  {url}")
+                    lines.append(url)
+                if len(links) > 3:
+                    lines.append(f"还有 {len(links) - 3} 条链接")
+                src = names.get(int(chat_id)) or str(chat_id)
+                lines.append(f"来源：{src}")
             text = "已转存到 115（" + str(len(done)) + " 条）：\n" + "\n".join(lines)
             if len(done) > 8:
                 text += f"\n…另有 {len(done) - 8} 条"

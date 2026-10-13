@@ -766,6 +766,56 @@ class TestSubscriptionSearch:
         assert "媒体库未收录" in text
         assert "没有同名剧集条目" in text
 
+    def test_search_notification_pushed_block_format(self, cache, subscriptions, plugin, fake_metavideo):
+        """1.6.10：命中并推送的资源按消息分块，块内带年份 / 链接 / 来源，且去「· 」。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4501, _text("青与碧 (2026) S01E01"))
+        cache._matcher = FakeMatcher(missing=True)
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", year="2026", media_id="2"),
+        ]
+        cache.check_subscriptions(trigger="测试")
+        title = plugin.messages[-1]["title"]
+        text = plugin.messages[-1]["text"]
+        assert "缓存回搜" in title
+        # 去「· 」、首字对齐
+        assert "· " not in text
+        # 媒体名带年份
+        assert "青与碧 (2026)" in text
+        # 真实链接
+        assert LINK in text
+        # 来源（测试无对话缓存，退回原始频道 ID）
+        assert f"来源：{CHAT_A}" in text
+        # 头部计数
+        assert "命中并推送 1 条资源" in text
+
+    def test_search_notification_multi_channel_blocks(self, cache, subscriptions, plugin, fake_metavideo):
+        """1.6.10：同片名命中多个频道时，按消息分块、每块自带来源，链接归属清晰。"""
+        # 缓存可配多个频道：放开到 A + B，否则回搜只会搜 CHAT_A
+        plugin.save_config(cache_chat_ids=[CHAT_A, CHAT_B])
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4501, _text("青与碧 (2026) S01E01"))
+        cache.history().record(CHAT_B, 4502, _text("青与碧 (2026) S01E02", "https://115.com/s/swabc888"))
+        cache._matcher = FakeMatcher(missing=True)
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", year="2026", media_id="2"),
+        ]
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 2
+        text = plugin.messages[-1]["text"]
+        assert "命中并推送 2 条资源" in text
+        assert "· " not in text
+        # 两块各自带来源
+        assert f"来源：{CHAT_A}" in text
+        assert f"来源：{CHAT_B}" in text
+        # 两条链接都在，分属两个频道
+        assert LINK in text
+        assert "https://115.com/s/swabc888" in text
+
     def test_disabled_module_skips_check(self, plugin, fake_metavideo):
         plugin.save_config(cache_enabled=False)
         module = CacheModule(plugin)

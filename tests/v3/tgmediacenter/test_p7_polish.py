@@ -90,7 +90,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.6.9"
+        self.plugin_version = "1.6.10"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -253,30 +253,33 @@ def push_env():
     return TgMediaCenter()
 
 
-def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: str = "青与碧 (2026)") -> Dict[str, Any]:
+def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: str = "青与碧 (2026)",
+               chat_id: int = -1004316104321, links: Optional[List[str]] = None) -> Dict[str, Any]:
     """往任务表塞一条待推送任务并返回后端视图 dict。"""
     import json
 
+    if links is None:
+        links = ["https://115.com/s/abc"]
     with plugin.get_database().session() as session:
         session.add(TgPushTask(
             id=task_id,
             plugin_id="TgMediaCenter",
             rule_id="r1",
-            chat_id=-1004316104321,
+            chat_id=chat_id,
             message_id=2234753,
             destination=destination,
             target_id="",
-            payload=json.dumps({"links": ["https://115.com/s/abc"], "title": title}, ensure_ascii=False),
+            payload=json.dumps({"links": links, "title": title}, ensure_ascii=False),
             status=STATUS_PENDING,
         ))
         session.commit()
     return {
         "id": task_id,
         "rule_id": "r1",
-        "chat_id": -1004316104321,
+        "chat_id": chat_id,
         "message_id": 2234753,
         "destination": destination,
-        "payload": {"links": ["https://115.com/s/abc"], "title": title},
+        "payload": {"links": links, "title": title},
         "retries": 0,
     }
 
@@ -319,9 +322,41 @@ class TestPushNotifications:
         pipeline._flush_notifications()
         assert len(push_env.messages) == 1
         assert "115 转存完成" in push_env.messages[0]["title"]
-        assert "青与碧" in push_env.messages[0]["text"]
+        text = push_env.messages[0]["text"]
+        assert "青与碧" in text
         # 1.6.9：转存完成通知末尾附上真实链接，便于直接点开核对
-        assert "https://115.com/s/abc" in push_env.messages[0]["text"]
+        assert "https://115.com/s/abc" in text
+        # 1.6.10：去「· 」前缀、首字对齐，并附来源（测试无对话缓存时退回 chat_id）
+        assert "· " not in text
+        assert "（1 条链接）" in text
+        assert "来源：" in text
+        assert str(task["chat_id"]) in text
+
+    def test_success_notification_blocks_and_source(self, push_env, monkeypatch):
+        """1.6.10：多条 / 多频道任务各自成块，每块带自己的来源，链接行左对齐。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=True, message="115 推送完成：成功 1")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task1 = _seed_task(push_env, task_id=1, chat_id=-1004316104321,
+                           title="希望 (2026)", links=["https://115.com/s/aaa"])
+        task2 = _seed_task(push_env, task_id=2, chat_id=-1003751539830,
+                           title="伟大的长征 (2025)", links=["https://115.com/s/bbb"])
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task1)
+        pipeline._execute_push(task2)
+        pipeline._flush_notifications()
+        assert len(push_env.messages) == 1
+        text = push_env.messages[0]["text"]
+        assert "· " not in text
+        # 两条资源各自成块
+        assert "希望 (2026)（1 条链接）" in text
+        assert "伟大的长征 (2025)（1 条链接）" in text
+        assert "https://115.com/s/aaa" in text
+        assert "https://115.com/s/bbb" in text
+        # 来源各自的频道 ID（测试无对话缓存，退回原始 ID）
+        assert f"来源：{task1['chat_id']}" in text
+        assert f"来源：{task2['chat_id']}" in text
 
     def test_failure_notification_lists_reason(self, push_env, monkeypatch):
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
@@ -439,7 +474,7 @@ def test_overview_aggregates_modules():
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.6.9"
+    assert data.plugin_version == "1.6.10"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"

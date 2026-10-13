@@ -517,35 +517,68 @@ class CacheModule:
         两种口径都要发：**推了**要说清推了几条；**一条没推**更要说清为什么
         （媒体库已存在 / 已推送过），否则界面上就是"什么都没发生"，
         用户无法判断是漏推还是正常跳过（1.4.3 真机反馈"新增订阅插件没有任何输出"）。
+
+        渲染（1.6.10 起）：去「· 」前缀、媒体名带年份、附真实链接、来源用频道名；
+        已推送的**按消息分块**——每条被推送的消息一个块，块内列链接、块自带
+        「来源：频道名」（缓存本就能配多个频道，多频道时才能看出每条链接来自哪）；
+        未推送的订阅则保留原因说明 + 来源。总量兜底：推送块最多列 20 条，其余只计数。
         """
         candidates = sum(int(item.get("candidates") or 0) for item in details)
-        pushed = sum(int(item.get("pushed") or 0) for item in details)
-        if not candidates and not pushed:
+        pushed_total = sum(int(item.get("pushed") or 0) for item in details)
+        if not candidates and not pushed_total:
             return
+        names = self._dialog_names()
         lines: List[str] = []
+
+        # 已推送：按消息分块（每块自带来源 + 真实链接）
+        pushed_items: List[dict] = []
+        shown_count = 0
         for item in details:
-            if not (int(item.get("candidates") or 0) or int(item.get("pushed") or 0)):
+            blocks = list(item.get("pushed_items") or [])
+            shown = blocks[: max(0, 20 - shown_count)]
+            pushed_items.extend(blocks)
+            for blk in shown:
+                label = _media_label(blk)
+                links = list(blk.get("links") or [])
+                lines.append(f"{label}（{len(links)} 条链接）")
+                for url in links[:3]:
+                    lines.append(url)
+                if len(links) > 3:
+                    lines.append(f"还有 {len(links) - 3} 条链接")
+                chat_id = int(blk.get("chat_id") or 0)
+                src = names.get(chat_id) or str(chat_id)
+                lines.append(f"来源：{src}")
+            shown_count += len(shown)
+            # 推了也要说清"为什么判定媒体库没有"——否则用户只知道推了，
+            # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
+            if blocks and item.get("media_note"):
+                lines.append(f"媒体库未收录：{item['media_note']}")
+        if len(pushed_items) > shown_count:
+            lines.append(f"…其余 {len(pushed_items) - shown_count} 条资源请在运行详情页查看")
+
+        # 未推送的订阅：说明原因 + 来源（频道名）
+        for item in details:
+            if int(item.get("pushed") or 0):
                 continue
-            line = (
-                f"· {item.get('name')}：候选 {item.get('candidates', 0)} 条，"
-                f"推送 {item.get('pushed', 0)} 条"
-            )
-            extra: List[str] = []
+            if not int(item.get("candidates") or 0):
+                continue
+            name = _media_label(item) or str(item.get("name") or "")
+            tail: List[str] = []
             if item.get("reason_text"):
-                extra.append(str(item["reason_text"]))
+                tail.append(str(item["reason_text"]))
             # 全推出去时必须说清"为什么判定媒体库没有"——否则用户只知道推了，
             # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
             if item.get("media_note"):
-                extra.append(f"媒体库未收录：{item['media_note']}")
+                tail.append(f"媒体库未收录：{item['media_note']}")
             channels = item.get("channels") or []
             if channels:
-                joined = "、".join(str(c) for c in channels)
-                extra.append(f"来源会话：{joined}")
-            if extra:
-                line += "（" + "；".join(extra) + "）"
-            lines.append(line)
-        if pushed:
-            header = f"新增订阅 {new_count} 个，命中并推送 {pushed} 条资源："
+                joined = "、".join(names.get(int(c)) or str(c) for c in channels)
+                tail.append(f"来源：{joined}")
+            head = f"{name}（候选 {item.get('candidates', 0)} 条，无需推送）"
+            lines.append(head + ("：" + "；".join(tail) if tail else ""))
+
+        if pushed_total:
+            header = f"新增订阅 {new_count} 个，命中并推送 {pushed_total} 条资源："
         else:
             header = f"新增订阅 {new_count} 个，候选 {candidates} 条，无需推送："
         self._notify("TG媒体中心 缓存回搜", header + "\n" + "\n".join(lines))
@@ -562,6 +595,7 @@ class CacheModule:
             f"[{self._plugin_id()}] 缓存回搜：「{title}」命中候选 {len(candidates)} 条"
         )
         pushed = 0
+        pushed_items: List[dict] = []
         skipped = 0
         reasons: Dict[str, int] = {}
         media_note = ""
@@ -613,6 +647,16 @@ class CacheModule:
             if task_id:
                 self._record_hit(item, title, verdict, task_id)
                 pushed += 1
+                # 收集每条被推送消息的展示详情：通知里按消息分块、各自标来源
+                pushed_items.append({
+                    "title": str(item.get("title") or title),
+                    "year": str(item.get("year") or sub.get("year") or ""),
+                    "season": item.get("season"),
+                    "episode": item.get("episode"),
+                    "episode_end": item.get("episode_end"),
+                    "links": links,
+                    "chat_id": chat_id,
+                })
             else:
                 skipped += 1
                 _count_reason(reasons, "入队失败")
@@ -625,8 +669,10 @@ class CacheModule:
         )
         return {
             "name": title,
+            "year": str(sub.get("year") or ""),
             "candidates": len(candidates),
             "pushed": pushed,
+            "pushed_items": pushed_items,
             "skipped": skipped,
             "reasons": reasons,
             "reason_text": reason_text,
@@ -909,6 +955,34 @@ def _reason_text(bucket: Dict[str, int]) -> str:
         return ""
     ordered = sorted(bucket.items(), key=lambda item: (-int(item[1]), item[0]))
     return "、".join(f"{label} {count}" for label, count in ordered)
+
+
+def _media_label(meta: Optional[dict]) -> str:
+    """把识别结果拼成通知 / 流水用的简报文案，如「美人余 (2026) S01E01-E11」。
+
+    与 ``core.pipeline.MessagePipeline._media_label`` 同款拼法（缓存回搜通知
+    与 115 转存通知口径一致，避免两套格式漂移）。
+    """
+    if not meta:
+        return ""
+    title = str(meta.get("title") or "").strip()
+    if not title:
+        return ""
+    parts: List[str] = [title]
+    year = str(meta.get("year") or "").strip()
+    if year:
+        parts.append(f"({year})")
+    season = meta.get("season")
+    episode = meta.get("episode")
+    episode_end = meta.get("episode_end")
+    if season:
+        seg = f"S{int(season):02d}"
+        if episode:
+            seg += f"E{int(episode):02d}"
+            if episode_end and int(episode_end) != int(episode):
+                seg += f"-E{int(episode_end):02d}"
+        parts.append(seg)
+    return " ".join(parts)
 
 
 def _destination_options() -> List[dict]:

@@ -178,7 +178,13 @@ function mediaName(item) {
   if (item.season || item.episode) {
     const s = String(item.season ?? 1).padStart(2, '0');
     const e = String(item.episode ?? 0).padStart(2, '0');
-    name += ` S${s}E${e}`;
+    const end = Number(item.episode_end ?? 0);
+    // 多集区间（如 S01E05-E06）：结束集 > 起始集时拼区间
+    if (end > (item.episode ?? 0)) {
+      name += ` S${s}E${e}-E${String(end).padStart(2, '0')}`;
+    } else {
+      name += ` S${s}E${e}`;
+    }
   }
   return name
 }
@@ -734,6 +740,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f3ea5367"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-79219e43"]]);
 
 export { Page as default };

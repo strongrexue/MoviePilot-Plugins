@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.6.2';
+const FRONTEND_VERSION = '1.6.3';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -1972,7 +1972,7 @@ const _hoisted_16$2 = {
 const _hoisted_17$2 = { class: "mon-rule-head" };
 const _hoisted_18$2 = {
   class: "mon-rule-switch",
-  title: "关闭后该规则暂停监听（随「保存配置」生效）"
+  title: "规则总开关：关闭后这条规则暂停监听——不识别、不推送、也就没有通知。改动要点底部「保存规则」才生效，与通知设置无关（通知在「115 网盘」面板）。"
 };
 const _hoisted_19$2 = { class: "mon-rule-grid" };
 const _hoisted_20$2 = { class: "mon-chats" };
@@ -2353,7 +2353,8 @@ const chatTitleMap = computed$3(() => {
   return map
 });
 
-// 媒体列完整名：片名（年份）+ 电视剧 SxxExx（如「青与碧 (2026) S01E02」）
+// 媒体列完整名：片名（年份）+ 电视剧 SxxExx（如「青与碧 (2026) S01E02」；
+// 多集区间拼 S01E05-E06）
 function mediaName(item) {
   if (!item.title) return ''
   const year = item.year ? ` (${item.year})` : '';
@@ -2361,7 +2362,12 @@ function mediaName(item) {
   if (item.season || item.episode) {
     const s = String(item.season ?? 1).padStart(2, '0');
     const e = String(item.episode ?? 0).padStart(2, '0');
-    name += ` S${s}E${e}`;
+    const end = Number(item.episode_end ?? 0);
+    if (end > (item.episode ?? 0)) {
+      name += ` S${s}E${e}-E${String(end).padStart(2, '0')}`;
+    } else {
+      name += ` S${s}E${e}`;
+    }
   }
   return name
 }
@@ -2834,7 +2840,7 @@ return (_ctx, _cache) => {
                             inset: "",
                             density: "compact"
                           }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                          _cache[15] || (_cache[15] = _createElementVNode$3("span", { class: "mon-switch-label" }, "启用规则", -1))
+                          _cache[15] || (_cache[15] = _createElementVNode$3("span", { class: "mon-switch-label" }, "启用监听", -1))
                         ]),
                         _createVNode$3(_component_VBtn, {
                           size: "small",
@@ -2968,7 +2974,7 @@ return (_ctx, _cache) => {
                     ]))]),
                     _: 1
                   }, 8, ["loading"]),
-                  _cache[22] || (_cache[22] = _createElementVNode$3("span", { class: "mon-hint" }, "规则保存在插件配置里；开关与其它模块设置随底部「保存配置」持久化。", -1))
+                  _cache[22] || (_cache[22] = _createElementVNode$3("span", { class: "mon-hint" }, " 「保存规则」把上面的所有改动立即写进配置并生效；每条规则右上角的「启用监听」开关只是其中一项改动， 决定这条规则是否参与监控（关闭后不识别、不推送、也没有通知，但规则本身保留）。 ", -1))
                 ]))
               : _createCommentVNode$3("", true)
           ]),
@@ -3231,7 +3237,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-08c132b3"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-3e3652d8"]]);
 
 const {resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createTextVNode:_createTextVNode$2,withCtx:_withCtx$2,toDisplayString:_toDisplayString$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,createElementVNode:_createElementVNode$2,Fragment:_Fragment$2,createElementBlock:_createElementBlock$2,renderList:_renderList$2,withKeys:_withKeys} = await importShared('vue');
 

@@ -263,6 +263,7 @@ class MonitorHit(BaseModel):
     year: str = ""
     season: Optional[int] = None
     episode: Optional[int] = None
+    episode_end: Optional[int] = Field(default=None, description="多集区间结束集（S01E05-E06），单集为 null")
     media_type: str = ""
     decision: str = ""
     destination: str = ""

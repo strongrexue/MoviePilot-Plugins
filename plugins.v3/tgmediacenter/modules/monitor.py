@@ -297,6 +297,7 @@ class MonitorModule:
             "year": str(getattr(row, "year", "") or ""),
             "season": getattr(row, "season", None),
             "episode": getattr(row, "episode", None),
+            "episode_end": getattr(row, "episode_end", None),
             "media_type": str(getattr(row, "media_type", "") or ""),
             "decision": str(getattr(row, "decision", "") or ""),
             "destination": str(getattr(row, "destination", "") or ""),

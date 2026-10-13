@@ -76,6 +76,8 @@ class TgHitLog(Base):
     year: Mapped[str] = mapped_column(String(16), default="")
     season: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     episode: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # 多集区间（S01E05-E06）的结束集；单集流水为 NULL（1.6.3 起记录）
+    episode_end: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     media_type: Mapped[str] = mapped_column(String(16), default="")
     # 决策与去向
     decision: Mapped[str] = mapped_column(String(32), index=True)

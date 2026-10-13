@@ -197,9 +197,12 @@
                 hide-details
                 class="mon-rule-name"
               />
-              <div class="mon-rule-switch" title="关闭后该规则暂停监听（随「保存配置」生效）">
+              <div
+                class="mon-rule-switch"
+                title="规则总开关：关闭后这条规则暂停监听——不识别、不推送、也就没有通知。改动要点底部「保存规则」才生效，与通知设置无关（通知在「115 网盘」面板）。"
+              >
                 <VSwitch v-model="rule.enabled" color="success" hide-details inset density="compact" />
-                <span class="mon-switch-label">启用规则</span>
+                <span class="mon-switch-label">启用监听</span>
               </div>
               <VBtn
                 size="small"
@@ -305,7 +308,10 @@
           >
             保存规则（即时生效）
           </VBtn>
-          <span class="mon-hint">规则保存在插件配置里；开关与其它模块设置随底部「保存配置」持久化。</span>
+          <span class="mon-hint">
+            「保存规则」把上面的所有改动立即写进配置并生效；每条规则右上角的「启用监听」开关只是其中一项改动，
+            决定这条规则是否参与监控（关闭后不识别、不推送、也没有通知，但规则本身保留）。
+          </span>
         </div>
       </VCardText>
     </VCard>
@@ -772,7 +778,8 @@ const chatTitleMap = computed(() => {
   return map
 })
 
-// 媒体列完整名：片名（年份）+ 电视剧 SxxExx（如「青与碧 (2026) S01E02」）
+// 媒体列完整名：片名（年份）+ 电视剧 SxxExx（如「青与碧 (2026) S01E02」；
+// 多集区间拼 S01E05-E06）
 function mediaName(item) {
   if (!item.title) return ''
   const year = item.year ? ` (${item.year})` : ''
@@ -780,7 +787,12 @@ function mediaName(item) {
   if (item.season || item.episode) {
     const s = String(item.season ?? 1).padStart(2, '0')
     const e = String(item.episode ?? 0).padStart(2, '0')
-    name += ` S${s}E${e}`
+    const end = Number(item.episode_end ?? 0)
+    if (end > (item.episode ?? 0)) {
+      name += ` S${s}E${e}-E${String(end).padStart(2, '0')}`
+    } else {
+      name += ` S${s}E${e}`
+    }
   }
   return name
 }

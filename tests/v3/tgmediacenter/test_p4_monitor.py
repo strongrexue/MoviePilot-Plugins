@@ -1571,6 +1571,9 @@ class TestMonitorApi:
                 session.add(TgHitLog(
                     plugin_id="FakePlugin", rule_id="r-test", rule_name="测试规则",
                     chat_id=CHAT_A, message_id=index + 1,
+                    season=1, episode=5,
+                    # 第二条带多集区间（S01E05-E06），媒体列拼完整名用
+                    episode_end=6 if index == 1 else None,
                     decision=DECISION_HIT if index else DECISION_SKIPPED_KEYWORD,
                     destination="none",
                 ))
@@ -1579,6 +1582,9 @@ class TestMonitorApi:
         assert page1.total == 3 and len(page1.items) == 2 and page1.page == 1
         filtered = controller_api.api_monitor_hits(monitor._plugin, decision=DECISION_SKIPPED_KEYWORD).data
         assert filtered.total == 1
+        # episode_end 要原样带出来（老库迁移补列后同样可读）
+        with_end = [item for item in page1.items if item.episode_end == 6]
+        assert len(with_end) == 1 and with_end[0].episode == 5 and with_end[0].season == 1
 
     def test_status_shape(self, monitor):
         data = controller_api.api_monitor_status(monitor._plugin).data

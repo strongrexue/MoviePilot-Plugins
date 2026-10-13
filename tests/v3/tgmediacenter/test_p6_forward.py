@@ -657,6 +657,7 @@ class TestMigration:
         with engine.begin() as conn:
             rows = conn.execute(text("PRAGMA table_info(monitor_hit_log)")).fetchall()
         assert "kind" in {row[1] for row in rows}
+        assert "episode_end" in {row[1] for row in rows}
 
     def test_ensure_hit_log_columns_is_idempotent(self):
         engine = _legacy_hit_log_engine()

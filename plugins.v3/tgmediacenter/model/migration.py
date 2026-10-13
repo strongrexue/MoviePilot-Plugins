@@ -7,7 +7,8 @@
   升级为 BIGINT。1.4.1 及以前该表是 32 位 Integer，而 TG 频道 ID（约 ±1e12）
   超出 int32，Postgres 下推送入队直接 ``NumericValueOutOfRange``（1.4.1 真机踩坑）。
 - ``ensure_hit_log_columns``：``monitor_hit_log`` 补 ``kind`` 列（1.5.0 起区分
-  ``monitor`` / ``forward`` 两种流水来源）。
+  ``monitor`` / ``forward`` 两种流水来源）、``episode_end`` 列（1.6.3 起记录
+  多集区间的结束集）。
 
 任何失败只告警不阻断插件启动。
 """
@@ -55,9 +56,11 @@ def ensure_bigint_columns(db: Any) -> None:
         logger.warning(f"[push_task 迁移] 表结构检查/升级失败（不阻断启动）：{err}")
 
 
-# monitor_hit_log 在 1.5.0 新增的列：列名 -> 建列 SQL 片段
+# monitor_hit_log 需要补列的存量库：列名 -> 建列 SQL 片段
 _HIT_LOG_ADDED_COLUMNS: Dict[str, str] = {
     "kind": "VARCHAR(16) NOT NULL DEFAULT 'monitor'",
+    # 1.6.3：多集区间（S01E05-E06）的结束集，媒体列拼完整名用
+    "episode_end": "INTEGER NULL",
 }
 
 

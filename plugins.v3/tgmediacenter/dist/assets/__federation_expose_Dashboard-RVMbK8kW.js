@@ -76,7 +76,14 @@ function mediaName(item) {
   const year = item.year ? ` (${item.year})` : '';
   let name = `${item.title}${year}`;
   if (item.season || item.episode) {
-    name += ` S${String(item.season ?? 1).padStart(2, '0')}E${String(item.episode ?? 0).padStart(2, '0')}`;
+    const s = String(item.season ?? 1).padStart(2, '0');
+    const e = String(item.episode ?? 0).padStart(2, '0');
+    const end = Number(item.episode_end ?? 0);
+    if (end > (item.episode ?? 0)) {
+      name += ` S${s}E${e}-E${String(end).padStart(2, '0')}`;
+    } else {
+      name += ` S${s}E${e}`;
+    }
   }
   return name
 }
@@ -276,6 +283,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cd94a12a"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e9b62b47"]]);
 
 export { Dashboard as default };

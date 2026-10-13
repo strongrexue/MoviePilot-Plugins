@@ -607,6 +607,7 @@ class MessagePipeline:
                     year=str((meta or {}).get("year") or "")[:16],
                     season=(meta or {}).get("season"),
                     episode=(meta or {}).get("episode"),
+                    episode_end=(meta or {}).get("episode_end"),
                     media_type=str((meta or {}).get("media_type") or "")[:16],
                     decision=str(decision)[:32],
                     destination=str(destination or "")[:32],

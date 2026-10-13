@@ -1,10 +1,11 @@
 """TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
-当前进度：P4 —— TG 资源监控。
+当前进度：P5 —— 历史消息缓存。
 - 已实现：① TG 核心凭证（Telethon 运行时、登录向导、会话持久化、对话列表缓存）；
   ② 115 网盘（Cookie 登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送）；
-  ④ TG 资源监控（事件接入、聚合窗口、宿主识别、缺失判断、推送队列）。
-- 待实现：历史消息缓存、TG 通用转发（自定义豆瓣源已取消，改用「豆瓣中心」插件）。
+  ④ TG 资源监控（事件接入、聚合窗口、宿主识别、缺失判断、推送队列）；
+  ⑤ 历史消息缓存（实时写入、位点增量/时间范围同步、检索统计、订阅触发回搜）。
+- 待实现：TG 通用转发（自定义豆瓣源已取消，改用「豆瓣中心」插件）。
 """
 from typing import Any, Dict, List, Optional, Tuple
 import time
@@ -15,6 +16,7 @@ from app.sdk.plugin import _PluginBase
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
 from .model import get_models
+from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
 from .modules.monitor import MonitorModule
 from .modules.pan115 import Pan115Module
@@ -32,7 +34,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.3.11"
+    plugin_version = "1.4.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -46,6 +48,7 @@ class TgMediaCenter(_PluginBase):
         self._credentials: Optional[CredentialsModule] = None
         self._pan115: Optional[Pan115Module] = None
         self._monitor: Optional[MonitorModule] = None
+        self._cache: Optional[CacheModule] = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -96,14 +99,19 @@ class TgMediaCenter(_PluginBase):
 
         self._credentials = CredentialsModule(self)
         self._pan115 = Pan115Module(self)
+        # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 缓存」，事件入口要用到它
+        self._cache = CacheModule(self)
         self._monitor = MonitorModule(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
 
         # ④ 资源监控：启用且有监听规则时启动流水线（TG 未连接也会先起来，
-        # 处理器注册由流水线健康检查在运行时就绪后自动补上）
+        # 处理器注册由流水线健康检查在运行时就绪后自动补上）。
+        # 只开缓存（不开监控）时同样要起流水线——缓存写入是流水线的下游。
         try:
-            if self._monitor.enabled() and self._monitor.watched_chat_ids():
+            want_monitor = self._monitor.enabled() and self._monitor.watched_chat_ids()
+            want_cache = self._cache.enabled() and self._cache.chat_ids()
+            if want_monitor or want_cache:
                 self._monitor.start()
         except Exception as err:  # pragma: no cover - 监控启动失败不影响其余能力
             logger.warning(f"[TgMediaCenter] 启动资源监控流水线失败：{err}")
@@ -202,12 +210,17 @@ class TgMediaCenter(_PluginBase):
             "cache_enabled": False,
             "cache_chat_ids": [],
             "cache_destination": "smart",
+            "cache_sync_mode": "relative",
+            "cache_sync_days": 30,
+            "cache_batch_size": 200,
+            "cache_subscribe_enabled": True,
             # ⑥ TG 通用转发
             "forward_enabled": False,
             "forward_rules": [],
             # 定时任务
             "douban_cron": "0 13 * * *",
             "cache_cron": "0 */6 * * *",
+            "cache_subscribe_cron": "*/5 * * * *",
             # 通知
             "notify_on_hit": True,
             "notify_on_error": True,
@@ -309,6 +322,40 @@ class TgMediaCenter(_PluginBase):
         """用一段文本测试规则处理结果。"""
         return api_controller.api_monitor_test(self, request)
 
+    # ------------------------------------------------------------------ ⑤ 历史消息缓存
+
+    def api_cache_settings(self):
+        """读取消息缓存设置。"""
+        return api_controller.api_cache_settings(self)
+
+    def api_cache_settings_save(self, request: api_schemas.CacheSettingsRequest):
+        """保存消息缓存设置。"""
+        return api_controller.api_cache_settings_save(self, request)
+
+    def api_cache_status(self):
+        """缓存状态与统计。"""
+        return api_controller.api_cache_status(self)
+
+    def api_cache_sync(self, request: api_schemas.CacheSyncRequest):
+        """触发缓存同步。"""
+        return api_controller.api_cache_sync(self, request)
+
+    def api_cache_cancel(self):
+        """停止正在进行的缓存同步。"""
+        return api_controller.api_cache_cancel(self)
+
+    def api_cache_clear(self, request: api_schemas.CacheClearRequest):
+        """清空指定频道的缓存。"""
+        return api_controller.api_cache_clear(self, request)
+
+    def api_cache_search(self, request: api_schemas.CacheSearchRequest):
+        """检索缓存消息。"""
+        return api_controller.api_cache_search(self, request)
+
+    def api_cache_check_subscriptions(self):
+        """立即检查新增订阅并回搜缓存。"""
+        return api_controller.api_cache_check_subscriptions(self)
+
     # ------------------------------------------------------------------ 其它扩展点
 
     def get_database_models(self) -> Optional[List[type]]:
@@ -323,9 +370,46 @@ class TgMediaCenter(_PluginBase):
         """返回插件定时服务定义。
 
         监控流水线自带 worker 线程（聚合窗口 + 推送队列扫描），不需要宿主定时任务；
-        预留：后续缓存增量同步（P5）等周期任务在此声明。
+        这里注册两个缓存相关周期任务：
+        - 缓存增量同步（``cache_cron``，默认每 6 小时）：按位点补齐断线窗口漏掉的消息；
+        - 订阅回搜检查（``cache_subscribe_cron``，默认每 5 分钟）：对比订阅快照，
+          新增订阅自动回搜缓存并推送。
+
+        :note: ``trigger`` 必须是 ``CronTrigger`` 对象；本方法整体兜底，
+            任何异常都只记录日志并降级为空列表（注册异常会拖垮 TG 自愈）。
         """
-        return []
+        services: List[Dict[str, Any]] = []
+        cache = self._cache
+        if cache is None:
+            return services
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+        except Exception as err:  # pragma: no cover - 宿主缺调度依赖
+            logger.info(f"[TgMediaCenter] 调度依赖不可用，缓存定时任务降级：{err}")
+            return services
+        try:
+            if not (self._enabled() and cache.enabled()):
+                return services
+            if cache.chat_ids():
+                cron = cache.cron()
+                services.append({
+                    "func": cache.run_scheduled_sync,
+                    "trigger": CronTrigger.from_crontab(cron),
+                    "name": "TG媒体中心 缓存增量同步",
+                    "id": "tgmediacenter_cache_sync",
+                })
+            if cache.subscribe_enabled():
+                cron = cache.subscribe_cron()
+                services.append({
+                    "func": cache.run_subscription_job,
+                    "trigger": CronTrigger.from_crontab(cron),
+                    "name": "TG媒体中心 订阅回搜",
+                    "id": "tgmediacenter_cache_subscribe",
+                })
+        except Exception as err:  # pragma: no cover - 定时任务注册失败不影响插件加载
+            logger.warning(f"[TgMediaCenter] 注册缓存定时任务失败：{err}")
+            return []
+        return services
 
     def stop_service(self) -> None:
         """释放插件创建的后台资源。"""
@@ -335,6 +419,13 @@ class TgMediaCenter(_PluginBase):
                 monitor.stop()
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止资源监控流水线失败：{err}")
+        cache = getattr(self, "_cache", None)
+        self._cache = None
+        if cache is not None:
+            try:
+                cache.cancel_sync()
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[TgMediaCenter] 停止缓存同步失败：{err}")
         credentials, self._credentials = self._credentials, None
         if credentials is not None:
             try:

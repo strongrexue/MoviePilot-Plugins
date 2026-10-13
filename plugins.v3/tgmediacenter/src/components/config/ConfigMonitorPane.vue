@@ -36,7 +36,7 @@
             消息监听{{ status?.pipeline?.handler_registered ? '已注册' : '未注册' }}
           </VChip>
           <VChip size="small" variant="tonal" color="info" label>
-            监听频道 {{ status?.watched_chats ?? 0 }}
+            关心会话 {{ status?.watched_chats ?? 0 }}
           </VChip>
           <VChip size="small" variant="tonal" color="primary" label>
             规则 {{ status?.rules_count ?? 0 }}
@@ -80,7 +80,7 @@
           </span>
         </div>
         <div v-if="(status?.watched_chat_ids?.length || 0) > 0" class="mon-sources">
-          <span class="mon-events-title">监听 ID：</span>
+          <span class="mon-events-title">关心会话：</span>
           <template v-if="(status?.pipeline?.watched_detail?.length || 0) > 0">
             <VChip
               v-for="item in status.pipeline.watched_detail"
@@ -93,6 +93,7 @@
               :title="item.resolved ? `会话标题：${item.title}` : `反查失败：${item.error}`"
             >
               {{ item.chat_id }}<template v-if="item.resolved"> ▸ {{ item.title || '(无标题)' }}</template><template v-else> ▸ 反查失败</template>
+              <span class="mon-id-purpose">［{{ purposeLabel(item.purposes) }}］</span>
             </VChip>
           </template>
           <template v-else>
@@ -116,13 +117,14 @@
             :key="`src-${source.chat_id}`"
             size="x-small"
             variant="tonal"
-            :color="source.watched ? 'success' : 'default'"
+            :color="sourceColor(source)"
             label
             class="mon-id-chip"
+            :title="`监控：${source.watched ? '是' : '否'} · 缓存：${source.cached ? '是' : '否'}`"
           >
             {{ source.chat_id }} ×{{ source.count }}
           </VChip>
-          <span class="mon-events-last">绿=已监听，灰=未监听</span>
+          <span class="mon-events-last">绿=监控，蓝=仅缓存，灰=无关</span>
         </div>
         <VAlert
           v-if="status?.enabled && (status?.pipeline?.events_received > 0) && !(status?.pipeline?.events_watched > 0)"
@@ -754,6 +756,20 @@ function decisionLabel(value) {
   return found ? found.title : value
 }
 
+// 关心会话的用途标注（监控 / 缓存 / 两者）
+function purposeLabel(purposes) {
+  const list = Array.isArray(purposes) ? purposes : []
+  return list.length ? list.join('+') : '监控'
+}
+
+// 来源会话配色：监控优先，其次缓存
+function sourceColor(source) {
+  if (source?.watched && source?.cached) return 'primary'
+  if (source?.watched) return 'success'
+  if (source?.cached) return 'info'
+  return 'default'
+}
+
 function decisionColor(value) {
   if (value === 'hit') return 'success'
   if (value === 'failed') return 'error'
@@ -820,6 +836,7 @@ onUnmounted(() => {
 .mon-events-hint { margin-top: 8px; font-size: 12px; }
 .mon-sources { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
 .mon-id-chip { font-family: monospace; }
+.mon-id-purpose { opacity: 0.75; }
 .mon-flood { color: rgb(var(--v-theme-warning)); }
 .mon-matcher { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; }
 .mon-matcher-chip { margin-left: 0; }

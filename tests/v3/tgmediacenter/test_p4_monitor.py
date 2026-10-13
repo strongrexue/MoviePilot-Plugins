@@ -1234,7 +1234,7 @@ class TestPluginWiring:
         from app.plugins.tgmediacenter import TgMediaCenter
 
         models = TgMediaCenter().get_database_models()
-        assert [model.__name__ for model in models] == ["TgHitLog", "TgPushTask"]
+        assert [model.__name__ for model in models] == ["TgHitLog", "TgMessageCache", "TgPushTask"]
 
     def test_monitor_routes_registered(self):
         from app.plugins.tgmediacenter import TgMediaCenter

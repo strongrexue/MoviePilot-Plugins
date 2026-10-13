@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from app.sdk.logging import logger
 
 from ..core import links as link_utils
+from ..core import push_queue
 from ..core.cooldown import CooldownGate
 from ..destinations import resolve_destination
 from ..model.push_task import (
@@ -106,8 +107,9 @@ class MessagePipeline:
             # 事件可观测性计数：用于诊断"监听是否真的在收消息"
             "events_received": 0,   # 事件处理器被触发（任何新消息，含非监听会话）
             "events_watched": 0,    # 命中监听会话的条数
-            "events_unwatched": 0,  # 非监听会话被丢弃的条数
+            "events_unwatched": 0,  # 非关心会话被丢弃的条数
             "messages_enqueued": 0, # 进入流水线处理的条数
+            "cache_written": 0,     # 写入消息缓存的条数（P5）
         }
         # 最近消息来源（只记被监听会话）：chat_id -> {"count", "last_at", "_mono"}
         self._recent_sources: Dict[int, Dict[str, Any]] = {}
@@ -154,15 +156,18 @@ class MessagePipeline:
         })
 
     def _handle_event(self, event: Any) -> None:
-        """Telethon 事件处理器（运行在 TG loop 线程）。"""
+        """Telethon 事件处理器（运行在 TG loop 线程）。
+
+        关心会话 = 监控频道 ∪ 缓存频道：只有这两个集合的消息才进流水线，
+        其余完全静默（仅计数），避免大流量频道把运行日志刷成噪音。
+        """
         try:
             chat_id = getattr(event, "chat_id", None)
             if chat_id is None:
                 return
             self._stats["events_received"] += 1
-            # 只关心被规则监听的会话：其余消息直接丢弃（静默，仅计数，
-            # 避免大流量频道把运行日志刷成噪音）
-            if not self._monitor.is_watched(int(chat_id)):
+            purposes = self._purposes(int(chat_id))
+            if not purposes:
                 self._stats["events_unwatched"] += 1
                 return
             self._stats["events_watched"] += 1
@@ -171,13 +176,61 @@ class MessagePipeline:
             message = getattr(event, "message", None)
             message_id = int(getattr(message, "id", 0) or 0)
             text = str(getattr(event, "raw_text", "") or "")
+            label = "+".join(purposes) or "关心"
             logger.info(
-                f"[{self._plugin_id()}] 监听会话 {chat_id} 新消息 #{message_id}"
+                f"[{self._plugin_id()}] [{label}] 会话 {chat_id} 新消息 #{message_id}"
                 f"（{len(text)} 字），进入处理流水线"
             )
             self.on_new_message(int(chat_id), message_id, text)
         except Exception as err:  # pragma: no cover - 事件解析异常不能影响 TG 连接
             logger.debug(f"处理 TG 新消息事件失败（忽略）：{err}")
+
+    # ------------------------------------------------------------------ 关心会话
+
+    def _cache_module(self):
+        """缓存模块（P5 起）；未接线时返回 None。"""
+        return getattr(self._plugin, "_cache", None)
+
+    def _cached_chat(self, chat_id: int) -> bool:
+        module = self._cache_module()
+        if module is None:
+            return False
+        try:
+            return bool(module.is_cached_chat(int(chat_id)))
+        except Exception:  # pragma: no cover - 缓存模块异常不影响监控
+            return False
+
+    def _purposes(self, chat_id: int) -> List[str]:
+        """该会话被关心的用途：["监控"] / ["缓存"] / ["监控", "缓存"]。"""
+        try:
+            watched = bool(self._monitor.is_watched(int(chat_id)))
+        except Exception:  # pragma: no cover
+            watched = False
+        purposes: List[str] = []
+        if watched:
+            purposes.append("监控")
+        if self._cached_chat(chat_id):
+            purposes.append("缓存")
+        return purposes
+
+    def _interested_chat_ids(self) -> List[int]:
+        """关心会话 ID 清单（监控 ∪ 缓存，去重）。"""
+        ids: List[int] = []
+        try:
+            for chat_id in self._monitor.watched_chat_ids():
+                if int(chat_id) not in ids:
+                    ids.append(int(chat_id))
+        except Exception:  # pragma: no cover
+            pass
+        module = self._cache_module()
+        if module is not None:
+            try:
+                for chat_id in module.chat_ids():
+                    if int(chat_id) not in ids:
+                        ids.append(int(chat_id))
+            except Exception:  # pragma: no cover
+                pass
+        return ids
 
     def _record_source(self, chat_id: int) -> None:
         """记录最近消息来源（TG 线程内只做字典自增，足够便宜）。"""
@@ -249,8 +302,9 @@ class MessagePipeline:
     # ------------------------------------------------------------------ 批处理
 
     def _process_batch(self, chat_id: int, messages: List[Dict[str, Any]]) -> None:
+        # 只有缓存、没有监控规则的频道也要处理（缓存是监控之外独立的下游）
         rules = self._monitor.rules_for_chat(chat_id)
-        if not rules:
+        if not rules and not self._cached_chat(chat_id):
             return
         for message in messages:
             try:
@@ -260,9 +314,9 @@ class MessagePipeline:
                 self._last_error = str(err)
                 logger.warning(f"[{self._plugin_id()}] 处理监控消息失败（chat={chat_id}）：{err}")
         self._stats["processed"] += len(messages)
-        # 每批打一条 INFO，让"消息确实被监控到了"在运行日志里可见（排查静默丢弃的关键）
+        # 每批打一条 INFO，让"消息确实被处理了"在运行日志里可见（排查静默丢弃的关键）
         logger.info(
-            f"[{self._plugin_id()}] 收到 {len(messages)} 条监控消息（chat={chat_id}），"
+            f"[{self._plugin_id()}] 收到 {len(messages)} 条消息（chat={chat_id}），"
             f"累计处理 {self._stats['processed']} / 命中 {self._stats['hit']}"
         )
 
@@ -276,9 +330,29 @@ class MessagePipeline:
         parsed = link_utils.parse_push_text(text)
         links = [item.raw or item.url for item in parsed.items if item.supported]
 
+        # 缓存写入（与该频道是否有监控规则无关）
+        if self._cached_chat(chat_id):
+            self._record_cache(chat_id, message_id, text, cleaned=cleaned, meta=meta, links=links)
+
+        if not rules:
+            return
         for rule in rules:
             self._apply_rule(chat_id=chat_id, message_id=message_id, text=text,
                              cleaned=cleaned, meta=meta, links=links, rule=rule)
+
+    def _record_cache(self, chat_id: int, message_id: int, text: str, *,
+                      cleaned: Optional[str], meta: Optional[dict], links: List[str]) -> None:
+        """写入历史消息缓存（复用已算好的净化与识别结果，不重复识别）。"""
+        module = self._cache_module()
+        if module is None:
+            return
+        try:
+            inserted = module.record(chat_id, message_id, text,
+                                     cleaned=cleaned, meta=meta, links=links)
+            if inserted:
+                self._stats["cache_written"] = self._stats.get("cache_written", 0) + 1
+        except Exception as err:  # pragma: no cover - 缓存写入失败不影响监控
+            logger.debug(f"写入消息缓存失败（chat={chat_id}, msg={message_id}）：{err}")
 
     def _apply_rule(self, *, chat_id: int, message_id: int, text: str, cleaned: str,
                     meta: Optional[dict], links: List[str], rule: dict) -> None:
@@ -412,35 +486,18 @@ class MessagePipeline:
 
     def _enqueue_push(self, *, rule: dict, chat_id: int, message_id: int, text: str,
                       links: List[str], destination: str) -> Optional[int]:
-        """入队推送任务，返回任务 ID。"""
-        db = self._db()
-        if db is None:
-            return None
-        import json
-
-        payload = {
-            "links": list(links),
-            "text": str(text or "")[:4000],
-            "title": "",
-        }
-        try:
-            with db.session() as session:
-                task = TgPushTask(
-                    plugin_id=self._plugin_id(),
-                    rule_id=str(rule.get("id") or "")[:64],
-                    chat_id=int(chat_id),
-                    message_id=int(message_id),
-                    destination=str(destination or "smart")[:32],
-                    target_id=str(rule.get("target_id") or "")[:64],
-                    payload=json.dumps(payload, ensure_ascii=False),
-                    status=STATUS_PENDING,
-                )
-                session.add(task)
-                session.commit()
-                return int(task.id)
-        except Exception as err:
-            logger.warning(f"推送任务入队失败：{err}")
-            return None
+        """入队推送任务，返回任务 ID（与缓存回搜共用同一入队实现）。"""
+        return push_queue.enqueue_push(
+            self._db(),
+            self._plugin_id(),
+            rule_id=str(rule.get("id") or ""),
+            chat_id=chat_id,
+            message_id=message_id,
+            destination=destination,
+            target_id=str(rule.get("target_id") or ""),
+            links=links,
+            text=text,
+        )
 
     # ------------------------------------------------------------------ 推送 worker
 
@@ -638,7 +695,7 @@ class MessagePipeline:
             if ok:
                 logger.info(
                     f"[{self._plugin_id()}] 已注册 TG 新消息监听（client={id(runtime.client)}），"
-                    f"监听会话 ID：{self._monitor.watched_chat_ids()}"
+                    f"关心会话 ID：{self._interested_chat_ids()}"
                 )
             else:
                 logger.warning(f"[{self._plugin_id()}] TG 新消息监听注册失败（客户端不可用）")
@@ -659,14 +716,18 @@ class MessagePipeline:
         self._handler_ok = False
 
     async def _resolve_watched(self, client: Any) -> None:
-        """把规则里的监听 ID 反查成会话标题（在 TG loop 内执行）。
+        """把关心会话（监控 ∪ 缓存）的 ID 反查成会话标题（在 TG loop 内执行）。
 
         反查成功 → 日志明确"这个 ID 是哪个频道"；失败 → 该 ID 在此账号视角
-        不存在 / 无权限 / 已失效，规则必然永远收不到它的事件。
+        不存在 / 无权限 / 已失效，规则或缓存频道必然永远收不到它的事件。
         """
         detail: List[Dict[str, Any]] = []
-        for chat_id in self._monitor.watched_chat_ids():
-            entry: Dict[str, Any] = {"chat_id": int(chat_id), "title": "", "resolved": False, "error": ""}
+        for chat_id in self._interested_chat_ids():
+            purposes = self._purposes(int(chat_id))
+            entry: Dict[str, Any] = {
+                "chat_id": int(chat_id), "title": "", "resolved": False,
+                "error": "", "purposes": purposes,
+            }
             try:
                 entity = await client.get_entity(int(chat_id))
                 title = (
@@ -677,12 +738,15 @@ class MessagePipeline:
                 )
                 entry["title"] = str(title)[:60]
                 entry["resolved"] = True
-                logger.info(f"[{self._plugin_id()}] 监听会话 {chat_id} →「{entry['title']}」")
+                logger.info(
+                    f"[{self._plugin_id()}] 关心会话 {chat_id} →「{entry['title']}」"
+                    f"（{'/'.join(purposes)}）"
+                )
             except Exception as err:
                 entry["error"] = str(err)[:120]
                 logger.warning(
-                    f"[{self._plugin_id()}] 监听会话 {chat_id} 反查失败（账号看不到该会话，"
-                    f"规则将收不到它的事件；请到 TG 凭证页刷新对话后重选）：{err}"
+                    f"[{self._plugin_id()}] 关心会话 {chat_id} 反查失败（账号看不到该会话，"
+                    f"将收不到它的事件；请到 TG 凭证页刷新对话后重选）：{err}"
                 )
             detail.append(entry)
         self._watched_detail = detail
@@ -730,6 +794,7 @@ class MessagePipeline:
             "events_watched": self._stats["events_watched"],
             "events_unwatched": self._stats["events_unwatched"],
             "messages_enqueued": self._stats["messages_enqueued"],
+            "cache_written": self._stats.get("cache_written", 0),
             "last_event_at": self._last_event_at,
             "recent_sources": self._recent_sources_view(),
             "watched_detail": [dict(entry) for entry in self._watched_detail],
@@ -741,7 +806,7 @@ class MessagePipeline:
         }
 
     def _recent_sources_view(self) -> List[dict]:
-        """最近消息来源（按活跃时间倒序，最多 24 条，带是否被监听标记）。"""
+        """最近消息来源（按活跃时间倒序，最多 24 条，带关心的用途标记）。"""
         items = sorted(
             self._recent_sources.items(),
             key=lambda pair: pair[1]["_mono"],
@@ -752,7 +817,8 @@ class MessagePipeline:
                 "chat_id": int(chat_id),
                 "count": int(record["count"]),
                 "last_at": str(record["last_at"]),
-                "watched": self._monitor.is_watched(int(chat_id)),
+                "watched": bool(self._monitor.is_watched(int(chat_id))),
+                "cached": self._cached_chat(int(chat_id)),
             }
             for chat_id, record in items
         ]

@@ -187,10 +187,11 @@ class MonitorModule:
     def ensure_started(self) -> None:
         """按需启动流水线（去抖 + 临时线程，不阻塞调用方）。
 
-        用户保存规则 / 打开状态页时触发：不必等插件重载，监控即进入运行态。
-        与 TG 连接的「打开配置页即自愈」是同一种模式。
+        用户保存规则 / 保存缓存设置 / 打开状态页时触发：不必等插件重载，
+        监控与缓存即进入运行态。与 TG 连接的「打开配置页即自愈」是同一种模式。
         """
-        if not self.enabled() or not self.watched_chat_ids():
+        want_monitor = self.enabled() and bool(self.watched_chat_ids())
+        if not want_monitor and not self._cache_ready():
             return
         if self._pipeline is not None and self._pipeline.is_running():
             return
@@ -199,6 +200,16 @@ class MonitorModule:
             return
         self._start_attempt_at = now
         threading.Thread(target=self._start_quietly, name="tgmc.monitor.start", daemon=True).start()
+
+    def _cache_ready(self) -> bool:
+        """是否只开缓存也要跑流水线（缓存写入是流水线下游）。"""
+        cache = getattr(self._plugin, "_cache", None)
+        if cache is None:
+            return False
+        try:
+            return bool(cache.enabled() and cache.chat_ids())
+        except Exception:  # pragma: no cover
+            return False
 
     def _start_quietly(self) -> None:
         try:
@@ -317,10 +328,10 @@ class MonitorModule:
             "events_watched": 0,
             "events_unwatched": 0,
             "messages_enqueued": 0,
+            "cache_written": 0,
             "last_event_at": "",
             "recent_sources": [],
             "watched_detail": [],
-            "recent_sources": [],
             "push_done": push["done"],
             "push_pending": push["pending"],
             "push_failed": push["failed"],

@@ -50,6 +50,14 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/monitor/hits", plugin.api_monitor_hits, ["GET"], "查询监控命中流水"),
         ("/monitor/status", plugin.api_monitor_status, ["GET"], "获取监控运行状态"),
         ("/monitor/test", plugin.api_monitor_test, ["POST"], "用一段文本测试规则处理结果"),
+        ("/cache/settings", plugin.api_cache_settings, ["GET"], "获取消息缓存设置"),
+        ("/cache/settings", plugin.api_cache_settings_save, ["PUT", "POST"], "保存消息缓存设置"),
+        ("/cache/status", plugin.api_cache_status, ["GET"], "获取消息缓存状态与统计"),
+        ("/cache/sync", plugin.api_cache_sync, ["POST"], "触发缓存同步（增量 / 时间范围）"),
+        ("/cache/cancel", plugin.api_cache_cancel, ["POST"], "停止正在进行的缓存同步"),
+        ("/cache/clear", plugin.api_cache_clear, ["POST"], "清空指定频道的缓存"),
+        ("/cache/search", plugin.api_cache_search, ["POST"], "检索缓存消息"),
+        ("/cache/check_subscriptions", plugin.api_cache_check_subscriptions, ["POST"], "立即检查新增订阅并回搜缓存"),
     ]
     return [
         {
@@ -336,3 +344,85 @@ def api_monitor_test(plugin, request: api_schemas.MonitorTestRequest):
         raise HTTPException(status_code=400, detail="请先粘贴一条频道消息文本")
     data = _invoke(lambda: module.test_text(request.text))
     return _envelope(api_schemas.MonitorTestData.model_validate(data), message="测试完成（未落库、未推送）")
+
+
+# ---------------------------------------------------------------------- ⑤ 历史消息缓存
+
+
+def _cache(plugin):
+    """返回缓存模块；插件尚未初始化时抛 503。"""
+    module = getattr(plugin, "_cache", None)
+    if module is None:
+        raise HTTPException(status_code=503, detail="插件尚未初始化，请稍后重试")
+    return module
+
+
+def api_cache_settings(plugin):
+    """读取缓存设置（含推送目标与时间范围模式选项）。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.settings())
+    return _envelope(api_schemas.CacheSettingsData.model_validate(data))
+
+
+def api_cache_settings_save(plugin, request: api_schemas.CacheSettingsRequest):
+    """保存缓存设置（归一后写插件配置）。"""
+    module = _cache(plugin)
+    payload = request.model_dump(exclude_none=True)
+    data = _invoke(lambda: module.save_settings(payload))
+    return _envelope(api_schemas.CacheSettingsData.model_validate(data), message="缓存设置已保存")
+
+
+def api_cache_status(plugin):
+    """缓存状态：频道统计、同步进度、订阅回搜状态。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.status())
+    return _envelope(api_schemas.CacheStatusData.model_validate(data))
+
+
+def api_cache_sync(plugin, request: api_schemas.CacheSyncRequest):
+    """触发缓存同步（后台线程执行，立即返回）。"""
+    module = _cache(plugin)
+    data = _invoke(
+        lambda: module.sync(
+            chat_ids=list(request.chat_ids or []),
+            mode=request.mode or "",
+            days=request.days,
+            start=request.start or "",
+            end=request.end or "",
+        )
+    )
+    return _envelope(api_schemas.CacheSyncData.model_validate(data), message=data.get("message", ""))
+
+
+def api_cache_cancel(plugin):
+    """请求停止正在进行的缓存同步（同步线程在下一批拉取前退出）。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.cancel_sync())
+    return _envelope(api_schemas.CacheCancelData.model_validate(data), message=data.get("message", ""))
+
+
+def api_cache_clear(plugin, request: api_schemas.CacheClearRequest):
+    """清空指定频道的缓存与位点。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.clear(list(request.chat_ids or [])))
+    return _envelope(api_schemas.CacheClearData.model_validate(data), message=data.get("message", ""))
+
+
+def api_cache_search(plugin, request: api_schemas.CacheSearchRequest):
+    """检索缓存消息（归一标题命中 + 全文兜底）。"""
+    module = _cache(plugin)
+    if not str(request.keyword or "").strip():
+        raise HTTPException(status_code=400, detail="请输入要检索的片名")
+    items = _invoke(lambda: module.search(request.keyword, limit=request.limit or 50))
+    data = api_schemas.CacheSearchData(
+        items=[api_schemas.CacheSearchItem.model_validate(item) for item in items],
+        total=len(items),
+    )
+    return _envelope(data, message=f"找到 {len(items)} 条缓存记录")
+
+
+def api_cache_check_subscriptions(plugin):
+    """立即执行一次订阅检查（与定时任务同一逻辑，便于手动验证）。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.check_subscriptions(trigger="手动"))
+    return _envelope(api_schemas.CacheCheckSubscriptionsData.model_validate(data), message=data.get("message", ""))

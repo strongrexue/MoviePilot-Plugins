@@ -27,6 +27,16 @@ export const configDefaults = {
   // ④ TG 资源监控（规则结构见 /monitor/rules 接口返回；id 由后端补缺）
   monitor_enabled: false,
   monitor_rules: [],
+  // ⑤ 历史消息缓存（设置由 /cache/settings 归一，这里保证「保存配置」不丢字段）
+  cache_enabled: false,
+  cache_chat_ids: [],
+  cache_destination: 'smart',
+  cache_sync_mode: 'relative',
+  cache_sync_days: 30,
+  cache_batch_size: 200,
+  cache_subscribe_enabled: true,
+  cache_cron: '0 */6 * * *',
+  cache_subscribe_cron: '*/5 * * * *',
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

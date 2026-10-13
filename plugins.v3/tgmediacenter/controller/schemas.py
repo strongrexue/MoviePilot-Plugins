@@ -279,21 +279,23 @@ class MonitorHitsData(BaseModel):
 
 
 class MonitorChatActivity(BaseModel):
-    """最近消息来源（诊断监听 ID 与真实来源 ID 是否一致）。"""
+    """最近消息来源（关心的会话：监控 ∪ 缓存）。"""
 
     chat_id: int = 0
     count: int = 0
     last_at: str = ""
     watched: bool = False
+    cached: bool = False
 
 
 class MonitorWatchedChat(BaseModel):
-    """监听会话反查结果（ID 是否能被当前账号解析成具体会话）。"""
+    """关心会话反查结果（ID 是否能被当前账号解析成具体会话）。"""
 
     chat_id: int = 0
     title: str = ""
     resolved: bool = False
     error: str = ""
+    purposes: List[str] = Field(default_factory=list, description="用途：监控 / 缓存")
 
 
 class MonitorPipelineStats(BaseModel):
@@ -312,6 +314,7 @@ class MonitorPipelineStats(BaseModel):
     events_watched: int = 0
     events_unwatched: int = 0
     messages_enqueued: int = 0
+    cache_written: int = 0
     last_event_at: str = ""
     recent_sources: List[MonitorChatActivity] = Field(default_factory=list)
     watched_detail: List[MonitorWatchedChat] = Field(default_factory=list)
@@ -365,6 +368,167 @@ class MonitorTestData(BaseModel):
     rules: List[MonitorTestTrace] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------- ⑤ 历史消息缓存
+
+
+class CacheChannelStat(BaseModel):
+    """单个缓存频道的统计。"""
+
+    chat_id: int = 0
+    name: str = ""
+    count: int = 0
+    latest_date: str = ""
+    latest_message_id: int = 0
+    cursor: int = 0
+
+
+class CacheSyncState(BaseModel):
+    """缓存同步运行态。"""
+
+    running: bool = False
+    chat_id: int = 0
+    mode: str = ""
+    processed: int = 0
+    inserted: int = 0
+    started_at: str = ""
+    finished_at: str = ""
+    last_error: str = ""
+
+
+class CacheSubscribeState(BaseModel):
+    """订阅回搜运行态。"""
+
+    enabled: bool = True
+    checking: bool = False
+    last_check_at: str = ""
+    last_check_new: int = 0
+    last_check_pushed: int = 0
+    last_error: str = ""
+
+
+class CacheSettingsData(BaseModel):
+    """缓存设置（含前端下拉选项）。"""
+
+    enabled: bool = False
+    chat_ids: List[int] = Field(default_factory=list)
+    destination: str = "smart"
+    sync_mode: str = "relative"
+    sync_days: int = 30
+    batch_size: int = 200
+    subscribe_enabled: bool = True
+    cron: str = "0 */6 * * *"
+    subscribe_cron: str = "*/5 * * * *"
+    destinations: List[OptionItem] = Field(default_factory=list)
+    sync_modes: List[OptionItem] = Field(default_factory=list)
+
+
+class CacheSettingsRequest(BaseModel):
+    """保存缓存设置请求（字段缺省表示不改该项）。"""
+
+    enabled: Optional[bool] = None
+    chat_ids: Optional[List[int]] = None
+    destination: Optional[str] = None
+    sync_mode: Optional[str] = None
+    sync_days: Optional[int] = None
+    batch_size: Optional[int] = None
+    subscribe_enabled: Optional[bool] = None
+    cron: Optional[str] = Field(default=None, description="增量同步 cron（5 段）")
+    subscribe_cron: Optional[str] = Field(default=None, description="订阅检查 cron（5 段）")
+
+
+class CacheStatusData(BaseModel):
+    """缓存模块状态。"""
+
+    enabled: bool = False
+    chat_ids: List[int] = Field(default_factory=list)
+    chats: int = 0
+    destination: str = "smart"
+    total: int = 0
+    channels: List[CacheChannelStat] = Field(default_factory=list)
+    sync: CacheSyncState = Field(default_factory=CacheSyncState)
+    subscribe: CacheSubscribeState = Field(default_factory=CacheSubscribeState)
+    settings: CacheSettingsData = Field(default_factory=CacheSettingsData)
+
+
+class CacheSyncRequest(BaseModel):
+    """触发缓存同步。"""
+
+    chat_ids: List[int] = Field(default_factory=list, description="留空表示全部缓存频道")
+    mode: str = Field(default="", description="all/relative/absolute；留空用配置值")
+    days: Optional[int] = Field(default=None, description="relative 模式的天数")
+    start: str = Field(default="", description="absolute 模式起始日期 YYYY-MM-DD")
+    end: str = Field(default="", description="absolute 模式结束日期 YYYY-MM-DD")
+
+
+class CacheSyncData(BaseModel):
+    """同步触发结果。"""
+
+    started: bool = False
+    message: str = ""
+
+
+class CacheClearRequest(BaseModel):
+    """清空缓存请求。"""
+
+    chat_ids: List[int] = Field(default_factory=list, description="留空表示全部缓存频道")
+
+
+class CacheCancelData(BaseModel):
+    """停止缓存同步请求结果。"""
+
+    stopped: bool = False
+    message: str = ""
+
+
+class CacheClearData(BaseModel):
+    """清空结果。"""
+
+    deleted: int = 0
+    message: str = ""
+
+
+class CacheSearchRequest(BaseModel):
+    """检索缓存。"""
+
+    keyword: str = Field(default="", description="片名关键词")
+    limit: int = Field(default=50, description="返回条数上限")
+
+
+class CacheSearchItem(BaseModel):
+    """缓存检索结果条目。"""
+
+    chat_id: int = 0
+    message_id: int = 0
+    title: str = ""
+    year: str = ""
+    season: Optional[int] = None
+    episode: Optional[int] = None
+    episode_end: Optional[int] = None
+    media_type: str = ""
+    text: str = ""
+    links: List[str] = Field(default_factory=list)
+    message_date: str = ""
+
+
+class CacheSearchData(BaseModel):
+    """检索结果。"""
+
+    items: List[CacheSearchItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class CacheCheckSubscriptionsData(BaseModel):
+    """订阅回搜检查结果。"""
+
+    checked: bool = False
+    baseline: bool = False
+    subscriptions: int = 0
+    new: int = 0
+    pushed: int = 0
+    message: str = ""
+    details: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
     "/telegram/send_code": TgSendCodeData,
@@ -385,4 +549,11 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/monitor/hits": MonitorHitsData,
     "/monitor/status": MonitorStatusData,
     "/monitor/test": MonitorTestData,
+    "/cache/settings": CacheSettingsData,
+    "/cache/status": CacheStatusData,
+    "/cache/sync": CacheSyncData,
+    "/cache/cancel": CacheCancelData,
+    "/cache/clear": CacheClearData,
+    "/cache/search": CacheSearchData,
+    "/cache/check_subscriptions": CacheCheckSubscriptionsData,
 }

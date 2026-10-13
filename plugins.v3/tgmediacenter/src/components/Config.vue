@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import ConfigTgPane from './config/ConfigTgPane.vue'
 import ConfigPan115Pane from './config/ConfigPan115Pane.vue'
 import ConfigMonitorPane from './config/ConfigMonitorPane.vue'
+import ConfigCachePane from './config/ConfigCachePane.vue'
 import { useConfigForm } from './config/useConfigForm'
 
 const props = defineProps({
@@ -91,6 +92,12 @@ onMounted(config.loadConfig)
           />
           <ConfigMonitorPane
             v-else-if="activeModule === 'monitor'"
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :config="config"
+          />
+          <ConfigCachePane
+            v-else-if="activeModule === 'cache'"
             :api="props.api"
             :plugin-id="props.pluginId"
             :config="config"

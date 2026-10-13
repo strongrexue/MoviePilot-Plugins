@@ -165,6 +165,31 @@ class _StubPlugin:
     def api_monitor_test(self, request):
         ...
 
+    # P5 历史消息缓存
+    def api_cache_settings(self):
+        ...
+
+    def api_cache_settings_save(self, request):
+        ...
+
+    def api_cache_status(self):
+        ...
+
+    def api_cache_sync(self, request):
+        ...
+
+    def api_cache_cancel(self):
+        ...
+
+    def api_cache_clear(self, request):
+        ...
+
+    def api_cache_search(self, request):
+        ...
+
+    def api_cache_check_subscriptions(self):
+        ...
+
 
 def test_api_routes_contract():
     """所有路由都要声明 bear 认证与 response_model。"""
@@ -191,6 +216,14 @@ def test_api_routes_contract():
         "/monitor/hits",
         "/monitor/status",
         "/monitor/test",
+        # P5 历史消息缓存（settings 同时注册 GET 与 PUT）
+        "/cache/settings",
+        "/cache/status",
+        "/cache/sync",
+        "/cache/cancel",
+        "/cache/clear",
+        "/cache/search",
+        "/cache/check_subscriptions",
     }
     for route in routes:
         assert route["auth"] == "bear"

@@ -738,7 +738,7 @@ class TestPipeline:
         assert stats["messages_enqueued"] == 1
 
     def test_recent_sources_mark_watched(self, plugin, monitor, pipeline):
-        """来源诊断：每个事件都记来源，状态卡能对照「监听 ID vs 真实来源 ID」。"""
+        """来源记录只收被监听会话：状态卡「来源 ID」行全是监听中的频道。"""
         monitor.save_rules([base_rule(source_ids=[CHAT_A])])
 
         class FakeMsg:
@@ -758,27 +758,31 @@ class TestPipeline:
         sources = {item["chat_id"]: item for item in stats["recent_sources"]}
         assert sources[CHAT_A]["count"] == 2
         assert sources[CHAT_A]["watched"] is True
-        assert sources[CHAT_B]["count"] == 1
-        assert sources[CHAT_B]["watched"] is False
         assert sources[CHAT_A]["last_at"]
+        # 非监听会话不进来源记录（只计 events_unwatched 计数）
+        assert CHAT_B not in sources
+        assert stats["events_unwatched"] == 1
         # 便于前端直接展示监听 ID 清单
         assert monitor.status()["watched_chat_ids"] == [CHAT_A]
 
     def test_recent_sources_capped(self, plugin, monitor, pipeline):
-        """来源记录有上限，不会随海量会话无限增长。"""
-        monitor.save_rules([base_rule(source_ids=[CHAT_A])])
+        """来源记录有上限，不会随海量监听会话无限增长。"""
+        many_ids = [100000 + index for index in range(pipeline_module._MAX_RECENT_SOURCES + 10)]
+        monitor.save_rules([base_rule(source_ids=many_ids)])
         limit = pipeline_module._MAX_RECENT_SOURCES
-        for index in range(limit + 10):
+        for chat_id in many_ids:
 
             class FakeMsg:
                 id = 1
 
             class FakeEvent:
-                chat_id = 100000 + index
                 raw_text = "x"
                 message = FakeMsg()
 
-            pipeline._handle_event(FakeEvent())
+                def __init__(self, cid):
+                    self.chat_id = cid
+
+            pipeline._handle_event(FakeEvent(chat_id))
         assert len(pipeline._recent_sources) <= limit
 
     def test_watched_detail_in_stats(self, plugin, monitor, pipeline):

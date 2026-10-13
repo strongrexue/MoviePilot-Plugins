@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.8';
+const FRONTEND_VERSION = '1.3.9';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -2609,7 +2609,7 @@ return (_ctx, _cache) => {
                   class: "mon-events-hint"
                 }, {
                   default: _withCtx$1(() => [
-                    _createTextVNode$1(" 收到 " + _toDisplayString$1(status.value.pipeline.events_received) + " 条事件，但没有一条来自监听会话：请对照上方「监听 ID」（▸ 后为反查的会话标题）与「来源 ID」。 常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则） ②规则里选错频道（名字相近的频道多选）③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。 ", 1)
+                    _createTextVNode$1(" 收到 " + _toDisplayString$1(status.value.pipeline.events_received) + " 条事件，但没有一条来自监听会话。 常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则） ②规则里选错频道（名字相近的频道多选）③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。 ", 1)
                   ]),
                   _: 1
                 }))
@@ -3155,7 +3155,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-2f8b72b1"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cb464943"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

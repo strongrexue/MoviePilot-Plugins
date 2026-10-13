@@ -55,10 +55,8 @@ from ..services import recognizer as recognizer_service
 
 # 单频道批量消息条数上限：超过即无视聚合窗口立即处理（防大频道刷爆缓冲）
 _MAX_BATCH = 20
-# 「最近消息来源」环形记录上限：诊断「监听 ID 与真实来源 ID 是否一致」用
+# 「最近消息来源」环形记录上限：只记录被监听会话（状态卡「来源 ID」行）
 _MAX_RECENT_SOURCES = 40
-# 非监听会话的"首次出现"INFO 日志上限：既让用户看到每个来源，又不被刷屏
-_MAX_UNWATCHED_LOGGED = 60
 # 推送 worker 扫描周期（秒）
 _PUSH_INTERVAL = 15.0
 # 失败重试基础退避（秒）：30 * 2^retries，上限 600
@@ -96,11 +94,8 @@ class MessagePipeline:
             "events_unwatched": 0,  # 非监听会话被丢弃的条数
             "messages_enqueued": 0, # 进入流水线处理的条数
         }
-        # 最近消息来源：chat_id -> {"count", "last_at", "_mono"}，供状态卡与
-        # 监听 ID 列表并排对照（排查「收到一堆但全是非监听」的关键证据）
+        # 最近消息来源（只记被监听会话）：chat_id -> {"count", "last_at", "_mono"}
         self._recent_sources: Dict[int, Dict[str, Any]] = {}
-        # 已打过"首次出现"INFO 日志的非监听会话（防刷屏）
-        self._unwatched_logged: set = set()
         # 监听会话反查结果：[{"chat_id", "title", "resolved", "error"}]
         self._watched_detail: List[Dict[str, Any]] = []
 
@@ -150,25 +145,13 @@ class MessagePipeline:
             if chat_id is None:
                 return
             self._stats["events_received"] += 1
-            self._record_source(int(chat_id))
-            # 只关心被规则监听的会话：其余消息连缓冲都不进
+            # 只关心被规则监听的会话：其余消息直接丢弃（静默，仅计数，
+            # 避免大流量频道把运行日志刷成噪音）
             if not self._monitor.is_watched(int(chat_id)):
                 self._stats["events_unwatched"] += 1
-                # 每个非监听来源首次出现打一条 INFO（让用户在日志里看到
-                # "哪个会话在发消息但没被监听"），之后降为 DEBUG 防刷屏
-                if int(chat_id) not in self._unwatched_logged:
-                    if len(self._unwatched_logged) < _MAX_UNWATCHED_LOGGED:
-                        self._unwatched_logged.add(int(chat_id))
-                        logger.info(
-                            f"[{self._plugin_id()}] 忽略非监听会话 {chat_id} 的消息"
-                            f"（未被任何规则监听；如需监听请把该 ID 加入规则）"
-                        )
-                    else:
-                        logger.debug(f"[{self._plugin_id()}] 忽略非监听会话 {chat_id} 的消息")
-                else:
-                    logger.debug(f"[{self._plugin_id()}] 忽略非监听会话 {chat_id} 的消息")
                 return
             self._stats["events_watched"] += 1
+            self._record_source(int(chat_id))
             self._last_event_at = datetime.now().isoformat(timespec="seconds")
             message = getattr(event, "message", None)
             message_id = int(getattr(message, "id", 0) or 0)

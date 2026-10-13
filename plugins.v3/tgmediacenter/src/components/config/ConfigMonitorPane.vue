@@ -131,7 +131,7 @@
           density="compact"
           class="mon-events-hint"
         >
-          收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话：请对照上方「监听 ID」（▸ 后为反查的会话标题）与「来源 ID」。
+          收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话。
           常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则）
           ②规则里选错频道（名字相近的频道多选）③要监听的目标不在下拉列表时，用手动添加 ID（频道 / 群组 ID 带 -100 前缀）。
         </VAlert>

@@ -86,7 +86,6 @@
                 hide-details
                 class="fwd-rule-name"
               />
-              <VSwitch v-model="rule.enabled" color="success" hide-details inset />
               <VBtn
                 size="small"
                 variant="text"
@@ -611,7 +610,8 @@ async function saveRules() {
       file_extensions_to_match: (rule.file_extensions_to_match || []).map(ext => String(ext).trim().replace(/^\./, '')).filter(Boolean),
       enable_transform: Boolean(rule.enable_transform),
       transform_rules: (rule.transform_rules || []).map(line => String(line).trim()).filter(Boolean),
-      enabled: rule.enabled !== false,
+      // 规则行不再提供启用开关：保存即启用，停用=删除规则
+      enabled: true,
     }))
     const data = unwrap(await putPluginApi(props.api, props.pluginId, 'forward/rules', { rules: payload }, { timeoutMs: 30000 }))
     if (Array.isArray(data?.rules)) {

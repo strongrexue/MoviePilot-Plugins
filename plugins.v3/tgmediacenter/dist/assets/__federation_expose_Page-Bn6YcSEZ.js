@@ -14,8 +14,9 @@ const _hoisted_3 = {
 const _hoisted_4 = { class: "tg-actions" };
 const _hoisted_5 = { class: "tg-nowrap tg-dim" };
 const _hoisted_6 = { class: "tg-nowrap" };
-const _hoisted_7 = { class: "tg-dim" };
-const _hoisted_8 = { key: 0 };
+const _hoisted_7 = { class: "tg-nowrap" };
+const _hoisted_8 = { class: "tg-dim" };
+const _hoisted_9 = { key: 0 };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -161,6 +162,13 @@ function spaceLine() {
 
 function fmtTime(value) {
   return String(value || '').replace('T', ' ') || '—'
+}
+
+function chatLabel(chatId) {
+  const detail = pipeline.value.watched_detail || [];
+  const found = detail.find(item => item.chat_id === chatId);
+  if (found && found.resolved && found.title) return found.title
+  return String(chatId ?? '')
 }
 
 function mediaName(item) {
@@ -666,6 +674,7 @@ return (_ctx, _cache) => {
                         _createElementVNode("tr", null, [
                           _createElementVNode("th", { class: "tg-nowrap" }, "时间"),
                           _createElementVNode("th", null, "规则"),
+                          _createElementVNode("th", { class: "tg-nowrap" }, "来源"),
                           _createElementVNode("th", null, "媒体"),
                           _createElementVNode("th", { class: "tg-nowrap" }, "决策"),
                           _createElementVNode("th", null, "说明")
@@ -678,8 +687,9 @@ return (_ctx, _cache) => {
                           }, [
                             _createElementVNode("td", _hoisted_5, _toDisplayString(fmtTime(item.created_at)), 1),
                             _createElementVNode("td", null, _toDisplayString(item.rule_name), 1),
+                            _createElementVNode("td", _hoisted_6, _toDisplayString(chatLabel(item.chat_id)), 1),
                             _createElementVNode("td", null, _toDisplayString(mediaName(item)), 1),
-                            _createElementVNode("td", _hoisted_6, [
+                            _createElementVNode("td", _hoisted_7, [
                               _createVNode(_component_VChip, {
                                 size: "x-small",
                                 variant: "tonal",
@@ -692,13 +702,13 @@ return (_ctx, _cache) => {
                                 _: 2
                               }, 1032, ["color"])
                             ]),
-                            _createElementVNode("td", _hoisted_7, _toDisplayString(item.detail), 1)
+                            _createElementVNode("td", _hoisted_8, _toDisplayString(item.detail), 1)
                           ]))
                         }), 128)),
                         (!recentHits.value.length)
-                          ? (_openBlock(), _createElementBlock("tr", _hoisted_8, [...(_cache[35] || (_cache[35] = [
+                          ? (_openBlock(), _createElementBlock("tr", _hoisted_9, [...(_cache[35] || (_cache[35] = [
                               _createElementVNode("td", {
-                                colspan: "5",
+                                colspan: "6",
                                 class: "tg-empty"
                               }, "暂无流水", -1)
                             ]))]))
@@ -707,7 +717,7 @@ return (_ctx, _cache) => {
                     ]),
                     _: 1
                   }),
-                  _cache[37] || (_cache[37] = _createElementVNode("div", { class: "tg-note" }, " 会话标题取自监听反查结果；完整流水与筛选在「监控」设置页查看。 ", -1))
+                  _cache[37] || (_cache[37] = _createElementVNode("div", { class: "tg-note" }, " 「来源」列与资源监控流水同口径：监听会话 ID 反查标题；完整流水与筛选在「监控」设置页查看。 ", -1))
                 ]),
                 _: 1
               })
@@ -724,6 +734,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c32bb685"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f3ea5367"]]);
 
 export { Page as default };

@@ -332,6 +332,7 @@ onUnmounted(() => {
               <tr>
                 <th class="tg-nowrap">时间</th>
                 <th>规则</th>
+                <th class="tg-nowrap">来源</th>
                 <th>媒体</th>
                 <th class="tg-nowrap">决策</th>
                 <th>说明</th>
@@ -341,6 +342,7 @@ onUnmounted(() => {
               <tr v-for="item in recentHits" :key="`${item.kind}-${item.id}`">
                 <td class="tg-nowrap tg-dim">{{ fmtTime(item.created_at) }}</td>
                 <td>{{ item.rule_name }}</td>
+                <td class="tg-nowrap">{{ chatLabel(item.chat_id) }}</td>
                 <td>{{ mediaName(item) }}</td>
                 <td class="tg-nowrap">
                   <VChip size="x-small" variant="tonal" :color="decisionColor(item.decision)" label>
@@ -350,12 +352,12 @@ onUnmounted(() => {
                 <td class="tg-dim">{{ item.detail }}</td>
               </tr>
               <tr v-if="!recentHits.length">
-                <td colspan="5" class="tg-empty">暂无流水</td>
+                <td colspan="6" class="tg-empty">暂无流水</td>
               </tr>
             </tbody>
           </VTable>
           <div class="tg-note">
-            会话标题取自监听反查结果；完整流水与筛选在「监控」设置页查看。
+            「来源」列与资源监控流水同口径：监听会话 ID 反查标题；完整流水与筛选在「监控」设置页查看。
           </div>
         </VCardText>
       </VCard>

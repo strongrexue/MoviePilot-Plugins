@@ -197,7 +197,10 @@
                 hide-details
                 class="mon-rule-name"
               />
-              <VSwitch v-model="rule.enabled" color="success" hide-details inset />
+              <div class="mon-rule-switch" title="关闭后该规则暂停监听（随「保存配置」生效）">
+                <VSwitch v-model="rule.enabled" color="success" hide-details inset density="compact" />
+                <span class="mon-switch-label">启用规则</span>
+              </div>
               <VBtn
                 size="small"
                 variant="text"
@@ -822,6 +825,8 @@ onUnmounted(() => {
 .mon-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-bottom: 10px; }
 .mon-rule-head { display: flex; gap: 10px; align-items: center; }
 .mon-rule-name { flex: 1 1 auto; }
+.mon-rule-switch { display: flex; align-items: center; gap: 2px; }
+.mon-switch-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.7); white-space: nowrap; }
 .mon-rule-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; margin-top: 10px; }
 @media (max-width: 900px) {
   .mon-rule-grid { grid-template-columns: 1fr; }

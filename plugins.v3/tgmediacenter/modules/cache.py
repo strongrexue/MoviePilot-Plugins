@@ -39,8 +39,11 @@ from ..services.matcher import MediaMatcher
 # 缓存回搜在命中流水里的"虚拟规则"标识（便于在流水里与监控规则区分）
 CACHE_SEARCH_RULE_ID = "cache_search"
 CACHE_SEARCH_RULE_NAME = "缓存回搜"
-# 上次订阅快照的插件数据键
-_SUB_SNAPSHOT_KEY = "cache_sub_snapshot"
+# 上次订阅快照的插件数据键。
+# v2：1.4.1 的推送因 push_task.chat_id 超出 int32 全部入队失败，但快照已把
+# 那批订阅记为「已处理」；换键作废旧快照，修复后首次检查会全量重搜——
+# 已成功推送过的被命中流水拦住，入队失败的那批（无流水记录）得以补推。
+_SUB_SNAPSHOT_KEY = "cache_sub_snapshot_v2"
 _SUB_STATE_KEY = "cache_sub_state"
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
@@ -499,6 +502,11 @@ class CacheModule:
         names = self._dialog_names()
         for item in channels:
             item["name"] = names.get(int(item.get("chat_id") or 0), "")
+        try:
+            matcher_status = MediaMatcher().capabilities()
+        except Exception as err:  # pragma: no cover - 探测失败不阻塞状态
+            logger.debug(f"[{self._plugin_id()}] 探测缺失判断数据源失败：{err}")
+            matcher_status = {}
         return {
             "enabled": self.enabled(),
             "chat_ids": chat_ids,
@@ -508,6 +516,12 @@ class CacheModule:
             "channels": channels,
             "sync": self._history.progress(),
             "subscribe": self.subscribe_state(),
+            "matcher": {
+                "queries_available": bool(matcher_status.get("queries_available")),
+                "mediaserver_available": bool(matcher_status.get("mediaserver_available")),
+                "mediaserver": str(matcher_status.get("mediaserver") or ""),
+                "subscriptions": int(matcher_status.get("subscriptions") or 0),
+            },
             "settings": self.settings(),
         }
 

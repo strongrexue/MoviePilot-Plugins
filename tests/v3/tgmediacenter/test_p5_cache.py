@@ -761,3 +761,32 @@ class TestCacheApi:
         data = controller_api.api_cache_check_subscriptions(plugin).data
         assert data.checked is True
         assert data.subscriptions == 1
+
+
+# ---------------------------------------------------------------------- 表结构与迁移
+
+
+class TestBigintAndMatcherStatus:
+    def test_push_task_columns_are_bigint(self):
+        """push_task 的 chat_id/message_id 必须 BigInteger：TG 频道 ID（约 ±1e12）
+        超出 int32，Postgres 入队会 NumericValueOutOfRange（1.4.1 真机踩坑）。"""
+        from sqlalchemy import BigInteger
+
+        assert isinstance(TgPushTask.__table__.c.chat_id.type, BigInteger)
+        assert isinstance(TgPushTask.__table__.c.message_id.type, BigInteger)
+
+    def test_migration_is_safe_noop_on_sqlite(self, plugin):
+        """sqlite 类型宽松：迁移函数直接跳过且不抛错。"""
+        from app.plugins.tgmediacenter.model.migration import ensure_bigint_columns
+
+        ensure_bigint_columns(plugin.get_database())
+        ensure_bigint_columns(None)  # db 缺省也不抛
+
+    def test_status_includes_matcher_sources(self, plugin, cache, subscriptions):
+        """状态接口带缺失判断数据源（媒体服务器名 + 订阅总量），供前端徽章展示。"""
+        subscriptions["items"] = [
+            FakeSubscription(f"剧集{i}", year="2026", media_id=str(i)) for i in range(3)
+        ]
+        status = cache.status()
+        assert status["matcher"]["queries_available"] is True
+        assert status["matcher"]["subscriptions"] == 3

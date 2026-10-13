@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.4.1';
+const FRONTEND_VERSION = '1.4.2';
 
 const {resolveComponent:_resolveComponent$6,createVNode:_createVNode$6,withCtx:_withCtx$6,openBlock:_openBlock$6,createBlock:_createBlock$6} = await importShared('vue');
 
@@ -1948,7 +1948,7 @@ const _hoisted_33$1 = {
   key: 1,
   class: "mon-test-none"
 };
-const _hoisted_34 = {
+const _hoisted_34$1 = {
   key: 0,
   class: "mon-test-line"
 };
@@ -3009,7 +3009,7 @@ return (_ctx, _cache) => {
                       : (_openBlock$2(), _createElementBlock$2("span", _hoisted_33$1, "无法识别（标题格式特殊或宿主识别引擎不可用）"))
                   ]),
                   (testResult.value.links?.length)
-                    ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_34, [
+                    ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_34$1, [
                         _createElementVNode$2("strong", null, "解析到 " + _toDisplayString$2(testResult.value.links.length) + " 个链接", 1)
                       ]))
                     : _createCommentVNode$2("", true),
@@ -3244,11 +3244,12 @@ const _hoisted_30 = {
   class: "cache-empty"
 };
 const _hoisted_31 = { class: "cache-actions" };
-const _hoisted_32 = {
+const _hoisted_32 = { class: "cache-actions" };
+const _hoisted_33 = {
   key: 0,
   class: "cache-hint"
 };
-const _hoisted_33 = {
+const _hoisted_34 = {
   key: 0,
   class: "cache-details"
 };
@@ -4275,8 +4276,33 @@ return (_ctx, _cache) => {
         }),
         _createVNode$1(_component_VCardText, null, {
           default: _withCtx$1(() => [
-            _cache[42] || (_cache[42] = _createElementVNode$1("div", { class: "cache-hint" }, " 流程：定时读取 MoviePilot 订阅 → 与上次快照对比出「新增订阅」→ 在缓存里按标题回搜 → 逐条判缺失（订阅门禁 + 媒体库）→ 过滤无链接 / 已推送 → 入推送队列 → 通知结果。 首次运行只建立基线，不会把存量订阅一次性全推。 ", -1)),
+            _cache[43] || (_cache[43] = _createElementVNode$1("div", { class: "cache-hint" }, " 流程：定时读取 MoviePilot 订阅 → 与上次快照对比出「新增订阅」→ 在缓存里按标题回搜 → 逐条判缺失（订阅门禁 + 媒体库）→ 过滤无链接 / 已推送 → 入推送队列 → 通知结果。 首次运行只建立基线，不会把存量订阅一次性全推。 ", -1)),
             _createElementVNode$1("div", _hoisted_31, [
+              _cache[41] || (_cache[41] = _createElementVNode$1("span", { class: "cache-hint" }, "缺失判断：", -1)),
+              _createVNode$1(_component_VChip, {
+                size: "small",
+                variant: "tonal",
+                color: status.value?.matcher?.mediaserver_available ? 'success' : 'default',
+                label: ""
+              }, {
+                default: _withCtx$1(() => [
+                  _createTextVNode$1(" 媒体服务器" + _toDisplayString$1(status.value?.matcher?.mediaserver ? `（${status.value.matcher.mediaserver}）` : '未配置'), 1)
+                ]),
+                _: 1
+              }, 8, ["color"]),
+              _createVNode$1(_component_VChip, {
+                size: "small",
+                variant: "tonal",
+                color: status.value?.matcher?.queries_available ? 'info' : 'default',
+                label: ""
+              }, {
+                default: _withCtx$1(() => [
+                  _createTextVNode$1(" 订阅 " + _toDisplayString$1(status.value?.matcher?.subscriptions ?? 0), 1)
+                ]),
+                _: 1
+              }, 8, ["color"])
+            ]),
+            _createElementVNode$1("div", _hoisted_32, [
               _createVNode$1(_component_VBtn, {
                 variant: "tonal",
                 "prepend-icon": "mdi-cloud-search-outline",
@@ -4284,17 +4310,17 @@ return (_ctx, _cache) => {
                 disabled: !status.value?.enabled || !status.value?.subscribe?.enabled,
                 onClick: checkSubscriptions
               }, {
-                default: _withCtx$1(() => [...(_cache[41] || (_cache[41] = [
+                default: _withCtx$1(() => [...(_cache[42] || (_cache[42] = [
                   _createTextVNode$1(" 立即检查新增订阅 ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading", "disabled"]),
               (checkResult.value)
-                ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_32, _toDisplayString$1(checkResult.value), 1))
+                ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_33, _toDisplayString$1(checkResult.value), 1))
                 : _createCommentVNode$1("", true)
             ]),
             (checkDetails.value.length)
-              ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_33, [
+              ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_34, [
                   (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(checkDetails.value, (item, index) => {
                     return (_openBlock$1(), _createElementBlock$1("div", {
                       key: index,
@@ -4321,7 +4347,7 @@ return (_ctx, _cache) => {
       ]),
       _: 1
     }),
-    _cache[46] || (_cache[46] = _createElementVNode$1("div", { class: "cache-hint" }, " 存储占用：缓存的是净化后的消息全文与识别字段（片名 / 年份 / 季集 / 链接），单条约 1~2 KB； 单频道万级消息约几十 MB，由 MoviePilot 的插件数据库承载，不会影响宿主业务数据。 ", -1)),
+    _cache[47] || (_cache[47] = _createElementVNode$1("div", { class: "cache-hint" }, " 存储占用：缓存的是净化后的消息全文与识别字段（片名 / 年份 / 季集 / 链接），单条约 1~2 KB； 单频道万级消息约几十 MB，由 MoviePilot 的插件数据库承载，不会影响宿主业务数据。 ", -1)),
     _createVNode$1(_component_VDialog, {
       modelValue: clearDialog.value,
       "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((clearDialog).value = $event)),
@@ -4331,7 +4357,7 @@ return (_ctx, _cache) => {
         _createVNode$1(_component_VCard, null, {
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "text-subtitle-1" }, {
-              default: _withCtx$1(() => [...(_cache[43] || (_cache[43] = [
+              default: _withCtx$1(() => [...(_cache[44] || (_cache[44] = [
                 _createTextVNode$1("确认清空缓存？", -1)
               ]))]),
               _: 1
@@ -4349,7 +4375,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   onClick: _cache[14] || (_cache[14] = $event => (clearDialog.value = false))
                 }, {
-                  default: _withCtx$1(() => [...(_cache[44] || (_cache[44] = [
+                  default: _withCtx$1(() => [...(_cache[45] || (_cache[45] = [
                     _createTextVNode$1("取消", -1)
                   ]))]),
                   _: 1
@@ -4360,7 +4386,7 @@ return (_ctx, _cache) => {
                   loading: busy.value === 'clear',
                   onClick: doClear
                 }, {
-                  default: _withCtx$1(() => [...(_cache[45] || (_cache[45] = [
+                  default: _withCtx$1(() => [...(_cache[46] || (_cache[46] = [
                     _createTextVNode$1("确认清空", -1)
                   ]))]),
                   _: 1
@@ -4379,7 +4405,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-154fed5e"]]);
+const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-29a62292"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

@@ -386,6 +386,15 @@
           首次运行只建立基线，不会把存量订阅一次性全推。
         </div>
         <div class="cache-actions">
+          <span class="cache-hint">缺失判断：</span>
+          <VChip size="small" variant="tonal" :color="status?.matcher?.mediaserver_available ? 'success' : 'default'" label>
+            媒体服务器{{ status?.matcher?.mediaserver ? `（${status.matcher.mediaserver}）` : '未配置' }}
+          </VChip>
+          <VChip size="small" variant="tonal" :color="status?.matcher?.queries_available ? 'info' : 'default'" label>
+            订阅 {{ status?.matcher?.subscriptions ?? 0 }}
+          </VChip>
+        </div>
+        <div class="cache-actions">
           <VBtn
             variant="tonal"
             prepend-icon="mdi-cloud-search-outline"

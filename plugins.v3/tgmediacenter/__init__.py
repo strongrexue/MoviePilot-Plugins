@@ -16,6 +16,7 @@ from app.sdk.plugin import _PluginBase
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
 from .model import get_models
+from .model.migration import ensure_bigint_columns
 from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
 from .modules.monitor import MonitorModule
@@ -34,7 +35,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.4.1"
+    plugin_version = "1.4.2"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -104,6 +105,12 @@ class TgMediaCenter(_PluginBase):
         self._monitor = MonitorModule(self)
         # 旧版本把 TG 会话串存在配置里；配置会被「保存配置」整份覆盖，需迁到插件数据
         self._credentials.migrate_session_from_config()
+        # push_task 的 chat_id/message_id 1.4.1 及以前是 32 位 Integer，
+        # TG 频道 ID 超出 int32 导致入队失败；存量 Postgres 库补 ALTER 为 BIGINT
+        try:
+            ensure_bigint_columns(self.get_database())
+        except Exception as err:  # pragma: no cover - 迁移失败不阻断启动
+            logger.warning(f"[TgMediaCenter] push_task 表结构迁移失败：{err}")
 
         # ④ 资源监控：启用且有监听规则时启动流水线（TG 未连接也会先起来，
         # 处理器注册由流水线健康检查在运行时就绪后自动补上）。

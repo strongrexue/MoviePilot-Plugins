@@ -436,6 +436,15 @@ class CacheSettingsRequest(BaseModel):
     subscribe_cron: Optional[str] = Field(default=None, description="订阅检查 cron（5 段）")
 
 
+class CacheMatcherStatus(BaseModel):
+    """缺失判断数据源状态（缓存回搜口径）。"""
+
+    queries_available: bool = False
+    mediaserver_available: bool = False
+    mediaserver: str = ""
+    subscriptions: int = 0
+
+
 class CacheStatusData(BaseModel):
     """缓存模块状态。"""
 
@@ -447,6 +456,7 @@ class CacheStatusData(BaseModel):
     channels: List[CacheChannelStat] = Field(default_factory=list)
     sync: CacheSyncState = Field(default_factory=CacheSyncState)
     subscribe: CacheSubscribeState = Field(default_factory=CacheSubscribeState)
+    matcher: CacheMatcherStatus = Field(default_factory=CacheMatcherStatus)
     settings: CacheSettingsData = Field(default_factory=CacheSettingsData)
 
 

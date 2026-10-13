@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.sdk.database import plugin_declarative_base
@@ -41,8 +41,10 @@ class TgPushTask(Base):
     plugin_id: Mapped[str] = mapped_column(String(64), index=True)
     # 关联规则与消息（与 hit_log 同键，便于追溯）
     rule_id: Mapped[str] = mapped_column(String(64), index=True)
-    chat_id: Mapped[int] = mapped_column(Integer)
-    message_id: Mapped[int] = mapped_column(Integer)
+    # 注意必须 BigInteger：TG 频道 ID 约 ±1e12，32 位 Integer 会
+    # NumericValueOutOfRange 入队失败（1.4.1 真机踩坑，与 hit_log 同口径）
+    chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    message_id: Mapped[int] = mapped_column(BigInteger)
     # 推送目标与负载
     destination: Mapped[str] = mapped_column(String(32), index=True)
     target_id: Mapped[str] = mapped_column(String(64), default="")

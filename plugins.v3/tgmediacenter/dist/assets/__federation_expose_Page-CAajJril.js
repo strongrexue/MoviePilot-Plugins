@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as decisionColor, d as decisionLabel, u as unwrap, g as getPluginApi, p as postPluginApi } from './decision-Bi_MVYgQ.js';
+import { _ as _export_sfc, d as decisionLabel, a as decisionColor, u as unwrap, g as getPluginApi, p as postPluginApi } from './decision-Bi_MVYgQ.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,renderList:_renderList,unref:_unref} = await importShared('vue');
 
@@ -142,21 +142,18 @@ const hitKeyword = computed({
   set: (value) => { hitKeywordRaw.value = value == null ? '' : String(value); },
 });
 
-const monitorDecisions = [
-  { value: 'hit', title: '已推送' },
-  { value: 'skipped_not_missing', title: '媒体库已存在' },
-  { value: 'skipped_not_subscribed', title: '未订阅' },
-  { value: 'skipped_unrecognized', title: '无法识别' },
-  { value: 'skipped_keyword', title: '关键词未命中' },
-  { value: 'skipped_no_link', title: '无可推链接' },
-  { value: 'skipped_unknown', title: '无法判断' },
-  { value: 'failed', title: '处理失败' },
+// 决策下拉：value 用后端权威英文常量（与 /monitor/hits、/forward/hits 的 decision 过滤
+// 参数完全一致，保证一定能筛到）；title 统一走 decisionLabel()，与流水「决策」徽章
+// 逐字对齐（此前硬编的中文名与徽章对不上，导致用户选不准、以为筛不到）。
+// 监控 / 转发各取各自实际会出现的取值集合。
+const MONITOR_DECISION_VALUES = [
+  'hit', 'skipped_not_missing', 'skipped_not_subscribed',
+  'skipped_unrecognized', 'skipped_keyword', 'skipped_no_link',
+  'skipped_unknown', 'skipped_extension', 'failed',
 ];
-const forwardDecisions = [
-  { value: 'hit', title: '已转发' },
-  { value: 'skipped_keyword', title: '关键词未命中' },
-  { value: 'skipped_extension', title: '扩展名未命中' },
-];
+const FORWARD_DECISION_VALUES = ['hit', 'skipped_keyword', 'skipped_extension'];
+const monitorDecisions = MONITOR_DECISION_VALUES.map(v => ({ value: v, title: decisionLabel(v) }));
+const forwardDecisions = FORWARD_DECISION_VALUES.map(v => ({ value: v, title: decisionLabel(v) }));
 const decisionOptions = computed(() => [
   { value: '', title: '全部决策' },
   ...(hitTab.value === 'forward' ? forwardDecisions : monitorDecisions),
@@ -939,6 +936,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-524318ab"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2bf84ac8"]]);
 
 export { Page as default };

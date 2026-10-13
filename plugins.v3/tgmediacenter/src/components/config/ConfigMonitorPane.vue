@@ -58,6 +58,35 @@
             FloodWait 退避中（约 {{ status.flood_remaining }} 秒）
           </span>
         </div>
+        <div class="mon-events">
+          <span class="mon-events-title">事件：</span>
+          <VChip size="x-small" variant="tonal" color="info" label>
+            收到 {{ status?.pipeline?.events_received ?? 0 }}
+          </VChip>
+          <VChip size="x-small" variant="tonal" :color="(status?.pipeline?.events_watched ?? 0) > 0 ? 'success' : 'default'" label>
+            命中监听 {{ status?.pipeline?.events_watched ?? 0 }}
+          </VChip>
+          <VChip size="x-small" variant="tonal" color="default" label>
+            非监听 {{ status?.pipeline?.events_unwatched ?? 0 }}
+          </VChip>
+          <VChip size="x-small" variant="tonal" color="primary" label>
+            已入队 {{ status?.pipeline?.messages_enqueued ?? 0 }}
+          </VChip>
+          <span v-if="status?.pipeline?.last_event_at" class="mon-events-last">
+            最近事件 {{ status.pipeline.last_event_at }}
+          </span>
+        </div>
+        <VAlert
+          v-if="status?.enabled && !(status?.pipeline?.events_received > 0)"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mon-events-hint"
+        >
+          还没收到任何 TG 事件：请确认 ①TG 凭证已登录且「已连接」 ②消息监听徽章为「已注册」
+          ③规则监听的频道 ID 正确（可在「TG 凭证」页刷新对话列表后点条目复制 ID，或点「保存规则」后重试）。
+          收到事件后这里会显示计数。
+        </VAlert>
         <div class="mon-matcher">
           缺失判断：
           <VChip size="x-small" variant="tonal" :color="matcherReady ? 'success' : 'warning'" label class="mon-matcher-chip">
@@ -696,6 +725,10 @@ onUnmounted(() => {
 .mon-message { font-size: 13px; }
 .mon-status { display: flex; gap: 6px; flex-wrap: wrap; }
 .mon-status-sub { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; opacity: 0.7; }
+.mon-events { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+.mon-events-title { opacity: 0.7; }
+.mon-events-last { opacity: 0.6; }
+.mon-events-hint { margin-top: 8px; font-size: 12px; }
 .mon-flood { color: rgb(var(--v-theme-warning)); }
 .mon-matcher { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; }
 .mon-matcher-chip { margin-left: 0; }

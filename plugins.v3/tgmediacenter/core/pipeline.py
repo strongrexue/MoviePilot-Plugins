@@ -80,11 +80,17 @@ class MessagePipeline:
         self._last_push_cycle = 0.0
         self._started_at = ""
         self._last_error = ""
+        self._last_event_at = ""
         self._stats = {
             "processed": 0,
             "hit": 0,
             "skipped": 0,
             "failed": 0,
+            # 事件可观测性计数：用于诊断"监听是否真的在收消息"
+            "events_received": 0,   # 事件处理器被触发（任何新消息，含非监听会话）
+            "events_watched": 0,    # 命中监听会话的条数
+            "events_unwatched": 0,  # 非监听会话被丢弃的条数
+            "messages_enqueued": 0, # 进入流水线处理的条数
         }
 
     # ------------------------------------------------------------------ 生命周期
@@ -119,6 +125,7 @@ class MessagePipeline:
 
     def on_new_message(self, chat_id: int, message_id: int, text: str) -> None:
         """TG 新消息入口（事件处理器调用，必须极快且不抛异常）。"""
+        self._stats["messages_enqueued"] += 1
         self._queue.put({
             "chat_id": int(chat_id),
             "message_id": int(message_id),
@@ -131,9 +138,13 @@ class MessagePipeline:
             chat_id = getattr(event, "chat_id", None)
             if chat_id is None:
                 return
+            self._stats["events_received"] += 1
             # 只关心被规则监听的会话：其余消息连缓冲都不进
             if not self._monitor.is_watched(int(chat_id)):
+                self._stats["events_unwatched"] += 1
                 return
+            self._stats["events_watched"] += 1
+            self._last_event_at = datetime.now().isoformat(timespec="seconds")
             message = getattr(event, "message", None)
             message_id = int(getattr(message, "id", 0) or 0)
             text = str(getattr(event, "raw_text", "") or "")
@@ -207,6 +218,11 @@ class MessagePipeline:
                 self._last_error = str(err)
                 logger.warning(f"[{self._plugin_id()}] 处理监控消息失败（chat={chat_id}）：{err}")
         self._stats["processed"] += len(messages)
+        # 每批打一条 INFO，让"消息确实被监控到了"在运行日志里可见（排查静默丢弃的关键）
+        logger.info(
+            f"[{self._plugin_id()}] 收到 {len(messages)} 条监控消息（chat={chat_id}），"
+            f"累计处理 {self._stats['processed']} / 命中 {self._stats['hit']}"
+        )
 
     def _process_message(self, chat_id: int, message: Dict[str, Any], rules: List[dict]) -> None:
         text = str(message.get("text") or "")
@@ -541,11 +557,13 @@ class MessagePipeline:
             ok = runtime.call(_register(), timeout=10)
             self._handler_ok = bool(ok)
             if ok:
-                logger.info(f"[{self._plugin_id()}] 已注册 TG 新消息监听")
+                logger.info(f"[{self._plugin_id()}] 已注册 TG 新消息监听（client={id(runtime.client)}）")
+            else:
+                logger.warning(f"[{self._plugin_id()}] TG 新消息监听注册失败（客户端不可用）")
             return bool(ok)
         except Exception as err:
             self._handler_ok = False
-            logger.debug(f"注册 TG 新消息监听失败（下轮重试）：{err}")
+            logger.warning(f"[{self._plugin_id()}] 注册 TG 新消息监听失败（下轮重试）：{err}")
             return False
 
     def _unregister_handler(self) -> None:
@@ -597,6 +615,11 @@ class MessagePipeline:
             "hit": self._stats["hit"],
             "skipped": self._stats["skipped"],
             "failed": self._stats["failed"],
+            "events_received": self._stats["events_received"],
+            "events_watched": self._stats["events_watched"],
+            "events_unwatched": self._stats["events_unwatched"],
+            "messages_enqueued": self._stats["messages_enqueued"],
+            "last_event_at": self._last_event_at,
             "push_pending": pending,
             "push_failed": failed,
             "started_at": self._started_at,

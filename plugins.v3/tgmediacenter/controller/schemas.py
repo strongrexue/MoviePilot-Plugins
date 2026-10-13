@@ -289,6 +289,12 @@ class MonitorPipelineStats(BaseModel):
     hit: int = 0
     skipped: int = 0
     failed: int = 0
+    # 事件可观测性计数（诊断"监听是否真的在收消息"）
+    events_received: int = 0
+    events_watched: int = 0
+    events_unwatched: int = 0
+    messages_enqueued: int = 0
+    last_event_at: str = ""
     push_pending: int = 0
     push_failed: int = 0
     started_at: str = ""

@@ -709,6 +709,34 @@ class TestPipeline:
         # 超过 _MAX_BATCH 应立即刷新（不等窗口）
         assert pipeline_module._MAX_BATCH == 20
 
+    def test_event_counter_observability(self, plugin, monitor, pipeline):
+        """真机排查"没反应"依赖事件计数：收到/命中监听/非监听/入队都要可观测。"""
+        monitor.save_rules([base_rule(source_ids=[CHAT_A])])
+
+        class FakeMsg:
+            id = 1
+
+        class FakeEventWatched:
+            chat_id = CHAT_A
+            raw_text = "测试剧集.S01E02"
+            message = FakeMsg()
+
+        pipeline._handle_event(FakeEventWatched())
+        stats = pipeline.stats()
+        assert stats["events_received"] == 1
+        assert stats["events_watched"] == 1
+        assert stats["messages_enqueued"] == 1
+        assert stats["last_event_at"]
+
+        class FakeEventUnwatched:
+            chat_id = CHAT_B
+
+        pipeline._handle_event(FakeEventUnwatched())
+        stats = pipeline.stats()
+        assert stats["events_received"] == 2
+        assert stats["events_unwatched"] == 1
+        assert stats["messages_enqueued"] == 1
+
     def test_test_text_trace_without_persistence(self, plugin, monitor, pipeline):
         monitor.save_rules([
             base_rule(id="r1", name="仅记录", destination="none"),

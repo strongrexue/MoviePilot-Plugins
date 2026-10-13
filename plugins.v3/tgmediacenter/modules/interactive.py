@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from ..core import links as link_utils
 from ..core.notify import Notifier
+from ..core.pan115_client import Pan115Error
 
 # 单条消息最多处理的链接数：事件回调里做网络转存，不能无限拖
 _MAX_ITEMS = 5
@@ -68,19 +69,11 @@ class InteractiveModule:
         module = getattr(self._plugin, "_pan115", None)
         if module is None:
             return self._reply("115 模块未初始化，未能转存")
-        try:
-            available = bool(module.available())
-        except Exception:  # pragma: no cover
-            available = False
-        if not available:
-            try:
-                reason = str(module.unavailable_reason() or "")
-            except Exception:  # pragma: no cover
-                reason = ""
-            return self._reply(f"115 不可用，未转存：{reason or '请在「115 网盘」面板完成扫码登录'}")
 
         try:
-            # 传整段正文（不拆成单条链接）：提取码常写在正文里，整段解析才认得到
+            # 传整段正文（不拆成单条链接）：提取码常写在正文里，整段解析才认得到。
+            # 不做额外"可用性"预检：未登录 / 未配 CID 等问题由 push 抛 Pan115Error，
+            # 错误文案本身就可操作（1.7.0 曾误调目标封装的 available() 导致真机全误报）。
             result = module.push(
                 [text],
                 cid=None,
@@ -89,6 +82,9 @@ class InteractiveModule:
                 max_items=_MAX_ITEMS,
                 deadline_seconds=_DEADLINE_SECONDS,
             )
+        except Pan115Error as err:
+            # 115 模块抛出的错误已按用户视角写好（未登录 / CID 缺失 / 网络失败），原样回
+            return self._reply(f"115 未能转存：{err}")
         except Exception as err:  # pragma: no cover - 115 侧异常按失败回执
             return self._reply(f"115 转存失败：{err}")
         return self._reply(self._render(result))

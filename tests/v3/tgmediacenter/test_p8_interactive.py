@@ -12,24 +12,21 @@ from app.plugins.tgmediacenter.modules.interactive import InteractiveModule
 
 
 class FakePan115:
-    """115 模块替身：只暴露交互模块用到的三个能力。"""
+    """115 模块替身：只暴露交互模块用到的能力。"""
 
-    def __init__(self, available: bool = True, result: Dict[str, Any] | None = None,
-                 reason: str = "", raise_error: bool = False) -> None:
-        self._available = available
+    def __init__(self, result: Dict[str, Any] | None = None,
+                 raise_error: bool = False, pan115_error: str = "") -> None:
         self._result = result or {}
-        self._reason = reason
         self._raise = raise_error
+        self._pan115_error = pan115_error
         self.calls: List[list] = []
-
-    def available(self) -> bool:
-        return self._available
-
-    def unavailable_reason(self) -> str:
-        return self._reason
 
     def push(self, links, **kwargs):
         self.calls.append(list(links))
+        if self._pan115_error:
+            from app.plugins.tgmediacenter.core.pan115_client import Pan115Error
+
+            raise Pan115Error(self._pan115_error)
         if self._raise:
             raise RuntimeError("115 请求失败")
         return self._result
@@ -140,14 +137,19 @@ class TestInteractivePush:
         assert "失败 1 条" in reply
         assert "失败原因：离线下载提交失败：链接已失效" in reply
 
-    def test_unavailable_pan115_replies(self):
-        """115 没登录也要回一句，不能静默吞掉用户主动发的链接。"""
-        pan115 = FakePan115(available=False, reason="115 网盘未启用（请在「115 网盘」面板开启并完成扫码登录）")
+    def test_pan115_error_message_relayed(self):
+        """115 模块的可读错误（未登录 / CID 缺失）要原样进回执。
+
+        1.7.0 真机事故：曾误调目标封装的 available()（Pan115Module 没有该方法，
+        AttributeError 被吞）导致明明已登录却回「115 不可用，请扫码登录」。
+        """
+        pan115 = FakePan115(pan115_error="未登录 115：请在「账号与授权」里扫码登录")
         plugin = FakePlugin(pan115=pan115)
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": "https://115.com/s/swabc123"}))
-        assert "115 不可用" in reply
-        assert pan115.calls == []
+        assert "115 未能转存" in reply
+        assert "请在「账号与授权」里扫码登录" in reply
+        assert "115 不可用" not in reply
 
     def test_push_exception_becomes_reply(self):
         plugin = FakePlugin(pan115=FakePan115(raise_error=True))

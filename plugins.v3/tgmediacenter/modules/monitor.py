@@ -354,6 +354,7 @@ class MonitorModule:
         labels = {
             "hit": "已推送",
             "skipped_not_missing": "不缺（已存在）",
+            "skipped_not_subscribed": "未订阅",
             "skipped_unrecognized": "无法识别",
             "skipped_keyword": "关键词未命中",
             "skipped_no_link": "无链接",

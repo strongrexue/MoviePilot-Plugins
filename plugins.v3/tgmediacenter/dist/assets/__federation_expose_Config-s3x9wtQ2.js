@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.3.10';
+const FRONTEND_VERSION = '1.3.11';
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,withCtx:_withCtx$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -1952,16 +1952,18 @@ const _hoisted_33 = {
   class: "mon-test-line"
 };
 const _hoisted_34 = { class: "mon-hits-time" };
-const _hoisted_35 = { class: "mon-hits-source" };
-const _hoisted_36 = { key: 0 };
-const _hoisted_37 = {
+const _hoisted_35 = { class: "mon-nowrap" };
+const _hoisted_36 = { class: "mon-hits-source" };
+const _hoisted_37 = { key: 0 };
+const _hoisted_38 = {
   key: 1,
   class: "mon-hits-none"
 };
-const _hoisted_38 = { class: "mon-hits-detail" };
-const _hoisted_39 = { key: 0 };
-const _hoisted_40 = { class: "mon-pager" };
-const _hoisted_41 = { class: "mon-pager-info" };
+const _hoisted_39 = { class: "mon-nowrap" };
+const _hoisted_40 = { class: "mon-hits-detail" };
+const _hoisted_41 = { key: 0 };
+const _hoisted_42 = { class: "mon-pager" };
+const _hoisted_43 = { class: "mon-pager-info" };
 
 const {computed: computed$1,onMounted: onMounted$1,onUnmounted,ref: ref$2} = await importShared('vue');
 
@@ -2298,6 +2300,11 @@ function mediaName(item) {
     name += ` S${s}E${e}`;
   }
   return name
+}
+
+// 流水时间去掉 ISO 的 T 分隔（2026-10-13T11:01:08 → 2026-10-13 11:01:08）
+function fmtTime(value) {
+  return String(value || '').replace('T', ' ')
 }
 
 onMounted$1(async () => {
@@ -3087,11 +3094,11 @@ return (_ctx, _cache) => {
               default: _withCtx$1(() => [
                 _cache[29] || (_cache[29] = _createElementVNode$1("thead", null, [
                   _createElementVNode$1("tr", null, [
-                    _createElementVNode$1("th", null, "时间"),
-                    _createElementVNode$1("th", null, "规则"),
-                    _createElementVNode$1("th", null, "来源"),
+                    _createElementVNode$1("th", { class: "mon-nowrap" }, "时间"),
+                    _createElementVNode$1("th", { class: "mon-nowrap" }, "规则"),
+                    _createElementVNode$1("th", { class: "mon-nowrap" }, "来源"),
                     _createElementVNode$1("th", null, "媒体"),
-                    _createElementVNode$1("th", null, "决策"),
+                    _createElementVNode$1("th", { class: "mon-nowrap" }, "决策"),
                     _createElementVNode$1("th", null, "说明")
                   ])
                 ], -1)),
@@ -3100,15 +3107,15 @@ return (_ctx, _cache) => {
                     return (_openBlock$1(), _createElementBlock$1("tr", {
                       key: item.id
                     }, [
-                      _createElementVNode$1("td", _hoisted_34, _toDisplayString$1(item.created_at), 1),
-                      _createElementVNode$1("td", null, _toDisplayString$1(item.rule_name), 1),
-                      _createElementVNode$1("td", _hoisted_35, _toDisplayString$1(chatTitleMap.value[item.chat_id] || item.chat_id), 1),
+                      _createElementVNode$1("td", _hoisted_34, _toDisplayString$1(fmtTime(item.created_at)), 1),
+                      _createElementVNode$1("td", _hoisted_35, _toDisplayString$1(item.rule_name), 1),
+                      _createElementVNode$1("td", _hoisted_36, _toDisplayString$1(chatTitleMap.value[item.chat_id] || item.chat_id), 1),
                       _createElementVNode$1("td", null, [
                         (item.title)
-                          ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_36, _toDisplayString$1(mediaName(item)), 1))
-                          : (_openBlock$1(), _createElementBlock$1("span", _hoisted_37, "—"))
+                          ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_37, _toDisplayString$1(mediaName(item)), 1))
+                          : (_openBlock$1(), _createElementBlock$1("span", _hoisted_38, "—"))
                       ]),
-                      _createElementVNode$1("td", null, [
+                      _createElementVNode$1("td", _hoisted_39, [
                         _createVNode$1(_component_VChip, {
                           size: "x-small",
                           variant: "tonal",
@@ -3121,11 +3128,11 @@ return (_ctx, _cache) => {
                           _: 2
                         }, 1032, ["color"])
                       ]),
-                      _createElementVNode$1("td", _hoisted_38, _toDisplayString$1(item.detail), 1)
+                      _createElementVNode$1("td", _hoisted_40, _toDisplayString$1(item.detail), 1)
                     ]))
                   }), 128)),
                   (!hits.value.length)
-                    ? (_openBlock$1(), _createElementBlock$1("tr", _hoisted_39, [...(_cache[28] || (_cache[28] = [
+                    ? (_openBlock$1(), _createElementBlock$1("tr", _hoisted_41, [...(_cache[28] || (_cache[28] = [
                         _createElementVNode$1("td", {
                           colspan: "6",
                           class: "mon-hits-empty"
@@ -3136,7 +3143,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
-            _createElementVNode$1("div", _hoisted_40, [
+            _createElementVNode$1("div", _hoisted_42, [
               _createVNode$1(_component_VBtn, {
                 size: "small",
                 variant: "text",
@@ -3149,7 +3156,7 @@ return (_ctx, _cache) => {
                 ]))]),
                 _: 1
               }, 8, ["disabled"]),
-              _createElementVNode$1("span", _hoisted_41, "第 " + _toDisplayString$1(hitsPage.value) + " 页 · 共 " + _toDisplayString$1(hitsTotal.value) + " 条", 1),
+              _createElementVNode$1("span", _hoisted_43, "第 " + _toDisplayString$1(hitsPage.value) + " 页 · 共 " + _toDisplayString$1(hitsTotal.value) + " 条", 1),
               _createVNode$1(_component_VBtn, {
                 size: "small",
                 variant: "text",
@@ -3175,7 +3182,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b912b633"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-1d3b70a1"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

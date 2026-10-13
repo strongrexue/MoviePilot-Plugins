@@ -1091,6 +1091,11 @@ class TestMonitorApi:
         assert data.rules == []
         assert [item.value for item in data.destinations] == list(DESTINATION_VALUES)
         assert any(item.value == DECISION_HIT for item in data.decisions)
+        # 真机踩坑：后端 decisions 会覆盖前端内置列表，缺 label 时流水 chip 显示英文原值
+        not_subscribed = next(
+            item for item in data.decisions if item.value == DECISION_SKIPPED_NOT_SUBSCRIBED
+        )
+        assert not_subscribed.title == "未订阅"
 
     def test_save_rules_generates_ids(self, monitor):
         request = _SaveRequest([{"name": "转存", "source_ids": [CHAT_A]}])

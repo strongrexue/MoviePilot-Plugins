@@ -400,18 +400,18 @@
         <VTable density="compact" class="mon-hits">
           <thead>
             <tr>
-              <th>时间</th>
-              <th>规则</th>
-              <th>来源</th>
+              <th class="mon-nowrap">时间</th>
+              <th class="mon-nowrap">规则</th>
+              <th class="mon-nowrap">来源</th>
               <th>媒体</th>
-              <th>决策</th>
+              <th class="mon-nowrap">决策</th>
               <th>说明</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in hits" :key="item.id">
-              <td class="mon-hits-time">{{ item.created_at }}</td>
-              <td>{{ item.rule_name }}</td>
+              <td class="mon-hits-time">{{ fmtTime(item.created_at) }}</td>
+              <td class="mon-nowrap">{{ item.rule_name }}</td>
               <td class="mon-hits-source">
                 {{ chatTitleMap[item.chat_id] || item.chat_id }}
               </td>
@@ -419,7 +419,7 @@
                 <span v-if="item.title">{{ mediaName(item) }}</span>
                 <span v-else class="mon-hits-none">—</span>
               </td>
-              <td>
+              <td class="mon-nowrap">
                 <VChip size="x-small" variant="tonal" :color="decisionColor(item.decision)" label>
                   {{ decisionLabel(item.decision) }}
                 </VChip>
@@ -789,6 +789,11 @@ function mediaName(item) {
   return name
 }
 
+// 流水时间去掉 ISO 的 T 分隔（2026-10-13T11:01:08 → 2026-10-13 11:01:08）
+function fmtTime(value) {
+  return String(value || '').replace('T', ' ')
+}
+
 onMounted(async () => {
   await refreshAll()
   // 轻量轮询：监控是长驻进程，状态卡保持新鲜（命中流水变化慢，不轮询）
@@ -857,6 +862,7 @@ onUnmounted(() => {
 .mon-test-msg { font-size: 12px; opacity: 0.75; }
 .mon-filter { flex: 0 0 160px; max-width: 200px; }
 .mon-hits { font-size: 12.5px; }
+.mon-hits .mon-nowrap { white-space: nowrap; }
 .mon-hits-time { white-space: nowrap; opacity: 0.75; }
 .mon-hits-source { white-space: nowrap; opacity: 0.8; }
 .mon-hits-se { margin-left: 6px; opacity: 0.75; }

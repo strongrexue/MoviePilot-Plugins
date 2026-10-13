@@ -1,12 +1,13 @@
 """TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
-当前进度：P6 —— TG 通用转发（两级匹配 / 内容转换 / 置顶）。
+当前进度：P7 —— 打磨（运行详情与仪表盘、通知接入、限流退避收口、测试与真实加载验证）。
 - 已实现：① TG 核心凭证（Telethon 运行时、登录向导、会话持久化、对话列表缓存）；
-  ② 115 网盘（Cookie 登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送）；
+  ② 115 网盘（扫码登录态、空间配额、分享转存、磁力/eD2k 离线、分批推送、成功/失败通知）；
   ④ TG 资源监控（事件接入、聚合窗口、宿主识别、缺失判断、推送队列）；
   ⑤ 历史消息缓存（实时写入、位点增量/时间范围同步、检索统计、订阅触发回搜）；
-  ⑥ TG 通用转发（两级匹配、内容转换、置顶，与监控共用事件流水线与全局冷却）。
-- 待实现：P7 打磨（限流退避、通知接入、README）。自定义豆瓣源已取消，改用「豆瓣中心」插件。
+  ⑥ TG 通用转发（关键词/扩展名匹配、内容转换、置顶，与监控共用事件流水线与全局冷却）；
+  ⑦ 运行详情页与仪表盘（/overview 聚合）+ 插件级共享冷却门（读写共用 FloodWait 退避）。
+- 自定义豆瓣源（原 P3）已取消，豆瓣订阅请用「豆瓣中心」插件。
 """
 from typing import Any, Dict, List, Optional, Tuple
 import time
@@ -16,6 +17,7 @@ from app.sdk.plugin import _PluginBase
 
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
+from .core.cooldown import CooldownGate
 from .model import get_models
 from .model.migration import ensure_schema
 from .modules.cache import CacheModule
@@ -37,7 +39,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.5.3"
+    plugin_version = "1.6.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -101,6 +103,10 @@ class TgMediaCenter(_PluginBase):
         merged.update(config or {})
         self._config = merged
 
+        # P7 退避收口：全局冷却门改为**插件级单例**——转发/置顶（写）与刷新对话/
+        # 回溯历史（读）共享同一份 FloodWait 退避状态（FloodWait 是账号级的，
+        # 读触发之后写同样会被拒）。
+        self._gate = CooldownGate(self._cooldown_seconds())
         self._credentials = CredentialsModule(self)
         self._pan115 = Pan115Module(self)
         # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 转发 ∪ 缓存」，事件入口要用到它
@@ -256,6 +262,10 @@ class TgMediaCenter(_PluginBase):
     def api_status(self):
         """返回插件与 TG 凭证运行状态。"""
         return api_controller.api_status(self)
+
+    def api_overview(self):
+        """返回详情页 / 仪表盘聚合状态。"""
+        return api_controller.api_overview(self)
 
     def api_telegram_send_code(self, request: api_schemas.TgSendCodeRequest):
         """发送 TG 登录验证码。"""
@@ -531,3 +541,13 @@ class TgMediaCenter(_PluginBase):
                 logger.warning(f"[TgMediaCenter] 停止 TG 运行时失败：{err}")
         # 115 模块为无状态 HTTP 客户端，无需释放连接，仅清引用
         self._pan115 = None
+        # 冷却门只是内存状态（间隔 + FloodWait 截止时刻），清引用即可
+        self._gate = None
+
+    def _cooldown_seconds(self) -> int:
+        """TG 个人号全局冷却间隔（秒），配置非法时回落 5 秒。"""
+        try:
+            value = int((self._config or {}).get("tg_user_cooldown_seconds", 5) or 5)
+        except (TypeError, ValueError):
+            value = 5
+        return max(0, value)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
+from typing import Any, Optional
 
 
 class CooldownGate:
@@ -97,3 +97,22 @@ def describe_flood_wait(err: BaseException) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return max(0, value)
+
+
+def report_flood_wait(plugin: Any, err: BaseException) -> int:
+    """把一次 FloodWait 上报到插件的全局冷却门，返回等待秒数（0 = 不是 FloodWait）。
+
+    为什么读操作也要上报：FloodWait 是**账号级**限制，读（刷新对话、回溯历史）
+    触发之后写（转发 / 置顶）同样会被拒。之前只有 tg_forward 目标会 backoff，
+    读操作撞上 FloodWait 时转发门毫不知情，于是接着撞——这是"退避收口"的关键一环。
+    """
+    seconds = describe_flood_wait(err)
+    if not seconds:
+        return 0
+    gate = getattr(plugin, "_gate", None)
+    if gate is not None:
+        try:
+            gate.backoff(seconds)
+        except Exception:  # pragma: no cover - 上报失败不影响调用方
+            return seconds
+    return seconds

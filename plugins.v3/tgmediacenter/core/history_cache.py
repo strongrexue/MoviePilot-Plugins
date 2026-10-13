@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 from app.sdk.logging import logger
 
 from ..core import links as link_utils
+from ..core.cooldown import report_flood_wait
 from ..model.message_cache import TgMessageCache
 from ..services import recognizer as recognizer_service
 from ..services.matcher import _normalize_title
@@ -337,6 +338,8 @@ class HistoryCacheService:
                 failures += 1
                 wait = _flood_wait_seconds(err)
                 if wait:
+                    # 顺手把退避同步给全局冷却门：回溯期间转发也要一起停手
+                    report_flood_wait(self._plugin, err)
                     logger.info(f"[{self._plugin_id()}] TG 限流，等待 {wait} 秒后继续缓存同步")
                     time.sleep(min(wait + 1, 300))
                     continue

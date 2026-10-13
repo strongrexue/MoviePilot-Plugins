@@ -40,6 +40,9 @@ export const configDefaults = {
   // ⑥ TG 通用转发（规则结构见 /forward/rules 接口返回；id 由后端补缺，f 前缀）
   forward_enabled: false,
   forward_rules: [],
+  // 通知（P7 启用：走 MP 通知渠道 post_message）
+  notify_on_hit: true,
+  notify_on_error: true,
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

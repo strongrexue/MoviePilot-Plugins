@@ -37,7 +37,9 @@ class MonitorModule:
     def __init__(self, plugin: Any) -> None:
         self._plugin = plugin
         self._matcher = MediaMatcher()
-        self._gate = CooldownGate(5.0)
+        # 冷却门是插件级单例（P7 收口）：与对话刷新 / 历史回溯共享 FloodWait 退避状态；
+        # 插件未提供时退回自建实例，保证模块单独使用也能工作。
+        self._gate = getattr(plugin, "_gate", None) or CooldownGate(5.0)
         self._pipeline: Optional[MessagePipeline] = None
         # 规则归一缓存：插件配置对象不变则复用（TG 事件线程会高频查询）
         self._rules_cache: Optional[tuple] = None

@@ -31,6 +31,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
     """返回 MoviePilot V3 插件 API 路由声明。"""
     definitions = [
         ("/status", plugin.api_status, ["GET"], "获取插件与 TG 凭证状态"),
+        ("/overview", plugin.api_overview, ["GET"], "获取详情页 / 仪表盘聚合状态"),
         ("/telegram/send_code", plugin.api_telegram_send_code, ["POST"], "发送 Telegram 登录验证码"),
         ("/telegram/sign_in", plugin.api_telegram_sign_in, ["POST"], "完成 Telegram 登录或两步验证"),
         ("/telegram/logout", plugin.api_telegram_logout, ["POST"], "退出 Telegram 登录"),
@@ -121,6 +122,81 @@ def _pan115(plugin):
 
 
 # ---------------------------------------------------------------------- 端点实现
+
+
+def _safe_status(plugin, attr: str, fallback: Any) -> Any:
+    """取某个模块的 ``status()``；模块缺失 / 抛错时返回兜底值。
+
+    详情页是"总览"页面：单个模块异常（例如 TG 还没登录、115 模块未初始化）
+    不该让整页空白，所以这里逐块容错，把问题留给对应卡片自己展示。
+    """
+    module = getattr(plugin, attr, None)
+    if module is None:
+        return fallback
+    try:
+        return module.status()
+    except Exception as err:  # pragma: no cover - 模块异常按缺省处理
+        logger.debug(f"读取 {attr} 状态失败：{err}")
+        return fallback
+
+
+def _recent_hits(plugin, limit: int = 10) -> List[dict]:
+    """监控 + 转发的最近流水（同表分栏，合并按时间倒序取前 N 条）。"""
+    items: List[dict] = []
+    for attr, module_kind in (("_monitor", "monitor"), ("_forward", "forward")):
+        module = getattr(plugin, attr, None)
+        if module is None:
+            continue
+        try:
+            page = module.hits(page=1, page_size=max(1, int(limit)), kind=module_kind)
+        except Exception as err:  # pragma: no cover - 单边失败不影响另一边
+            logger.debug(f"读取 {attr} 流水失败：{err}")
+            continue
+        for item in page.get("items") or []:
+            if isinstance(item, dict):
+                items.append(item)
+    items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return items[: max(1, int(limit))]
+
+
+def api_overview(plugin):
+    """详情页 / 仪表盘聚合状态：一次请求拿齐 TG / 115 / 缓存 / 监控 / 转发与最近流水。"""
+    config = getattr(plugin, "config", {}) or {}
+    data: Dict[str, Any] = {
+        "plugin_version": str(getattr(plugin, "plugin_version", "") or ""),
+        "enabled": bool(_state(plugin)),
+        "notify": {
+            "on_hit": _config_flag(config, "notify_on_hit", True),
+            "on_error": _config_flag(config, "notify_on_error", True),
+        },
+        "tg": _safe_status(plugin, "_credentials", {}),
+        "pan115": _safe_status(plugin, "_pan115", {}),
+        "cache": _safe_status(plugin, "_cache", {}),
+        "monitor": _safe_status(plugin, "_monitor", {}),
+        "forward": _safe_status(plugin, "_forward", {}),
+        "recent_hits": _recent_hits(plugin),
+    }
+    return _envelope(api_schemas.OverviewData.model_validate(data))
+
+
+def _state(plugin) -> bool:
+    """插件启用状态（宿主接口缺失时按未启用）。"""
+    try:
+        return bool(plugin.get_state())
+    except Exception:  # pragma: no cover - 宿主接口缺失
+        return False
+
+
+def _config_flag(config: Any, key: str, default: bool = True) -> bool:
+    """读布尔配置（缺失/null 用默认值，字符串形式也认）。"""
+    if not isinstance(config, dict):
+        return default
+    value = config.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
 
 
 def api_status(plugin):

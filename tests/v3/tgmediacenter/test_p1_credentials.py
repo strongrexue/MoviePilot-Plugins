@@ -107,6 +107,9 @@ class _StubPlugin:
     def api_status(self):
         ...
 
+    def api_overview(self):
+        ...
+
     def api_telegram_send_code(self, request):
         ...
 
@@ -213,6 +216,8 @@ def test_api_routes_contract():
     paths = {route["path"] for route in routes}
     assert paths == {
         "/status",
+        # P7 详情页 / 仪表盘聚合视图
+        "/overview",
         "/telegram/send_code",
         "/telegram/sign_in",
         "/telegram/logout",

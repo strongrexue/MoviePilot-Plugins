@@ -15,6 +15,7 @@ from typing import Any, Optional
 from app.sdk.logging import logger
 
 from ..core import telegram as tg
+from ..core.cooldown import report_flood_wait
 from ..core.runtime import TelegramRuntime
 from ..utils import (
     describe_delivery,
@@ -124,6 +125,7 @@ class CredentialsModule:
             proxy=self._resolve_proxy(),
             keep_alive_seconds=int(self._cfg("tg_keep_alive_seconds", 60) or 60),
             plugin_id=getattr(self._plugin, "__class__").__name__,
+            on_flood=lambda err: report_flood_wait(self._plugin, err),
         )
         if not runtime.start(connect_timeout=connect_timeout):
             self._runtime = None
@@ -144,6 +146,14 @@ class CredentialsModule:
             try:
                 return runtime.call(factory(), timeout=timeout)
             except Exception as err:
+                # FloodWait 是账号级限制：读操作撞上之后，转发/置顶同样会被拒，
+                # 所以这里把退避上报到插件级冷却门（P7 收口）。
+                waite = report_flood_wait(self._plugin, err)
+                if waite:
+                    logger.warning(
+                        f"[{getattr(self._plugin, '__class__').__name__}] TG 触发 FloodWait："
+                        f"暂停对外操作约 {waite} 秒"
+                    )
                 if attempt >= retries or not tg.is_disconnected_error(err):
                     raise
                 attempt += 1

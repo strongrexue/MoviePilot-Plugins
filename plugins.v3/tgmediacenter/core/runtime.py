@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from concurrent.futures import Future
-from typing import Any, Coroutine, Optional
+from typing import Any, Callable, Coroutine, Optional
 
 from app.sdk.logging import logger
 
@@ -40,6 +40,7 @@ class TelegramRuntime:
         proxy: Optional[dict] = None,
         keep_alive_seconds: int = 60,
         plugin_id: str = "TgMediaCenter",
+        on_flood: Optional[Callable[[BaseException], None]] = None,
     ) -> None:
         self._api_id = self._normalize_api_id(api_id)
         self._api_hash = str(api_hash or "").strip()
@@ -47,6 +48,9 @@ class TelegramRuntime:
         self._proxy = proxy
         self._keep_alive_seconds = max(15, int(keep_alive_seconds or 60))
         self._plugin_id = plugin_id or "TgMediaCenter"
+        # FloodWait 上报回调：runtime 不持有插件引用（保持宿主无关），
+        # 由调用方注入"把退避记到全局冷却门"的动作。
+        self._on_flood = on_flood
 
         self._lock = threading.RLock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -205,12 +209,24 @@ class TelegramRuntime:
                     count += 1
                 logger.info(f"[{self._plugin_id}] TG 对话缓存预热完成（{count} 个会话）")
             except Exception as err:
+                # 预热撞 FloodWait 时把退避上报给全局门：否则紧接着的转发会继续撞
+                self._report_flood(err)
                 logger.warning(f"[{self._plugin_id}] TG 对话缓存预热失败（监听可能收不到部分频道消息）：{err}")
 
         try:
             self.submit(_prime())
         except Exception as err:
             logger.debug(f"[{self._plugin_id}] 投递对话缓存预热失败：{err}")
+
+    def _report_flood(self, err: BaseException) -> None:
+        """把 FloodWait 交给注入的上报回调（记到插件级冷却门）。"""
+        callback = self._on_flood
+        if not callable(callback):
+            return
+        try:
+            callback(err)
+        except Exception:  # pragma: no cover - 上报失败不影响调用方
+            pass
 
     def stop(self) -> None:
         """断开客户端并释放线程与事件循环；可重复调用。"""

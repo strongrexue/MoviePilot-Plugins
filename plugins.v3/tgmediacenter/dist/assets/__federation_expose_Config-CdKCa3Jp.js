@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, a
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.5.3';
+const FRONTEND_VERSION = '1.6.0';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -475,7 +475,7 @@ const _hoisted_16$4 = {
   key: 2,
   class: "tg-wizard tg-wizard-password"
 };
-const _hoisted_17$3 = { class: "tg-wizard-actions" };
+const _hoisted_17$4 = { class: "tg-wizard-actions" };
 
 const {computed: computed$5,onMounted: onMounted$5,onUnmounted: onUnmounted$4,ref: ref$6} = await importShared('vue');
 
@@ -1206,7 +1206,7 @@ return (_ctx, _cache) => {
                         }, 8, ["loading"])
                       ]))
                     : _createCommentVNode$5("", true),
-                  _createElementVNode$5("div", _hoisted_17$3, [
+                  _createElementVNode$5("div", _hoisted_17$4, [
                     _createVNode$5(_component_VBtn, {
                       variant: "tonal",
                       loading: busy.value === 'refresh',
@@ -1264,12 +1264,13 @@ const _hoisted_12$3 = {
   class: "p115-qr-tip"
 };
 const _hoisted_13$3 = { class: "p115-actions" };
-const _hoisted_14$3 = { class: "p115-actions" };
-const _hoisted_15$3 = {
+const _hoisted_14$3 = { class: "p115-notify" };
+const _hoisted_15$3 = { class: "p115-actions" };
+const _hoisted_16$3 = {
   key: 0,
   class: "p115-result"
 };
-const _hoisted_16$3 = { class: "p115-result-head" };
+const _hoisted_17$3 = { class: "p115-result-head" };
 
 const {computed: computed$4,onMounted: onMounted$4,onUnmounted: onUnmounted$3,ref: ref$5} = await importShared('vue');
 
@@ -1528,13 +1529,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$4(() => [
             _createVNode$4(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$4(() => [...(_cache[7] || (_cache[7] = [
+              default: _withCtx$4(() => [...(_cache[9] || (_cache[9] = [
                 _createTextVNode$4("启用 115 网盘作为推送目标", -1)
               ]))]),
               _: 1
             }),
             _createVNode$4(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$4(() => [...(_cache[8] || (_cache[8] = [
+              default: _withCtx$4(() => [...(_cache[10] || (_cache[10] = [
                 _createTextVNode$4(" 资源监控 / 通用转发命中后，可把分享链接与磁力/ed2k 推送到 115（转存或离线下载）。 ", -1)
               ]))]),
               _: 1
@@ -1565,7 +1566,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$4(() => [
         _createVNode$4(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$4(() => [...(_cache[9] || (_cache[9] = [
+          default: _withCtx$4(() => [...(_cache[11] || (_cache[11] = [
             _createTextVNode$4("账号与授权", -1)
           ]))]),
           _: 1
@@ -1574,7 +1575,7 @@ return (_ctx, _cache) => {
           default: _withCtx$4(() => [
             _createElementVNode$4("div", _hoisted_2$4, [
               _createElementVNode$4("span", _hoisted_3$4, _toDisplayString$4(accountLine.value), 1),
-              _cache[10] || (_cache[10] = _createElementVNode$4("span", { class: "p115-sep" }, "|", -1)),
+              _cache[12] || (_cache[12] = _createElementVNode$4("span", { class: "p115-sep" }, "|", -1)),
               _createElementVNode$4("span", null, _toDisplayString$4(spaceLine.value), 1),
               (status.value?.last_check)
                 ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_4$4, "检测于 " + _toDisplayString$4(status.value.last_check), 1))
@@ -1615,7 +1616,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-close",
                       onClick: qrCancel
                     }, {
-                      default: _withCtx$4(() => [...(_cache[11] || (_cache[11] = [
+                      default: _withCtx$4(() => [...(_cache[13] || (_cache[13] = [
                         _createTextVNode$4("取消", -1)
                       ]))]),
                       _: 1
@@ -1631,7 +1632,7 @@ return (_ctx, _cache) => {
                     }, null, 8, _hoisted_8$3),
                     _createElementVNode$4("div", _hoisted_9$3, [
                       _createElementVNode$4("div", _hoisted_10$3, _toDisplayString$4(qr.value.status_text || '等待扫码'), 1),
-                      _cache[12] || (_cache[12] = _createElementVNode$4("div", { class: "p115-qr-tip" }, "用 115 App 扫描二维码，并在手机上点击确认", -1)),
+                      _cache[14] || (_cache[14] = _createElementVNode$4("div", { class: "p115-qr-tip" }, "用 115 App 扫描二维码，并在手机上点击确认", -1)),
                       _createElementVNode$4("div", _hoisted_11$3, "会话绑定设备：" + _toDisplayString$4(qr.value.app), 1),
                       (qr.value.expires_in)
                         ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_12$3, " 二维码有效期约 " + _toDisplayString$4(Math.max(1, Math.ceil(qr.value.expires_in / 60))) + " 分钟 ", 1))
@@ -1648,7 +1649,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-connection",
                 onClick: check
               }, {
-                default: _withCtx$4(() => [...(_cache[13] || (_cache[13] = [
+                default: _withCtx$4(() => [...(_cache[15] || (_cache[15] = [
                   _createTextVNode$4(" 测试连接 ", -1)
                 ]))]),
                 _: 1
@@ -1660,7 +1661,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-logout",
                 onClick: clearCookie
               }, {
-                default: _withCtx$4(() => [...(_cache[14] || (_cache[14] = [
+                default: _withCtx$4(() => [...(_cache[16] || (_cache[16] = [
                   _createTextVNode$4(" 清除登录态 ", -1)
                 ]))]),
                 _: 1
@@ -1673,13 +1674,13 @@ return (_ctx, _cache) => {
                 loading: loading.value,
                 onClick: loadStatus
               }, {
-                default: _withCtx$4(() => [...(_cache[15] || (_cache[15] = [
+                default: _withCtx$4(() => [...(_cache[17] || (_cache[17] = [
                   _createTextVNode$4(" 刷新状态 ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading"])
             ]),
-            _cache[16] || (_cache[16] = _createElementVNode$4("div", { class: "p115-hint" }, [
+            _cache[18] || (_cache[18] = _createElementVNode$4("div", { class: "p115-hint" }, [
               _createTextVNode$4(" 登录只用"),
               _createElementVNode$4("strong", null, "扫码"),
               _createTextVNode$4("（App 通道）：115 对网页 Cookie 有设备风控，文件接口会要求「安全密钥」验证， 扫码绑定的 App 设备不会触发该验证，所以设备列表只保留 App 端。 扫码成功后 Cookie 自动保存在插件内部（不显示在界面上），也不会被「保存配置」清空； Cookie 失效时重新扫码即可。 ")
@@ -1696,7 +1697,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$4(() => [
         _createVNode$4(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$4(() => [...(_cache[17] || (_cache[17] = [
+          default: _withCtx$4(() => [...(_cache[19] || (_cache[19] = [
             _createTextVNode$4("任务设置", -1)
           ]))]),
           _: 1
@@ -1734,7 +1735,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-folder-check-outline",
                       onClick: verifyDir
                     }, {
-                      default: _withCtx$4(() => [...(_cache[18] || (_cache[18] = [
+                      default: _withCtx$4(() => [...(_cache[20] || (_cache[20] = [
                         _createTextVNode$4(" 校验目录 ", -1)
                       ]))]),
                       _: 1
@@ -1763,7 +1764,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
-            _cache[19] || (_cache[19] = _createElementVNode$4("div", { class: "p115-hint" }, [
+            _cache[21] || (_cache[21] = _createElementVNode$4("div", { class: "p115-hint" }, [
               _createTextVNode$4(" 转存与离线下载都保存到该 CID（在 115 里打开目标文件夹，地址栏 "),
               _createElementVNode$4("code", null, "cid="),
               _createTextVNode$4(" 后面就是）。 单批上限用于分批提交，避免一次提交过多被 115 拒绝。 ")
@@ -1780,7 +1781,59 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$4(() => [
         _createVNode$4(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$4(() => [...(_cache[20] || (_cache[20] = [
+          default: _withCtx$4(() => [...(_cache[22] || (_cache[22] = [
+            _createTextVNode$4("通知", -1)
+          ]))]),
+          _: 1
+        }),
+        _createVNode$4(_component_VCardText, null, {
+          default: _withCtx$4(() => [
+            _createElementVNode$4("div", _hoisted_14$3, [
+              _createVNode$4(_component_VSwitch, {
+                modelValue: form.value.notify_on_hit,
+                "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.value.notify_on_hit) = $event)),
+                color: "primary",
+                "hide-details": "",
+                inset: ""
+              }, {
+                label: _withCtx$4(() => [...(_cache[23] || (_cache[23] = [
+                  _createElementVNode$4("span", { class: "p115-switch-label" }, "推送成功通知", -1)
+                ]))]),
+                _: 1
+              }, 8, ["modelValue"]),
+              _createVNode$4(_component_VSwitch, {
+                modelValue: form.value.notify_on_error,
+                "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.value.notify_on_error) = $event)),
+                color: "primary",
+                "hide-details": "",
+                inset: ""
+              }, {
+                label: _withCtx$4(() => [...(_cache[24] || (_cache[24] = [
+                  _createElementVNode$4("span", { class: "p115-switch-label" }, "推送失败通知", -1)
+                ]))]),
+                _: 1
+              }, 8, ["modelValue"])
+            ]),
+            _cache[25] || (_cache[25] = _createElementVNode$4("div", { class: "p115-hint" }, [
+              _createTextVNode$4(" 走 MoviePilot 通知渠道（与宿主通知设置一致）。"),
+              _createElementVNode$4("strong", null, "成功"),
+              _createTextVNode$4("按批汇总一条（如「已转存 3 条」）； "),
+              _createElementVNode$4("strong", null, "失败"),
+              _createTextVNode$4("汇总失败条数与原因，115 登录态失效会额外提示重新扫码（同一故障 6 小时内只提醒一次）。 订阅回搜的结果通知不受这两个开关影响。 ")
+            ], -1))
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }),
+    _createVNode$4(_component_VCard, {
+      flat: "",
+      class: "p115-card"
+    }, {
+      default: _withCtx$4(() => [
+        _createVNode$4(_component_VCardTitle, { class: "text-subtitle-2" }, {
+          default: _withCtx$4(() => [...(_cache[26] || (_cache[26] = [
             _createTextVNode$4("推送测试", -1)
           ]))]),
           _: 1
@@ -1789,7 +1842,7 @@ return (_ctx, _cache) => {
           default: _withCtx$4(() => [
             _createVNode$4(_component_VTextarea, {
               modelValue: pushText.value,
-              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((pushText).value = $event)),
+              "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((pushText).value = $event)),
               label: "粘贴链接（115 分享链接 / 磁力 / ed2k，可多行多条）",
               placeholder: "https://115.com/s/xxxxx?password=abcd\nmagnet:?xt=urn:btih:...\ned2k://|file|...",
               rows: "3",
@@ -1797,15 +1850,15 @@ return (_ctx, _cache) => {
               variant: "outlined",
               "hide-details": ""
             }, null, 8, ["modelValue"]),
-            _createElementVNode$4("div", _hoisted_14$3, [
+            _createElementVNode$4("div", _hoisted_15$3, [
               _createVNode$4(_component_VBtn, {
                 variant: "tonal",
                 loading: busy.value === 'parse',
                 disabled: Boolean(busy.value) && busy.value !== 'parse',
                 "prepend-icon": "mdi-text-search",
-                onClick: _cache[5] || (_cache[5] = $event => (push(true)))
+                onClick: _cache[7] || (_cache[7] = $event => (push(true)))
               }, {
-                default: _withCtx$4(() => [...(_cache[21] || (_cache[21] = [
+                default: _withCtx$4(() => [...(_cache[27] || (_cache[27] = [
                   _createTextVNode$4(" 解析测试（不提交） ", -1)
                 ]))]),
                 _: 1
@@ -1816,17 +1869,17 @@ return (_ctx, _cache) => {
                 loading: busy.value === 'push',
                 disabled: Boolean(busy.value) && busy.value !== 'push',
                 "prepend-icon": "mdi-cloud-upload-outline",
-                onClick: _cache[6] || (_cache[6] = $event => (push(false)))
+                onClick: _cache[8] || (_cache[8] = $event => (push(false)))
               }, {
-                default: _withCtx$4(() => [...(_cache[22] || (_cache[22] = [
+                default: _withCtx$4(() => [...(_cache[28] || (_cache[28] = [
                   _createTextVNode$4(" 推送到 115 ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading", "disabled"])
             ]),
             (pushResult.value)
-              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_15$3, [
-                  _createElementVNode$4("div", _hoisted_16$3, _toDisplayString$4(pushResult.value.message), 1),
+              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_16$3, [
+                  _createElementVNode$4("div", _hoisted_17$3, _toDisplayString$4(pushResult.value.message), 1),
                   _createVNode$4(_component_VList, {
                     density: "compact",
                     class: "p115-result-list"
@@ -1863,7 +1916,7 @@ return (_ctx, _cache) => {
                   })
                 ]))
               : _createCommentVNode$4("", true),
-            _cache[23] || (_cache[23] = _createElementVNode$4("div", { class: "p115-hint" }, " 解析测试不需要 Cookie，可先用它确认链接能被正确识别（含提取码）。 实际推送需要已保存的 Cookie 与目标目录 CID。 ", -1))
+            _cache[29] || (_cache[29] = _createElementVNode$4("div", { class: "p115-hint" }, " 解析测试不需要 Cookie，可先用它确认链接能被正确识别（含提取码）。 实际推送需要已保存的 Cookie 与目标目录 CID。 ", -1))
           ]),
           _: 1
         })
@@ -1875,7 +1928,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-1e6d8dd8"]]);
+const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-30a19665"]]);
 
 const {resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3,toDisplayString:_toDisplayString$3,openBlock:_openBlock$3,createBlock:_createBlock$3,createCommentVNode:_createCommentVNode$3,createElementVNode:_createElementVNode$3,createElementBlock:_createElementBlock$3,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
 
@@ -5565,6 +5618,9 @@ const configDefaults = {
   // ⑥ TG 通用转发（规则结构见 /forward/rules 接口返回；id 由后端补缺，f 前缀）
   forward_enabled: false,
   forward_rules: [],
+  // 通知（P7 启用：走 MP 通知渠道 post_message）
+  notify_on_hit: true,
+  notify_on_error: true,
 };
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，
@@ -5673,10 +5729,10 @@ const config = useConfigForm({
 
 const modules = [
   { key: 'tg', title: 'TG 凭证', icon: 'mdi-send-lock-outline', desc: '登录向导、冷却与保活、对话列表' },
-  { key: 'pan115', title: '115 网盘', icon: 'mdi-cloud-outline', desc: '登录态、目标目录、批量提交' },
+  { key: 'pan115', title: '115 网盘', icon: 'mdi-cloud-outline', desc: '登录态、目标目录、批量提交与通知' },
   { key: 'monitor', title: '资源监控', icon: 'mdi-radar', desc: '监听频道、推送目标、仅缺集' },
   { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、同步与检索' },
-  { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '两级匹配、置顶与内容转换' },
+  { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '关键词与扩展名匹配、置顶与内容转换' },
 ];
 
 const activeModule = ref(modules[0].key);
@@ -5847,17 +5903,7 @@ return (_ctx, _cache) => {
                           "plugin-id": props.pluginId,
                           config: _unref(config)
                         }, null, 8, ["api", "plugin-id", "config"]))
-                      : (_openBlock(), _createBlock(_component_VAlert, {
-                          key: 7,
-                          type: "info",
-                          variant: "tonal",
-                          density: "comfortable"
-                        }, {
-                          default: _withCtx(() => [
-                            _createTextVNode(" 「" + _toDisplayString(current.value.title) + "」配置面板待实现（见设计文档对应模块）。 ", 1)
-                          ]),
-                          _: 1
-                        }))
+                      : _createCommentVNode("", true)
           ])
         ]),
         _createVNode(_component_VDivider),
@@ -5895,6 +5941,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-51833546"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-394db4a1"]]);
 
 export { Config as default };

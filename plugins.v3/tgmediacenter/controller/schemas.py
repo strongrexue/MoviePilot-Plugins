@@ -623,8 +623,34 @@ class ForwardTestData(BaseModel):
     rules: List[ForwardTestTrace] = Field(default_factory=list)
 
 
+class OverviewNotifyConfig(BaseModel):
+    """通知开关（详情页展示用）。"""
+
+    on_hit: bool = True
+    on_error: bool = True
+
+
+class OverviewData(BaseModel):
+    """详情页 / 仪表盘的聚合视图（一次请求拿齐各模块状态）。
+
+    每个模块块都是 **可缺省** 的：某个模块初始化失败时该块留默认值，
+    详情页仍能渲染其余部分（不让一个模块拖垮整页）。
+    """
+
+    plugin_version: str = ""
+    enabled: bool = False
+    notify: OverviewNotifyConfig = Field(default_factory=OverviewNotifyConfig)
+    tg: TgStatusData = Field(default_factory=TgStatusData)
+    pan115: Pan115StatusData = Field(default_factory=Pan115StatusData)
+    cache: CacheStatusData = Field(default_factory=CacheStatusData)
+    monitor: MonitorStatusData = Field(default_factory=MonitorStatusData)
+    forward: ForwardStatusData = Field(default_factory=ForwardStatusData)
+    recent_hits: List[MonitorHit] = Field(default_factory=list)
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
+    "/overview": OverviewData,
     "/telegram/send_code": TgSendCodeData,
     "/telegram/sign_in": TgAuthResult,
     "/telegram/logout": TgAuthResult,

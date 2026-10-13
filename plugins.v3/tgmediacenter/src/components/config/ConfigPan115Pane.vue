@@ -344,6 +344,25 @@ onUnmounted(qrStopPolling)
     </VCard>
 
     <VCard flat class="p115-card">
+      <VCardTitle class="text-subtitle-2">通知</VCardTitle>
+      <VCardText>
+        <div class="p115-notify">
+          <VSwitch v-model="form.notify_on_hit" color="primary" hide-details inset>
+            <template #label><span class="p115-switch-label">推送成功通知</span></template>
+          </VSwitch>
+          <VSwitch v-model="form.notify_on_error" color="primary" hide-details inset>
+            <template #label><span class="p115-switch-label">推送失败通知</span></template>
+          </VSwitch>
+        </div>
+        <div class="p115-hint">
+          走 MoviePilot 通知渠道（与宿主通知设置一致）。<strong>成功</strong>按批汇总一条（如「已转存 3 条」）；
+          <strong>失败</strong>汇总失败条数与原因，115 登录态失效会额外提示重新扫码（同一故障 6 小时内只提醒一次）。
+          订阅回搜的结果通知不受这两个开关影响。
+        </div>
+      </VCardText>
+    </VCard>
+
+    <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">推送测试</VCardTitle>
       <VCardText>
         <VTextarea
@@ -419,6 +438,8 @@ onUnmounted(qrStopPolling)
 .p115-qr-tip { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.65); line-height: 1.6; }
 .p115-sub { margin-top: 14px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); }
 .p115-hint { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.7; }
+.p115-notify { display: flex; gap: 24px; flex-wrap: wrap; }
+.p115-switch-label { font-size: 13px; }
 .p115-hint code {
   padding: 1px 4px;
   border-radius: 4px;

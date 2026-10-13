@@ -34,7 +34,8 @@ from app.sdk.logging import logger
 from ..core import forward as forward_engine
 from ..core import links as link_utils
 from ..core import push_queue
-from ..core.cooldown import CooldownGate
+from ..core.cooldown import CooldownGate, report_flood_wait
+from ..core.notify import Notifier
 from ..destinations import resolve_destination
 from ..model.push_task import (
     STATUS_DONE,
@@ -72,6 +73,17 @@ _PUSH_GROUP_MAX_LINKS = 20
 # 失败重试基础退避（秒）：30 * 2^retries，上限 600
 _RETRY_BASE_SECONDS = 30.0
 _RETRY_MAX_SECONDS = 600.0
+# 115 登录态失效的提醒间隔（秒）：属"要人工介入且会持续存在"的故障，
+# 不按轮次重复提醒，6 小时内只发一次。
+_CREDENTIAL_NOTIFY_WINDOW = 6 * 3600.0
+# 判定"这是登录态/鉴权问题"的关键词（115 侧文案不完全固定，按语义兜）
+_AUTH_ERROR_HINTS = ("登录", "cookie", "授权", "安全密钥", "验证", "未启用", "失效", "401", "403")
+
+
+def _looks_like_auth_error(message: str) -> bool:
+    """这条失败信息是否像 115 登录态失效（用于给通知加"重新扫码"引导）。"""
+    text = str(message or "").lower()
+    return any(hint in text for hint in _AUTH_ERROR_HINTS)
 
 
 def _task_links(task: Dict[str, Any]) -> List[str]:
@@ -132,6 +144,9 @@ class MessagePipeline:
         self._handler = None
         self._handler_ok = False
         self._last_push_cycle = 0.0
+        # P7：通知（成功汇总 / 故障），按轮次聚合后在 _push_cycle 末尾统一发出
+        self._notifier = Notifier(plugin)
+        self._cycle: Dict[str, Any] = self._empty_cycle()
         self._started_at = ""
         self._last_error = ""
         self._last_event_at = ""
@@ -651,11 +666,80 @@ class MessagePipeline:
         if now - self._last_push_cycle < _PUSH_INTERVAL:
             return
         self._last_push_cycle = now
+        self._cycle = self._empty_cycle()
         for group in self._group_tasks(self._claim_pending_tasks()):
             if len(group) == 1:
                 self._execute_push(group[0])
             else:
                 self._execute_push_group(group)
+        # 通知按轮次聚合：一批推送完只发一条汇总，避免逐条刷屏
+        self._flush_notifications()
+
+    @staticmethod
+    def _empty_cycle() -> Dict[str, Any]:
+        """本轮推送结果桶（成功 / 失败分目标归类）。"""
+        return {"pan115_done": [], "pan115_failed": [], "other_failed": []}
+
+    @staticmethod
+    def _task_label(task: Dict[str, Any]) -> str:
+        """任务的简报（通知里用）：优先片名，其次消息 ID。"""
+        payload = task.get("payload") or {}
+        title = str(payload.get("title") or "").strip()
+        links = len(_task_links(task))
+        if title:
+            return f"{title}（{links} 条链接）"
+        return f"消息 #{task.get('message_id')}（{links} 条链接）"
+
+    def _note_outcome(self, *, task: Dict[str, Any], via: str, outcome: str, message: str) -> None:
+        """把推送终态记进本轮通知桶（只记 done / failed，重试挂起的不算）。"""
+        if outcome not in ("done", "failed"):
+            return
+        name = str(via or "").strip().lower()
+        if outcome == "done":
+            if name == "pan115":
+                self._cycle["pan115_done"].append(self._task_label(task))
+            return
+        entry = (self._task_label(task), str(message or ""))
+        if name == "pan115":
+            self._cycle["pan115_failed"].append(entry)
+        else:
+            self._cycle["other_failed"].append(entry)
+
+    def _flush_notifications(self) -> None:
+        """本轮推送结束后发汇总通知（成功 / 失败各一条，开关可关）。"""
+        cycle = self._cycle or {}
+        done = list(cycle.get("pan115_done") or [])
+        failed_115 = list(cycle.get("pan115_failed") or [])
+        failed_other = list(cycle.get("other_failed") or [])
+
+        if done and self._notifier.enabled("notify_on_hit", True):
+            text = "已转存到 115（" + str(len(done)) + " 条）：\n" + "\n".join(f"· {item}" for item in done[:8])
+            if len(done) > 8:
+                text += f"\n…另有 {len(done) - 8} 条"
+            self._notifier.send(f"TG媒体中心 · 115 转存完成（{len(done)} 条）", text)
+
+        total = len(failed_115) + len(failed_other)
+        if total and self._notifier.enabled("notify_on_error", True):
+            credential_issue = any(_looks_like_auth_error(msg) for _, msg in failed_115)
+            lines: List[str] = []
+            if failed_115:
+                lines.append(f"115 推送失败 {len(failed_115)} 条：")
+                lines += [f"· {label} —— {msg}" for label, msg in failed_115[:6]]
+            if failed_other:
+                lines.append(f"其他推送失败 {len(failed_other)} 条：")
+                lines += [f"· {label} —— {msg}" for label, msg in failed_other[:6]]
+            shown = min(len(failed_115), 6) + min(len(failed_other), 6)
+            if total > shown:
+                lines.append(f"…另有 {total - shown} 条")
+            if credential_issue:
+                lines.append("看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
+            self._notifier.send(
+                f"TG媒体中心 · 推送失败（{total} 条）",
+                "\n".join(lines),
+                # 登录态失效属"需要人工介入且会长时间持续"的故障：6 小时内只提醒一次
+                key="pan115_credential" if credential_issue else "",
+                window=_CREDENTIAL_NOTIFY_WINDOW,
+            )
 
     def _group_tasks(self, tasks: List[Dict[str, Any]]) -> "List[List[Dict[str, Any]]]":
         """把可合并的任务分组（保持原顺序）。
@@ -750,7 +834,8 @@ class MessagePipeline:
         except Exception as err:  # pragma: no cover - 目标实现未兜底的异常
             logger.warning(f"推送目标执行异常（{destination}）：{err}")
             result = None
-            self._finish_task(task, ok=False, message=f"推送异常：{err}", retryable=True)
+            self._finish_task(task, ok=False, message=f"推送异常：{err}", retryable=True,
+                              via=getattr(target, "name", ""))
             return
 
         if result is None:
@@ -761,6 +846,7 @@ class MessagePipeline:
             message=result.message,
             retryable=result.retryable,
             detail=result.detail,
+            via=getattr(target, "name", ""),
         )
 
     @staticmethod
@@ -814,7 +900,8 @@ class MessagePipeline:
         except Exception as err:  # pragma: no cover - 目标实现未兜底的异常
             logger.warning(f"合并推送异常（{destination}）：{err}")
             for task in group:
-                self._finish_task(task, ok=False, message=f"推送异常：{err}", retryable=True)
+                self._finish_task(task, ok=False, message=f"推送异常：{err}", retryable=True,
+                                  via=getattr(target, "name", ""))
             return
         if result is None:
             return
@@ -845,19 +932,26 @@ class MessagePipeline:
                 message=f"合并推送（{len(task_links)} 条）：成功 {succeeded}，失败 {failed}",
                 retryable=retryable,
                 detail={"batch": True, "links": len(task_links)},
+                via=getattr(target, "name", ""),
             )
 
     def _finish_task(self, task: Dict[str, Any], *, ok: bool, message: str,
-                     retryable: bool, detail: Optional[dict] = None) -> None:
-        """更新任务终态（成功 done；可重试失败回 pending 并退避；否则 failed）。"""
+                     retryable: bool, detail: Optional[dict] = None,
+                     via: str = "") -> str:
+        """更新任务终态（成功 done；可重试失败回 pending 并退避；否则 failed）。
+
+        ``via`` 是实际执行的目标名（``pan115`` / ``tg_forward`` …），
+        供通知按目标归类。返回终态字符串：``done`` / ``retry`` / ``failed``。
+        """
         db = self._db()
         if db is None:
-            return
+            return "failed"
         import json
 
         task_id = int(task.get("id") or 0)
         retries = int(task.get("retries") or 0)
         terminal = ok or not retryable
+        outcome = "done" if ok else ("failed" if terminal else "retry")
         try:
             with db.session() as session:
                 row = session.get(TgPushTask, task_id)
@@ -878,12 +972,15 @@ class MessagePipeline:
                 session.commit()
         except Exception as err:  # pragma: no cover
             logger.warning(f"更新推送任务状态失败（#{task_id}）：{err}")
-            return
+            return "failed"
         # 终态时把推送结果回写到命中流水：流水里的"已入推送队列 #N"能看到结局
         if terminal:
             self._annotate_hit(task, ok, message)
         if ok:
             self._stats["push_done"] = self._stats.get("push_done", 0) + 1
+        # 记进本轮通知桶（成功汇总 / 失败汇总在 _push_cycle 末尾统一发出）
+        self._note_outcome(task=task, via=via, outcome=outcome, message=message)
+        return outcome
 
     def _annotate_hit(self, task: Dict[str, Any], ok: bool, message: str) -> None:
         """把推送结果追加到对应命中流水的说明里（同规则同消息、决策为 hit 的行）。"""
@@ -1011,6 +1108,8 @@ class MessagePipeline:
                     f"（{'/'.join(purposes)}）"
                 )
             except Exception as err:
+                # 反查撞 FloodWait 也要上报（读取失败往往意味着账号正被限流）
+                report_flood_wait(self._plugin, err)
                 entry["error"] = str(err)[:120]
                 logger.warning(
                     f"[{self._plugin_id()}] 关心会话 {chat_id} 反查失败（账号看不到该会话，"

@@ -128,6 +128,43 @@ Vue 联邦远程组件，暴露 `./Config`、`./Page`、`./Dashboard` 三个入�
 > （Telethon 会在客户端已缓存 `phone_code_hash` 时把请求改写成 `ResendCodeRequest`）。
 > v1.1.2 起已在发码前清理该缓存并做本地冷却拦截，同时把提示翻译为中文。
 
+## 常见问题（FAQ）
+
+### 更新插件后界面没变化 / 仍报旧错误
+
+优先看上方「已知行为」第一条：先确认容器内落盘文件真的到了目标版本
+（`grep plugin_version` / `grep FRONTEND_VERSION`），再 `Ctrl + Shift + R` 硬刷新。
+联邦入口 `remoteEntry.js` 无哈希、宿主加载器不加缓存参数，浏览器只会保留旧组件，
+所以"看到旧界面"只有两种可能：插件没真更新，或浏览器在用缓存旧组件。
+
+### 插件图标不显示 / 还是默认拼图
+
+图标要写**完整 https URL**（见上方「开发与发版 · 图标必须写完整 URL」）。只写裸文件名时，
+宿主前端会去本地 `./plugin_icon/<文件名>` 取图，多数自建部署下该路径 404，回落成内置拼图。
+另外 nginx 对图片 `expires 1y; immutable`，**只换图标内容、不改 URL 基本无效**，
+需要换 URL 或清缓存 / 重启进程才能刷新。
+
+### 监控 / 回搜提示「媒体库未收录」是什么意思
+
+识别器从 115 分享标题或 TG 消息里解析出媒体名（如 `片名 (年份) SxxExx`），
+拿去宿主媒体库（Emby / 本地库）做**定向查询**却查不到对应条目。常见原因：
+未刮削、改名不一致、或 TMDB ID 对不上。插件不会臆造条目，查不到就是查不到；
+此时「仅缺失时推送」等依赖媒体库的判断无法工作，状态卡会显示该数据源不可用。
+（媒体库查询全部是定向精确查询，代价与库规模无关，请勿引入全量兜底。）
+
+### 115 登录态失效 / Cookie 过期
+
+115 扫码得到的 Cookie 会过期或被踢。失效时「115 网盘」面板状态会变、转存会失败，
+通知里会附重新扫码引导（同一故障 6 小时内只提醒一次）。重新扫码即可——
+Cookie 存在插件内部、不占配置项，不会被「保存配置」清掉。
+
+### 会话下拉里找不到想要的频道 / 群组
+
+监控 / 转发 / 缓存三个面板的会话都来自「TG 凭证」页的**对话列表缓存**，不再支持手填 ID。
+看不到时先到「TG 凭证」页点「刷新对话列表」，再回对应面板「刷新状态」。
+刷新后仍不出现，说明当前账号本身看不到该会话（未加入 / 已退出 / ID 失效），
+须先让账号可见（重新加入）才监听 / 转发得到。
+
 ## ② 115 网盘（P2）
 
 用于把资源监控 / 通用转发命中的链接推送到 115：分享链接**转存**、磁力与 eD2k **离线下载**。
@@ -272,22 +309,72 @@ FloodWait 退避；命中入队后由内置 worker 线程按目标分派执行�
 - **重试**：推送失败按 30s → 60s → 120s…（上限 600s）指数退避，最多 3 次，用尽标记 `failed`；
 - **可观测**：状态卡与详情页都会显示当前是否处于 FloodWait 退避中及剩余秒数。
 
-## 本地开发
+## 开发与发版
+
+### 版本号四处同步
+
+每次发版，下面四处必须同时改为同一版本号，否则 CI 门禁会失败、单测也会爆：
+
+1. `__init__.py` 的 `plugin_version`；
+2. `package.v3.json` 的 `version` 字段；
+3. `package.v3.json` 的 `history` 最新键（如 `"1.8.2": "..."`）；
+4. `src/components/version.js` 的 `FRONTEND_VERSION`。
+
+门禁脚本 `check_plugin_versions.py` 会校验版本一致性与 `history` 键存在；单测
+（`tests/v3/tgmediacenter/test_plugin.py`、`test_p7_polish.py`）也会断言这几处相等。
+
+### 前端改动必须重建 dist
+
+前端是 Vue 联邦远程组件，`vite` 配置 `emptyOutDir: false`，所以 `pnpm build`
+**先执行 clean 清理 `dist/assets` 旧产物**再产出新联邦产物。不清理会堆积带旧哈希的
+产物，最终被打进发布包、前端永不更新。
 
 ```bash
 pnpm install
 pnpm dev      # vite build --watch，配合宿主 PLUGIN_LOCAL_REPO_PATHS + PLUGIN_AUTO_RELOAD 联调
-pnpm build    # 先清理 dist/assets 旧产物，再产出新的联邦产物
+pnpm build    # 先 clean 再产出联邦产物
 ```
 
-`build` 会先执行 `clean`：因为 `emptyOutDir` 为 false，不清理会堆积旧哈希产物，
-最终被打进发布包。
-
-构建后必须通过联邦 CSS 门禁：
+构建后必须通过联邦 CSS 门禁（作用域样式泄露校验）：
 
 ```bash
 python ../../../.github/scripts/check_federation_css.py
 ```
+
+### 发布流程与 CI 行为
+
+`.github/workflows/release.yml`（"Plugin Release"）在 **push 到 `main` 且改动
+`package.v3.json`**（或 `package.json` / `package.v2.json`）时触发，也可手动
+`workflow_dispatch`。流程：
+
+1. 先跑两个门禁：`check_plugin_versions.py` + `check_federation_css.py`；
+2. 只处理各 package 文件里 `release == true` 的条目，按其 `version` 打包
+   `tgmediacenter_v<版本>.zip`（zip 的是插件目录，排除 `__pycache__`）；
+3. 建 / 更新 tag `<插件ID>_v<版本>`（如 `TgMediaCenter_v1.8.2`）与同名 Release，
+   发布说明取自 `history["v<版本>"]`。
+
+- **触发条件是 `package*.json` 有改动**：只推源码 / README 而不动 `package.v3.json` 时
+  **不会出包**——发版必须改版本号（或手动 dispatch）。
+- **同版本重跑会替换**：Release 已存在时先删旧 Release 与 tag 再重建（幂等，可安全重发）。
+- **插件目录自上次 tag 起无改动则跳过打包**，只更新发布说明。
+- 图标两份都要更新：索引仓库 `icons/tgmediacenter.png`（列表用）+ 插件目录内
+  `plugins.v3/tgmediacenter/tgmediacenter.png`（随包发布）。
+
+### 图标必须写完整 URL
+
+`package.v3.json` 的 `icon` 与 `__init__.py` 的 `plugin_icon` **都写完整 https URL**
+（`https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png`）。
+
+根因：宿主前端 `PluginCard.vue` 加载图标时，若值不是 http 开头则请求本地
+`./plugin_icon/<文件名>`，该路径在多数自建部署下 404；只有完整 URL 走图片代理才稳定。
+且 nginx 对图片给 `expires 1y; immutable`，**换图不换 URL 基本无效**——
+改图标内容后若要立即生效，应当换一个 URL（或让用户清缓存 / 重启进程）。
+
+### 前端更新后必须硬刷新
+
+联邦入口固定叫 `remoteEntry.js`（无哈希），宿主加载器也不追加缓存参数，SPA 只在
+**页面加载时**拉取一次远程组件。因此更新带前端改动的版本后，必须整页硬刷新
+（`Ctrl + Shift + R`），否则浏览器仍在使用旧组件代码。详见上方「已知行为」。
 
 ## 进度
 
@@ -330,5 +417,7 @@ python ../../../.github/scripts/check_federation_css.py
 
 ## 版本
 
-当前 `1.7.0`。版本号需与 `package.v3.json` 的 `version`、`history` 最新键以及前端
-`src/components/version.js` 的 `FRONTEND_VERSION` 保持一致（后两者分别由门禁脚本与单测校验）。
+当前 `1.8.2`。版本号需四处同步：`__init__.py` 的 `plugin_version`、
+`package.v3.json` 的 `version` 与 `history` 最新键、前端 `src/components/version.js`
+的 `FRONTEND_VERSION`——门禁脚本 `check_plugin_versions.py` 与单测会校验一致性
+（详见上方「开发与发版 · 版本号四处同步」）。

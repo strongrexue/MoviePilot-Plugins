@@ -1,84 +1,124 @@
-# MoviePilot-Plugins（个人插件仓库）
+# 胖虎媒体中心
 
-独立维护的 MoviePilot V3 插件仓库，目录结构与官方 `MoviePilot-Plugins` 保持一致，
-可直接作为「自定义插件仓库」添加到 MoviePilot。
+> MoviePilot V3 插件 ｜ 插件 ID `TgMediaCenter` ｜ 最新版本见 [Releases](https://github.com/strongrexue/MoviePilot-Plugins/releases)
 
-## 插件列表
+把 Telegram 资源频道里的剧集 / 电影**自动送进 115 网盘**：监控命中后先按你的订阅与媒体库判断「缺不缺集」，只推真正缺的；顺带提供历史消息缓存、订阅回搜、私聊链接转存与 TG 通用转发，全程结果通知到 MP 的通知渠道。
 
-| 插件 ID | 名称 | 版本 | 说明 |
-|---|---|---|---|
-| `TgMediaCenter` | 胖虎媒体中心 | 1.8.1 | Telegram 资源监控 / 历史消息缓存 / 115 网盘 / TG 通用转发 |
+- 代码仓库：<https://github.com/strongrexue/MoviePilot-Plugins>
+- 插件 ID 恒为 `TgMediaCenter`（目录 `tgmediacenter`、配置前缀 `tgmediacenter_`），改名 / 升级都不会影响已有配置与数据
 
-对应的插件源码位于 `plugins.v3/<插件ID小写>/`，测试位于 `tests/v3/<插件ID小写>/`，
-索引元数据写入 `package.v3.json`。
+## 目录
+
+[功能总览](#功能总览) ｜ [工作流程](#工作流程) ｜ [安装](#安装) ｜ [首次配置](#首次配置) ｜ [配置项速查](#配置项速查) ｜ [目录结构](#目录结构)
+
+## 功能总览
+
+| 模块 | 做什么 |
+| --- | --- |
+| ① TG 凭证 | Telethon 运行时、登录向导、会话持久化、对话列表缓存、全局冷却与 FloodWait 退避 |
+| ② 115 网盘 | 扫码 / Cookie 登录态、空间配额、分享转存、磁力 / eD2k 离线、分批提交 |
+| ③ 资源监控 | 监听频道消息 → 识别片名 / 年份 / 季集 → 订阅门禁 + 媒体库缺失判断 → 只推缺的 |
+| ④ 历史消息缓存 | 流水线实时写入 + 位点增量 / 时间范围同步，支持检索与统计 |
+| ⑤ 订阅回搜 | 宿主新增订阅后自动回搜缓存历史，补推缺失资源（事件触发 + 定时兜底） |
+| ⑥ 通用转发 | 两级匹配（关键词 / 扩展名）→ 转发原消息到目标会话，可置顶与内容转换 |
+| ⑦ 消息交互 | 私聊机器人发 115 分享 / 磁力 / eD2k 链接 → 直接转存并回执（带已转存查重） |
+| ⑧ 运行详情 / 仪表盘 | `/overview` 聚合状态与流水（可翻页、筛选决策、关键词搜索） |
+| ⑨ 发现页入口 | 在 MP 左侧「发现」分区注册整页入口，内容即运行详情 |
+| 通知 | 四类：转存完成 / 转存失败 / 缓存回搜 / 链接转存回执 |
+
+**推送目标**（监控规则与缓存回搜都可选）：
+
+| 选项 | 说明 |
+| --- | --- |
+| 智能（默认） | 115 已启用且已登录 → 转存；否则仅记录 |
+| 115 网盘 | 分享转存 / 磁力 eD2k 离线 |
+| TG 转发 | 把原消息转发到目标会话 |
+| 仅记录 | 不推送，只落流水（便于先观察） |
+
+**缺失判断**（「仅缺失」开启时生效）：先过订阅门禁（未订阅直接跳过），再查宿主媒体库——
+按「片名+年份 → 仅片名 → 名称变体（`片名 (年份)` 等）」三层做**定向查询**，命中后复核库内年份，
+同名不同年的翻拍剧不会被误判「已有」。三层全是定向查询，代价与媒体库规模无关。
+
+## 工作流程
+
+```text
+Telegram 频道消息
+   ↓  事件监听（聚合窗口：默认 3 秒内的消息合并处理）
+消息流水线
+   ↓  识别（片名 / 年份 / 季集 / 115 分享 · 磁力 · eD2k 链接）
+订阅门禁 + 媒体库缺失判断
+   ↓  只保留「已订阅且缺集」的资源
+推送队列（同一目标合并下发，单批默认 ≤ 20 条链接）
+   ↓
+目标：115 转存 / TG 转发 / 仅记录
+   ↓
+通知（成功 / 失败，含来源频道与链接）+ 运行详情流水留档
+```
+
+三条旁路：
+
+- **历史缓存**：流水线顺带把消息写入本地缓存，供检索与订阅回搜使用；
+- **订阅回搜**：宿主新增订阅 → 秒级触发回搜（定时任务兜底，覆盖插件离线期间的新增）；
+- **私聊转存**：直接对机器人发链接即可转存，不经过监控规则。
 
 ## 安装
 
-在 MoviePilot 中把本仓库地址添加为自定义插件仓库，然后在插件市场中安装
-`胖虎媒体中心`。索引条目已声明 `release: true`，安装时使用本仓库 GitHub Release
-中的压缩包。
+1. MoviePilot → 设置 → 插件 → 添加自定义插件仓库，填入本仓库地址；
+2. 到插件市场安装「胖虎媒体中心」——索引条目声明 `release: true`，安装时使用本仓库 GitHub Release 的压缩包；
+3. 也可以手动下载 Release 中的 `tgmediacenter_v<版本>.zip`，解压到 MP 的 `app/plugins/tgmediacenter/`。
+
+## 首次配置
+
+按配置页左侧的五个面板走一遍即可（右上角还有「已启用」与「发现页」两个开关）：
+
+1. **TG 凭证**（必填）：API ID / API Hash / 手机号 → 发码登录 → 刷新对话列表（后续所有会话下拉都取自这份缓存）；
+2. **115 网盘**：扫码或 Cookie 登录 → 选转存目录 → 单批上限（默认 20）；
+3. **资源监控**：开启 → 建规则（来源频道、推送目标、关键词、扩展名、置顶、内容转换）→ 建议开启「仅缺失」只推缺集；
+4. **消息缓存**：勾选要缓存的频道 → 选同步方式（相对天数 / 绝对时间范围）→ 打开订阅回搜；
+5. **通用转发**：建规则（逻辑一按关键词、逻辑二按扩展名，命中即转发到目标会话）。
+
+改动随底部「保存配置」生效；「发现页」开关改动后刷新页面即可看到入口。
+
+## 配置项速查
+
+| 分组 | 键 | 说明 |
+| --- | --- | --- |
+| 通用 | `enabled` | 插件总开关 |
+| 〃 | `discovery_page_enabled` | MP 左侧「发现」分区入口（默认关） |
+| TG | `tg_api_id` / `tg_api_hash` / `tg_phone` | Telegram 应用凭证与手机号 |
+| 〃 | `tg_user_cooldown_seconds` | 全局冷却（默认 5 秒/次，读与写共用同一退避） |
+| 〃 | `tg_keep_alive_seconds` | 客户端保活间隔（默认 60 秒） |
+| 〃 | `tg_aggregation_window_seconds` | 消息聚合窗口（默认 3 秒） |
+| 115 | `pan115_enabled` | 115 模块开关 |
+| 〃 | `pan115_target_cid` | 转存目标目录（留空 = 根目录） |
+| 〃 | `pan115_batch_max_size` | 单批提交上限（默认 20） |
+| 监控 | `monitor_enabled` / `monitor_rules` | 开关与规则列表 |
+| 缓存 | `cache_enabled` / `cache_chat_ids` | 开关与缓存频道 |
+| 〃 | `cache_destination` | 回搜命中的推送目标（默认 `smart`） |
+| 〃 | `cache_sync_mode` / `cache_sync_days` / `cache_batch_size` | 同步方式与批量 |
+| 〃 | `cache_subscribe_enabled` | 订阅回搜开关（默认开） |
+| 〃 | `cache_cron` / `cache_subscribe_cron` | 增量同步 / 订阅回搜的 Cron（默认 `0 */6 * * *`、`*/30 * * * *`） |
+| 转发 | `forward_enabled` / `forward_rules` | 开关与规则列表 |
+| 通知 | `notify_on_hit` / `notify_on_error` / `notify_on_search` | 转存通知 / 失败通知 / 回搜通知 |
+| 交互 | `interactive_push` | 允许私聊机器人发链接直接转存（默认开） |
+| 〃 | `interactive_dedup` | 已转存链接查重（默认开，命中直接回执不再重复落盘） |
+
+> TG 会话串、115 Cookie、状态缓存等**后端自管状态存在插件数据里**，不占配置项——「保存配置」是整份覆盖，
+> 放进配置会被下一次保存清掉。新增配置项必须同时加后端 `default_config()` 与前端 `configDefaults`。
 
 ## 目录结构
 
 ```text
 MoviePilot-Plugins/
 ├── plugins.v3/tgmediacenter/     # 插件源码（Vue 联邦前端产物在 dist/assets/）
-├── tests/v3/tgmediacenter/       # 插件测试
-├── package.v3.json               # V3 插件索引
-├── icons/                        # 插件图标
+├── tests/v3/tgmediacenter/       # 插件测试（pytest，基线 396）
+├── package.v3.json               # V3 插件索引（version / icon / history）
+├── icons/tgmediacenter.png       # 插件图标（索引仓库用；插件目录内另有一份随包发布）
 └── .github/                      # 发布工作流与门禁脚本
 ```
 
-## 开发约定
+## 相关文档
 
-- 目录名必须是插件类名的小写形式；主类必须定义在该目录的 `__init__.py`。
-- 三处版本必须一致：插件类 `plugin_version`、`package.v3.json` 的 `version`、
-  `history` 中最新版本的键。
-- 前端为 Vue 联邦远程组件，构建产物 `dist/assets/` 随源码提交；本地开发用
-  `pnpm install && pnpm dev`（监听构建）。
-- 提交前运行门禁：
-
-```bash
-python .github/scripts/check_plugin_versions.py package.v3.json
-python .github/scripts/check_federation_css.py
-```
-
-## 开发流程与回退
-
-按阶段推进，每完成一个阶段即固化一个可回退的节点：
-
-1. 阶段进行中：在 `main` 上提交（改动大或需要留 PR 记录时开 `feat/<阶段名>` 分支，完成后合并）。
-2. 阶段完成：同步 bump 三处版本号 → 提交 → 打**人工维护的阶段 tag** `stage-pN` → 推送。
-3. `package.v3.json` 变更会触发 Release，MP 中即可安装该阶段版本。
-
-回退手段（由细到粗）：
-
-```bash
-git revert <sha>                        # 撤销单次提交
-git checkout stage-p3 -- <路径>          # 把某些文件恢复到某阶段
-git checkout stage-p3                   # 查看 / 切到某阶段整体状态
-```
-
-完整的阶段进度、版本与 tag 对应关系见 [CHANGELOG.md](./CHANGELOG.md)。
-
-> 注意：CI 创建的 `TgMediaCenter_v*` tag 在重跑发布会先删后建（位置可能变化），
-> 请以 `stage-p*` 或 commit SHA 作为稳定回退锚点。
-
-## 发布
-
-`package.v3.json` 变更推送到 `main` 分支后，`.github/workflows/release.yml`
-会自动打包并创建 Release，Tag 格式 `TgMediaCenter_v<版本>`，产物
-`tgmediacenter_v<版本>.zip`。
-
-> 已知行为：工作流使用 `on.push.paths` 过滤，而 GitHub **在"新建分支的首次推送"时不评估
-> paths 过滤**，因此首次推送不会自动触发。可手动触发：
-> ```bash
-> curl -X POST -H "Authorization: Bearer <token>" \
->   https://api.github.com/repos/strongrexue/MoviePilot-Plugins/actions/workflows/release.yml/dispatches \
->   -d '{"ref":"main"}'
-> ```
-> 之后在既有分支上改动索引文件即可正常自动触发。
-
-## 设计文档
-
-工程结构设计与决策记录见仓库外部文档《TG媒体中心-工程结构设计.md》。
+- [CHANGELOG.md](./CHANGELOG.md) —— 阶段进度与版本里程碑
+- 工程结构设计与决策记录见资料库文档《TG媒体中心-工程结构设计.md》（文件名沿用原称）
+- 最贴近当前版本的使用说明就是配置页各面板上的提示文案

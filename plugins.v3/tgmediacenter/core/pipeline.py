@@ -34,6 +34,7 @@ from app.sdk.logging import logger
 from ..core import forward as forward_engine
 from ..core import links as link_utils
 from ..core import push_queue
+from ..core import transfer_ledger
 from ..core.cooldown import CooldownGate, report_flood_wait
 from ..core.notify import Notifier
 from ..destinations import resolve_destination
@@ -790,6 +791,19 @@ class MessagePipeline:
         links = _task_links(task)
         chat_id = int(task.get("chat_id") or 0)
         if outcome == "done":
+            # 已转存台账：所有 115 转存成功都记入（供私聊交互判重，1.7.5）。
+            # 缓存回搜的任务虽然不发完成通知，但转存是真实发生的，同样要记。
+            try:
+                entries = [
+                    {"kind": item.kind, "url": item.url, "code": item.code,
+                     "label": self._task_label(task)}
+                    for item in link_utils.make_items(links)
+                    if item.supported
+                ]
+                if entries:
+                    transfer_ledger.record(self._plugin, entries)
+            except Exception as err:  # pragma: no cover - 台账失败不影响主流程
+                logger.debug(f"[{self._plugin_id()}] 已转存台账记录失败（忽略）：{err}")
             # 缓存回搜来源的任务不发「115 转存完成」：回搜通知在入队时已把
             # 链接 + 来源列过一遍，完成通知再列就是同样内容发两遍（1.7.4 真机
             # 反馈）。失败通知不受影响——回搜推送失败仍要单独报。

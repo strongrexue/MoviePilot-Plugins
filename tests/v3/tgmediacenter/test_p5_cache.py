@@ -711,10 +711,36 @@ class TestSubscriptionSearch:
         detail = result["details"][0]
         assert detail["candidates"] == 2
         assert detail["skipped"] == 2
+        # 明细/日志口径保留计数
         assert detail["reason_text"] == "订阅无缺集 2"
         assert plugin.messages
-        assert "无需推送" in plugin.messages[-1]["text"]
-        assert "订阅无缺集 2" in plugin.messages[-1]["text"]
+        # 1.7.5 定稿：头部去「无需推送」与冒号；原因不带计数
+        assert "新增订阅 1 个，候选 2 条" in plugin.messages[-1]["text"]
+        assert "无需推送：" not in plugin.messages[-1]["text"]
+        assert "订阅无缺集" in plugin.messages[-1]["text"]
+        assert "订阅无缺集 2" not in plugin.messages[-1]["text"]
+
+    def test_no_push_block_layout_with_year_and_source_line(self, cache, subscriptions, plugin, fake_metavideo):
+        """1.7.5 定稿版式：块名带年份、来源另起一行顶格。"""
+        class FullMatcher:
+            def is_missing(self, **kwargs):
+                return {"missing": False, "reason": "订阅已存在且无缺集",
+                        "source": "subscription", "detail": ""}
+
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4655, _text("青与碧 (2026) S01E01"))
+        cache._matcher = FullMatcher()
+        # 订阅没写年份：块名用候选识别年份兜底
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", media_id="2"),
+        ]
+        assert cache.check_subscriptions(trigger="测试")["pushed"] == 0
+        text = plugin.messages[-1]["text"]
+        assert "青与碧 (2026)（候选 1 条，无需推送）：订阅无缺集" in text
+        # 来源另起一行顶格
+        assert "\n来源：" in text
 
     def test_not_subscribed_reason_hidden_from_notification(self, cache, subscriptions, plugin, fake_metavideo):
         """1.7.4：「未订阅」不在回搜通知里展示——候选是标题包含匹配捞出来的，
@@ -748,11 +774,11 @@ class TestSubscriptionSearch:
         assert result["details"][0]["reason_text"] == "未订阅 2、订阅无缺集 1"
         text = plugin.messages[-1]["text"]
         assert "无需推送" in text
-        assert "订阅无缺集 1" in text
+        assert "订阅无缺集" in text
         assert "未订阅" not in text
 
     def test_notification_with_only_hidden_reasons(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.7.4：候选全部因「未订阅」跳过时，块里只剩候选数与来源（不留空原因）。"""
+        """1.7.4：「未订阅」全部隐藏后，块里只剩候选数与来源（不留空原因）。"""
         class NotSubscribedMatcher:
             def is_missing(self, **kwargs):
                 return {"missing": False, "reason": "未订阅",
@@ -771,8 +797,8 @@ class TestSubscriptionSearch:
         text = plugin.messages[-1]["text"]
         assert "候选 2 条，无需推送" in text
         assert "未订阅" not in text
-        # 原因被隐藏后只剩来源：用「；」衔接，不出现「）：来源：」双冒号
-        assert "无需推送）；来源：" in text
+        # 1.7.5：来源另起一行顶格
+        assert "\n来源：" in text
 
     def test_skip_reason_marks_media_library_hit(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
         """真机口径：媒体库已有的候选要归类成"媒体库已存在"（而不是笼统的跳过）。"""

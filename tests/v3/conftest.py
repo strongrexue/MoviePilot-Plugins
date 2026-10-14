@@ -56,7 +56,22 @@ if not _try_import("app.sdk.logging"):
     _make_module("app.sdk.logging", logger=logging.getLogger("tgmediacenter.test"))
 
 if not _try_import("app.sdk.plugin"):
-    _make_module("app.sdk.plugin", _PluginBase=type("_PluginBase", (), {}))
+    class _StubPluginBase:
+        """宿主插件基类最小桩：带实例级 save_data / get_data（1.7.5 台账需要，
+        与宿主"按插件实例存取数据"的语义一致；每个实例各自独立，测试间不串）。"""
+
+        def get_data(self, key=None, default=None):
+            store = self.__dict__.setdefault("_stub_plugin_data", {})
+            value = store.get(key, default)
+            return default if value is None and key not in store else value
+
+        def save_data(self, key, value) -> None:
+            self.__dict__.setdefault("_stub_plugin_data", {})[key] = value
+
+        def del_data(self, key=None) -> None:
+            self.__dict__.setdefault("_stub_plugin_data", {}).pop(key, None)
+
+    _make_module("app.sdk.plugin", _PluginBase=_StubPluginBase)
 
 if not _try_import("app.adapters.network.http"):
     _make_module("app.adapters")

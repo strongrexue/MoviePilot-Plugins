@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 from urllib.parse import parse_qs, urlsplit
 
+from . import transfer_ledger
+
 # 115 分享链接可能出现的域名（含历史/镜像）
 SHARE_HOSTS = ("115.com", "115cdn.com", "anxia.com", "115vod.com", "lecloud.com")
 
@@ -45,14 +47,20 @@ class PushItem:
         return self.kind in ("share", "magnet", "ed2k")
 
     def describe(self) -> str:
-        """用于日志/提示的简短描述（不含提取码）。"""
+        """用于日志/提示的简短描述（不含提取码）。
+
+        eD2k / 磁力带文件名时优先展示文件名（1.7.5：修复此前
+        "ed2k:ed2k://|file|…" 的双前缀显示，回执/日志都更可读）。
+        """
         if self.kind == "share":
             return f"115分享:{self.code}"
         if self.kind == "magnet":
-            return f"磁力:{self.url[:40]}…"
+            name = transfer_ledger.magnet_file_name(self.url)
+            return f"磁力:{_clip(name or self.url, 40)}"
         if self.kind == "ed2k":
-            return f"ed2k:{self.url[:40]}…"
-        return f"未知:{self.url[:40]}"
+            name = transfer_ledger.ed2k_file_name(self.url)
+            return f"ed2k:{_clip(name or self.url, 40)}"
+        return f"未知:{_clip(self.url, 40)}"
 
 
 @dataclass
@@ -194,3 +202,11 @@ def looks_like_duplicate(message: str) -> bool:
     """这条结果说明是否表示"115 里已经有了"（转存成功，但未重复保存）。"""
     text = str(message or "")
     return any(hint in text for hint in _DUPLICATE_HINTS)
+
+
+def _clip(text: str, limit: int) -> str:
+    """描述截断：超长以 … 收尾。"""
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"

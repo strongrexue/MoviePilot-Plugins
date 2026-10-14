@@ -91,7 +91,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.7.4"
+        self.plugin_version = "1.7.5"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -232,6 +232,7 @@ class NotifyPipelinePlugin:
         self._config = dict(config or {"notify_on_hit": True, "notify_on_error": True})
         self._db = FakeDatabase()
         self.messages: List[Dict[str, str]] = []
+        self._data: Dict[str, Any] = {}
 
     @property
     def config(self) -> dict:
@@ -242,6 +243,12 @@ class NotifyPipelinePlugin:
 
     def post_message(self, title="", text="") -> None:
         self.messages.append({"title": title, "text": text})
+
+    def get_data(self, key, default=None):
+        return self._data.get(key, default)
+
+    def save_data(self, key, value) -> None:
+        self._data[key] = value
 
 
 # 类名必须叫 TgMediaCenter：流水线用 __class__.__name__ 当 plugin_id
@@ -567,6 +574,27 @@ class TestPushNotifications:
 
         assert pipeline_module._CACHE_SEARCH_RULE_ID == CACHE_SEARCH_RULE_ID
 
+    def test_pipeline_records_transfer_ledger_on_done(self, push_env, monkeypatch):
+        """1.7.5：115 转存成功要记入已转存台账（缓存回搜任务同样要记），
+        供私聊交互判「已转存过」。"""
+        from app.plugins.tgmediacenter.core import transfer_ledger
+
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=True, message="115 推送完成：成功 1")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        link = "https://115.com/s/swledger1"
+        task = _seed_task(push_env, rule_id=CACHE_SEARCH_RULE_ID, links=[link])
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        # 回搜任务不发完成通知，但台账必须已记录
+        assert push_env.messages == []
+        hits = transfer_ledger.lookup(
+            push_env, [transfer_ledger.link_identity("share", code="swledger1")]
+        )
+        assert hits
+        assert "青与碧" in hits[transfer_ledger.link_identity("share", code="swledger1")]["label"]
+
 
 # ---------------------------------------------------------------------- /overview
 
@@ -591,7 +619,7 @@ def test_overview_aggregates_modules():
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.7.4"
+    assert data.plugin_version == "1.7.5"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"

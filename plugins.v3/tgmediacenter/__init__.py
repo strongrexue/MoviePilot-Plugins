@@ -42,7 +42,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.7.4"
+    plugin_version = "1.7.5"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -255,6 +255,8 @@ class TgMediaCenter(_PluginBase):
             "notify_on_search": True,
             # ⑧ 消息交互：私聊机器人发链接直接转存 115 并回执
             "interactive_push": True,
+            # 私聊转存查重：转存成功过的链接（台账）不再重复转存（1.7.5）
+            "interactive_dedup": True,
             # 一次性执行
             "onlyonce": False,
         }

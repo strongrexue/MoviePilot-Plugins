@@ -37,6 +37,7 @@ class FakePlugin:
         self._config = dict(config or {})
         self._pan115 = pan115
         self.messages: list = []
+        self._data: dict = {}
 
     @property
     def config(self) -> dict:
@@ -44,6 +45,12 @@ class FakePlugin:
 
     def post_message(self, title="", text="") -> None:
         self.messages.append({"title": title, "text": text})
+
+    def get_data(self, key, default=None):
+        return self._data.get(key, default)
+
+    def save_data(self, key, value) -> None:
+        self._data[key] = value
 
 
 class _Event:
@@ -114,12 +121,51 @@ class TestInteractivePush:
         text = "希望 (2026)\nhttps://115.com/s/sws9cl133hx?password=v435"
         reply = module.handle(_Event({"text": text, "userid": "u1", "channel": "wechat"}))
         assert reply is not None
-        # 整段正文传给 115（提取码常在正文里，拆成单条会丢）
-        assert pan115.calls == [[text]]
+        # 1.7.5：改为逐条链接传给 115（剔除台账已命中链接）；提取码在解析时
+        # 已并入 URL 查询参数，不会丢
+        assert pan115.calls == [["https://115.com/s/sws9cl133hx?password=v435"]]
         assert len(plugin.messages) == 1
         assert "链接转存回执" in plugin.messages[0]["title"]
         assert "新转存 1 条" in plugin.messages[0]["text"]
         assert "115分享:sws9cl133hx" in plugin.messages[0]["text"]
+
+    def test_success_receipt_media_label(self):
+        """1.7.5：回执块标题带媒体名（115 分享标题，由 pan115 结果 label 提供）。"""
+        url = "https://115.com/s/sws9cl133hx?password=v435"
+        result = _ok_result()
+        # 真实实现里 source = 传给 push 的那条链接（回填用）
+        result["results"][0]["source"] = url
+        result["results"][0]["label"] = "战斗之魂[Re] 绝界之空.2026.S01E02.1080p.大魔.GB"
+        plugin = FakePlugin(pan115=FakePan115(result=result))
+        module = InteractiveModule(plugin)
+        reply = module.handle(_Event({"text": url}))
+        assert "战斗之魂[Re] 绝界之空.2026.S01E02.1080p.大魔.GB" in reply
+        assert "新转存 1 条" in reply
+        # 台账已记录本次成功：再发同链接直接判已转存过，不再调 115
+        assert len(plugin._pan115.calls) == 1
+        reply2 = module.handle(_Event({"text": url}))
+        assert "已转存过" in reply2
+        assert "本次未重复保存" in reply2
+        assert len(plugin._pan115.calls) == 1
+
+    def test_share_password_from_body_survives_dedup_split(self):
+        """1.7.5：提取码写在正文里时，逐条传链接也要带上（否则 115 要提取码）。"""
+        pan115 = FakePan115(result=_ok_result())
+        plugin = FakePlugin(pan115=pan115)
+        module = InteractiveModule(plugin)
+        text = "某剧 S01E01\nhttps://115.com/s/swbodycd\n提取码：v435"
+        module.handle(_Event({"text": text}))
+        assert pan115.calls == [["https://115.com/s/swbodycd?password=v435"]]
+
+    def test_dedup_switch_off_allows_repush(self):
+        """关闭「私聊转存查重」后，已转存过的链接也会再次实际转存。"""
+        pan115 = FakePan115(result=_ok_result())
+        plugin = FakePlugin(config={"interactive_dedup": False}, pan115=pan115)
+        module = InteractiveModule(plugin)
+        url = "https://115.com/s/sws9cl133hx?password=v435"
+        module.handle(_Event({"text": url}))
+        module.handle(_Event({"text": url}))
+        assert len(pan115.calls) == 2
 
     def test_duplicate_receipt(self):
         """1.7.0：已转存过必须说清"本次未重复保存"，不能混在成功里。"""
@@ -127,8 +173,92 @@ class TestInteractivePush:
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": "https://115.com/s/swabc123"}))
         assert "已转存过，本次未重复保存" in reply
-        assert "新转存 0 条" in reply
         assert "已转存过 1 条" in reply
+        # 新转存为 0 时不再列「新转存 0 条」（1.7.5：头部只列非零项）
+        assert "新转存" not in reply
+
+    def test_ledger_hit_receipt_without_115_call(self):
+        """1.7.5：台账命中（此前监控/回搜转存成功过）→ 不调 115，直接回已转存过。"""
+        pan115 = FakePan115(result=_ok_result())
+        plugin = FakePlugin(pan115=pan115)
+        module = InteractiveModule(plugin)
+        from app.plugins.tgmediacenter.core import transfer_ledger
+
+        transfer_ledger.record(plugin, [{
+            "kind": "share", "code": "swalready", "url": "https://115.com/s/swalready",
+            "label": "旧资源 (2025) S01E01",
+        }])
+        reply = module.handle(_Event({"text": "https://115.com/s/swalready"}))
+        assert pan115.calls == []
+        assert "旧资源 (2025) S01E01" in reply
+        assert "已转存过" in reply
+        assert "本次未重复保存" in reply
+        assert "首次转存" in reply
+
+
+class TestTransferLedger:
+    def test_identity_normalization(self):
+        """同一分享不同镜像/提取码视为同一条；磁力按 btih；ed2k 全链小写。"""
+        from app.plugins.tgmediacenter.core import transfer_ledger
+
+        assert (transfer_ledger.link_identity("share", code="SwAbc123")
+                == transfer_ledger.link_identity("share", code="swabc123"))
+        assert (transfer_ledger.link_identity("magnet",
+                url="magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567&dn=x")
+                == "magnet:0123456789abcdef0123456789abcdef01234567")
+        lower = transfer_ledger.link_identity("ed2k", url="ed2k://|file|A.MP4|1|HASH|/")
+        assert lower == "ed2k:ed2k://|file|a.mp4|1|hash|/"
+
+    def test_record_lookup_and_prune(self):
+        """记录后可查；超出容量/时效的旧条目被裁剪。"""
+        import time as _time
+
+        from app.plugins.tgmediacenter.core import transfer_ledger
+
+        plugin = FakePlugin()
+        transfer_ledger.record(plugin, [
+            {"kind": "share", "code": "swA", "url": "https://115.com/s/swa", "label": "剧A"},
+            {"kind": "ed2k", "url": "ed2k://|file|B.MP4|1|H|/", "label": "剧B"},
+        ])
+        hits = transfer_ledger.lookup(plugin, [
+            transfer_ledger.link_identity("share", code="swa"),
+            transfer_ledger.link_identity("ed2k", url="ed2k://|file|b.mp4|1|h|/"),
+        ])
+        assert len(hits) == 2
+        labels = {hit["label"] for hit in hits.values()}
+        assert labels == {"剧A", "剧B"}
+        # 重复记录不新增
+        assert transfer_ledger.record(plugin, [
+            {"kind": "share", "code": "swa", "label": "剧A"},
+        ]) == 0
+        # 过期条目被裁剪
+        data = plugin.get_data("pan115_transfer_ledger_v1")
+        key = next(iter(data))
+        data[key]["ts"] = _time.time() - 91 * 86400
+        plugin.save_data("pan115_transfer_ledger_v1", data)
+        plugin._data["pan115_transfer_ledger_v1"] = transfer_ledger._prune(
+            plugin.get_data("pan115_transfer_ledger_v1")
+        )
+        assert len(plugin.get_data("pan115_transfer_ledger_v1")) == 1
+
+    def test_ed2k_and_magnet_labels(self):
+        """eD2k / 磁力从链接本身取文件名；describe 不再出现双前缀。"""
+        from app.plugins.tgmediacenter.core import links as link_utils
+
+        ed2k = ("ed2k://|file|幻想水浒传.2026.S01E02.第2集.1080p.Baha.WEB-DL.H.264.AAC.mp4"
+                "|2545.64 MB|509225597|a49aaa3271f6971bf692a1bf51333b52|/")
+        items = link_utils.make_items([ed2k])
+        desc = items[0].describe()
+        # 文件名直接展示（超长截断），不再出现「ed2k:ed2k://」双前缀
+        assert desc.startswith("ed2k:幻想水浒传.2026.S01E02")
+        assert not desc.startswith("ed2k:ed2k")
+        assert desc.endswith("…")
+        magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=%E5%89%A7A"
+        items = link_utils.make_items([magnet])
+        assert items[0].describe() == "磁力:剧A"
+        bare = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+        items = link_utils.make_items([bare])
+        assert items[0].describe() == "磁力:btih:0123456789ab"
 
     def test_failure_receipt_has_reason(self):
         plugin = FakePlugin(pan115=FakePan115(result=_fail_result()))

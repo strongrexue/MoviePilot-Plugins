@@ -429,6 +429,15 @@ onUnmounted(qrStopPolling)
           并回一条回执（成功 / 失败 / 已转存过都会说清）。消息里没有链接时不会有任何回复。
           回执与其余通知一样走宿主的「通知」渠道。
         </div>
+
+        <VSwitch v-model="form.interactive_dedup" color="primary" hide-details inset class="p115-switch">
+          <template #label><span class="p115-switch-label">私聊转存查重（已转存过的链接不重复转存）</span></template>
+        </VSwitch>
+        <div class="p115-hint">
+          开启后，插件会记住所有已成功转存的链接（含监控 / 回搜转存的）：私聊再发同一条
+          链接时直接回「已转存过，本次未重复保存」，不再往 115 里重复存一份
+          （115 的分享转存本身不查重，同一分享会落盘多份）。关闭后每次都会实际转存。
+        </div>
       </VCardText>
     </VCard>
   </div>

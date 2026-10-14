@@ -426,7 +426,7 @@ class Pan115Module:
                 if time.monotonic() > deadline:
                     logger.warning("115 推送达到时间预算，提前结束")
                     break
-                ok, message = self._push_one(client, item, target)
+                ok, message, label = self._push_one(client, item, target)
                 if ok:
                     result["succeeded"] += 1
                 else:
@@ -436,6 +436,8 @@ class Pan115Module:
                     # source = 调用方传入的那条链接，供合并下发时把结果回填到任务
                     result["results"].append({
                         "target": item.describe(),
+                        # 1.7.5：媒体名（115 分享标题 / eD2k·磁力文件名），回执展示用
+                        "label": label or item.describe(),
                         "source": item.source,
                         "ok": ok,
                         "message": message,
@@ -456,19 +458,23 @@ class Pan115Module:
         result["message"] = "推送完成：" + "，".join(parts)
         return result
 
-    def _push_one(self, client: Pan115Client, item: link_utils.PushItem, cid: str) -> tuple[bool, str]:
-        """推送单条链接，返回 ``(是否成功, 说明)``。"""
+    def _push_one(self, client: Pan115Client, item: link_utils.PushItem, cid: str) -> "tuple[bool, str, str]":
+        """推送单条链接，返回 ``(是否成功, 说明, 媒体名)``。
+
+        媒体名（1.7.5）：分享取 115 分享标题（转存前必调的 share_snap 已返回，
+        此前被丢弃）；eD2k / 磁力取链接自带文件名；拿不到为空串。
+        """
         try:
             if item.kind == "share":
                 snap = run_sync(lambda: client.share_snap(item.code, item.password))
                 received = run_sync(
                     lambda: client.share_receive(item.code, item.password, snap["file_ids"], cid)
                 )
-                return True, received.get("message") or f"转存成功（{snap.get('file_count', 0)} 个文件）"
+                return True, received.get("message") or f"转存成功（{snap.get('file_count', 0)} 个文件）", str(snap.get("title") or "")
             if item.kind in ("magnet", "ed2k"):
                 added = run_sync(lambda: client.offline_add(item.url, cid))
-                return True, added.get("message") or "离线任务已提交"
-            return False, "不支持的链接类型"
+                return True, added.get("message") or "离线任务已提交", ""
+            return False, "不支持的链接类型", ""
         except Pan115AuthError as err:
             # Cookie 失效属于全局问题，直接中断整次推送更有意义
             raise err

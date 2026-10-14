@@ -518,12 +518,13 @@ class CacheModule:
         （媒体库已存在 / 已推送过），否则界面上就是"什么都没发生"，
         用户无法判断是漏推还是正常跳过（1.4.3 真机反馈"新增订阅插件没有任何输出"）。
 
-        渲染（1.6.10 起）：去「· 」前缀、媒体名带年份、附真实链接、来源用频道名；
-        已推送的**按消息分块**——每条被推送的消息一个块，块内列链接、块自带
-        「来源：频道名」（缓存本就能配多个频道，多频道时才能看出每条链接来自哪）；
-        未推送的订阅则保留原因说明 + 来源，但「未订阅」不在通知里展示
-        （1.7.4 用户拍板：标题包含匹配带进的候选没对上订阅，展示只会引疑惑）。
-        总量兜底：推送块最多列 20 条，其余只计数。
+        渲染（1.6.10 起，1.7.5 定稿）：去「· 」前缀、媒体名带年份、附真实链接、
+        来源用频道名；已推送的**按消息分块**——每条被推送的消息一个块，块内列链接、
+        块自带「来源：频道名」（缓存本就能配多个频道，多频道时才能看出每条链接来自哪）；
+        未推送的订阅块名带年份（订阅年份优先，缺则候选识别年份最多者）、
+        原因不带计数、「来源」与「媒体库未收录」备注另起一行顶格（与 115 转存通知同款）；
+        「未订阅」不在通知里展示（1.7.4 用户拍板：标题包含匹配带进的候选没对上订阅，
+        展示只会引疑惑）。总量兜底：推送块最多列 20 条，其余只计数。
         """
         candidates = sum(int(item.get("candidates") or 0) for item in details)
         pushed_total = sum(int(item.get("pushed") or 0) for item in details)
@@ -558,42 +559,42 @@ class CacheModule:
         if len(pushed_items) > shown_count:
             lines.append(f"…其余 {len(pushed_items) - shown_count} 条资源请在运行详情页查看")
 
-        # 未推送的订阅：说明原因 + 来源（频道名）
+        # 未推送的订阅：说明原因 + 来源（频道名），每行顶格（1.7.5 定稿版式，
+        # 与 115 转存通知同款：块名带年份、原因不带计数、来源另起一行）
         for item in details:
             if int(item.get("pushed") or 0):
                 continue
             if not int(item.get("candidates") or 0):
                 continue
-            name = _media_label(item) or str(item.get("name") or "")
+            # 块名年份：订阅自带年份优先；订阅没写年份就用候选识别年份里
+            # 最多的一种（_search_subscription 已统计）；都没有不显示
+            year = str(item.get("year") or "").strip() or str(item.get("candidate_year") or "").strip()
+            name = _media_label({"title": str(item.get("name") or ""), "year": year}) or str(item.get("name") or "")
             # 「未订阅」不在通知里展示（用户拍板）：候选是标题包含匹配捞出来的，
             # 识别出的片名/年份/季没对上订阅就会被记未订阅，展示出来只会让人
             # 疑惑"明明新增订阅了怎么还有未订阅"；单条判定在流水里仍可查。
             reasons = dict(item.get("reasons") or {})
             reasons.pop("未订阅", None)
-            display_reason = _reason_text(reasons)
-            tail: List[str] = []
+            # 原因不带计数（1.7.5 用户定稿）：头部已有候选总数，此处只列原因名
+            display_reason = "、".join(label for label, _ in _reason_order(reasons))
+            head = f"{name}（候选 {item.get('candidates', 0)} 条，无需推送）"
             if display_reason:
-                tail.append(display_reason)
+                lines.append(f"{head}：{display_reason}")
+            else:
+                lines.append(head)
             # 全推出去时必须说清"为什么判定媒体库没有"——否则用户只知道推了，
             # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
             if item.get("media_note"):
-                tail.append(f"媒体库未收录：{item['media_note']}")
+                lines.append(f"媒体库未收录：{item['media_note']}")
             channels = item.get("channels") or []
             if channels:
                 joined = "、".join(names.get(int(c)) or str(c) for c in channels)
-                tail.append(f"来源：{joined}")
-            head = f"{name}（候选 {item.get('candidates', 0)} 条，无需推送）"
-            if not tail:
-                lines.append(head)
-            else:
-                # 有原因说明用"："引出；原因被隐藏只剩来源时用"；"衔接更顺
-                sep = "：" if display_reason or item.get("media_note") else "；"
-                lines.append(head + sep + "；".join(tail))
+                lines.append(f"来源：{joined}")
 
         if pushed_total:
             header = f"新增订阅 {new_count} 个，命中并推送 {pushed_total} 条资源："
         else:
-            header = f"新增订阅 {new_count} 个，候选 {candidates} 条，无需推送："
+            header = f"新增订阅 {new_count} 个，候选 {candidates} 条"
         self._notify("TG媒体中心 缓存回搜", header + "\n" + "\n".join(lines))
 
     def _search_subscription(self, sub: dict) -> dict:
@@ -675,6 +676,13 @@ class CacheModule:
                 _count_reason(reasons, "入队失败")
         reason_text = _reason_text(reasons)
         channels = sorted({int(item.get("chat_id") or 0) for item in candidates if item.get("chat_id")})
+        # 候选识别年份里最多的一种：订阅没写年份时通知块名兜底用（1.7.5）
+        year_counts: Dict[str, int] = {}
+        for item in candidates:
+            year = str(item.get("year") or "").strip()
+            if year:
+                year_counts[year] = int(year_counts.get(year) or 0) + 1
+        candidate_year = max(year_counts.items(), key=lambda kv: (kv[1], kv[0]))[0] if year_counts else ""
         logger.info(
             f"[{self._plugin_id()}] 缓存回搜结果：「{title}」候选 {len(candidates)} 条，"
             f"推送 {pushed} 条，跳过 {skipped} 条"
@@ -683,6 +691,7 @@ class CacheModule:
         return {
             "name": title,
             "year": str(sub.get("year") or ""),
+            "candidate_year": candidate_year,
             "candidates": len(candidates),
             "pushed": pushed,
             "pushed_items": pushed_items,
@@ -966,8 +975,13 @@ def _reason_text(bucket: Dict[str, int]) -> str:
     """跳过原因汇总文本：``媒体库已存在 30、已推送过 3、无可用链接 1``。"""
     if not bucket:
         return ""
-    ordered = sorted(bucket.items(), key=lambda item: (-int(item[1]), item[0]))
+    ordered = _reason_order(bucket)
     return "、".join(f"{label} {count}" for label, count in ordered)
+
+
+def _reason_order(bucket: Dict[str, int]) -> List["tuple[str, int]"]:
+    """跳过原因排序（条数多在前，同数按名称），供带计数 / 不带计数两种文案共用。"""
+    return sorted(bucket.items(), key=lambda item: (-int(item[1]), item[0]))
 
 
 def _media_label(meta: Optional[dict]) -> str:

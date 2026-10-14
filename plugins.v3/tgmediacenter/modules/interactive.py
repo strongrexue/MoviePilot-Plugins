@@ -18,7 +18,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from app.sdk.logging import logger
+
 from ..core import links as link_utils
+from ..core import transfer_ledger
 from ..core.notify import Notifier
 from ..core.pan115_client import Pan115Error
 
@@ -46,6 +49,13 @@ class InteractiveModule:
             return True
         return _as_bool(config.get("interactive_push", True), True)
 
+    def dedup_enabled(self) -> bool:
+        """是否开启「私聊转存查重」（默认开启，可关闭强制重存）。"""
+        config = getattr(self._plugin, "config", None) or {}
+        if not isinstance(config, dict):
+            return True
+        return _as_bool(config.get("interactive_dedup", True), True)
+
     # ------------------------------------------------------------------ 入口
 
     def handle(self, event: Any) -> Optional[str]:
@@ -63,31 +73,92 @@ class InteractiveModule:
             parsed = link_utils.parse_push_text(text)
         except Exception:  # pragma: no cover - 解析异常按"没链接"处理
             return None
-        if not [item for item in parsed.items if item.supported]:
+        supported = [item for item in parsed.items if item.supported]
+        if not supported:
             return None
 
         module = getattr(self._plugin, "_pan115", None)
         if module is None:
             return self._reply("115 模块未初始化，未能转存")
 
-        try:
-            # 传整段正文（不拆成单条链接）：提取码常写在正文里，整段解析才认得到。
-            # 不做额外"可用性"预检：未登录 / 未配 CID 等问题由 push 抛 Pan115Error，
-            # 错误文案本身就可操作（1.7.0 曾误调目标封装的 available() 导致真机全误报）。
-            result = module.push(
-                [text],
-                cid=None,
-                batch_size=None,
-                dry_run=False,
-                max_items=_MAX_ITEMS,
-                deadline_seconds=_DEADLINE_SECONDS,
-            )
-        except Pan115Error as err:
-            # 115 模块抛出的错误已按用户视角写好（未登录 / CID 缺失 / 网络失败），原样回
-            return self._reply(f"115 未能转存：{err}")
-        except Exception as err:  # pragma: no cover - 115 侧异常按失败回执
-            return self._reply(f"115 转存失败：{err}")
-        return self._reply(self._render(result))
+        # 台账查重（1.7.5）：转存成功过的链接不再调 115——115 的分享转存接口
+        # 对"已保存过"照样返回成功并再存一份（真机实测同一链接落盘两份），
+        # 不像离线下载会报「任务已存在」，所以本地必须补一道。
+        local_hits: Dict[str, dict] = {}
+        pending = supported
+        if self.dedup_enabled():
+            try:
+                identities = [
+                    transfer_ledger.link_identity(item.kind, item.url, item.code)
+                    for item in supported
+                ]
+                local_hits = transfer_ledger.lookup(self._plugin, identities)
+                if local_hits:
+                    pending = [
+                        item for item in supported
+                        if transfer_ledger.link_identity(item.kind, item.url, item.code)
+                        not in local_hits
+                    ]
+            except Exception as err:  # pragma: no cover - 查重失败按全部待转处理
+                logger.warning(f"[{self._plugin_id()}] 转存查重失败（忽略）：{err}")
+                local_hits, pending = {}, supported
+
+        result: Optional[Dict[str, Any]] = None
+        error_text = ""
+        if pending:
+            # 只把未转存过的链接交给 115；提取码可能写在正文里，逐条补进 URL
+            #（不传整段正文：正文里的已转存链接必须剔除，否则 115 会再存一份）
+            push_inputs = []
+            for item in pending:
+                url = item.url
+                if (item.kind == "share" and item.password
+                        and "password=" not in url and "pwd=" not in url):
+                    url = url + ("&" if "?" in url else "?") + f"password={item.password}"
+                push_inputs.append(url)
+            try:
+                # 不做额外"可用性"预检：未登录 / 未配 CID 等问题由 push 抛 Pan115Error，
+                # 错误文案本身就可操作（1.7.0 曾误调目标封装的 available() 导致真机全误报）。
+                result = module.push(
+                    push_inputs,
+                    cid=None,
+                    batch_size=None,
+                    dry_run=False,
+                    max_items=_MAX_ITEMS,
+                    deadline_seconds=_DEADLINE_SECONDS,
+                )
+            except Pan115Error as err:
+                # 115 模块抛出的错误已按用户视角写好（未登录 / CID 缺失 / 网络失败），原样回
+                error_text = f"115 未能转存：{err}"
+            except Exception as err:  # pragma: no cover - 115 侧异常按失败回执
+                error_text = f"115 转存失败：{err}"
+
+        # 消息里不支持链接的条数（原走 115 解析统计，现在由本地解析补上）
+        local_skipped = max(0, int(parsed.total or 0) - int(parsed.supported or 0))
+        # 记台账（1.7.5）：本次 115 侧返回成功的链接都记入（含"已存在"——
+        # 资源确实在 115 里），下次再发同链接由台账直接判"已转存过"
+        if result is not None:
+            try:
+                entries = []
+                for res_item in result.get("results") or []:
+                    if not res_item.get("ok"):
+                        continue
+                    src = str(res_item.get("source") or "")
+                    match = next((it for it in pending if it.url == src), None)
+                    if match is None:
+                        continue
+                    entries.append({
+                        "kind": match.kind,
+                        "url": match.url,
+                        "code": match.code,
+                        "label": str(res_item.get("label") or res_item.get("target") or ""),
+                    })
+                if entries:
+                    transfer_ledger.record(self._plugin, entries)
+            except Exception as err:  # pragma: no cover - 台账失败不影响回执
+                logger.debug(f"[{self._plugin_id()}] 已转存台账记录失败（忽略）：{err}")
+        if error_text and not local_hits:
+            return self._reply(error_text)
+        return self._reply(self._render(result, local_hits, error_text, local_skipped))
 
     # ------------------------------------------------------------------ 解析
 
@@ -107,37 +178,43 @@ class InteractiveModule:
 
     # ------------------------------------------------------------------ 回执
 
-    def _render(self, result: Dict[str, Any]) -> str:
-        """把 115 的推送结果渲染成回执正文（与 115 转存通知同款版式）。"""
-        results = [item for item in (result.get("results") or []) if isinstance(item, dict)]
-        succeeded = int(result.get("succeeded") or 0)
-        failed = int(result.get("failed") or 0)
-        skipped = int(result.get("skipped") or 0)
-        remaining = int(result.get("remaining") or 0)
+    def _render(self, result: Optional[Dict[str, Any]], local_hits: Dict[str, dict],
+                error_text: str = "", local_skipped: int = 0) -> str:
+        """把转存结果渲染成回执正文（与 115 转存通知同款版式）。
 
-        duplicates = sum(
+        1.7.5：每条链接块尽量带媒体名（115 分享标题 / eD2k·磁力文件名）；
+        台账命中的「已转存过」块不经过 115，由本地判定直接给出。
+        """
+        results = [item for item in ((result or {}).get("results") or []) if isinstance(item, dict)]
+        succeeded = int((result or {}).get("succeeded") or 0)
+        failed = int((result or {}).get("failed") or 0)
+        skipped = int((result or {}).get("skipped") or 0) + max(0, int(local_skipped or 0))
+        remaining = int((result or {}).get("remaining") or 0)
+
+        duplicates_115 = sum(
             1 for item in results
             if item.get("ok") and link_utils.looks_like_duplicate(item.get("message"))
         )
-        fresh = max(0, succeeded - duplicates)
+        fresh = max(0, succeeded - duplicates_115)
+        # 「已转存过」= 本地台账命中（未调 115）+ 115 侧报已存在，两个口径合并
+        duplicates = duplicates_115 + len(local_hits)
 
-        lines: List[str] = []
-        # 「新转存」与「已转存过」分开计数：115 把重复也报成成功，混在一起说
-        # 用户会以为刚又存了一份（与 115 转存通知的标注口径一致）。
-        head = f"新转存 {fresh} 条"
+        head_parts: List[str] = []
+        if fresh:
+            head_parts.append(f"新转存 {fresh} 条")
         if duplicates:
-            head += f"、已转存过 {duplicates} 条"
+            head_parts.append(f"已转存过 {duplicates} 条")
         if failed:
-            head += f"、失败 {failed} 条"
+            head_parts.append(f"失败 {failed} 条")
         if skipped:
-            head += f"、忽略 {skipped} 条（不支持的链接）"
+            head_parts.append(f"忽略 {skipped} 条（不支持的链接）")
         if remaining:
-            head += f"、还有 {remaining} 条未处理（可再发一次）"
-        lines.append(head + "：")
+            head_parts.append(f"还有 {remaining} 条未处理（可再发一次）")
+        lines: List[str] = [("、".join(head_parts) + "：") if head_parts else "没有可处理的链接："]
 
         shown = results[:_MAX_BLOCKS]
         for item in shown:
-            lines.append(str(item.get("target") or item.get("source") or "链接"))
+            lines.append(_clip_label(item.get("label") or item.get("target")))
             message = str(item.get("message") or "").strip()
             if not item.get("ok"):
                 lines.append(f"失败原因：{message or '未知原因'}")
@@ -147,14 +224,33 @@ class InteractiveModule:
                 lines.append(message or "已提交到 115")
         if len(results) > len(shown):
             lines.append(f"…其余 {len(results) - len(shown)} 条未逐条列出")
-        if not shown:
-            lines.append(str(result.get("message") or "没有解析到可推送的链接"))
+        # 本地台账命中块：这些链接根本没交给 115，直接按"已转存过"回
+        for hit in list(local_hits.values())[:_MAX_BLOCKS]:
+            lines.append(_clip_label(str(hit.get("label") or "")) or "已转存过的链接")
+            first_at = str(hit.get("at") or "")[:10]
+            lines.append(
+                f"已转存过（{first_at} 首次转存），本次未重复保存" if first_at
+                else "已转存过，本次未重复保存"
+            )
+        if not results and not local_hits:
+            if error_text:
+                lines.append(error_text)
+            else:
+                lines.append(str((result or {}).get("message") or "没有解析到可推送的链接"))
         return "\n".join(lines)
 
     def _reply(self, text: str) -> str:
         """发一条回执通知（渠道由宿主「通知」设置决定）。"""
         self._notifier.send("TG媒体中心 · 链接转存回执", str(text or ""))
         return str(text or "")
+
+
+def _clip_label(label: Any, limit: int = 60) -> str:
+    """回执块标题截断（超长文件名以 … 收尾）。"""
+    text = str(label or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
 
 
 def _as_bool(value: Any, default: bool) -> bool:

@@ -182,36 +182,17 @@ class InteractiveModule:
                 error_text: str = "", local_skipped: int = 0) -> str:
         """把转存结果渲染成回执正文（与 115 转存通知同款版式）。
 
-        1.7.5：每条链接块尽量带媒体名（115 分享标题 / eD2k·磁力文件名）；
+        1.7.6 用户定稿：去掉「新转存 N 条：」统计头行，回执直接从媒体名块
+        开始（单链接时正文只有两行：媒体名 + 状态）；头行原本捎带的
+        「忽略 / 未处理」统计改到块列表末尾按需出现，信息不丢。
+        每条块尽量带媒体名（识别器格式：片名 (年份) SxxExx）；
         台账命中的「已转存过」块不经过 115，由本地判定直接给出。
         """
         results = [item for item in ((result or {}).get("results") or []) if isinstance(item, dict)]
-        succeeded = int((result or {}).get("succeeded") or 0)
-        failed = int((result or {}).get("failed") or 0)
         skipped = int((result or {}).get("skipped") or 0) + max(0, int(local_skipped or 0))
         remaining = int((result or {}).get("remaining") or 0)
 
-        duplicates_115 = sum(
-            1 for item in results
-            if item.get("ok") and link_utils.looks_like_duplicate(item.get("message"))
-        )
-        fresh = max(0, succeeded - duplicates_115)
-        # 「已转存过」= 本地台账命中（未调 115）+ 115 侧报已存在，两个口径合并
-        duplicates = duplicates_115 + len(local_hits)
-
-        head_parts: List[str] = []
-        if fresh:
-            head_parts.append(f"新转存 {fresh} 条")
-        if duplicates:
-            head_parts.append(f"已转存过 {duplicates} 条")
-        if failed:
-            head_parts.append(f"失败 {failed} 条")
-        if skipped:
-            head_parts.append(f"忽略 {skipped} 条（不支持的链接）")
-        if remaining:
-            head_parts.append(f"还有 {remaining} 条未处理（可再发一次）")
-        lines: List[str] = [("、".join(head_parts) + "：") if head_parts else "没有可处理的链接："]
-
+        lines: List[str] = []
         shown = results[:_MAX_BLOCKS]
         for item in shown:
             lines.append(_clip_label(item.get("label") or item.get("target")))
@@ -232,11 +213,16 @@ class InteractiveModule:
                 f"已转存过（{first_at} 首次转存），本次未重复保存" if first_at
                 else "已转存过，本次未重复保存"
             )
+        # 原头行统计的落点：仅在确实发生时才出现，正常单链接回执看不到
+        if skipped:
+            lines.append(f"另有 {skipped} 条不支持的链接已忽略")
+        if remaining:
+            lines.append(f"还有 {remaining} 条未处理（可再发一次）")
         if not results and not local_hits:
             if error_text:
                 lines.append(error_text)
             else:
-                lines.append(str((result or {}).get("message") or "没有解析到可推送的链接"))
+                lines.append(str((result or {}).get("message") or "没有可处理的链接"))
         return "\n".join(lines)
 
     def _reply(self, text: str) -> str:

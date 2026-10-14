@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from app.sdk.logging import logger
 
@@ -189,3 +189,43 @@ def recognize(text: Any) -> Optional[dict]:
         if result:
             return result
     return None
+
+
+def label_for(text: Any, fallback: str = "") -> str:
+    """把原始标题 / 文件名转成通知用媒体名（如「你行！你上！ (2025)」。
+
+    用于链接转存回执这类「只有原始资源名、没有订阅上下文」的场景
+    （1.7.6）：识别成功 → 与缓存回搜 / 115 转存通知同款的
+    「片名 (年份) SxxExx」拼装；识别失败或原文为空 → 退回 fallback。
+
+    真机依据：用户自建分享的 share_title 自带 ``{tmdbid=xxx}`` / ``(DoVi)``
+    尾巴（MP 规范化命名），必须过识别器清洗后才适合进回执。
+
+    拼装逻辑与 ``modules.cache._media_label`` /
+    ``core.pipeline.MessagePipeline._media_label`` 一致——三处同款拼法，
+    后续重构时收拢成单一实现即可，调用方不变。
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return str(fallback or "").strip()
+    meta = recognize(raw)
+    if not meta:
+        return raw
+    title = str(meta.get("title") or "").strip()
+    if not title:
+        return raw
+    parts: List[str] = [title]
+    year = str(meta.get("year") or "").strip()
+    if year:
+        parts.append(f"({year})")
+    season = meta.get("season")
+    episode = meta.get("episode")
+    episode_end = meta.get("episode_end")
+    if season:
+        seg = f"S{int(season):02d}"
+        if episode:
+            seg += f"E{int(episode):02d}"
+            if episode_end and int(episode_end) != int(episode):
+                seg += f"-E{int(episode_end):02d}"
+        parts.append(seg)
+    return " ".join(parts)

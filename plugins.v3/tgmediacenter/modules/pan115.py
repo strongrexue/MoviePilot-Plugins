@@ -25,6 +25,7 @@ from ..core.pan115_login import (
     Pan115QrLogin,
     app_options,
 )
+from ..services import recognizer as recognizer_service
 from ..utils import elapsed_seconds as _elapsed_seconds
 from ..utils import run_sync
 
@@ -461,8 +462,10 @@ class Pan115Module:
     def _push_one(self, client: Pan115Client, item: link_utils.PushItem, cid: str) -> "tuple[bool, str, str]":
         """推送单条链接，返回 ``(是否成功, 说明, 媒体名)``。
 
-        媒体名（1.7.5）：分享取 115 分享标题（转存前必调的 share_snap 已返回，
-        此前被丢弃）；eD2k / 磁力取链接自带文件名；拿不到为空串。
+        媒体名（1.7.5 起取原名，1.7.6 起过识别器）：分享取 115 分享标题
+        （转存前必调的 share_snap 已返回，此前被丢弃）；eD2k / 磁力取链接
+        自带文件名；统一经 ``recognizer.label_for`` 转成与其余通知同款的
+        「片名 (年份) SxxExx」，识别失败退原名、标题为空退类型兜底文案。
         """
         try:
             if item.kind == "share":
@@ -470,10 +473,14 @@ class Pan115Module:
                 received = run_sync(
                     lambda: client.share_receive(item.code, item.password, snap["file_ids"], cid)
                 )
-                return True, received.get("message") or f"转存成功（{snap.get('file_count', 0)} 个文件）", str(snap.get("title") or "")
+                label = recognizer_service.label_for(
+                    snap.get("title"), fallback=f"115分享:{item.code}"
+                )
+                return True, received.get("message") or f"转存成功（{snap.get('file_count', 0)} 个文件）", label
             if item.kind in ("magnet", "ed2k"):
                 added = run_sync(lambda: client.offline_add(item.url, cid))
-                return True, added.get("message") or "离线任务已提交", ""
+                label = recognizer_service.label_for(item.file_name, fallback=item.describe())
+                return True, added.get("message") or "离线任务已提交", label
             return False, "不支持的链接类型", ""
         except Pan115AuthError as err:
             # Cookie 失效属于全局问题，直接中断整次推送更有意义

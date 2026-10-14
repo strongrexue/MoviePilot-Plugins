@@ -518,13 +518,14 @@ class CacheModule:
         （媒体库已存在 / 已推送过），否则界面上就是"什么都没发生"，
         用户无法判断是漏推还是正常跳过（1.4.3 真机反馈"新增订阅插件没有任何输出"）。
 
-        渲染（1.6.10 起，1.7.5 定稿）：去「· 」前缀、媒体名带年份、附真实链接、
-        来源用频道名；已推送的**按消息分块**——每条被推送的消息一个块，块内列链接、
-        块自带「来源：频道名」（缓存本就能配多个频道，多频道时才能看出每条链接来自哪）；
-        未推送的订阅块名带年份（订阅年份优先，缺则候选识别年份最多者）、
-        原因不带计数、「来源」与「媒体库未收录」备注另起一行顶格（与 115 转存通知同款）；
-        「未订阅」不在通知里展示（1.7.4 用户拍板：标题包含匹配带进的候选没对上订阅，
-        展示只会引疑惑）。总量兜底：推送块最多列 20 条，其余只计数。
+        渲染（1.6.10 起，1.7.5 定稿，1.7.6 去头行）：去「· 」前缀、媒体名带年份、
+        附真实链接、来源用频道名；已推送的**按消息分块**——每条被推送的消息一个块，
+        块内列链接、块自带「来源：频道名」（缓存本就能配多个频道，多频道时才能看出
+        每条链接来自哪）；未推送的订阅块名带年份（订阅年份优先，缺则候选识别年份
+        最多者）、原因不带计数、「来源」与「媒体库未收录」备注另起一行顶格（与 115
+        转存通知同款）；「未订阅」不在通知里展示（1.7.4 用户拍板：标题包含匹配带进的
+        候选没对上订阅，展示只会引疑惑）。1.7.6：去掉「新增订阅 N 个…」头行直接从块
+        开始，3a / 3b 混排以空行分隔。总量兜底：推送块最多列 20 条，其余只计数。
         """
         candidates = sum(int(item.get("candidates") or 0) for item in details)
         pushed_total = sum(int(item.get("pushed") or 0) for item in details)
@@ -561,11 +562,15 @@ class CacheModule:
 
         # 未推送的订阅：说明原因 + 来源（频道名），每行顶格（1.7.5 定稿版式，
         # 与 115 转存通知同款：块名带年份、原因不带计数、来源另起一行）
-        for item in details:
-            if int(item.get("pushed") or 0):
-                continue
-            if not int(item.get("candidates") or 0):
-                continue
+        skipped_details = [
+            item for item in details
+            if not int(item.get("pushed") or 0) and int(item.get("candidates") or 0)
+        ]
+        # 3a（已推送块）与 3b（未推送块）混排时用空行分隔（1.7.6 去头行后
+        # 唯一的视觉分界；单种口径时不出现空行）
+        if pushed_items and skipped_details:
+            lines.append("")
+        for item in skipped_details:
             # 块名年份：订阅自带年份优先；订阅没写年份就用候选识别年份里
             # 最多的一种（_search_subscription 已统计）；都没有不显示
             year = str(item.get("year") or "").strip() or str(item.get("candidate_year") or "").strip()
@@ -591,12 +596,12 @@ class CacheModule:
                 joined = "、".join(names.get(int(c)) or str(c) for c in channels)
                 lines.append(f"来源：{joined}")
 
-        if pushed_total:
-            header = f"新增订阅 {new_count} 个，命中并推送 {pushed_total} 条资源："
-        else:
-            header = f"新增订阅 {new_count} 个，候选 {candidates} 条"
-        self._notify("TG媒体中心 缓存回搜", header + "\n" + "\n".join(lines))
-
+        # 1.7.6 用户定稿：去「新增订阅 N 个，命中并推送 N 条资源：」/
+        # 「新增订阅 N 个，候选 N 条」头行，通知直接从块开始；总量只在
+        # 截断时由「…其余 N 条」兜底表达。极端情况（计数>0 但无可展示块）
+        # 给一句兜底正文，避免发空通知。
+        body = "\n".join(lines) or "本次回搜没有可展示的结果"
+        self._notify("TG媒体中心 缓存回搜", body)
     def _search_subscription(self, sub: dict) -> dict:
         """对单个订阅在缓存里回搜并推送。"""
         title = str(sub.get("name") or "").strip()

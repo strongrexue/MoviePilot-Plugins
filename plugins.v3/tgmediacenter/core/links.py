@@ -46,6 +46,18 @@ class PushItem:
         """当前版本是否支持推送该类型。"""
         return self.kind in ("share", "magnet", "ed2k")
 
+    @property
+    def file_name(self) -> str:
+        """链接自带的资源文件名（磁力 dn= / eD2k 第 3 段）；分享链接为空。
+
+        1.7.6：供回执媒体名取值（文件名 → 识别器 → 「片名 (年份) SxxExx」）。
+        """
+        if self.kind == "magnet":
+            return transfer_ledger.magnet_file_name(self.url)
+        if self.kind == "ed2k":
+            return transfer_ledger.ed2k_file_name(self.url)
+        return ""
+
     def describe(self) -> str:
         """用于日志/提示的简短描述（不含提取码）。
 

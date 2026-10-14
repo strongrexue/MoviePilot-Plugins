@@ -126,8 +126,10 @@ class TestInteractivePush:
         assert pan115.calls == [["https://115.com/s/sws9cl133hx?password=v435"]]
         assert len(plugin.messages) == 1
         assert "链接转存回执" in plugin.messages[0]["title"]
-        assert "新转存 1 条" in plugin.messages[0]["text"]
-        assert "115分享:sws9cl133hx" in plugin.messages[0]["text"]
+        # 1.7.6：去「新转存 N 条：」头行，正文直接从媒体块开始
+        assert "新转存" not in plugin.messages[0]["text"]
+        assert plugin.messages[0]["text"].startswith("115分享:sws9cl133hx")
+        assert "转存成功" in plugin.messages[0]["text"]
 
     def test_success_receipt_media_label(self):
         """1.7.5：回执块标题带媒体名（115 分享标题，由 pan115 结果 label 提供）。"""
@@ -140,7 +142,8 @@ class TestInteractivePush:
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": url}))
         assert "战斗之魂[Re] 绝界之空.2026.S01E02.1080p.大魔.GB" in reply
-        assert "新转存 1 条" in reply
+        # 1.7.6：去统计头行，媒体块直接开始
+        assert "新转存" not in reply
         # 台账已记录本次成功：再发同链接直接判已转存过，不再调 115
         assert len(plugin._pan115.calls) == 1
         reply2 = module.handle(_Event({"text": url}))
@@ -173,9 +176,9 @@ class TestInteractivePush:
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": "https://115.com/s/swabc123"}))
         assert "已转存过，本次未重复保存" in reply
-        assert "已转存过 1 条" in reply
-        # 新转存为 0 时不再列「新转存 0 条」（1.7.5：头部只列非零项）
+        # 1.7.6：头行整体去掉（含零值项），统计只由块本身表达
         assert "新转存" not in reply
+        assert "已转存过 1 条" not in reply
 
     def test_ledger_hit_receipt_without_115_call(self):
         """1.7.5：台账命中（此前监控/回搜转存成功过）→ 不调 115，直接回已转存过。"""
@@ -264,7 +267,9 @@ class TestTransferLedger:
         plugin = FakePlugin(pan115=FakePan115(result=_fail_result()))
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": "magnet:?xt=urn:btih:abc"}))
-        assert "失败 1 条" in reply
+        # 1.7.6：去「失败 N 条：」头行，块直接从媒体名开始、原因行收尾
+        assert "失败 1 条" not in reply
+        assert reply.startswith("磁力:")
         assert "失败原因：离线下载提交失败：链接已失效" in reply
 
     def test_pan115_error_message_relayed(self):
@@ -362,3 +367,126 @@ def test_default_config_has_switch():
 
     defaults = TgMediaCenter.default_config()
     assert defaults.get("interactive_push") is True
+
+
+# --------------------------------------------------------------- 1.7.6：媒体名识别与新版式
+
+
+class _FakeType:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+
+class FakeMetaVideo:
+    """最小 MetaVideo 替身：``名称 (年份) S01E02`` → 剧集；``名称 (年份)`` → 电影。
+
+    与 test_p6 同款思路：真机识别效果由宿主引擎保证，这里只验证
+    ``label_for`` 的拼装 / 兜底逻辑。
+    """
+
+    def __init__(self, title: str, subtitle=None, isfile: bool = False) -> None:
+        import re
+
+        self.year = ""
+        year = re.search(r"(19|20)\d{2}", title)
+        if year:
+            self.year = year.group(0)
+        match = re.search(r"S(\d+)E(\d+)", title, re.IGNORECASE)
+        clean = re.sub(r"S\d+E\d+", "", title, flags=re.IGNORECASE)
+        clean = re.sub(r"[（(]?(?:19|20)\d{2}[）)]?", "", clean)
+        # 模拟宿主引擎对 MP 命名尾巴的清洗：{tmdb-xxx} / (DoVi) 等不进片名
+        clean = re.sub(r"\{tmdb[^}]*\}", "", clean, flags=re.IGNORECASE)
+        clean = re.sub(r"\((?:DoVi|HDR|Atmos|DDP?\d?\.\d)\)", "", clean, flags=re.IGNORECASE)
+        self.name = clean.strip(" .·-_（）()")
+        self.begin_season = int(match.group(1)) if match else None
+        self.begin_episode = int(match.group(2)) if match else None
+        self.end_episode = None
+        self.type = _FakeType("电视剧" if match else "电影")
+
+
+@pytest.fixture()
+def fake_metavideo(monkeypatch):
+    from app.plugins.tgmediacenter.services import recognizer as recognizer_module
+
+    monkeypatch.setattr(recognizer_module, "META_AVAILABLE", True)
+    monkeypatch.setattr(recognizer_module, "MetaVideo", FakeMetaVideo)
+    return FakeMetaVideo
+
+
+class TestRecognizerLabel:
+    """1.7.6：recognizer.label_for——回执媒体名的识别格式拼装与兜底。"""
+
+    def test_recognized_label_format(self, fake_metavideo):
+        """分享标题过识别器 → 与其余通知同款的「片名 (年份) SxxExx」。"""
+        from app.plugins.tgmediacenter.services import recognizer
+
+        label = recognizer.label_for("战斗之魂[Re] 绝界之空 (2026) S01E02")
+        assert label == "战斗之魂[Re] 绝界之空 (2026) S01E02"
+        # 电影：无季集段
+        assert recognizer.label_for("你行！你上！ (2025)") == "你行！你上！ (2025)"
+
+    def test_mp_share_title_tail_cleaned(self, fake_metavideo):
+        """MP 分享标题的 {tmdbid=xxx} / (DoVi) 尾巴不影响识别结果主体。"""
+        from app.plugins.tgmediacenter.services import recognizer
+
+        label = recognizer.label_for("你行！你上！ (2025) {tmdb-1382007} (DoVi)")
+        assert label == "你行！你上！ (2025)"
+
+    def test_unrecognized_falls_back_to_raw(self):
+        """测试环境无 MetaVideo（recognize 返回 None）→ 退原文，不丢信息。"""
+        from app.plugins.tgmediacenter.services import recognizer
+
+        raw = "战斗之魂[Re] 绝界之空.2026.S01E02.1080p.大魔.GB"
+        assert recognizer.label_for(raw) == raw
+
+    def test_empty_text_falls_back(self):
+        """原标题为空 → 退 fallback（如「115分享：分享码」）。"""
+        from app.plugins.tgmediacenter.services import recognizer
+
+        assert recognizer.label_for("", fallback="115分享:swabc123") == "115分享:swabc123"
+        assert recognizer.label_for(None, fallback="x") == "x"
+
+    def test_engine_exception_falls_back_to_raw(self, monkeypatch):
+        """识别引擎内部异常按未识别处理（退原文），不向上抛。"""
+        from app.plugins.tgmediacenter.services import recognizer
+
+        def _boom(_text):
+            raise RuntimeError("引擎炸了")
+
+        monkeypatch.setattr(recognizer, "META_AVAILABLE", True)
+        monkeypatch.setattr(recognizer, "MetaVideo", _boom)
+        assert recognizer.label_for("某个资源名") == "某个资源名"
+
+
+class TestReceiptLayout176:
+    """1.7.6：回执新版式——无统计头行，捎带信息落块末尾。"""
+
+    def test_skipped_and_remaining_go_to_tail(self):
+        """「忽略 / 未处理」统计从头行挪到块列表末尾，按需出现。"""
+        result = _ok_result()
+        result["skipped"] = 2
+        result["remaining"] = 3
+        plugin = FakePlugin(pan115=FakePan115(result=result))
+        module = InteractiveModule(plugin)
+        reply = module.handle(_Event({"text": "https://115.com/s/sws9cl133hx?password=v435"}))
+        lines = reply.splitlines()
+        assert lines[0] == "115分享:sws9cl133hx"
+        assert lines[-2] == "另有 2 条不支持的链接已忽略"
+        assert lines[-1] == "还有 3 条未处理（可再发一次）"
+
+    def test_normal_single_link_has_no_extra_lines(self):
+        """正常单链接回执只有「媒体名 + 状态」两行，无任何统计行。"""
+        plugin = FakePlugin(pan115=FakePan115(result=_ok_result()))
+        module = InteractiveModule(plugin)
+        reply = module.handle(_Event({"text": "https://115.com/s/sws9cl133hx?password=v435"}))
+        assert reply.splitlines() == ["115分享:sws9cl133hx", "转存成功"]
+
+    def test_no_processable_links_plain_text(self):
+        """没有任何可处理链接时给一句纯文本，不再带头行冒号。"""
+        result = _ok_result()
+        result["results"] = []
+        result["message"] = "没有解析到可推送的链接"
+        plugin = FakePlugin(pan115=FakePan115(result=result))
+        module = InteractiveModule(plugin)
+        reply = module.handle(_Event({"text": "https://115.com/s/sws9cl133hx?password=v435"}))
+        assert reply == "没有解析到可推送的链接"

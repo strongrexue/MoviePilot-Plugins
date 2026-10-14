@@ -714,9 +714,11 @@ class TestSubscriptionSearch:
         # 明细/日志口径保留计数
         assert detail["reason_text"] == "订阅无缺集 2"
         assert plugin.messages
-        # 1.7.5 定稿：头部去「无需推送」与冒号；原因不带计数
-        assert "新增订阅 1 个，候选 2 条" in plugin.messages[-1]["text"]
+        # 1.7.5 定稿：原因不带计数；1.7.6：去「新增订阅 N 个，候选 N 条」头行，
+        # 通知直接从块开始（「无需推送」只作为块名的一部分出现）
+        assert "新增订阅" not in plugin.messages[-1]["text"]
         assert "无需推送：" not in plugin.messages[-1]["text"]
+        assert "候选 2 条，无需推送" in plugin.messages[-1]["text"]
         assert "订阅无缺集" in plugin.messages[-1]["text"]
         assert "订阅无缺集 2" not in plugin.messages[-1]["text"]
 
@@ -872,8 +874,9 @@ class TestSubscriptionSearch:
         assert LINK in text
         # 来源（测试无对话缓存，退回原始频道 ID）
         assert f"来源：{CHAT_A}" in text
-        # 头部计数
-        assert "命中并推送 1 条资源" in text
+        # 1.7.6：去「命中并推送 N 条资源」头行，正文直接从媒体块开始
+        assert "命中并推送" not in text
+        assert "新增订阅" not in text
 
     def test_search_notification_multi_channel_blocks(self, cache, subscriptions, plugin, fake_metavideo):
         """1.6.10：同片名命中多个频道时，按消息分块、每块自带来源，链接归属清晰。"""
@@ -891,7 +894,9 @@ class TestSubscriptionSearch:
         result = cache.check_subscriptions(trigger="测试")
         assert result["pushed"] == 2
         text = plugin.messages[-1]["text"]
-        assert "命中并推送 2 条资源" in text
+        # 1.7.6：无头行，两条推送块直接排列
+        assert "命中并推送" not in text
+        assert "新增订阅" not in text
         assert "· " not in text
         # 两块各自带来源
         assert f"来源：{CHAT_A}" in text
@@ -899,6 +904,43 @@ class TestSubscriptionSearch:
         # 两条链接都在，分属两个频道
         assert LINK in text
         assert "https://115.com/s/swabc888" in text
+
+    def test_search_notification_mixed_pushed_and_skipped(self, cache, subscriptions, plugin, fake_metavideo):
+        """1.7.6：3a（已推送）与 3b（未推送）混排时空行分隔，无头行。"""
+        plugin.save_config(cache_chat_ids=[CHAT_A])
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4661, _text("青与碧 (2026) S01E01"))
+        cache.history().record(CHAT_A, 4662, _text("你好时光 (2026) S01E01"))
+
+        class SelectiveMatcher:
+            """青与碧缺集（推送），你好时光不缺（跳过）。"""
+
+            def is_missing(self, **kwargs):
+                if "青与碧" in str(kwargs.get("title") or ""):
+                    return {"missing": True, "reason": "订阅缺 3 集",
+                            "source": "subscription", "detail": ""}
+                return {"missing": False, "reason": "订阅已存在且无缺集",
+                        "source": "subscription", "detail": ""}
+
+        cache._matcher = SelectiveMatcher()
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", year="2026", media_id="2"),
+            FakeSubscription("你好时光", year="2026", media_id="3"),
+        ]
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 1
+        text = plugin.messages[-1]["text"]
+        # 无头行（1.7.6）
+        assert "新增订阅" not in text
+        assert "命中并推送" not in text
+        # 推送块在前、未推送块在后，中间恰好一个空行
+        lines = text.split("\n")
+        push_idx = next(i for i, ln in enumerate(lines) if ln.startswith("青与碧 (2026) S01E01"))
+        skip_idx = next(i for i, ln in enumerate(lines) if ln.startswith("你好时光 (2026)"))
+        assert skip_idx > push_idx
+        assert lines[skip_idx - 1] == ""
 
     def test_disabled_module_skips_check(self, plugin, fake_metavideo):
         plugin.save_config(cache_enabled=False)

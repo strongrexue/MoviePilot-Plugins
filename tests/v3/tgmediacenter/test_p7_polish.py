@@ -91,7 +91,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.7.5"
+        self.plugin_version = "1.7.6"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -416,7 +416,10 @@ class TestPushNotifications:
         assert "重新扫码" not in text
 
     def test_duplicate_notification_marks_already_saved(self, push_env, monkeypatch):
-        """1.6.11：115 把「已转存过」报成成功，通知里必须说清"本次未重复保存"。"""
+        """1.6.11：115 把「已转存过」报成成功，通知里必须说清"本次未重复保存"。
+
+        1.7.6：标题纯化（不带条数与已转存过标注），只由正文块表达。
+        """
         links = ["https://115.com/s/aaa"]
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
         target = _Target("pan115", ok=True, message="推送完成：成功 1",
@@ -428,14 +431,21 @@ class TestPushNotifications:
         pipeline._execute_push(task)
         pipeline._flush_notifications()
         assert len(push_env.messages) == 1
-        assert "已转存过" in push_env.messages[0]["title"]
+        # 1.7.6：标题纯化，条数/已转存过标注只由正文表达
+        assert push_env.messages[0]["title"] == "TG媒体中心 · 115 转存完成"
         text = push_env.messages[0]["text"]
+        # 1.7.6：去「已转存到 115（N 条）：」头行，直接从块开始
+        assert "已转存到 115" not in text
+        assert text.startswith("希望 (2026)")
         assert "已转存过，本次未重复保存" in text
         assert "https://115.com/s/aaa" in text
         assert "来源：-1004316104321" in text
 
-    def test_duplicate_mixed_counts_only_in_title(self, push_env, monkeypatch):
-        """1.6.11：混排时只有"已转存过"那块带标注，标题点出条数。"""
+    def test_duplicate_mixed_marks_only_duplicate_block(self, push_env, monkeypatch):
+        """1.6.11：混排时只有"已转存过"那块带标注。
+
+        1.7.6：标题纯化后由正文块区分，新转存块不带标注。
+        """
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
         dup_links = ["https://115.com/s/aaa"]
         target = _Target("pan115", ok=True, message="推送完成：成功 1",
@@ -455,10 +465,11 @@ class TestPushNotifications:
         pipeline._execute_push(task_new)
         pipeline._flush_notifications()
         assert len(push_env.messages) == 1
-        title = push_env.messages[0]["title"]
-        assert "2 条，其中 1 条已转存过" in title
+        # 1.7.6：标题纯化，无「（2 条，其中 1 条已转存过）」标注
+        assert push_env.messages[0]["title"] == "TG媒体中心 · 115 转存完成"
         text = push_env.messages[0]["text"]
         assert text.count("已转存过，本次未重复保存") == 1
+        assert "已转存到 115" not in text
 
     def test_credential_failure_adds_guidance_and_throttles(self, push_env, monkeypatch):
         pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
@@ -619,7 +630,7 @@ def test_overview_aggregates_modules():
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.7.5"
+    assert data.plugin_version == "1.7.6"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"

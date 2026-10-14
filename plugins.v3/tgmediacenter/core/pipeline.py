@@ -837,7 +837,13 @@ class MessagePipeline:
         return result
 
     def _flush_notifications(self) -> None:
-        """本轮 115 转存结束后发汇总通知（成功 / 失败各一条，开关可关）。"""
+        """本轮 115 转存结束后发汇总通知（成功 / 失败各一条，开关可关）。
+
+        1.7.6 用户定稿：标题与正文都不再带条数统计（「（N 条）」/
+        「已转存到 115（N 条）：」），直接从块列表开始——单条转存时正文
+        只有「媒体名 + 链接 + 来源」几行；总量信息只在截断时以
+        「…另有 N 条」兜底表达。
+        """
         cycle = self._cycle or {}
         done = list(cycle.get("pan115_done") or [])
         failed_115 = list(cycle.get("pan115_failed") or [])
@@ -847,7 +853,6 @@ class MessagePipeline:
             names = self._dialog_names()
             lines: List[str] = []
             shown = done[:8]
-            duplicates = 0
             for label, links, chat_id, duplicate in shown:
                 # 去「· 」、链接行左对齐（首字对齐）；每条任务一个块，自带来源
                 lines.append(label)
@@ -858,30 +863,19 @@ class MessagePipeline:
                 src = names.get(int(chat_id)) or str(chat_id)
                 lines.append(f"来源：{src}")
                 if duplicate:
-                    duplicates += 1
                     lines.append("已转存过，本次未重复保存")
-            text = "已转存到 115（" + str(len(done)) + " 条）：\n" + "\n".join(lines)
             if len(done) > 8:
-                text += f"\n…另有 {len(done) - 8} 条"
-            # 标题里也点出"已转存过"条数：通知列表只看标题时同样能分辨
-            if duplicates and duplicates == len(done):
-                title = f"TG媒体中心 · 115 转存完成（{len(done)} 条，已转存过）"
-            elif duplicates:
-                title = f"TG媒体中心 · 115 转存完成（{len(done)} 条，其中 {duplicates} 条已转存过）"
-            else:
-                title = f"TG媒体中心 · 115 转存完成（{len(done)} 条）"
-            self._notifier.send(title, text)
+                lines.append(f"…另有 {len(done) - 8} 条")
+            self._notifier.send("TG媒体中心 · 115 转存完成", "\n".join(lines))
 
         total = len(failed_115)
         if total and self._notifier.enabled("notify_on_error", True):
             if not names:
                 names = self._dialog_names()
             credential_issue = any(_looks_like_auth_error(msg) for _, msg, _, _ in failed_115)
-            lines: List[str] = [
-                f"115 转存失败 {total} 条：",
-            ]
             # 与成功通知同款版式：每条任务一个块（媒体名 → 链接 → 来源 → 失败原因），
             # 去「· 」、首字对齐，便于一眼定位是哪条链接、来自哪个频道、为什么失败。
+            lines: List[str] = []
             shown = failed_115[:6]
             for label, msg, links, chat_id in shown:
                 lines.append(label)
@@ -897,7 +891,7 @@ class MessagePipeline:
             if credential_issue:
                 lines.append("看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
             self._notifier.send(
-                f"TG媒体中心 · 115 转存失败（{total} 条）",
+                "TG媒体中心 · 115 转存失败",
                 "\n".join(lines),
                 # 登录态失效属"需要人工介入且会长时间持续"的故障：6 小时内只提醒一次
                 key="pan115_credential" if credential_issue else "",

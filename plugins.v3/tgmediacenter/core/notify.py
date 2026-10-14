@@ -17,9 +17,49 @@
 """
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Any, Optional
+
+# ---------------------------------------------------------------- 通知图标（1.7.7）
+# 借鉴 MP「资源下载」通知与 TG 资源播报的 emoji 行首风格：标题一个主图标、
+# 正文每行「图标 + 标签：值」，眼睛在通知列表里先抓图标再读字。
+# 选用原则：与 MP / TG 生态同款（用户机器已验证可显示），不引入生僻 emoji。
+ICON_DOWNLOAD = "📥"   # 转存完成（与 MP「开始下载」同款）
+ICON_ERROR = "⚠️"     # 转存失败 / 错误提示
+ICON_SEARCH = "🔍"    # 缓存回搜
+ICON_RECEIPT = "🔗"   # 链接转存回执
+ICON_TV = "📺"        # 剧集媒体名
+ICON_MOVIE = "🎬"     # 电影媒体名
+ICON_LINK = "🔗"      # 链接行
+ICON_SOURCE = "📢"    # 来源（频道名）
+ICON_OK = "✅"        # 转存成功
+ICON_RECYCLE = "♻️"   # 已转存过，本次未重复保存
+ICON_FAIL = "❌"      # 失败原因
+ICON_NOTE = "📋"      # 媒体库未收录备注
+ICON_PENDING = "⏳"   # 还有 N 条未处理
+ICON_SKIP = "🚫"     # 忽略 / 没有可处理的链接
+
+_SEASON_EPISODE_RE = re.compile(r"S\d{1,2}E\d{1,2}", re.IGNORECASE)
+
+
+def media_icon(label: str) -> str:
+    """媒体名行首图标：带 SxxExx 段判为剧集 📺，否则电影 🎬。
+
+    媒体名一律是「片名 (年份) [SxxExx]」拼装格式（recognizer.label_for /
+    pipeline._media_label 同款），有季集段必是剧集；原名兜底场景（识别失败）
+    按同一特征猜，猜错也只影响观感。
+    """
+    return ICON_TV if _SEASON_EPISODE_RE.search(str(label or "")) else ICON_MOVIE
+
+
+def media_line(label: str) -> str:
+    """媒体名行：类型图标 + 媒体名（空名返回空串，由调用方兜底）。"""
+    text = str(label or "").strip()
+    if not text:
+        return ""
+    return f"{media_icon(text)} {text}"
 
 
 class Notifier:

@@ -128,7 +128,8 @@ class TestInteractivePush:
         assert "链接转存回执" in plugin.messages[0]["title"]
         # 1.7.6：去「新转存 N 条：」头行，正文直接从媒体块开始
         assert "新转存" not in plugin.messages[0]["text"]
-        assert plugin.messages[0]["text"].startswith("115分享:sws9cl133hx")
+        # 1.7.7：媒体名带类型图标（无季集信息 → 🎬）
+        assert plugin.messages[0]["text"].startswith("🎬 115分享:sws9cl133hx")
         assert "转存成功" in plugin.messages[0]["text"]
 
     def test_success_receipt_media_label(self):
@@ -269,7 +270,8 @@ class TestTransferLedger:
         reply = module.handle(_Event({"text": "magnet:?xt=urn:btih:abc"}))
         # 1.7.6：去「失败 N 条：」头行，块直接从媒体名开始、原因行收尾
         assert "失败 1 条" not in reply
-        assert reply.startswith("磁力:")
+        # 1.7.7：媒体名带类型图标（磁力无季集信息 → 🎬）
+        assert reply.startswith("🎬 磁力:")
         assert "失败原因：离线下载提交失败：链接已失效" in reply
 
     def test_pan115_error_message_relayed(self):
@@ -459,7 +461,11 @@ class TestRecognizerLabel:
 
 
 class TestReceiptLayout176:
-    """1.7.6：回执新版式——无统计头行，捎带信息落块末尾。"""
+    """1.7.6：回执新版式——无统计头行，捎带信息落块末尾。
+
+    1.7.7：全篇图标化（📺/🎬 媒体名、✅/♻️/❌ 状态、🚫/⏳ 尾部统计），
+    块与块之间不插空行（紧凑版式）。
+    """
 
     def test_skipped_and_remaining_go_to_tail(self):
         """「忽略 / 未处理」统计从头行挪到块列表末尾，按需出现。"""
@@ -470,16 +476,16 @@ class TestReceiptLayout176:
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": "https://115.com/s/sws9cl133hx?password=v435"}))
         lines = reply.splitlines()
-        assert lines[0] == "115分享:sws9cl133hx"
-        assert lines[-2] == "另有 2 条不支持的链接已忽略"
-        assert lines[-1] == "还有 3 条未处理（可再发一次）"
+        assert lines[0] == "🎬 115分享:sws9cl133hx"
+        assert lines[-2] == "🚫 另有 2 条不支持的链接已忽略"
+        assert lines[-1] == "⏳ 还有 3 条未处理（可再发一次）"
 
     def test_normal_single_link_has_no_extra_lines(self):
         """正常单链接回执只有「媒体名 + 状态」两行，无任何统计行。"""
         plugin = FakePlugin(pan115=FakePan115(result=_ok_result()))
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": "https://115.com/s/sws9cl133hx?password=v435"}))
-        assert reply.splitlines() == ["115分享:sws9cl133hx", "转存成功"]
+        assert reply.splitlines() == ["🎬 115分享:sws9cl133hx", "✅ 转存成功"]
 
     def test_no_processable_links_plain_text(self):
         """没有任何可处理链接时给一句纯文本，不再带头行冒号。"""
@@ -489,4 +495,4 @@ class TestReceiptLayout176:
         plugin = FakePlugin(pan115=FakePan115(result=result))
         module = InteractiveModule(plugin)
         reply = module.handle(_Event({"text": "https://115.com/s/sws9cl133hx?password=v435"}))
-        assert reply == "没有解析到可推送的链接"
+        assert reply == "🚫 没有解析到可推送的链接"

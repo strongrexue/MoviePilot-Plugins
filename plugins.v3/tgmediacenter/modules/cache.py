@@ -33,6 +33,13 @@ from ..core.history_cache import (
 )
 from ..destinations import DESTINATION_VALUES
 from ..model.hit_log import DECISION_HIT, TgHitLog
+from ..core.notify import (
+    ICON_LINK,
+    ICON_NOTE,
+    ICON_SEARCH,
+    ICON_SOURCE,
+    media_line,
+)
 from ..services import matcher as matcher_service
 from ..services.matcher import MediaMatcher
 
@@ -544,19 +551,19 @@ class CacheModule:
             for blk in shown:
                 label = _media_label(blk)
                 links = list(blk.get("links") or [])
-                lines.append(f"{label}（{len(links)} 条链接）")
+                lines.append(f"{media_line(label)}（{len(links)} 条链接）")
                 for url in links[:3]:
-                    lines.append(url)
+                    lines.append(f"{ICON_LINK} 链接：{url}")
                 if len(links) > 3:
-                    lines.append(f"还有 {len(links) - 3} 条链接")
+                    lines.append(f"{ICON_LINK} 还有 {len(links) - 3} 条链接")
                 chat_id = int(blk.get("chat_id") or 0)
                 src = names.get(chat_id) or str(chat_id)
-                lines.append(f"来源：{src}")
+                lines.append(f"{ICON_SOURCE} 来源：{src}")
             shown_count += len(shown)
             # 推了也要说清"为什么判定媒体库没有"——否则用户只知道推了，
             # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
             if blocks and item.get("media_note"):
-                lines.append(f"媒体库未收录：{item['media_note']}")
+                lines.append(f"{ICON_NOTE} 媒体库未收录：{item['media_note']}")
         if len(pushed_items) > shown_count:
             lines.append(f"…其余 {len(pushed_items) - shown_count} 条资源请在运行详情页查看")
 
@@ -566,10 +573,6 @@ class CacheModule:
             item for item in details
             if not int(item.get("pushed") or 0) and int(item.get("candidates") or 0)
         ]
-        # 3a（已推送块）与 3b（未推送块）混排时用空行分隔（1.7.6 去头行后
-        # 唯一的视觉分界；单种口径时不出现空行）
-        if pushed_items and skipped_details:
-            lines.append("")
         for item in skipped_details:
             # 块名年份：订阅自带年份优先；订阅没写年份就用候选识别年份里
             # 最多的一种（_search_subscription 已统计）；都没有不显示
@@ -582,7 +585,7 @@ class CacheModule:
             reasons.pop("未订阅", None)
             # 原因不带计数（1.7.5 用户定稿）：头部已有候选总数，此处只列原因名
             display_reason = "、".join(label for label, _ in _reason_order(reasons))
-            head = f"{name}（候选 {item.get('candidates', 0)} 条，无需推送）"
+            head = f"{media_line(name)}（候选 {item.get('candidates', 0)} 条，无需推送）"
             if display_reason:
                 lines.append(f"{head}：{display_reason}")
             else:
@@ -590,18 +593,19 @@ class CacheModule:
             # 全推出去时必须说清"为什么判定媒体库没有"——否则用户只知道推了，
             # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
             if item.get("media_note"):
-                lines.append(f"媒体库未收录：{item['media_note']}")
+                lines.append(f"{ICON_NOTE} 媒体库未收录：{item['media_note']}")
             channels = item.get("channels") or []
             if channels:
                 joined = "、".join(names.get(int(c)) or str(c) for c in channels)
-                lines.append(f"来源：{joined}")
+                lines.append(f"{ICON_SOURCE} 来源：{joined}")
 
         # 1.7.6 用户定稿：去「新增订阅 N 个，命中并推送 N 条资源：」/
         # 「新增订阅 N 个，候选 N 条」头行，通知直接从块开始；总量只在
         # 截断时由「…其余 N 条」兜底表达。极端情况（计数>0 但无可展示块）
         # 给一句兜底正文，避免发空通知。
         body = "\n".join(lines) or "本次回搜没有可展示的结果"
-        self._notify("TG媒体中心 缓存回搜", body)
+        self._notify(f"{ICON_SEARCH} TG媒体中心 缓存回搜", body)
+
     def _search_subscription(self, sub: dict) -> dict:
         """对单个订阅在缓存里回搜并推送。"""
         title = str(sub.get("name") or "").strip()

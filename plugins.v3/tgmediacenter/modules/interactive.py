@@ -22,7 +22,17 @@ from app.sdk.logging import logger
 
 from ..core import links as link_utils
 from ..core import transfer_ledger
-from ..core.notify import Notifier
+from ..core.notify import (
+    ICON_ERROR,
+    ICON_FAIL,
+    ICON_OK,
+    ICON_PENDING,
+    ICON_RECEIPT,
+    ICON_RECYCLE,
+    ICON_SKIP,
+    Notifier,
+    media_line,
+)
 from ..core.pan115_client import Pan115Error
 
 # 单条消息最多处理的链接数：事件回调里做网络转存，不能无限拖
@@ -79,7 +89,7 @@ class InteractiveModule:
 
         module = getattr(self._plugin, "_pan115", None)
         if module is None:
-            return self._reply("115 模块未初始化，未能转存")
+            return self._reply(f"{ICON_ERROR} 115 模块未初始化，未能转存")
 
         # 台账查重（1.7.5）：转存成功过的链接不再调 115——115 的分享转存接口
         # 对"已保存过"照样返回成功并再存一份（真机实测同一链接落盘两份），
@@ -187,6 +197,10 @@ class InteractiveModule:
         「忽略 / 未处理」统计改到块列表末尾按需出现，信息不丢。
         每条块尽量带媒体名（识别器格式：片名 (年份) SxxExx）；
         台账命中的「已转存过」块不经过 115，由本地判定直接给出。
+
+        1.7.7 图标化：标题 🔗，媒体名按剧集/电影分 📺/🎬，字段行统一
+        「emoji + 文案」格式（✅ 成功 / ♻️ 已转存过 / ❌ 失败 / 🚫 忽略 /
+        ⏳ 未处理 / ⚠️ 错误），块与块之间不插空行（紧凑版式）。
         """
         results = [item for item in ((result or {}).get("results") or []) if isinstance(item, dict)]
         skipped = int((result or {}).get("skipped") or 0) + max(0, int(local_skipped or 0))
@@ -195,39 +209,44 @@ class InteractiveModule:
         lines: List[str] = []
         shown = results[:_MAX_BLOCKS]
         for item in shown:
-            lines.append(_clip_label(item.get("label") or item.get("target")))
+            lines.append(media_line(_clip_label(item.get("label") or item.get("target"))))
             message = str(item.get("message") or "").strip()
             if not item.get("ok"):
-                lines.append(f"失败原因：{message or '未知原因'}")
+                lines.append(f"{ICON_FAIL} 失败原因：{message or '未知原因'}")
             elif link_utils.looks_like_duplicate(message):
-                lines.append("已转存过，本次未重复保存")
+                lines.append(f"{ICON_RECYCLE} 已转存过，本次未重复保存")
             else:
-                lines.append(message or "已提交到 115")
+                lines.append(f"{ICON_OK} {message or '已提交到 115'}")
         if len(results) > len(shown):
             lines.append(f"…其余 {len(results) - len(shown)} 条未逐条列出")
         # 本地台账命中块：这些链接根本没交给 115，直接按"已转存过"回
         for hit in list(local_hits.values())[:_MAX_BLOCKS]:
-            lines.append(_clip_label(str(hit.get("label") or "")) or "已转存过的链接")
+            lines.append(
+                media_line(_clip_label(str(hit.get("label") or "")))
+                or f"{ICON_RECYCLE} 已转存过的链接"
+            )
             first_at = str(hit.get("at") or "")[:10]
             lines.append(
-                f"已转存过（{first_at} 首次转存），本次未重复保存" if first_at
-                else "已转存过，本次未重复保存"
+                f"{ICON_RECYCLE} 已转存过（{first_at} 首次转存），本次未重复保存" if first_at
+                else f"{ICON_RECYCLE} 已转存过，本次未重复保存"
             )
         # 原头行统计的落点：仅在确实发生时才出现，正常单链接回执看不到
         if skipped:
-            lines.append(f"另有 {skipped} 条不支持的链接已忽略")
+            lines.append(f"{ICON_SKIP} 另有 {skipped} 条不支持的链接已忽略")
         if remaining:
-            lines.append(f"还有 {remaining} 条未处理（可再发一次）")
+            lines.append(f"{ICON_PENDING} 还有 {remaining} 条未处理（可再发一次）")
         if not results and not local_hits:
             if error_text:
-                lines.append(error_text)
+                lines.append(f"{ICON_ERROR} {error_text}")
             else:
-                lines.append(str((result or {}).get("message") or "没有可处理的链接"))
+                lines.append(
+                    f"{ICON_SKIP} {str((result or {}).get('message') or '没有可处理的链接')}"
+                )
         return "\n".join(lines)
 
     def _reply(self, text: str) -> str:
         """发一条回执通知（渠道由宿主「通知」设置决定）。"""
-        self._notifier.send("TG媒体中心 · 链接转存回执", str(text or ""))
+        self._notifier.send(f"{ICON_RECEIPT} TG媒体中心 · 链接转存回执", str(text or ""))
         return str(text or "")
 
 

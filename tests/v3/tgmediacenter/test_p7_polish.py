@@ -19,7 +19,11 @@ from sqlalchemy.pool import StaticPool
 from app.plugins.tgmediacenter.controller import api as controller_api
 from app.plugins.tgmediacenter.core import pipeline as pipeline_module
 from app.plugins.tgmediacenter.core.cooldown import CooldownGate, report_flood_wait
-from app.plugins.tgmediacenter.core.notify import Notifier
+from app.plugins.tgmediacenter.core.notify import (
+    Notifier,
+    media_icon,
+    media_line,
+)
 from app.plugins.tgmediacenter.core.pipeline import MessagePipeline, _looks_like_auth_error
 from app.plugins.tgmediacenter.model.hit_log import TgHitLog
 from app.plugins.tgmediacenter.model.push_task import STATUS_PENDING, TgPushTask
@@ -353,6 +357,8 @@ class TestPushNotifications:
         assert "（1 条链接）" in text
         assert "来源：" in text
         assert str(task["chat_id"]) in text
+        # 1.7.7：每块一行状态——新转存 ✅（与链接转存回执同款）
+        assert "✅ 转存成功" in text
 
     def test_success_notification_blocks_and_source(self, push_env, monkeypatch):
         """1.6.10：多条 / 多频道任务各自成块，每块带自己的来源，链接行左对齐。"""
@@ -432,12 +438,15 @@ class TestPushNotifications:
         pipeline._flush_notifications()
         assert len(push_env.messages) == 1
         # 1.7.6：标题纯化，条数/已转存过标注只由正文表达
-        assert push_env.messages[0]["title"] == "TG媒体中心 · 115 转存完成"
+        # 1.7.7：标题带 📥 主图标
+        assert push_env.messages[0]["title"] == "📥 TG媒体中心 · 115 转存完成"
         text = push_env.messages[0]["text"]
         # 1.7.6：去「已转存到 115（N 条）：」头行，直接从块开始
         assert "已转存到 115" not in text
-        assert text.startswith("希望 (2026)")
-        assert "已转存过，本次未重复保存" in text
+        # 1.7.7：媒体名按类型带图标（电影 🎬）
+        assert text.startswith("🎬 希望 (2026)")
+        # 1.7.7：重复块状态行带 ♻️
+        assert "♻️ 已转存过，本次未重复保存" in text
         assert "https://115.com/s/aaa" in text
         assert "来源：-1004316104321" in text
 
@@ -466,9 +475,11 @@ class TestPushNotifications:
         pipeline._flush_notifications()
         assert len(push_env.messages) == 1
         # 1.7.6：标题纯化，无「（2 条，其中 1 条已转存过）」标注
-        assert push_env.messages[0]["title"] == "TG媒体中心 · 115 转存完成"
+        # 1.7.7：标题带 📥 主图标
+        assert push_env.messages[0]["title"] == "📥 TG媒体中心 · 115 转存完成"
         text = push_env.messages[0]["text"]
-        assert text.count("已转存过，本次未重复保存") == 1
+        assert text.count("♻️ 已转存过，本次未重复保存") == 1
+        assert text.count("✅ 转存成功") == 1
         assert "已转存到 115" not in text
 
     def test_credential_failure_adds_guidance_and_throttles(self, push_env, monkeypatch):
@@ -694,3 +705,26 @@ def test_overview_handles_missing_modules():
     data = controller_api.api_overview(plugin).data
     assert data.tg.connected is False
     assert data.recent_hits == []
+
+
+class TestNotifyIcons177:
+    """1.7.7：通知图标助手——media_icon 分流 + media_line 拼装。"""
+
+    def test_tv_label_gets_tv_icon(self):
+        assert media_icon("青与碧 (2026) S01E01") == "📺"
+
+    def test_movie_label_gets_movie_icon(self):
+        assert media_icon("你行！你上！ (2025)") == "🎬"
+
+    def test_season_episode_match_is_case_insensitive(self):
+        assert media_icon("某剧 (2020) s01e02") == "📺"
+        assert media_icon("某剧 (2020) S1E2") == "📺"
+
+    def test_media_line_prefixes_icon(self):
+        assert media_line("青与碧 (2026) S01E01") == "📺 青与碧 (2026) S01E01"
+        assert media_line("你行！你上！ (2025)") == "🎬 你行！你上！ (2025)"
+
+    def test_media_line_blank_returns_empty(self):
+        assert media_line("") == ""
+        assert media_line(None) == ""
+        assert media_line("   ") == ""

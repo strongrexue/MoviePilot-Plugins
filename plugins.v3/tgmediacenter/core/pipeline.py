@@ -37,6 +37,16 @@ from ..core import push_queue
 from ..core import transfer_ledger
 from ..core.cooldown import CooldownGate, report_flood_wait
 from ..core.notify import Notifier
+from ..core.notify import (
+    ICON_DOWNLOAD,
+    ICON_ERROR,
+    ICON_FAIL,
+    ICON_LINK,
+    ICON_OK,
+    ICON_RECYCLE,
+    ICON_SOURCE,
+    media_line,
+)
 from ..destinations import resolve_destination
 from ..model.push_task import (
     STATUS_DONE,
@@ -843,6 +853,10 @@ class MessagePipeline:
         「已转存到 115（N 条）：」），直接从块列表开始——单条转存时正文
         只有「媒体名 + 链接 + 来源」几行；总量信息只在截断时以
         「…另有 N 条」兜底表达。
+
+        1.7.7 图标化（借鉴 MP 下载通知 / TG 资源播报）：标题一个主图标
+        （📥 / ⚠️），正文每行「图标 + 标签：值」——媒体名带类型图标
+        （📺/🎬）、链接 🔗、来源 📢、成功 ✅、已转存过 ♻️、失败 ❌。
         """
         cycle = self._cycle or {}
         done = list(cycle.get("pan115_done") or [])
@@ -855,18 +869,21 @@ class MessagePipeline:
             shown = done[:8]
             for label, links, chat_id, duplicate in shown:
                 # 去「· 」、链接行左对齐（首字对齐）；每条任务一个块，自带来源
-                lines.append(label)
+                lines.append(media_line(label))
                 for url in links[:3]:
-                    lines.append(url)
+                    lines.append(f"{ICON_LINK} 链接：{url}")
                 if len(links) > 3:
-                    lines.append(f"还有 {len(links) - 3} 条链接")
+                    lines.append(f"{ICON_LINK} 还有 {len(links) - 3} 条链接")
                 src = names.get(int(chat_id)) or str(chat_id)
-                lines.append(f"来源：{src}")
+                lines.append(f"{ICON_SOURCE} 来源：{src}")
+                # 1.7.7：每块一行状态（与链接转存回执同款）——已转存过 ♻️ / 新转存 ✅
                 if duplicate:
-                    lines.append("已转存过，本次未重复保存")
+                    lines.append(f"{ICON_RECYCLE} 已转存过，本次未重复保存")
+                else:
+                    lines.append(f"{ICON_OK} 转存成功")
             if len(done) > 8:
                 lines.append(f"…另有 {len(done) - 8} 条")
-            self._notifier.send("TG媒体中心 · 115 转存完成", "\n".join(lines))
+            self._notifier.send(f"{ICON_DOWNLOAD} TG媒体中心 · 115 转存完成", "\n".join(lines))
 
         total = len(failed_115)
         if total and self._notifier.enabled("notify_on_error", True):
@@ -878,20 +895,20 @@ class MessagePipeline:
             lines: List[str] = []
             shown = failed_115[:6]
             for label, msg, links, chat_id in shown:
-                lines.append(label)
+                lines.append(media_line(label))
                 for url in links[:3]:
-                    lines.append(url)
+                    lines.append(f"{ICON_LINK} 链接：{url}")
                 if len(links) > 3:
-                    lines.append(f"还有 {len(links) - 3} 条链接")
+                    lines.append(f"{ICON_LINK} 还有 {len(links) - 3} 条链接")
                 src = names.get(int(chat_id)) or str(chat_id)
-                lines.append(f"来源：{src}")
-                lines.append(f"失败原因：{msg or '未知原因'}")
+                lines.append(f"{ICON_SOURCE} 来源：{src}")
+                lines.append(f"{ICON_FAIL} 失败原因：{msg or '未知原因'}")
             if total > len(shown):
                 lines.append(f"…另有 {total - len(shown)} 条")
             if credential_issue:
-                lines.append("看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
+                lines.append(f"{ICON_ERROR} 看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
             self._notifier.send(
-                "TG媒体中心 · 115 转存失败",
+                f"{ICON_ERROR} TG媒体中心 · 115 转存失败",
                 "\n".join(lines),
                 # 登录态失效属"需要人工介入且会长时间持续"的故障：6 小时内只提醒一次
                 key="pan115_credential" if credential_issue else "",

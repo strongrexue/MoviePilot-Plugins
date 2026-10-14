@@ -741,8 +741,8 @@ class TestSubscriptionSearch:
         assert cache.check_subscriptions(trigger="测试")["pushed"] == 0
         text = plugin.messages[-1]["text"]
         assert "青与碧 (2026)（候选 1 条，无需推送）：订阅无缺集" in text
-        # 来源另起一行顶格
-        assert "\n来源：" in text
+        # 来源另起一行顶格（1.7.7：带 📢 图标）
+        assert "\n📢 来源：" in text
 
     def test_not_subscribed_reason_hidden_from_notification(self, cache, subscriptions, plugin, fake_metavideo):
         """1.7.4：「未订阅」不在回搜通知里展示——候选是标题包含匹配捞出来的，
@@ -799,8 +799,8 @@ class TestSubscriptionSearch:
         text = plugin.messages[-1]["text"]
         assert "候选 2 条，无需推送" in text
         assert "未订阅" not in text
-        # 1.7.5：来源另起一行顶格
-        assert "\n来源：" in text
+        # 1.7.5：来源另起一行顶格（1.7.7：带 📢 图标）
+        assert "\n📢 来源：" in text
 
     def test_skip_reason_marks_media_library_hit(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
         """真机口径：媒体库已有的候选要归类成"媒体库已存在"（而不是笼统的跳过）。"""
@@ -906,7 +906,7 @@ class TestSubscriptionSearch:
         assert "https://115.com/s/swabc888" in text
 
     def test_search_notification_mixed_pushed_and_skipped(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.7.6：3a（已推送）与 3b（未推送）混排时空行分隔，无头行。"""
+        """1.7.6：3a（已推送）与 3b（未推送）混排无头行；1.7.7：紧凑不插空行。"""
         plugin.save_config(cache_chat_ids=[CHAT_A])
         subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
         cache.check_subscriptions(trigger="测试")
@@ -935,12 +935,12 @@ class TestSubscriptionSearch:
         # 无头行（1.7.6）
         assert "新增订阅" not in text
         assert "命中并推送" not in text
-        # 推送块在前、未推送块在后，中间恰好一个空行
+        # 推送块在前、未推送块在后；1.7.7 紧凑版式：整篇不出现空行
         lines = text.split("\n")
-        push_idx = next(i for i, ln in enumerate(lines) if ln.startswith("青与碧 (2026) S01E01"))
-        skip_idx = next(i for i, ln in enumerate(lines) if ln.startswith("你好时光 (2026)"))
+        push_idx = next(i for i, ln in enumerate(lines) if ln.startswith("📺 青与碧 (2026) S01E01"))
+        skip_idx = next(i for i, ln in enumerate(lines) if ln.startswith("🎬 你好时光 (2026)"))
         assert skip_idx > push_idx
-        assert lines[skip_idx - 1] == ""
+        assert "" not in lines
 
     def test_disabled_module_skips_check(self, plugin, fake_metavideo):
         plugin.save_config(cache_enabled=False)

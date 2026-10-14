@@ -486,7 +486,10 @@ class Pan115Module:
             # Cookie 失效属于全局问题，直接中断整次推送更有意义
             raise err
         except Pan115Error as err:
-            return False, str(err)
+            # 单条 115 侧错误不中断整批：按失败继续（真机事故 1.7.8——此处曾返回
+            # 2 元组，调用方按 3 元解包直接 ValueError，整批推送被炸飞且真正
+            # 的错误原因被吞，重试也永远撞同一处）
+            return False, str(err), ""
         except Exception as err:  # pragma: no cover - 兜底避免单条异常打断整批
             logger.warning(f"115 推送单条异常：{err}")
-            return False, f"异常：{err}"
+            return False, f"异常：{err}", ""

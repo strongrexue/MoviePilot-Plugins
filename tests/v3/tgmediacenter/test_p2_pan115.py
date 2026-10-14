@@ -336,6 +336,75 @@ def test_push_skips_unsupported_links():
     assert "没有解析到可推送的链接" in result["message"]
 
 
+# ----------------------------------------------------- 真机事故回归（1.7.8）
+
+
+class _BoomClient:
+    """share_snap 抛指定错误的客户端替身（模拟 115 侧错误 / 网络异常）。"""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def share_snap(self, *args, **kwargs):
+        raise self._error
+
+    async def share_receive(self, *args, **kwargs):  # pragma: no cover - 不会走到
+        raise AssertionError("share_snap 失败后不应继续转存")
+
+    async def offline_add(self, *args, **kwargs):  # pragma: no cover - 分享路径不会走离线
+        raise AssertionError("分享链接不应走离线下载")
+
+
+def _push_module_with_client(client) -> Pan115Module:
+    """配好 Cookie 与目标 CID、客户端换成替身的推送模块。"""
+    plugin = _StubPlugin(
+        config={"pan115_cookie": "UID=1; CID=2", "pan115_target_cid": "123456"},
+    )
+    module = Pan115Module(plugin)
+    module._client = lambda timeout=20: client
+    return module
+
+
+def test_push_one_pan115_error_returns_three_tuple():
+    """1.7.8 真机事故回归：Pan115Error 分支必须返回 3 元组。
+
+    真机日志：合并推送 5 条任务全部失败于「not enough values to unpack
+    (expected 3, got 2)」——_push_one 的 Pan115Error / 通用异常分支漏随
+    1.7.5 的三元组改造，返回 2 个值，调用方按 (ok, message, label) 解包
+    直接 ValueError：整批推送被炸飞、真正的 115 错误原因被吞、destination
+    还判 retryable 反复重试反复撞同一处。
+    """
+    module = _push_module_with_client(_BoomClient(Pan115Error("分享链接已失效")))
+    items = link_utils.make_items(["https://115.com/s/swabc?password=1a2b"])
+    ok, message, label = module._push_one(module._client(), items[0], "123456")
+    assert ok is False
+    assert "分享链接已失效" in message
+    assert label == ""
+
+
+def test_push_one_generic_exception_returns_three_tuple():
+    """非 Pan115Error 的异常同样按 3 元组失败返回，不打断整批。"""
+    module = _push_module_with_client(_BoomClient(RuntimeError("网络抖动")))
+    items = link_utils.make_items(["https://115.com/s/swabc?password=1a2b"])
+    ok, message, label = module._push_one(module._client(), items[0], "123456")
+    assert ok is False
+    assert "网络抖动" in message
+    assert label == ""
+
+
+def test_push_survives_single_item_pan115_error():
+    """整批推送不能因单条 115 侧错误抛异常：按失败入结果，其余链接继续。"""
+    module = _push_module_with_client(_BoomClient(Pan115Error("分享链接已失效")))
+    result = module.push(
+        ["https://115.com/s/swabc?password=1a2b", "https://115.com/s/swdef?password=3c4d"],
+        cid="123456",
+    )
+    assert result["succeeded"] == 0
+    assert result["failed"] == 2
+    # 真正的错误原因必须留在逐条结果里（不能再被解包错误吞掉）
+    assert all("分享链接已失效" in str(item.get("message") or "") for item in result["results"])
+
+
 def test_batch_size_override_and_guard():
     """单批上限可覆盖，非法值回退默认。"""
     module = Pan115Module(_StubPlugin(config={"pan115_batch_max_size": "abc"}))

@@ -323,6 +323,28 @@ class FakeLibraryOnlyModule:
         return self._exist if itemid else None
 
 
+class FakeNameMatchingModule:
+    """模拟宿主 Emby：库内有一组条目名，只有 ``Name`` **完全相等**才命中。
+
+    1.7.9 起插件改用「名称变体」做定向查询，命中判据回到宿主原生口径，
+    因此这条替身按「名字集合」建模，而不是按 item_id 建模。
+    """
+
+    def __init__(self, names=None, exist=None) -> None:
+        self._names = set(names or ())
+        self._exist = exist
+        self.calls = 0
+        self.names_tried = []
+
+    def media_exists(self, mediainfo, itemid=None, server=None):
+        self.calls += 1
+        name = str(getattr(mediainfo, "title", "") or "")
+        self.names_tried.append(name)
+        if itemid:
+            return self._exist
+        return self._exist if name in self._names else None
+
+
 
 @pytest.fixture()
 def fake_metavideo(monkeypatch):
@@ -604,8 +626,10 @@ class TestMatcher:
         assert result["missing"] is True
         assert result["source"] == "mediaserver"
         # 1.4.6 起：按年份未命中会再按"仅片名"复核一次（宿主按年份精确匹配，
-        # 资源名年份与库内年份常有偏差），因此这里是 2 次而不是 1 次
-        assert module.calls == 2
+        # 资源名年份与库内年份常有偏差）；1.7.9 起还会用少量「片名 (年份)」
+        # 等候选名各做一次定向查询（定向查询，不拉全库）。因此这里是一个
+        # 有界的小次数，而不是 1 次。
+        assert 2 <= module.calls <= 6
 
     def test_require_subscription_skipped_when_queries_unavailable(self, monkeypatch):
         """订阅数据源不可用时门禁不生效（没配订阅不能全盘拦截），仍按媒体库判断。"""
@@ -647,8 +671,8 @@ class TestMatcher:
         result = matcher.is_missing(title="测试电影", year="2023", media_type="movie")
         assert result["missing"] is True
         assert result["source"] == "mediaserver"
-        # 年份未命中 → 再按"仅片名"复核一次（见 test_require_subscription_off_...）
-        assert module.calls == 2
+        # 年份未命中 → 再按"仅片名"复核；1.7.9 起再加少量候选名定向查询
+        assert 2 <= module.calls <= 6
 
     def test_mediaserver_tv_episode_present_and_missing(self, monkeypatch):
         monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
@@ -847,48 +871,57 @@ class TestMediaLibraryLayers:
         assert result["missing"] is True
         assert "2019" in result["detail"]
 
-    def test_library_index_matches_suffixed_name(self, monkeypatch):
-        """库里的名字带后缀（"林间鸽踪 (2026)"），精确匹配失败 → 条目索引兜底。"""
+    def test_name_variant_matches_suffixed_library_name(self, monkeypatch):
+        """库内命名带年份后缀（"林间鸽踪 (2026)"）：按名称变体定向查询命中。
+
+        1.7.9：取代 1.4.6 的「全量条目索引」——不再把整个库拉下来建索引，
+        而是拿「片名 (年份)」等少量候选名各查一次。
+        """
         exist = FakeExist({1: list(range(1, 11))})
-        module = FakeLibraryOnlyModule(exist)
-        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "林间鸽踪 (2026)", year="2026")])
-        self._patch(monkeypatch, module, instance)
+        module = FakeNameMatchingModule({"林间鸽踪 (2026)"}, exist)
+        self._patch(monkeypatch, module, FakeEmbyClient())
         result = MediaMatcher().is_missing(
             title="林间鸽踪", year="2026", media_type="tv", season=1, episode=5
         )
         assert result["missing"] is False
-        assert module.itemids[-1] == "s1"  # 用条目 ID 复核过
+        assert "林间鸽踪 (2026)" in module.names_tried  # 用了带后缀的候选名
 
-    def test_library_index_requires_compatible_year(self, monkeypatch):
-        exist = FakeExist({1: list(range(1, 11))})
-        module = FakeLibraryOnlyModule(exist)
-        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "红楼梦", year="1987")])
+    def test_name_variant_rejects_incompatible_year(self, monkeypatch):
+        """候选名命中但库内年份不符（翻拍）：不采用，避免漏推。"""
+        exist = FakeExist({1: list(range(1, 11))}, itemid="s1")
+        module = FakeNameMatchingModule({"林间鸽踪 (2026)"}, exist)
+        instance = FakeEmbyClient(item_years={"s1": "2019"})
         self._patch(monkeypatch, module, instance)
         result = MediaMatcher().is_missing(
-            title="红楼梦", year="2026", media_type="tv", season=1, episode=5
+            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=5
         )
         assert result["missing"] is True
-        assert all(itemid != "s1" for itemid in module.itemids)
+        assert "2019" in result["detail"]
 
-    def test_library_index_built_once_within_ttl(self, monkeypatch):
-        module = FakeLibraryOnlyModule(None)
-        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "林间鸽踪", year="2026")])
-        self._patch(monkeypatch, module, instance)
-        matcher = MediaMatcher()
-        matcher.is_missing(title="林间鸽踪", year="2026", media_type="tv", season=1, episode=1)
-        matcher.is_missing(title="另一部剧", year="2026", media_type="tv", season=1, episode=1)
-        assert instance.library_calls == 1  # 索引有 TTL 缓存
+    def test_name_variant_probe_is_bounded(self, monkeypatch):
+        """候选名探测有明确上限，不随库规模或片名异常而膨胀。"""
+        module = FakeNameMatchingModule(set())
+        self._patch(monkeypatch, module, FakeEmbyClient())
+        MediaMatcher().is_missing(
+            title="某剧", year="2026", media_type="tv", season=1, episode=1
+        )
+        # 片名+年份(1) + 仅片名(1) + 至多 4 个候选名
+        assert module.calls <= 6
 
-    def test_library_index_skipped_when_too_large(self, monkeypatch):
-        module = FakeLibraryOnlyModule(FakeExist({1: [1]}))
-        instance = FakeEmbyClient(items=[FakeLibraryItem("s1", "林间鸽踪", year="2026")])
-        monkeypatch.setattr(matcher_module, "_LIBRARY_INDEX_MAX_ITEMS", 0)
+    def test_lookup_never_pulls_whole_library(self, monkeypatch):
+        """1.7.9 回归锁：媒体库兜底只做定向查询，绝不 get_librarys / get_items 全量拉取。
+
+        旧实现会在拿不到条目数时静默全量拉取（30 万级库 → 分钟级卡顿）。
+        """
+        module = FakeNameMatchingModule(set())
+        instance = FakeEmbyClient()
         self._patch(monkeypatch, module, instance)
         result = MediaMatcher().is_missing(
-            title="林间鸽踪", year="2026", media_type="tv", season=1, episode=1
+            title="不存在的剧", year="2026", media_type="tv", season=1, episode=1
         )
         assert result["missing"] is True
-        assert instance.library_items_calls == 0
+        assert instance.library_calls == 0        # 没有列库
+        assert instance.library_items_calls == 0  # 没有全量拉取条目
 
     def test_diagnosis_reports_series_without_episodes(self, monkeypatch):
         """库里有条目但一集都没入库：原因要写清楚（否则用户只看到"没找到"）。"""

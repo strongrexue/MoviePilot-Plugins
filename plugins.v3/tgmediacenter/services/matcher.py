@@ -6,10 +6,16 @@
    ``seasons: {季: [已存在集]}``，据此逐集比对目标集是否缺失。
    —— "媒体库里到底有没有这一集"只有它说了算。
    媒体库查询按**逐层放宽**进行（见 ``_fetch_media_exists``）：片名+年份 →
-   仅片名 → 媒体库条目索引模糊匹配。原因是宿主 Emby/Jellyfin 系按
-   ``Name == 片名 and ProductionYear == 年份`` **精确**匹配，而资源名里的年份
-   与媒体库刮削年份常常对不上（未刮削的条目更甚），真机表现为"库里明明有，
-   插件却说没有"→ 回搜把整部剧全推出去（1.4.5 真机踩坑）。
+   仅片名 → **名称变体**（``片名 (年份)`` 等，见 ``_name_variants``）。原因是
+   宿主 Emby/Jellyfin 系按 ``Name == 片名 and ProductionYear == 年份``
+   **精确**匹配，而资源名里的年份与媒体库刮削年份/名称常常对不上（未刮削的
+   条目更甚），真机表现为"库里明明有，插件却说没有"→ 回搜把整部剧全推出去
+   （1.4.5 真机踩坑）。
+
+   ⚠️ 三层放宽**全部是定向精确查询**（每次只返回一个小结果集，代价与媒体库
+   规模无关）。1.4.6~1.7.8 曾用过一条"把整个媒体库拉进内存建条目索引"的兜底
+   路径，30 万级媒体库下既慢（分钟级）又必然被规模上限跳过，1.7.9 已整条移除——
+   新加兜底能力时**不要**再走全量拉取。
 2. **订阅快照（门禁 + 兜底）**：``list_subscriptions()`` 按标题+年份+季匹配订阅。
    - ``lack_episode`` 为 0 → 可直接判"不缺"（省掉一次媒体库查询的快速通道）；
    - 开启「仅缺失」且资源未订阅 → 判"未订阅"跳过（方案 A 门禁）；
@@ -68,10 +74,8 @@ _NORMALIZE_RE = re.compile(r"[\s·・:：\-_－—\-]+")
 _SUB_PAGE_SIZE = 200
 # 翻页硬上限，防异常宿主死循环
 _SUB_MAX_PAGES = 100
-# 媒体库条目索引的缓存 TTL（秒）
-_LIBRARY_INDEX_TTL = 300
-# 索引规模上限：媒体库条目多于该值时不做索引兜底（避免拉取超大响应）
-_LIBRARY_INDEX_MAX_ITEMS = 5000
+# 名称变体的候选上限（保序截断，避免异常片名生成过多候选把查询打散）
+_NAME_VARIANT_LIMIT = 6
 
 
 def iter_subscriptions() -> "Iterator[Any]":
@@ -167,16 +171,35 @@ def _safe_list(target: Any, method: str, *args: Any) -> list:
         return []
 
 
-def _library_kind(value: Any) -> str:
-    """媒体库类型归一：``电视剧/tvshows`` → tv，``电影/movies`` → movie。"""
-    text = str(getattr(value, "value", value) or "").strip().lower()
-    if not text:
-        return ""
-    if "剧" in text or text in ("tv", "tvshows", "series"):
-        return "tv"
-    if "电影" in text or text in ("movie", "movies", "film"):
-        return "movie"
-    return ""
+def _name_variants(title: str, year: str) -> List[str]:
+    """资源名 → 媒体库内可能使用的命名候选（保序去重，含原始片名）。
+
+    宿主 Emby/Jellyfin 的 ``__get_emby_series_id_by_name`` 按 ``Name``
+    **完全相等**匹配，而库内条目名常带年份后缀（``林间鸽踪 (2026)``）、
+    半角/全角括号或分隔差异（``片名 2026``）。这里给出少量候选名，让调用方
+    逐个做**定向精确查询**——每次只返回一个小结果集，代价与媒体库规模无关。
+
+    这是 1.7.9 用来取代 1.4.6「全量条目索引」的做法：后者要把整个媒体库拉进
+    内存，30 万级库下既慢（分钟级）又必然被规模上限跳过，且存在"拿不到条目数
+    时静默全量拉取"的隐患。
+    """
+    base = str(title or "").strip()
+    if not base:
+        return []
+    variants: List[str] = [base]
+    y = str(year or "").strip()
+    if y:
+        variants.extend([
+            f"{base} ({y})",   # MP 规范化命名的常见形态
+            f"{base}({y})",    # 无空格
+            f"{base}（{y}）",  # 全角括号
+            f"{base} {y}",     # 纯空格分隔
+        ])
+    ordered: List[str] = []
+    for item in variants[:_NAME_VARIANT_LIMIT]:
+        if item and item not in ordered:
+            ordered.append(item)
+    return ordered
 
 
 def _seasons_of(exist: Any) -> dict:
@@ -219,9 +242,6 @@ class MediaMatcher:
         self._cache: Dict[str, Dict[str, Any]] = {}
         # 媒体服务器查询缓存：键 = 片名|年份|类型|季，值 = (queried, exists, seasons, note)
         self._media_cache: Dict[str, Dict[str, Any]] = {}
-        # 媒体库条目索引（归一标题 → 条目列表），仅在精确查询未命中时按需构建
-        self._library_index: Optional[Dict[str, List[dict]]] = None
-        self._library_index_at: float = 0.0
 
     # ------------------------------------------------------------------ 能力探测
 
@@ -522,9 +542,12 @@ class MediaMatcher:
            ``Name == 片名 and ProductionYear == 年份`` 精确匹配，资源名里的年份
            与媒体库刮削年份常有偏差；命中后用 ``get_iteminfo`` 复核库中年份，
            同名不同年的翻拍剧不会被误判"已有"；
-        3. **媒体库条目索引模糊匹配**（归一标题相等或互相包含）：兜住
-           "库里的名字比资源名多后缀"（如 ``林间鸽踪 (2026)``、双语标题），
-           要求年份相容，拿到 ``item_id`` 后用 ``media_exists(itemid=...)`` 复核。
+        3. **名称变体**（``片名 (年份)`` / ``片名(年份)`` / 全角括号 / ``片名 年份``）：
+           库内条目名常带年份后缀或分隔差异（如 ``林间鸽踪 (2026)``），宿主按
+           名称**完全相等**匹配时资源名对不上；用少量候选名各做一次定向精确
+           查询，命中后用 ``get_iteminfo`` 复核库内年份。
+           —— 三层全是定向查询，代价与媒体库规模无关；1.4.6~1.7.8 的
+           「全量条目索引」兜底（把整个库拉进内存）已整条移除，别再引入。
         """
         if not MEDIASERVER_AVAILABLE:
             return (False, False, {}, "")
@@ -578,22 +601,37 @@ class MediaMatcher:
                 )
             return (True, True, _seasons_of(exist), "")
 
-        # 3) 媒体库条目索引模糊匹配
-        item_id, server_name = self._match_library_item(
-            instances, title=title, year=year, media_type=media_type
-        )
-        if item_id:
-            for attempt_year in ([year, ""] if year else [""]):
+        # 3) 名称变体探测：库内命名常带「片名 (年份)」等后缀，宿主按 Name
+        #    精确匹配时资源名对不上；用少量候选名各做一次定向查询（毫秒级、
+        #    与库大小无关）。裸片名已在第 2 层试过，这里只试带后缀的变体。
+        variants = _name_variants(title, year)[1:]
+        if variants:
+            started = time.monotonic()
+            for variant in variants:
                 ok, exist = self._call_media_exists(
-                    module, title=title, year=attempt_year, media_type=media_type,
-                    season=season, item_id=item_id, server=server_name,
+                    module, title=variant, year="", media_type=media_type, season=season
                 )
-                if ok and exist is not None:
-                    logger.info(
-                        f"媒体库查询：「{title}」按条目名索引命中（item_id={item_id}，"
-                        f"年份口径 {attempt_year or '不限'}）"
+                if not ok:
+                    return (False, False, {}, "")
+                if exist is None:
+                    continue
+                lib_year, accepted = self._verify_year(instances, exist, year)
+                if not accepted:
+                    rejected = (
+                        f"按候选名「{variant}」命中但库中年份为 {lib_year}"
+                        f"（资源年份 {year}），已忽略"
                     )
-                    return (True, True, _seasons_of(exist), "")
+                    logger.info(f"媒体库查询：「{title}」{rejected}")
+                    continue
+                logger.info(
+                    f"媒体库查询：「{title}」按候选名「{variant}」命中"
+                    f"（探测 {len(variants)} 个候选，耗时 {time.monotonic() - started:.2f}s）"
+                )
+                return (True, True, _seasons_of(exist), "")
+            logger.debug(
+                f"媒体库查询：「{title}」{len(variants)} 个候选名均未命中"
+                f"（耗时 {time.monotonic() - started:.2f}s）"
+            )
 
         note = self._diagnose_not_found(
             instances, title=title, year=year, media_type=media_type
@@ -602,7 +640,7 @@ class MediaMatcher:
             note = f"{note}；{rejected}" if note else rejected
         logger.info(
             f"媒体库查询：「{title}」({year or '-'}) 未命中"
-            + (f"：{note}" if note else "（已放宽到仅片名与条目索引）")
+            + (f"：{note}" if note else "（已放宽到仅片名与名称变体）")
         )
         return (True, False, {}, note)
 
@@ -659,95 +697,6 @@ class MediaMatcher:
                 continue
             return lib_year, _years_compatible(year, lib_year)
         return "", True
-
-    # ------------------------------------------------------- 媒体库条目索引（兜底）
-
-    def _match_library_item(
-        self, instances: List[tuple], *, title: str, year: str, media_type: str
-    ) -> "tuple[str, str]":
-        """在媒体库条目索引里按归一标题模糊匹配，返回 ``(item_id, 实例名)``。
-
-        宿主按 ``Name == 片名`` 精确匹配，库里的名字带年份/副标题/多语言后缀时
-        就匹配不上（真机现象："媒体库里明明有，插件却说没有"）。
-        年份不相容的候选不采用，同名不同年的翻拍剧不会被误判"已有"。
-        """
-        index = self._library_index_for(instances)
-        if not index:
-            return "", ""
-        wanted = "movie" if media_type == "movie" else "tv"
-        best_id, best_server, best_score = "", "", 0
-        for key, entries in index.items():
-            score = _title_score(title, key)
-            if score <= 0:
-                continue
-            for entry in entries:
-                if entry.get("kind") != wanted:
-                    continue
-                if not _years_compatible(year, entry.get("year")):
-                    continue
-                exact_year = 1 if entry.get("year") and str(entry.get("year")) == str(year) else 0
-                total = score * 2 + exact_year
-                if total > best_score:
-                    best_score, best_id, best_server = total, str(entry.get("item_id") or ""), str(
-                        entry.get("server") or ""
-                    )
-        return best_id, best_server
-
-    def _library_index_for(self, instances: List[tuple]) -> Dict[str, List[dict]]:
-        """取（必要时构建）媒体库条目索引；构建失败返回空表。"""
-        now = time.monotonic()
-        with self._lock:
-            if (
-                self._library_index is not None
-                and now - self._library_index_at <= _LIBRARY_INDEX_TTL
-            ):
-                return self._library_index
-        index: Dict[str, List[dict]] = {}
-        for name, client in instances:
-            for library in _safe_list(client, "get_librarys"):
-                kind = _library_kind(getattr(library, "type", None))
-                if not kind:
-                    continue
-                library_id = getattr(library, "id", None) or getattr(library, "item_id", None)
-                if not library_id:
-                    continue
-                count = getattr(library, "item_count", None)
-                if count is None:
-                    count = _safe_call(client, "get_items_count", library_id)
-                try:
-                    if count is not None and int(count) > _LIBRARY_INDEX_MAX_ITEMS:
-                        logger.info(
-                            f"媒体库 {name} 条目数 {count} 超过索引上限 "
-                            f"{_LIBRARY_INDEX_MAX_ITEMS}，跳过条目索引兜底"
-                        )
-                        continue
-                except (TypeError, ValueError):
-                    pass
-                for item in _safe_list(client, "get_items", library_id):
-                    if _library_kind(getattr(item, "item_type", None)) != kind:
-                        continue
-                    item_id = str(getattr(item, "item_id", "") or "")
-                    if not item_id:
-                        continue
-                    entry = {
-                        "item_id": item_id,
-                        "year": str(getattr(item, "year", "") or ""),
-                        "kind": kind,
-                        "server": name,
-                    }
-                    for raw in (getattr(item, "title", ""), getattr(item, "original_title", "")):
-                        key = _normalize_title(raw)
-                        if not key:
-                            continue
-                        bucket = index.setdefault(key, [])
-                        if entry not in bucket:
-                            bucket.append(entry)
-        with self._lock:
-            self._library_index = index
-            self._library_index_at = now
-        if not index:
-            logger.debug("媒体库条目索引为空（未取到剧集/电影条目）")
-        return index
 
     def _diagnose_not_found(
         self, instances: List[tuple], *, title: str, year: str, media_type: str

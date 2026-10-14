@@ -259,15 +259,15 @@
 .mon-hits-search[data-v-1dea115f] { flex: 1 1 220px; max-width: 320px;
 }
 
-.cache-pane[data-v-ddbe6c73] { display: flex; flex-direction: column; gap: 12px;
+.cache-pane[data-v-696d3318] { display: flex; flex-direction: column; gap: 12px;
 }
-.cache-card[data-v-ddbe6c73] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px;
+.cache-card[data-v-696d3318] { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px;
 }
-.cache-message[data-v-ddbe6c73] { font-size: 13px;
+.cache-message[data-v-696d3318] { font-size: 13px;
 }
-.cache-status[data-v-ddbe6c73] { display: flex; gap: 6px; flex-wrap: wrap;
+.cache-status[data-v-696d3318] { display: flex; gap: 6px; flex-wrap: wrap;
 }
-.cache-status-sub[data-v-ddbe6c73] {
+.cache-status-sub[data-v-696d3318] {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
@@ -275,58 +275,58 @@
   font-size: 12px;
   opacity: 0.7;
 }
-.cache-grid[data-v-ddbe6c73] { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px;
+.cache-grid[data-v-696d3318] { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px;
 }
-.cache-grid-cron[data-v-ddbe6c73] { grid-template-columns: 1fr 1fr; margin-top: 12px;
+.cache-grid-cron[data-v-696d3318] { grid-template-columns: 1fr 1fr; margin-top: 12px;
 }
 @media (max-width: 900px) {
-.cache-grid[data-v-ddbe6c73], .cache-grid-cron[data-v-ddbe6c73] { grid-template-columns: 1fr;
+.cache-grid[data-v-696d3318], .cache-grid-cron[data-v-696d3318] { grid-template-columns: 1fr;
 }
 }
-.cache-chats[data-v-ddbe6c73] { display: flex; flex-direction: column; gap: 8px;
+.cache-chats[data-v-696d3318] { display: flex; flex-direction: column; gap: 8px;
 }
-.cache-range[data-v-ddbe6c73] { display: flex; flex-direction: column; gap: 8px;
+.cache-range[data-v-696d3318] { display: flex; flex-direction: column; gap: 8px;
 }
-.cache-dates[data-v-ddbe6c73] { display: flex; gap: 8px;
+.cache-dates[data-v-696d3318] { display: flex; gap: 8px;
 }
-.cache-options[data-v-ddbe6c73] { display: flex; flex-direction: column; gap: 8px;
+.cache-options[data-v-696d3318] { display: flex; flex-direction: column; gap: 8px;
 }
-.cache-switch-label[data-v-ddbe6c73] { font-size: 13px;
+.cache-switch-label[data-v-696d3318] { font-size: 13px;
 }
-.cache-hint[data-v-ddbe6c73] {
+.cache-hint[data-v-696d3318] {
   margin-top: 6px;
   font-size: 12px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   line-height: 1.6;
 }
-.cache-actions[data-v-ddbe6c73] { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px;
+.cache-actions[data-v-696d3318] { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px;
 }
-.cache-table[data-v-ddbe6c73] { font-size: 12.5px; margin-top: 12px;
+.cache-table[data-v-696d3318] { font-size: 12.5px; margin-top: 12px;
 }
-.cache-table .cache-nowrap[data-v-ddbe6c73] { white-space: nowrap;
+.cache-table .cache-nowrap[data-v-696d3318] { white-space: nowrap;
 }
-.cache-mono[data-v-ddbe6c73] { font-family: monospace;
+.cache-mono[data-v-696d3318] { font-family: monospace;
 }
-.cache-dim[data-v-ddbe6c73] { opacity: 0.7;
+.cache-dim[data-v-696d3318] { opacity: 0.7;
 }
-.cache-text[data-v-ddbe6c73] {
+.cache-text[data-v-696d3318] {
   max-width: 520px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11.5px;
 }
-.cache-empty[data-v-ddbe6c73] { text-align: center; padding: 16px; opacity: 0.6;
+.cache-empty[data-v-696d3318] { text-align: center; padding: 16px; opacity: 0.6;
 }
-.cache-search[data-v-ddbe6c73] { display: flex; gap: 8px; align-items: center;
+.cache-search[data-v-696d3318] { display: flex; gap: 8px; align-items: center;
 }
-.cache-search-input[data-v-ddbe6c73] { flex: 1 1 auto;
+.cache-search-input[data-v-696d3318] { flex: 1 1 auto;
 }
-.cache-details[data-v-ddbe6c73] { margin-top: 10px; font-size: 12px;
+.cache-details[data-v-696d3318] { margin-top: 10px; font-size: 12px;
 }
-.cache-detail[data-v-ddbe6c73] { opacity: 0.75; line-height: 1.7;
+.cache-detail[data-v-696d3318] { opacity: 0.75; line-height: 1.7;
 }
-.cache-dialog-text[data-v-ddbe6c73] { font-size: 13px; line-height: 1.7;
+.cache-dialog-text[data-v-696d3318] { font-size: 13px; line-height: 1.7;
 }
 
 .fwd-pane[data-v-cd06622a] { display: flex; flex-direction: column; gap: 12px;

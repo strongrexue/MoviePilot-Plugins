@@ -25,3 +25,6 @@ Thumbs.db
 *.swp
 
 # 说明：plugins.v3/<id>/dist/ 属于发布产物，必须提交，不要加入忽略。
+
+# WorkBuddy 本地工作区数据（记忆/任务等，仅本机）
+.workbuddy/

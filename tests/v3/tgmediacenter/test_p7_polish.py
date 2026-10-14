@@ -23,6 +23,7 @@ from app.plugins.tgmediacenter.core.notify import Notifier
 from app.plugins.tgmediacenter.core.pipeline import MessagePipeline, _looks_like_auth_error
 from app.plugins.tgmediacenter.model.hit_log import TgHitLog
 from app.plugins.tgmediacenter.model.push_task import STATUS_PENDING, TgPushTask
+from app.plugins.tgmediacenter.modules.cache import CACHE_SEARCH_RULE_ID
 
 
 # ---------------------------------------------------------------------- 测试替身
@@ -90,7 +91,7 @@ class OverviewPlugin:
 
     def __init__(self, **modules: Any) -> None:
         self._config = {"notify_on_hit": True, "notify_on_error": False}
-        self.plugin_version = "1.7.3"
+        self.plugin_version = "1.7.4"
         self._state = True
         for name, value in modules.items():
             setattr(self, name, value)
@@ -254,7 +255,8 @@ def push_env():
 
 
 def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: str = "青与碧 (2026)",
-               chat_id: int = -1004316104321, links: Optional[List[str]] = None) -> Dict[str, Any]:
+               chat_id: int = -1004316104321, links: Optional[List[str]] = None,
+               rule_id: str = "r1") -> Dict[str, Any]:
     """往任务表塞一条待推送任务并返回后端视图 dict。"""
     import json
 
@@ -264,7 +266,7 @@ def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: 
         session.add(TgPushTask(
             id=task_id,
             plugin_id="TgMediaCenter",
-            rule_id="r1",
+            rule_id=rule_id,
             chat_id=chat_id,
             message_id=2234753,
             destination=destination,
@@ -275,7 +277,7 @@ def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: 
         session.commit()
     return {
         "id": task_id,
-        "rule_id": "r1",
+        "rule_id": rule_id,
         "chat_id": chat_id,
         "message_id": 2234753,
         "destination": destination,
@@ -530,6 +532,41 @@ class TestPushNotifications:
         assert push_env.messages == []
         assert pipeline._cycle == {"pan115_done": [], "pan115_failed": []}
 
+    def test_cache_search_success_not_notified(self, push_env, monkeypatch):
+        """1.7.4：缓存回搜来源的任务不发「115 转存完成」——回搜通知已列过链接，
+        完成通知再发一遍就是同样内容重复。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=True, message="115 推送完成：成功 1")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env, rule_id=CACHE_SEARCH_RULE_ID)
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        pipeline._flush_notifications()
+        assert push_env.messages == []
+        assert pipeline._cycle["pan115_done"] == []
+        assert pipeline._cycle["pan115_failed"] == []
+
+    def test_cache_search_failure_still_notified(self, push_env, monkeypatch):
+        """1.7.4：回搜任务只免「成功」通知，失败照发（排障不能被静音）。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=False, message="115 登录态失效，请重新扫码", retryable=False)
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env, rule_id=CACHE_SEARCH_RULE_ID)
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        pipeline._flush_notifications()
+        assert len(push_env.messages) == 1
+        assert "115 转存失败" in push_env.messages[0]["title"]
+
+    def test_cache_search_rule_id_literal_consistent(self):
+        """pipeline 里的 cache_search 字面量必须与 modules.cache 的常量同源
+        （core 不能反向 import modules，靠测试兜底防漂移）。"""
+        from app.plugins.tgmediacenter.modules.cache import CACHE_SEARCH_RULE_ID
+
+        assert pipeline_module._CACHE_SEARCH_RULE_ID == CACHE_SEARCH_RULE_ID
+
 
 # ---------------------------------------------------------------------- /overview
 
@@ -554,7 +591,7 @@ def test_overview_aggregates_modules():
 
     response = controller_api.api_overview(plugin)
     data = response.data
-    assert data.plugin_version == "1.7.3"
+    assert data.plugin_version == "1.7.4"
     assert data.enabled is True
     assert data.tg.connected is True
     assert data.pan115.account == "DBOND"

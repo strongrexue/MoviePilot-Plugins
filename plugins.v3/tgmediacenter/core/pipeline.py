@@ -76,6 +76,9 @@ _RETRY_MAX_SECONDS = 600.0
 # 115 登录态失效的提醒间隔（秒）：属"要人工介入且会持续存在"的故障，
 # 不按轮次重复提醒，6 小时内只发一次。
 _CREDENTIAL_NOTIFY_WINDOW = 6 * 3600.0
+# 缓存回搜入队任务专用的规则 ID（同 modules.cache.CACHE_SEARCH_RULE_ID）。
+# core 不能反向 import modules（会循环），字面量同源、由测试兜底断言一致。
+_CACHE_SEARCH_RULE_ID = "cache_search"
 # 判定"这是登录态/鉴权问题"的关键词（115 侧文案不完全固定，按语义兜）。
 # 注意：这里**不能**放裸的「失效」——"分享链接已失效 / 文件已失效"是资源本身
 # 的问题，跟登录态无关；误判会给失败通知挂上"重新扫码"引导，更要命的是它会
@@ -787,6 +790,11 @@ class MessagePipeline:
         links = _task_links(task)
         chat_id = int(task.get("chat_id") or 0)
         if outcome == "done":
+            # 缓存回搜来源的任务不发「115 转存完成」：回搜通知在入队时已把
+            # 链接 + 来源列过一遍，完成通知再列就是同样内容发两遍（1.7.4 真机
+            # 反馈）。失败通知不受影响——回搜推送失败仍要单独报。
+            if str(task.get("rule_id") or "") == _CACHE_SEARCH_RULE_ID:
+                return
             # 元组带上 chat_id 与 duplicate：通知里按任务分块、各自标注来源频道，
             # 并区分「新转存」与「已转存过」（115 把重复也算成功，必须说清）
             self._cycle["pan115_done"].append(

@@ -521,7 +521,9 @@ class CacheModule:
         渲染（1.6.10 起）：去「· 」前缀、媒体名带年份、附真实链接、来源用频道名；
         已推送的**按消息分块**——每条被推送的消息一个块，块内列链接、块自带
         「来源：频道名」（缓存本就能配多个频道，多频道时才能看出每条链接来自哪）；
-        未推送的订阅则保留原因说明 + 来源。总量兜底：推送块最多列 20 条，其余只计数。
+        未推送的订阅则保留原因说明 + 来源，但「未订阅」不在通知里展示
+        （1.7.4 用户拍板：标题包含匹配带进的候选没对上订阅，展示只会引疑惑）。
+        总量兜底：推送块最多列 20 条，其余只计数。
         """
         candidates = sum(int(item.get("candidates") or 0) for item in details)
         pushed_total = sum(int(item.get("pushed") or 0) for item in details)
@@ -563,9 +565,15 @@ class CacheModule:
             if not int(item.get("candidates") or 0):
                 continue
             name = _media_label(item) or str(item.get("name") or "")
+            # 「未订阅」不在通知里展示（用户拍板）：候选是标题包含匹配捞出来的，
+            # 识别出的片名/年份/季没对上订阅就会被记未订阅，展示出来只会让人
+            # 疑惑"明明新增订阅了怎么还有未订阅"；单条判定在流水里仍可查。
+            reasons = dict(item.get("reasons") or {})
+            reasons.pop("未订阅", None)
+            display_reason = _reason_text(reasons)
             tail: List[str] = []
-            if item.get("reason_text"):
-                tail.append(str(item["reason_text"]))
+            if display_reason:
+                tail.append(display_reason)
             # 全推出去时必须说清"为什么判定媒体库没有"——否则用户只知道推了，
             # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
             if item.get("media_note"):
@@ -575,7 +583,12 @@ class CacheModule:
                 joined = "、".join(names.get(int(c)) or str(c) for c in channels)
                 tail.append(f"来源：{joined}")
             head = f"{name}（候选 {item.get('candidates', 0)} 条，无需推送）"
-            lines.append(head + ("：" + "；".join(tail) if tail else ""))
+            if not tail:
+                lines.append(head)
+            else:
+                # 有原因说明用"："引出；原因被隐藏只剩来源时用"；"衔接更顺
+                sep = "：" if display_reason or item.get("media_note") else "；"
+                lines.append(head + sep + "；".join(tail))
 
         if pushed_total:
             header = f"新增订阅 {new_count} 个，命中并推送 {pushed_total} 条资源："

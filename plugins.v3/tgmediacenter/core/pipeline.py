@@ -883,7 +883,7 @@ class MessagePipeline:
                     lines.append(f"{ICON_OK} 转存成功")
             if len(done) > 8:
                 lines.append(f"…另有 {len(done) - 8} 条")
-            self._notifier.send(f"{ICON_DOWNLOAD} TG媒体中心 · 115 转存完成", "\n".join(lines))
+            self._notifier.send(f"{ICON_DOWNLOAD} 胖虎媒体中心 · 115 转存完成", "\n".join(lines))
 
         total = len(failed_115)
         if total and self._notifier.enabled("notify_on_error", True):
@@ -908,7 +908,7 @@ class MessagePipeline:
             if credential_issue:
                 lines.append(f"{ICON_ERROR} 看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
             self._notifier.send(
-                f"{ICON_ERROR} TG媒体中心 · 115 转存失败",
+                f"{ICON_ERROR} 胖虎媒体中心 · 115 转存失败",
                 "\n".join(lines),
                 # 登录态失效属"需要人工介入且会长时间持续"的故障：6 小时内只提醒一次
                 key="pan115_credential" if credential_issue else "",

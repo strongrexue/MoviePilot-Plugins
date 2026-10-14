@@ -104,7 +104,7 @@ def _invoke(callback: Callable, **kwargs):
     except HTTPException:
         raise
     except Exception as err:
-        logger.error(f"TG媒体中心 API 异常：{err}", exc_info=True)
+        logger.error(f"胖虎媒体中心 API 异常：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="插件内部错误，请查看运行日志") from err
 
 

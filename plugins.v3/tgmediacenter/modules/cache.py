@@ -604,7 +604,7 @@ class CacheModule:
         # 截断时由「…其余 N 条」兜底表达。极端情况（计数>0 但无可展示块）
         # 给一句兜底正文，避免发空通知。
         body = "\n".join(lines) or "本次回搜没有可展示的结果"
-        self._notify(f"{ICON_SEARCH} TG媒体中心 缓存回搜", body)
+        self._notify(f"{ICON_SEARCH} 胖虎媒体中心 缓存回搜", body)
 
     def _search_subscription(self, sub: dict) -> dict:
         """对单个订阅在缓存里回搜并推送。"""

@@ -246,7 +246,7 @@ class InteractiveModule:
 
     def _reply(self, text: str) -> str:
         """发一条回执通知（渠道由宿主「通知」设置决定）。"""
-        self._notifier.send(f"{ICON_RECEIPT} TG媒体中心 · 链接转存回执", str(text or ""))
+        self._notifier.send(f"{ICON_RECEIPT} 胖虎媒体中心 · 链接转存回执", str(text or ""))
         return str(text or "")
 
 

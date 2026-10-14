@@ -294,7 +294,7 @@ onUnmounted(() => {
         <VIcon icon="mdi-send-circle-outline" />
       </VAvatar>
       <div class="tg-heading">
-        <div class="text-h6">TG媒体中心 · 运行详情</div>
+        <div class="text-h6">胖虎媒体中心 · 运行详情</div>
         <div class="text-caption text-medium-emphasis">
           TG 客户端 → 消息流水线 → 缓存 / 监控 / 转发
         </div>

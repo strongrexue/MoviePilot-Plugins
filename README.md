@@ -7,7 +7,7 @@
 
 | 插件 ID | 名称 | 版本 | 说明 |
 |---|---|---|---|
-| `TgMediaCenter` | TG媒体中心 | 1.0.0 | Telegram 资源监控 / 历史消息缓存 / 115 网盘 / 自定义豆瓣源 / TG 通用转发 |
+| `TgMediaCenter` | 胖虎媒体中心 | 1.8.1 | Telegram 资源监控 / 历史消息缓存 / 115 网盘 / TG 通用转发 |
 
 对应的插件源码位于 `plugins.v3/<插件ID小写>/`，测试位于 `tests/v3/<插件ID小写>/`，
 索引元数据写入 `package.v3.json`。
@@ -15,7 +15,7 @@
 ## 安装
 
 在 MoviePilot 中把本仓库地址添加为自定义插件仓库，然后在插件市场中安装
-`TG媒体中心`。索引条目已声明 `release: true`，安装时使用本仓库 GitHub Release
+`胖虎媒体中心`。索引条目已声明 `release: true`，安装时使用本仓库 GitHub Release
 中的压缩包。
 
 ## 目录结构

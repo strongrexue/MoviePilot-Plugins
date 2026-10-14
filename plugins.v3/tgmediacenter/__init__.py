@@ -1,4 +1,4 @@
-"""TG媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
+"""胖虎媒体中心 - MoviePilot V3 插件（TgMediaCenter）。
 
 当前进度：P8 —— 消息交互（私聊发 115 / 磁力 / eD2k 链接直接转存并回执）；
 P7 打磨已完成（运行详情与仪表盘、通知接入、限流退避收口、测试与真实加载验证）。
@@ -9,7 +9,6 @@ P7 打磨已完成（运行详情与仪表盘、通知接入、限流退避收�
   ⑥ TG 通用转发（关键词/扩展名匹配、内容转换、置顶，与监控共用事件流水线与全局冷却）；
   ⑦ 运行详情页与仪表盘（/overview 聚合）+ 插件级共享冷却门（读写共用 FloodWait 退避）；
   ⑧ 消息交互（监听宿主用户消息事件，私聊发链接即转存 115 并回执：新转存 / 已转存过 / 失败原因）。
-- 自定义豆瓣源（原 P3）已取消，豆瓣订阅请用「豆瓣中心」插件。
 """
 from typing import Any, Dict, List, Optional, Tuple
 import time
@@ -36,13 +35,13 @@ except Exception:  # pragma: no cover
 
 
 class TgMediaCenter(_PluginBase):
-    """TG媒体中心插件入口。"""
+    """胖虎媒体中心插件入口。"""
 
-    plugin_name = "TG媒体中心"
-    plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
+    plugin_name = "胖虎媒体中心"
+    plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.8.0"
+    plugin_version = "1.8.1"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -161,7 +160,7 @@ class TgMediaCenter(_PluginBase):
                 self.__class__.__name__,
                 "telegram_connect",
                 self._ensure_telegram_runtime,
-                "TG媒体中心 TG 客户端连接",
+                "胖虎媒体中心 TG 客户端连接",
                 delay_seconds=delay_seconds,
             )
         except Exception as err:  # pragma: no cover - 调度失败不影响其余能力
@@ -225,12 +224,7 @@ class TgMediaCenter(_PluginBase):
             "pan115_cookie": "",
             "pan115_target_cid": "",
             "pan115_batch_max_size": 20,
-            # ③ 自定义豆瓣源
-            "douban_enabled": False,
-            "douban_rsshub_base": "http://127.0.0.1:1200",
-            "douban_cookie": "",
-            "douban_wish_rss_urls": [],
-            "douban_rules": [],
+            # ③ 已废弃：自定义豆瓣源（原 P3）已取消，配置项一并移除（1.8.1）
             # ④ TG 资源监控
             "monitor_enabled": False,
             "monitor_rules": [],
@@ -246,7 +240,6 @@ class TgMediaCenter(_PluginBase):
             "forward_enabled": False,
             "forward_rules": [],
             # 定时任务
-            "douban_cron": "0 13 * * *",
             "cache_cron": "0 */6 * * *",
             "cache_subscribe_cron": "*/30 * * * *",
             # 通知
@@ -593,7 +586,7 @@ class TgMediaCenter(_PluginBase):
                 services.append({
                     "func": cache.run_scheduled_sync,
                     "trigger": CronTrigger.from_crontab(cron),
-                    "name": "TG媒体中心 缓存增量同步",
+                    "name": "胖虎媒体中心 缓存增量同步",
                     "id": "tgmediacenter_cache_sync",
                 })
             if cache.subscribe_enabled():
@@ -601,7 +594,7 @@ class TgMediaCenter(_PluginBase):
                 services.append({
                     "func": cache.run_subscription_job,
                     "trigger": CronTrigger.from_crontab(cron),
-                    "name": "TG媒体中心 订阅回搜",
+                    "name": "胖虎媒体中心 订阅回搜",
                     "id": "tgmediacenter_cache_subscribe",
                 })
         except Exception as err:  # pragma: no cover - 定时任务注册失败不影响插件加载

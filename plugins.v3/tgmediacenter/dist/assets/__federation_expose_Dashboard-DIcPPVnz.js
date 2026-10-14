@@ -212,7 +212,7 @@ return (_ctx, _cache) => {
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
             default: _withCtx(() => [...(_cache[0] || (_cache[0] = [
-              _createTextVNode("TG媒体中心", -1)
+              _createTextVNode("胖虎媒体中心", -1)
             ]))]),
             _: 1
           }),
@@ -380,6 +380,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8126f131"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-89e5a1c8"]]);
 
 export { Dashboard as default };

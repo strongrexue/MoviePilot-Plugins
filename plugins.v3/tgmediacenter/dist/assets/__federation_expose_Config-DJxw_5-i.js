@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.8.0';
+const FRONTEND_VERSION = '1.8.1';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -24,7 +24,7 @@ const {ref: ref$8} = await importShared('vue');
  *
  * 说明：打码只改 `type`（显示层），`v-model` 里的值始终是真实内容——
  * 因此"看着是圆点直接保存"不会把星号写进配置。
- * 供后续 115 Cookie / 豆瓣 Cookie / Bot Token 等字段复用。
+ * 供后续 115 Cookie / Bot Token 等字段复用。
  */
 
 const _sfc_main$7 = {
@@ -79,7 +79,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const SecretField = /*#__PURE__*/_export_sfc(_sfc_main$7, [['__scopeId',"data-v-f57a31cd"]]);
+const SecretField = /*#__PURE__*/_export_sfc(_sfc_main$7, [['__scopeId',"data-v-893bc370"]]);
 
 /** 复制文本到剪贴板：优先 Clipboard API，失败回退到临时 textarea。 */
 async function copyText(text) {
@@ -6221,7 +6221,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6" }, {
               default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-                _createTextVNode("TG媒体中心", -1)
+                _createTextVNode("胖虎媒体中心", -1)
               ]))]),
               _: 1
             }),
@@ -6368,6 +6368,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1ccf6046"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-eba47416"]]);
 
 export { Config as default };

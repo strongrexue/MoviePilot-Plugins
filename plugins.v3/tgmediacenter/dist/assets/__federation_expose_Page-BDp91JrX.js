@@ -353,7 +353,7 @@ return (_ctx, _cache) => {
             _: 1
           }),
           _cache[7] || (_cache[7] = _createElementVNode("div", { class: "tg-heading" }, [
-            _createElementVNode("div", { class: "text-h6" }, "TG媒体中心 · 运行详情"),
+            _createElementVNode("div", { class: "text-h6" }, "胖虎媒体中心 · 运行详情"),
             _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, " TG 客户端 → 消息流水线 → 缓存 / 监控 / 转发 ")
           ], -1)),
           _createVNode(_component_VSpacer),
@@ -942,6 +942,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d472eb8d"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d3d02447"]]);
 
 export { Page as default };

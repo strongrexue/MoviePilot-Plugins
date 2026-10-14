@@ -6,7 +6,7 @@ import { ref } from 'vue'
  *
  * 说明：打码只改 `type`（显示层），`v-model` 里的值始终是真实内容——
  * 因此"看着是圆点直接保存"不会把星号写进配置。
- * 供后续 115 Cookie / 豆瓣 Cookie / Bot Token 等字段复用。
+ * 供后续 115 Cookie / Bot Token 等字段复用。
  */
 const props = defineProps({
   modelValue: { type: [String, Number], default: '' },

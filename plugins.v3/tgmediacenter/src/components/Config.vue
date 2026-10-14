@@ -44,7 +44,7 @@ onMounted(config.loadConfig)
             <VIcon icon="mdi-send-circle-outline" size="24" />
           </VAvatar>
         </template>
-        <VCardTitle class="text-h6">TG媒体中心</VCardTitle>
+        <VCardTitle class="text-h6">胖虎媒体中心</VCardTitle>
         <VCardSubtitle class="text-caption">{{ current.desc }}</VCardSubtitle>
         <template #append>
           <VSwitch

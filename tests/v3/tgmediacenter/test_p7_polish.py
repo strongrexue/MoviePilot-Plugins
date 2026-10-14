@@ -439,7 +439,7 @@ class TestPushNotifications:
         assert len(push_env.messages) == 1
         # 1.7.6：标题纯化，条数/已转存过标注只由正文表达
         # 1.7.7：标题带 📥 主图标
-        assert push_env.messages[0]["title"] == "📥 TG媒体中心 · 115 转存完成"
+        assert push_env.messages[0]["title"] == "📥 胖虎媒体中心 · 115 转存完成"
         text = push_env.messages[0]["text"]
         # 1.7.6：去「已转存到 115（N 条）：」头行，直接从块开始
         assert "已转存到 115" not in text
@@ -476,7 +476,7 @@ class TestPushNotifications:
         assert len(push_env.messages) == 1
         # 1.7.6：标题纯化，无「（2 条，其中 1 条已转存过）」标注
         # 1.7.7：标题带 📥 主图标
-        assert push_env.messages[0]["title"] == "📥 TG媒体中心 · 115 转存完成"
+        assert push_env.messages[0]["title"] == "📥 胖虎媒体中心 · 115 转存完成"
         text = push_env.messages[0]["text"]
         assert text.count("♻️ 已转存过，本次未重复保存") == 1
         assert text.count("✅ 转存成功") == 1

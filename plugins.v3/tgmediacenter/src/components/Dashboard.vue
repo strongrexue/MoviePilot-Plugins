@@ -142,7 +142,7 @@ onMounted(loadData)
           <VIcon icon="mdi-chart-box-outline" />
         </VAvatar>
       </template>
-      <VCardTitle class="text-subtitle-1">TG媒体中心</VCardTitle>
+      <VCardTitle class="text-subtitle-1">胖虎媒体中心</VCardTitle>
       <VCardSubtitle class="text-caption">
         TG / 115 / 缓存概览 · 缓存 {{ cache.total ?? 0 }} 条 · 队列待处理 {{ pipeline.push_pending ?? 0 }}
       </VCardSubtitle>

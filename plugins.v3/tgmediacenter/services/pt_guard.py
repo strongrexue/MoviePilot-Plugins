@@ -102,11 +102,14 @@ def _probe_downloaders(helper_found: bool) -> Dict[str, Any]:
 
     services = None
     try:
-        services = helper.get_services(type_filter="Downloader")
+        # 注意：type_filter 匹配的是服务类型名（qbittorrent / transmission …），
+        # 不是模块类别；DownloaderHelper 构造时已绑定 ModuleType.Downloader，
+        # 这里**不能**再传 "Downloader"（1.9.1 的探针就是这么写错的，永远枚举为空）。
+        services = helper.get_services()
     except TypeError:
-        # 部分宿主版本签名不同（无 type_filter 或需要位置参数）
+        # 极老签名可能要求位置参数；None 等价不过滤
         try:
-            services = helper.get_services("Downloader")
+            services = helper.get_services(None)
         except Exception as err:
             return _item("downloader_instances", label, False, f"枚举下载器失败：{err}")
     except Exception as err:
@@ -123,8 +126,18 @@ def _probe_downloaders(helper_found: bool) -> Dict[str, Any]:
     if names:
         return _item("downloader_instances", label, True,
                      f"已启用 {len(names)} 个：{'、'.join(names)}")
+
+    # 枚举为空时给出可行动的区分：是"没配置"还是"配置了但运行实例没起来"
+    try:
+        configs = helper.get_configs()
+    except Exception:
+        configs = None
+    if configs:
+        return _item("downloader_instances", label, False,
+                     f"发现 {len(configs)} 个已启用的下载器配置（{'、'.join(configs)}），"
+                     "但未枚举到运行实例（可能 MP 刚启动尚未就绪，稍后点「重新探测」）")
     return _item("downloader_instances", label, False,
-                 "未枚举到已启用的下载器（闸门 A 的活跃性细化将不可用）")
+                 "MP 未配置已启用的下载器（闸门 A 的活跃性细化将跳过，判定链自动降级）")
 
 
 def probe() -> Dict[str, Any]:

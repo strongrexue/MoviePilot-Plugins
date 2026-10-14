@@ -67,7 +67,7 @@ def test_probe_without_host_is_all_red_but_never_raises(monkeypatch):
 # --------------------------------------------------------------------- 探针：有宿主
 
 
-def _patch_full_host(monkeypatch, services=None):
+def _patch_full_host(monkeypatch, services=None, configs=None):
     """注入一套"宿主齐全"的假模块（探针应全绿）。"""
     class DownloadHistoryFilter:
         title: str = ""
@@ -87,8 +87,19 @@ def _patch_full_host(monkeypatch, services=None):
     )
 
     class DownloaderHelper:
-        def get_services(self, type_filter=None):  # noqa: ARG002 - 模拟宿主签名
+        # 回归锁（1.9.2）：1.9.1 传了 type_filter="Downloader"，而宿主的
+        # type_filter 匹配的是服务类型名（qbittorrent 等），导致永远枚举为空。
+        # DownloaderHelper 已绑定模块类别，正确用法是不带过滤直接调。
+        calls: list = []
+
+        def get_services(self, type_filter=None):
+            DownloaderHelper.calls.append(type_filter)
+            if type_filter is not None:
+                raise AssertionError("不应传 type_filter：它匹配的是 qbittorrent 等类型名")
             return services if services is not None else {"qBittorrent": object()}
+
+        def get_configs(self):
+            return configs if configs is not None else {"qBittorrent": object()}
 
     monkeypatch.setitem(
         sys.modules, "app.sdk.services",
@@ -122,13 +133,24 @@ def test_probe_reports_real_host_paths(monkeypatch):
 
 
 def test_probe_flags_missing_downloader_as_red(monkeypatch):
-    """下载器助手在、但一个都没启用 → 细项报红（活跃性细化将不可用）。"""
-    _patch_full_host(monkeypatch, services={})
+    """下载器助手在、一个都没配置 → 细项报红且说明会自动降级（不拦推送）。"""
+    _patch_full_host(monkeypatch, services={}, configs={})
     result = pt_guard.probe()
     items = {item["key"]: item for item in result["items"]}
     assert items["downloader_helper"]["ok"] is True
     assert items["downloader_instances"]["ok"] is False
-    assert "未枚举到" in items["downloader_instances"]["detail"]
+    assert "未配置" in items["downloader_instances"]["detail"]
+    assert "降级" in items["downloader_instances"]["detail"]
+
+
+def test_probe_distinguishes_configured_but_no_instances(monkeypatch):
+    """配置存在但枚举不到运行实例 → 提示可能是宿主尚未就绪（与"没配置"区分开）。"""
+    _patch_full_host(monkeypatch, services={}, configs={"NAS-qB": object()})
+    result = pt_guard.probe()
+    items = {item["key"]: item for item in result["items"]}
+    assert items["downloader_instances"]["ok"] is False
+    assert "NAS-qB" in items["downloader_instances"]["detail"]
+    assert "运行实例" in items["downloader_instances"]["detail"]
 
 
 # --------------------------------------------------------------------- 配置默认值

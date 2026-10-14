@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "tgmediacenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "胖虎媒体中心"
-    assert TgMediaCenter.plugin_version == "1.8.1"
+    assert TgMediaCenter.plugin_version == "1.8.2"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 

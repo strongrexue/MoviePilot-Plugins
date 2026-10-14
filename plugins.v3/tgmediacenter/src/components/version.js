@@ -8,4 +8,4 @@
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-export const FRONTEND_VERSION = '1.8.1'
+export const FRONTEND_VERSION = '1.8.2'

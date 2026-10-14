@@ -39,9 +39,9 @@ class TgMediaCenter(_PluginBase):
 
     plugin_name = "胖虎媒体中心"
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
-    plugin_icon = "tgmediacenter.png"
+    plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.8.1"
+    plugin_version = "1.8.2"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"

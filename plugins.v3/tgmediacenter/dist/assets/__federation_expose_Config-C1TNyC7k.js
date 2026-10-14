@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.9.0';
+const FRONTEND_VERSION = '1.9.1';
 
 const {resolveComponent:_resolveComponent$8,createVNode:_createVNode$8,withCtx:_withCtx$8,openBlock:_openBlock$8,createBlock:_createBlock$8} = await importShared('vue');
 
@@ -132,8 +132,8 @@ const _hoisted_5$6 = {
   key: 3,
   class: "tg-empty"
 };
-const _hoisted_6$6 = { key: 0 };
-const _hoisted_7$6 = {
+const _hoisted_6$5 = { key: 0 };
+const _hoisted_7$5 = {
   key: 5,
   class: "tg-more"
 };
@@ -397,7 +397,7 @@ return (_ctx, _cache) => {
                           _createVNode$7(_component_VListItemSubtitle, { class: "tg-dialog-sub" }, {
                             default: _withCtx$7(() => [
                               (item.username)
-                                ? (_openBlock$7(), _createElementBlock$7("span", _hoisted_6$6, "@" + _toDisplayString$7(item.username) + " · ", 1))
+                                ? (_openBlock$7(), _createElementBlock$7("span", _hoisted_6$5, "@" + _toDisplayString$7(item.username) + " · ", 1))
                                 : _createCommentVNode$7("", true),
                               _createTextVNode$7(_toDisplayString$7(item.id), 1)
                             ]),
@@ -411,7 +411,7 @@ return (_ctx, _cache) => {
                   _: 1
                 })),
           (hasMore.value)
-            ? (_openBlock$7(), _createElementBlock$7("div", _hoisted_7$6, [
+            ? (_openBlock$7(), _createElementBlock$7("div", _hoisted_7$5, [
                 _createVNode$7(_component_VBtn, {
                   size: "small",
                   variant: "text",
@@ -458,8 +458,8 @@ const _hoisted_2$6 = { class: "tg-status-head" };
 const _hoisted_3$6 = { class: "tg-status-chips" };
 const _hoisted_4$6 = { class: "tg-status-actions" };
 const _hoisted_5$5 = { key: 0 };
-const _hoisted_6$5 = ["title"];
-const _hoisted_7$5 = { key: 2 };
+const _hoisted_6$4 = ["title"];
+const _hoisted_7$4 = { key: 2 };
 const _hoisted_8$4 = { class: "tg-authorized" };
 const _hoisted_9$4 = {
   key: 0,
@@ -893,11 +893,11 @@ return (_ctx, _cache) => {
                     icon: reveal.value.phone ? 'mdi-eye-off-outline' : 'mdi-eye-outline',
                     size: "14"
                   }, null, 8, ["icon"])
-                ], 8, _hoisted_6$5))
+                ], 8, _hoisted_6$4))
               : _createCommentVNode$6("", true),
             _createElementVNode$6("span", null, " · 对话缓存 " + _toDisplayString$6(status.value.dialog_count) + " 条", 1),
             (status.value.dialogs_updated_at)
-              ? (_openBlock$6(), _createElementBlock$6("span", _hoisted_7$5, " · 更新于 " + _toDisplayString$6(status.value.dialogs_updated_at), 1))
+              ? (_openBlock$6(), _createElementBlock$6("span", _hoisted_7$4, " · 更新于 " + _toDisplayString$6(status.value.dialogs_updated_at), 1))
               : _createCommentVNode$6("", true)
           ]),
           _: 1
@@ -1250,8 +1250,8 @@ const _hoisted_4$5 = {
   class: "p115-updated"
 };
 const _hoisted_5$4 = { class: "p115-qr" };
-const _hoisted_6$4 = { class: "p115-qr-form" };
-const _hoisted_7$4 = {
+const _hoisted_6$3 = { class: "p115-qr-form" };
+const _hoisted_7$3 = {
   key: 0,
   class: "p115-qr-body"
 };
@@ -1582,7 +1582,7 @@ return (_ctx, _cache) => {
                 : _createCommentVNode$5("", true)
             ]),
             _createElementVNode$5("div", _hoisted_5$4, [
-              _createElementVNode$5("div", _hoisted_6$4, [
+              _createElementVNode$5("div", _hoisted_6$3, [
                 _createVNode$5(_component_VSelect, {
                   modelValue: qrApp.value,
                   "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((qrApp).value = $event)),
@@ -1624,7 +1624,7 @@ return (_ctx, _cache) => {
                   : _createCommentVNode$5("", true)
               ]),
               (qr.value?.image)
-                ? (_openBlock$5(), _createElementBlock$5("div", _hoisted_7$4, [
+                ? (_openBlock$5(), _createElementBlock$5("div", _hoisted_7$3, [
                     _createElementVNode$5("img", {
                       src: qr.value.image,
                       alt: "115 登录二维码",
@@ -1988,8 +1988,8 @@ const _hoisted_2$4 = { class: "mon-status" };
 const _hoisted_3$4 = { class: "mon-status-sub" };
 const _hoisted_4$4 = { key: 0 };
 const _hoisted_5$3 = { key: 1 };
-const _hoisted_6$3 = { key: 2 };
-const _hoisted_7$3 = {
+const _hoisted_6$2 = { key: 2 };
+const _hoisted_7$2 = {
   key: 3,
   class: "mon-flood"
 };
@@ -2681,10 +2681,10 @@ return (_ctx, _cache) => {
                 ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_5$3, " 缓冲 " + _toDisplayString$4(status.value.pipeline.buffered) + " · 待处理 " + _toDisplayString$4(status.value.pipeline.queued), 1))
                 : _createCommentVNode$4("", true),
               (status.value?.gate_interval)
-                ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_6$3, "转发冷却 " + _toDisplayString$4(status.value.gate_interval) + " 秒", 1))
+                ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_6$2, "转发冷却 " + _toDisplayString$4(status.value.gate_interval) + " 秒", 1))
                 : _createCommentVNode$4("", true),
               (status.value?.flood_remaining > 0)
-                ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_7$3, " FloodWait 退避中（约 " + _toDisplayString$4(status.value.flood_remaining) + " 秒） ", 1))
+                ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_7$2, " FloodWait 退避中（约 " + _toDisplayString$4(status.value.flood_remaining) + " 秒） ", 1))
                 : _createCommentVNode$4("", true)
             ]),
             _createElementVNode$4("div", _hoisted_8$2, [
@@ -3456,8 +3456,8 @@ const _hoisted_2$3 = { class: "cache-status" };
 const _hoisted_3$3 = { class: "cache-status-sub" };
 const _hoisted_4$3 = { key: 0 };
 const _hoisted_5$2 = { key: 1 };
-const _hoisted_6$2 = { key: 2 };
-const _hoisted_7$2 = { class: "cache-status-sub" };
+const _hoisted_6$1 = { key: 2 };
+const _hoisted_7$1 = { class: "cache-status-sub" };
 const _hoisted_8$1 = { key: 0 };
 const _hoisted_9$1 = { key: 1 };
 const _hoisted_10$1 = { class: "cache-grid" };
@@ -4037,9 +4037,9 @@ return (_ctx, _cache) => {
                   ]))
                 : (status.value?.sync?.finished_at)
                   ? (_openBlock$3(), _createElementBlock$3("span", _hoisted_5$2, " 上次同步结束 " + _toDisplayString$3(fmtTime(status.value.sync.finished_at)) + " · 新增 " + _toDisplayString$3(status.value.sync.inserted ?? 0) + " 条 ", 1))
-                  : (_openBlock$3(), _createElementBlock$3("span", _hoisted_6$2, "尚未执行过历史回溯同步"))
+                  : (_openBlock$3(), _createElementBlock$3("span", _hoisted_6$1, "尚未执行过历史回溯同步"))
             ]),
-            _createElementVNode$3("div", _hoisted_7$2, [
+            _createElementVNode$3("div", _hoisted_7$1, [
               (status.value?.subscribe?.last_check_at)
                 ? (_openBlock$3(), _createElementBlock$3("span", _hoisted_8$1, " 订阅检查 " + _toDisplayString$3(fmtTime(status.value.subscribe.last_check_at)) + " · 新增订阅 " + _toDisplayString$3(status.value.subscribe.last_check_new ?? 0) + " · 推送 " + _toDisplayString$3(status.value.subscribe.last_check_pushed ?? 0) + " 条 ", 1))
                 : (_openBlock$3(), _createElementBlock$3("span", _hoisted_9$1, "订阅回搜尚未运行（首次运行只建立订阅基线）")),
@@ -4640,11 +4640,11 @@ const _hoisted_4$2 = {
   class: "fwd-empty"
 };
 const _hoisted_5$1 = { class: "fwd-rule-head" };
-const _hoisted_6$1 = {
+const _hoisted_6 = {
   class: "fwd-rule-switch",
   title: "规则总开关：关闭后这条转发规则不生效（不转发、也不会有通知）；改动随底部「保存配置」生效。"
 };
-const _hoisted_7$1 = { class: "fwd-rule-grid" };
+const _hoisted_7 = { class: "fwd-rule-grid" };
 const _hoisted_8 = { class: "fwd-chats" };
 const _hoisted_9 = { class: "fwd-target" };
 const _hoisted_10 = { class: "fwd-logic" };
@@ -5387,7 +5387,7 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           class: "fwd-rule-name"
                         }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                        _createElementVNode$2("div", _hoisted_6$1, [
+                        _createElementVNode$2("div", _hoisted_6, [
                           _createVNode$2(_component_VSwitch, {
                             modelValue: rule.enabled,
                             "onUpdate:modelValue": $event => ((rule.enabled) = $event),
@@ -5411,7 +5411,7 @@ return (_ctx, _cache) => {
                           _: 1
                         }, 8, ["onClick"])
                       ]),
-                      _createElementVNode$2("div", _hoisted_7$1, [
+                      _createElementVNode$2("div", _hoisted_7, [
                         _createElementVNode$2("div", _hoisted_8, [
                           _createVNode$2(_component_VSelect, {
                             modelValue: rule.source_ids,
@@ -5988,31 +5988,28 @@ return (_ctx, _cache) => {
 };
 const ConfigForwardPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-58767acb"]]);
 
-const {resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,withCtx:_withCtx$1,createTextVNode:_createTextVNode$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementVNode:_createElementVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList$1,Fragment:_Fragment$1} = await importShared('vue');
+const {resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,withCtx:_withCtx$1,createTextVNode:_createTextVNode$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementVNode:_createElementVNode$1,renderList:_renderList$1,Fragment:_Fragment$1,createElementBlock:_createElementBlock$1} = await importShared('vue');
 
 
 const _hoisted_1$1 = { class: "p9-pane" };
-const _hoisted_2$1 = { class: "p9-state" };
-const _hoisted_3$1 = {
-  key: 0,
-  class: "p9-detail"
-};
-const _hoisted_4$1 = { class: "p9-probe-summary" };
-const _hoisted_5 = { class: "p9-probe-body" };
-const _hoisted_6 = { class: "p9-probe-label" };
-const _hoisted_7 = { class: "p9-probe-detail" };
+const _hoisted_2$1 = { class: "p9-probe-summary" };
+const _hoisted_3$1 = { class: "p9-probe-body" };
+const _hoisted_4$1 = { class: "p9-probe-label" };
+const _hoisted_5 = { class: "p9-probe-detail" };
 
 const {computed: computed$1,onMounted: onMounted$1,ref: ref$2} = await importShared('vue');
 
 /**
- * ⑩ P9 重复获取治理面板（1.9.0 / 阶段 P9-1）。
+ * ⑩ P9 重复获取治理面板（1.9.0 引入 / 1.9.1 移除 R0）。
  *
  * 背景：PT 路（MP 订阅 → 下载 → 115）与 TG 路（本插件转存 → 115）写进同一个
- * 115 + STRM + Emby，会重复获取同一部作品。治理分两向：
+ * 115 + STRM + Emby，会重复拿到同一部作品。治理分两向：
  *
  * - **前向闸门 A**：TG 推送前先看「PT 路是不是已经在管」→ **P9-2 才实现**，
  *   本版只在配置里占位，界面上不给控件，免得开关点了却没效果；
- * - **反向 R0 开关**：暂停宿主内置的「新增订阅搜索」→ **本版可用**。
+ * - **反向 R0 开关**（1.9.0 曾提供）：真机验证**否决**——暂停宿主内置的
+ *   「新增订阅搜索」后，新增订阅照旧被搜索（首次搜索是 subscribe.added
+ *   事件驱动，那个 5 分钟 job 只是兜底），开关无收益，1.9.1 已移除。
  *
  * 探针的意义：闸门 A 要用 `list_download_history` 与 `DownloaderHelper`，而这两组
  * 宿主能力本插件此前一处都没用过。先探清"到底能不能导入、真实落在哪个模块、
@@ -6032,27 +6029,11 @@ const props = __props;
 
 const guard = ref$2(null);
 const loading = ref$2(false);
-const busy = ref$2('');
 const message = ref$2('');
 const messageOk = ref$2(true);
 
-const form = computed$1(() => props.config.form);
-const r0 = computed$1(() => guard.value?.r0 || null);
 const probe = computed$1(() => guard.value?.probe || null);
 const items = computed$1(() => probe.value?.items || []);
-
-/** 开关的期望值（表单里刚改、还没保存的值）。 */
-computed$1(() => Boolean(form.value.p9_pause_new_subscribe_search));
-
-const r0Line = computed$1(() => {
-  const info = r0.value;
-  if (!info) return '未知（尚未探测）'
-  if (!info.available) return '旧调度接口不可用，开关不生效'
-  if (!info.exists) return '宿主未注册「新增订阅搜索」任务'
-  return info.paused
-    ? '已暂停：内置的 5 分钟兜底搜索不会跑'
-    : `运行中${info.next_run ? `，下次 ${info.next_run}` : ''}`
-});
 
 const probeSummary = computed$1(() => {
   const data = probe.value;
@@ -6063,7 +6044,7 @@ const probeSummary = computed$1(() => {
 });
 
 function setMessage(text, ok = true) {
-  message.value = text || '';
+  message.value = text;
   messageOk.value = ok;
 }
 
@@ -6078,23 +6059,6 @@ async function load() {
   }
 }
 
-/** 按当前**已保存**的配置重贴开关（宿主热重载会重建任务，pause 会被冲掉）。 */
-async function reapply() {
-  if (busy.value) return
-  busy.value = 'apply';
-  setMessage('正在按当前配置重贴开关…');
-  try {
-    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'p9/r0/apply', {}, { timeoutMs: 30000 }));
-    if (guard.value) guard.value.r0 = data;
-    setMessage(data?.message || '已重贴');
-  } catch (err) {
-    setMessage(err?.message || '重贴失败', false);
-    await load();
-  } finally {
-    busy.value = '';
-  }
-}
-
 onMounted$1(load);
 
 return (_ctx, _cache) => {
@@ -6106,8 +6070,6 @@ return (_ctx, _cache) => {
   const _component_VCard = _resolveComponent$1("VCard");
   const _component_VAlert = _resolveComponent$1("VAlert");
   const _component_VProgressLinear = _resolveComponent$1("VProgressLinear");
-  const _component_VSwitch = _resolveComponent$1("VSwitch");
-  const _component_VChip = _resolveComponent$1("VChip");
   const _component_VBtn = _resolveComponent$1("VBtn");
   const _component_VCardText = _resolveComponent$1("VCardText");
 
@@ -6136,13 +6098,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$1(() => [...(_cache[1] || (_cache[1] = [
+              default: _withCtx$1(() => [...(_cache[0] || (_cache[0] = [
                 _createTextVNode$1("重复获取治理", -1)
               ]))]),
               _: 1
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$1(() => [...(_cache[2] || (_cache[2] = [
+              default: _withCtx$1(() => [...(_cache[1] || (_cache[1] = [
                 _createTextVNode$1(" PT 路（MP 订阅 → 下载 → 115）与 TG 路（本插件转存 → 115）写进同一个 115 + STRM + Emby，会重复拿到同一部作品。这里只按「媒体身份」判断谁在管， 不在目录或命名上做任何约定。 ", -1)
               ]))]),
               _: 1
@@ -6182,102 +6144,6 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardItem, null, {
-          prepend: _withCtx$1(() => [
-            _createVNode$1(_component_VSwitch, {
-              modelValue: form.value.p9_pause_new_subscribe_search,
-              "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((form.value.p9_pause_new_subscribe_search) = $event)),
-              color: "primary",
-              "hide-details": "",
-              inset: "",
-              disabled: !form.value.enabled
-            }, null, 8, ["modelValue", "disabled"])
-          ]),
-          default: _withCtx$1(() => [
-            _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
-                _createTextVNode$1("暂停宿主的「新增订阅搜索」", -1)
-              ]))]),
-              _: 1
-            }),
-            _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
-                _createTextVNode$1(" 开启后，宿主那个每 5 分钟跑一次的「新增订阅搜索」会被暂停。 它的作用是：TG 已经先把内容送进媒体库时，别让 MP 再用 PT 下一次。 改动随底部「保存配置」生效；插件停用或本开关关闭时一律放行。 ", -1)
-              ]))]),
-              _: 1
-            })
-          ]),
-          _: 1
-        }),
-        _createVNode$1(_component_VCardText, { class: "pt-0" }, {
-          default: _withCtx$1(() => [
-            _createElementVNode$1("div", _hoisted_2$1, [
-              _createElementVNode$1("span", null, "当前状态：" + _toDisplayString$1(r0Line.value), 1),
-              (r0.value)
-                ? (_openBlock$1(), _createBlock$1(_component_VChip, {
-                    key: 0,
-                    size: "x-small",
-                    color: r0.value.available && r0.value.exists ? (r0.value.paused ? 'warning' : 'success') : 'default',
-                    variant: "tonal",
-                    class: "ms-2"
-                  }, {
-                    default: _withCtx$1(() => [
-                      _createTextVNode$1(_toDisplayString$1(r0.value.available ? (r0.value.exists ? (r0.value.paused ? '已暂停' : '运行中') : '任务不存在') : '接口不可用'), 1)
-                    ]),
-                    _: 1
-                  }, 8, ["color"]))
-                : _createCommentVNode$1("", true)
-            ]),
-            _cache[7] || (_cache[7] = _createElementVNode$1("div", { class: "p9-hint" }, [
-              _createTextVNode$1(" 表单里显示的是"),
-              _createElementVNode$1("b", null, "期望值"),
-              _createTextVNode$1("，上面是宿主侧的"),
-              _createElementVNode$1("b", null, "真实状态"),
-              _createTextVNode$1("——两者不一致时先保存配置。 宿主配置热重载会重建这个任务、把暂停状态冲掉，此时点右侧按钮重贴一次即可。 ")
-            ], -1)),
-            _createVNode$1(_component_VBtn, {
-              size: "small",
-              variant: "tonal",
-              color: "primary",
-              "prepend-icon": "mdi-refresh",
-              class: "mt-2",
-              loading: busy.value === 'apply',
-              disabled: !r0.value?.available,
-              onClick: reapply
-            }, {
-              default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
-                _createTextVNode$1("按当前配置重贴", -1)
-              ]))]),
-              _: 1
-            }, 8, ["loading", "disabled"]),
-            (r0.value && !r0.value.available)
-              ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
-                  key: 0,
-                  type: "warning",
-                  variant: "tonal",
-                  density: "compact",
-                  class: "mt-3"
-                }, {
-                  default: _withCtx$1(() => [
-                    _cache[6] || (_cache[6] = _createTextVNode$1(" 宿主没有保留旧调度接口（或已移除内置任务），本开关不生效；不影响插件的其余能力。 ", -1)),
-                    (r0.value.message)
-                      ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_3$1, _toDisplayString$1(r0.value.message), 1))
-                      : _createCommentVNode$1("", true)
-                  ]),
-                  _: 1
-                }))
-              : _createCommentVNode$1("", true)
-          ]),
-          _: 1
-        })
-      ]),
-      _: 1
-    }),
-    _createVNode$1(_component_VCard, {
-      flat: "",
-      class: "p9-card"
-    }, {
-      default: _withCtx$1(() => [
-        _createVNode$1(_component_VCardItem, null, {
           append: _withCtx$1(() => [
             _createVNode$1(_component_VBtn, {
               size: "small",
@@ -6286,7 +6152,7 @@ return (_ctx, _cache) => {
               loading: loading.value,
               onClick: load
             }, {
-              default: _withCtx$1(() => [...(_cache[10] || (_cache[10] = [
+              default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
                 _createTextVNode$1("重新探测", -1)
               ]))]),
               _: 1
@@ -6294,13 +6160,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$1(() => [...(_cache[8] || (_cache[8] = [
+              default: _withCtx$1(() => [...(_cache[2] || (_cache[2] = [
                 _createTextVNode$1("宿主能力探针", -1)
               ]))]),
               _: 1
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$1(() => [...(_cache[9] || (_cache[9] = [
+              default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
                 _createTextVNode$1(" 前向闸门要用宿主的两组能力（下载历史查询、下载器种子列表），而它们本插件此前从未调用过。 先探测清楚真实导入路径与字段，再动手写判定链——探针只读，不改任何状态。 ", -1)
               ]))]),
               _: 1
@@ -6314,7 +6180,7 @@ return (_ctx, _cache) => {
               class: "pt-0"
             }, {
               default: _withCtx$1(() => [
-                _createElementVNode$1("div", _hoisted_4$1, [
+                _createElementVNode$1("div", _hoisted_2$1, [
                   _createVNode$1(_component_VIcon, {
                     icon: probe.value.ok ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline',
                     color: probe.value.ok ? 'success' : 'warning',
@@ -6333,9 +6199,9 @@ return (_ctx, _cache) => {
                       size: "16",
                       class: "p9-probe-icon"
                     }, null, 8, ["icon", "color"]),
-                    _createElementVNode$1("div", _hoisted_5, [
-                      _createElementVNode$1("div", _hoisted_6, _toDisplayString$1(item.label), 1),
-                      _createElementVNode$1("div", _hoisted_7, _toDisplayString$1(item.detail), 1)
+                    _createElementVNode$1("div", _hoisted_3$1, [
+                      _createElementVNode$1("div", _hoisted_4$1, _toDisplayString$1(item.label), 1),
+                      _createElementVNode$1("div", _hoisted_5, _toDisplayString$1(item.detail), 1)
                     ])
                   ]))
                 }), 128))
@@ -6354,13 +6220,13 @@ return (_ctx, _cache) => {
         _createVNode$1(_component_VCardItem, null, {
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
+              default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
                 _createTextVNode$1("前向闸门（未启用）", -1)
               ]))]),
               _: 1
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
+              default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
                 _createTextVNode$1(" 计划：TG 推送前依次判断「媒体库已有 → 下载历史有记录且在途 → 等过成熟期（默认 2 小时）」， 全都没拦住才补。这一步需要先由上面的探针确认宿主能力可用，因此放在下一阶段落地， 本版界面不提供开关（配置里的三个字段已占位，默认关闭）。 ", -1)
               ]))]),
               _: 1
@@ -6376,7 +6242,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigP9Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-9d44a4de"]]);
+const ConfigP9Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-e0c00fe3"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 
@@ -6428,12 +6294,12 @@ const configDefaults = {
   // ⑨ 发现页入口（1.8.0）：在 MP 左侧「发现」分区注册本插件整页入口
   discovery_page_enabled: false,
   // ⑩ P9 重复获取治理（1.9.0）
-  //   注意：P9-1 只放出「能力探针 + 反向开关」，闸门 A 的三个键先在表单里占位，
-  //   保证「保存配置」整份覆盖时不会把它们清掉（P9-2 落地后再给界面控件）。
+  //   注意：P9-1 只放出「能力探针」（反向 R0 开关 1.9.1 真机验证无收益后移除），
+  //   闸门 A 的三个键先在表单里占位，保证「保存配置」整份覆盖时不会把它们清掉
+  //  （P9-2 落地后再给界面控件）。
   p9_forward_gate_enabled: false,
   p9_maturity_hours: 2,
   p9_check_downloader: true,
-  p9_pause_new_subscribe_search: false,
 };
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

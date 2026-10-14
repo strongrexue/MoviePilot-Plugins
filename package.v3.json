@@ -3,7 +3,7 @@
         "name": "胖虎媒体中心",
         "description": "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。",
         "labels": "工具,媒体",
-        "version": "1.9.0",
+        "version": "1.9.1",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.9.1": "1. 移除「反向 R0 开关（暂停宿主的『新增订阅搜索』）」：1.9.0 发布后真机验证否决——开关打开并暂停该 5 分钟内置任务后，新增订阅**照旧被搜索**，证实首次搜索是 subscribe.added 事件驱动、该 job 只是兜底，开关无收益。相关代码整体移除：services/pt_guard.py 的 apply_pause / job_state 与旧调度 ABI 探测、POST /p9/r0/apply 接口、p9_pause_new_subscribe_search 配置项（后端 default_config 与前端 configDefaults 两处同步删）、前端面板的 R0 卡片与「按当前配置重贴」按钮、init_plugin 重贴与 stop_service 恢复逻辑。**能力探针保留**，并回报了真机实测结果：list_download_history / DownloadHistoryFilter（就在 app.sdk.queries，字段含 media_source/media_id/seasons/episodes/download_hash，闸门 A 的过滤键齐全）/ QueryPageRequest / DownloaderHelper / 种子状态枚举全部可用；唯一红项是「下载器实例」未枚举到（闸门 A 的活跃性细化将按 fail-open 降级，不阻断判定链）。2. 测试：移除 10 项 R0 相关测试（apply_pause / job_state / 插件重贴接线），探针契约改为 6 项结构断言并补「配置里不应再有 R0 键」的防复活断言，404 passed。",
             "v1.9.0": "1. 【P9-1】重复获取治理（PT 路与 TG 路同时把同一部作品写进同一个 115 + STRM + Emby 导致的重复下载）第一阶段：新增配置页「重复获取治理」分区，含两项能力——①宿主能力探针：只读检测本插件此前从未用过的两组宿主接口（下载历史查询 list_download_history / DownloadHistoryFilter / 分页 QueryPageRequest，以及下载器助手 DownloaderHelper 与 TorrentStatus、DownloadTaskState 枚举），逐项回报真实导入路径与字段清单，任一环节缺失都写明原因而不静默放行，为下一阶段的前向闸门摸清可用性；②反向开关 R0「暂停宿主的『新增订阅搜索』」：可按开关暂停宿主那个 5 分钟跑一次的内置任务（TG 先把内容送进媒体库时，别让 MP 再用 PT 下一次），提供「按当前配置重贴」按钮（宿主配置热重载会重建任务、把暂停状态冲掉），插件停用或开关关闭时一律放行、绝不留残留暂停；③全部新开关默认关闭、探针只读零副作用，升级后行为与 1.8.2 完全一致。2. 技术说明：新增 services/pt_guard.py（探针 + 任务暂停/恢复，全部降级 + WARNING 留痕，宿主接口失配时按 fail-open 处理）、两个只读接口 GET /p9/guard 与 POST /p9/r0/apply；新增 4 个配置项（p9_forward_gate_enabled 默认关 / p9_maturity_hours 默认 2 / p9_check_downloader 默认开 / p9_pause_new_subscribe_search 默认关），其中前三项为下一阶段前向闸门预留，本阶段界面不提供控件。3. 测试：新增 17 项，413 passed——其中 13 项 P9 测试（探针全绿 / 全红与失败原因留痕、缺少下载器能力时单项失败、job_state 三态、pause/resume 幂等、插件停用时不留残留暂停、接口路由契约）；另新增 test_config_parity.py 共 4 项，把「后端 default_config 与前端 configDefaults 的键集合严格一致」锁成回归测试（历史踩过两次：1.8.0 加项漏前端、1.8.1 删项漏后端，而保存是整份覆盖、缺失键会被静默清掉），tg_session_string / pan115_cookie / onlyonce 三项为白名单例外并在测试中写明原因。",
             "v1.8.2": "1. 修复插件图标一直显示默认「拼图」：宿主的图标渲染逻辑是先判断 icon 字段是否以 http 开头——是则直接加载该完整 URL（走图片代理/缓存），否则去请求本地 /plugin_icon/<文件名>。裸文件名这条路要求宿主把图标抓到本地静态目录，实测我们插件请求 /plugin_icon/tgmediacenter.png 返回 404（本地目录里没有我们的图标），于是前端加载失败回落到内置兜底图 plugin.png。改为照官方索引里已验证可行的写法，把 package.v3.json 的 icon 与插件类 plugin_icon 都写成完整 URL（https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png），绕开本地目录这一环；插件目录内的 tgmediacenter.png 保留（随包发布，无副作用）。",
             "v1.8.1": "1. 插件更名「胖虎媒体中心」（原名「TG媒体中心」）：插件名与说明、插件内三处标题（配置页 / 运行详情 / 仪表盘）、四类通知标题（115 转存完成 / 115 转存失败 / 缓存回搜 / 链接转存回执）、三个调度任务名、日志前缀与两份 README 同步更名。插件 ID 一律不变（目录名 tgmediacenter / 类名 TgMediaCenter / 配置前缀 tgmediacenter_ / 数据库表名），老用户配置与数据无缝沿用、无需重装。2. 更换插件徽章为胖虎形象（256×256 白底）：同时写入索引仓库 icons/tgmediacenter.png 与插件目录 tgmediacenter.png（两处都放），解决市场列表一直显示默认「拼图」图标的问题。3. 清理已废弃的豆瓣配置项（douban_enabled / douban_rsshub_base / douban_cookie / douban_wish_rss_urls / douban_rules / douban_cron）——原 P3 自定义豆瓣源早已取消、代码中无任何模块使用；插件说明同步去掉豆瓣。4. 测试断言同步更名（识别器里用于解析 TG 消息元数据行的「豆瓣」关键词保留）。",

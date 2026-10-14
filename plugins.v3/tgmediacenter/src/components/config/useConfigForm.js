@@ -49,12 +49,12 @@ export const configDefaults = {
   // ⑨ 发现页入口（1.8.0）：在 MP 左侧「发现」分区注册本插件整页入口
   discovery_page_enabled: false,
   // ⑩ P9 重复获取治理（1.9.0）
-  //   注意：P9-1 只放出「能力探针 + 反向开关」，闸门 A 的三个键先在表单里占位，
-  //   保证「保存配置」整份覆盖时不会把它们清掉（P9-2 落地后再给界面控件）。
+  //   注意：P9-1 只放出「能力探针」（反向 R0 开关 1.9.1 真机验证无收益后移除），
+  //   闸门 A 的三个键先在表单里占位，保证「保存配置」整份覆盖时不会把它们清掉
+  //  （P9-2 落地后再给界面控件）。
   p9_forward_gate_enabled: false,
   p9_maturity_hours: 2,
   p9_check_downloader: true,
-  p9_pause_new_subscribe_search: false,
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

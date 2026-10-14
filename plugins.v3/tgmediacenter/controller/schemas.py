@@ -692,22 +692,14 @@ class P9ProbeData(BaseModel):
     items: List[P9ProbeItem] = Field(default_factory=list)
 
 
-class P9R0Data(BaseModel):
-    """反向 R0 开关（暂停宿主内置「新增订阅搜索」）的当前状态。"""
-
-    enabled: bool = Field(default=False, description="配置期望值（插件启用 + 开关打开）")
-    available: bool = Field(default=False, description="旧调度接口是否可用")
-    exists: bool = Field(default=False, description="宿主是否注册了该内置任务")
-    paused: bool = Field(default=False, description="任务当前是否真的处于暂停")
-    next_run: str = Field(default="", description="任务的下次运行时间（暂停时为空）")
-    message: str = ""
-
-
 class P9GuardData(BaseModel):
-    """P9 治理面板聚合：能力探针 + 反向开关状态。"""
+    """P9 治理面板聚合：宿主能力探针。
+
+    > 历史：1.9.0 曾附带「反向 R0 开关」状态（P9R0Data / /p9/r0/apply），
+    > 1.9.1 真机验证否决（首次搜索是事件驱动、暂停 job 无收益）后整体移除。
+    """
 
     probe: P9ProbeData = Field(default_factory=P9ProbeData)
-    r0: P9R0Data = Field(default_factory=P9R0Data)
 
 
 API_RESPONSE_MODELS: Dict[str, type] = {
@@ -745,5 +737,4 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/forward/hits/clear": MonitorHitsClearData,
     "/forward/test": ForwardTestData,
     "/p9/guard": P9GuardData,
-    "/p9/r0/apply": P9R0Data,
 }

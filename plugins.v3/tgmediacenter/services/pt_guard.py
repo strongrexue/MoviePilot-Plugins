@@ -1,4 +1,4 @@
-"""P9 重复获取治理：宿主能力探针 + 反向 R0 开关。
+"""P9 重复获取治理：宿主能力探针。
 
 为什么需要「探针」
 ------------------
@@ -14,34 +14,17 @@ P9 的前向闸门（闸门 A）要用到两组**本插件目前一处都没用�
 
 探针只读，不写任何状态；任何一项失败都只影响该项结论，不抛异常。
 
-反向 R0 开关
-------------
-- **开** = 暂停宿主内置任务 ``new_subscribe_search``（新增订阅搜索，5 分钟、硬编码）；
-- **关**（默认）= 放行，宿主行为不变。
-
-实现走**旧插件 ABI**（``from app.scheduler import Scheduler`` → ``._scheduler``），
-因为 ``app.sdk.scheduler`` 门面只提供 list / start / add / remove，**没有**
-pause / resume。宿主配置热重载会重建 job（pause 可能被冲掉），因此
-``init_plugin`` 与手动「重贴」都要重跑一次本模块的 ``apply_pause``（幂等）。
+> 历史：本模块曾自带「反向 R0 开关」（暂停宿主内置任务 ``new_subscribe_search``）。
+> 1.9.1 真机验证否决：暂停该 job 后新增订阅**照旧被搜索**（首次搜索确为
+> ``subscribe.added`` 事件驱动，job 只是 5 分钟兜底），开关无收益，已整体移除。
 """
 from __future__ import annotations
 
 import importlib
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
-from app.sdk.logging import logger
-
-__all__ = [
-    "JOB_NEW_SUBSCRIBE_SEARCH",
-    "apply_pause",
-    "job_state",
-    "probe",
-]
-
-# 宿主内置调度任务 id（``app/scheduler/catalog.py``）：新增订阅搜索。
-# 频率 5 分钟、硬编码、无配置键；新增订阅的**首次**搜索是事件驱动（与它无关）。
-JOB_NEW_SUBSCRIBE_SEARCH = "new_subscribe_search"
+__all__ = ["probe"]
 
 # 「下载历史过滤器 / 分页请求 / 枚举」可能的落点：宿主版本间位置会变，逐个试。
 # 顺序即优先级，命中即止。
@@ -64,7 +47,7 @@ _FIELD_ATTRS: Tuple[str, ...] = (
 # --------------------------------------------------------------------------- 通用
 
 
-def _load_module(dotted: str) -> Tuple[Optional[Any], str]:
+def _load_module(dotted: str) -> Tuple[Any | None, str]:
     """导入模块；失败返回 ``(None, 原因)``，绝不抛异常。"""
     try:
         return importlib.import_module(dotted), ""
@@ -103,118 +86,6 @@ def _fields_of(value: Any) -> List[str]:
 def _item(key: str, label: str, ok: bool, detail: str) -> Dict[str, Any]:
     """一条探针结论。"""
     return {"key": key, "label": label, "ok": bool(ok), "detail": str(detail or "")}
-
-
-# --------------------------------------------------------------------------- 调度
-
-
-def _apscheduler() -> Tuple[Optional[Any], str]:
-    """取 apscheduler 实例（走 MP 特意保留的旧插件 ABI）。
-
-    :returns: ``(实例, 原因)``；不可用时实例为 None，原因可直接展示给用户。
-    """
-    module, err = _load_module("app.scheduler")
-    if module is None:
-        return None, f"app.scheduler 不可用（{err}）"
-    factory = getattr(module, "Scheduler", None)
-    if factory is None:
-        return None, "app.scheduler 里没有 Scheduler（宿主未保留旧接口）"
-    try:
-        holder = factory()
-    except Exception as err:  # pragma: no cover - 依赖宿主实现
-        return None, f"构造 Scheduler 失败（{err}）"
-    instance = getattr(holder, "_scheduler", None)
-    if instance is None:
-        return None, "Scheduler()._scheduler 不存在（宿主未保留底层调度实例）"
-    if not hasattr(instance, "pause_job") or not hasattr(instance, "resume_job"):
-        return None, "底层调度实例没有 pause_job / resume_job"
-    return instance, ""
-
-
-def _state_of(instance: Any) -> Dict[str, Any]:
-    """把调度实例上的内置任务状态归一（APScheduler 3.x：暂停时 next_run_time 为空）。"""
-    try:
-        job = instance.get_job(JOB_NEW_SUBSCRIBE_SEARCH)
-    except Exception as err:  # pragma: no cover - 依赖宿主实现
-        return {"available": True, "exists": False, "paused": False, "next_run": "",
-                "detail": f"查询任务失败：{err}"}
-    if job is None:
-        return {"available": True, "exists": False, "paused": False, "next_run": "",
-                "detail": f"未注册任务 {JOB_NEW_SUBSCRIBE_SEARCH}（宿主版本差异或已被移除）"}
-    next_run = getattr(job, "next_run_time", None)
-    if next_run is None:
-        return {"available": True, "exists": True, "paused": True, "next_run": "",
-                "detail": "已暂停（任务下次运行时间为空）"}
-    try:
-        text = next_run.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:  # pragma: no cover - 极端宿主可能给非 datetime
-        text = str(next_run)
-    return {"available": True, "exists": True, "paused": False, "next_run": text,
-            "detail": f"运行中，下次 {text}"}
-
-
-def job_state() -> Dict[str, Any]:
-    """内置任务 ``new_subscribe_search`` 的当前状态（只读）。"""
-    instance, detail = _apscheduler()
-    if instance is None:
-        return {"available": False, "exists": False, "paused": False, "next_run": "",
-                "detail": detail}
-    return _state_of(instance)
-
-
-def apply_pause(enabled: bool, *, warn_on_unavailable: bool = True) -> Dict[str, Any]:
-    """按需暂停 / 放行内置任务 ``new_subscribe_search``（幂等）。
-
-    :param enabled: True=暂停（R0 开），False=放行（R0 关）。
-    :param warn_on_unavailable: 旧 ABI 不可用时是否打 WARNING。插件生命周期钩子
-        会频繁调用本函数，只有在**用户确实要求暂停**时才值得刷日志，避免给不用
-        P9 的人凭空制造警告。
-    :returns: ``{"available", "ok", "applied", "paused", "message"}``
-        ``applied=False`` 表示无需处理（宿主没有这个任务）；
-        ``ok=False`` 表示尝试了但没达到预期状态（原因写在 message）。
-    """
-    enabled = bool(enabled)
-    instance, detail = _apscheduler()
-    if instance is None:
-        log = logger.warning if warn_on_unavailable else logger.debug
-        log(f"[P9] R0 开关不生效：{detail}")
-        return {"available": False, "ok": False, "applied": False, "paused": False,
-                "message": f"旧调度接口不可用，R0 开关不生效：{detail}"}
-
-    state = _state_of(instance)
-    if not state.get("exists"):
-        return {"available": True, "ok": True, "applied": False,
-                "paused": bool(state.get("paused")),
-                "message": str(state.get("detail") or "宿主未注册该任务，无需处理")}
-
-    action = "暂停" if enabled else "恢复"
-    try:
-        if enabled:
-            instance.pause_job(JOB_NEW_SUBSCRIBE_SEARCH)
-        else:
-            instance.resume_job(JOB_NEW_SUBSCRIBE_SEARCH)
-    except Exception as err:
-        logger.warning(f"[P9] {action}任务 {JOB_NEW_SUBSCRIBE_SEARCH} 失败：{err}")
-        return {"available": True, "ok": False, "applied": False,
-                "paused": bool(state.get("paused")), "message": f"{action}失败：{err}"}
-
-    after = _state_of(instance)
-    actual = bool(after.get("paused"))
-    if actual == enabled:
-        message = ("已暂停「新增订阅搜索」（反向 R0 生效）" if enabled
-                   else "已恢复「新增订阅搜索」")
-        logger.info(f"[P9] {message}")
-        return {"available": True, "ok": True, "applied": True, "paused": actual,
-                "message": message}
-
-    # 暂停/恢复后状态没变：宿主可能有别的机制在改这个 job（配置热重载重建等）
-    message = f"{action}后状态未如预期（当前 {'已暂停' if actual else '运行中'}）"
-    logger.warning(f"[P9] R0 开关状态未如预期：期望 paused={enabled}，实际 {actual}")
-    return {"available": True, "ok": False, "applied": True, "paused": actual,
-            "message": message}
-
-
-# --------------------------------------------------------------------------- 探针
 
 
 def _probe_downloaders(helper_found: bool) -> Dict[str, Any]:
@@ -289,7 +160,7 @@ def probe() -> Dict[str, Any]:
     items.append(_item("downloader_helper", "下载器助手 DownloaderHelper",
                        helper_found, helper_detail))
 
-    # 4) 下载器实例（活跃性细化）
+    # 4) 下载器实例（活跃性细化；枚举不到也不致命——闸门按 fail-open 降级）
     items.append(_probe_downloaders(helper_found))
 
     # 5) 种子状态枚举
@@ -305,19 +176,6 @@ def probe() -> Dict[str, Any]:
     else:
         items.append(_item("torrent_enum", "种子状态枚举 TorrentStatus / DownloadTaskState",
                            False, f"{d1}；{d2}"))
-
-    # 6) 旧调度 ABI（R0 开关的前提）
-    instance, sched_detail = _apscheduler()
-    items.append(_item("scheduler_abi", "旧调度接口 Scheduler()._scheduler",
-                       instance is not None,
-                       "可用（可 pause / resume 内置任务）" if instance is not None
-                       else sched_detail))
-
-    # 7) 反向开关的作用对象是否存在
-    state = job_state()
-    items.append(_item("job_new_subscribe_search",
-                       f"内置任务 {JOB_NEW_SUBSCRIBE_SEARCH}",
-                       bool(state.get("exists")), str(state.get("detail") or "")))
 
     return {
         "ok": all(item["ok"] for item in items),

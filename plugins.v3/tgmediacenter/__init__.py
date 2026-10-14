@@ -28,7 +28,6 @@ from .modules.forward import ForwardModule
 from .modules.interactive import InteractiveModule
 from .modules.monitor import MonitorModule
 from .modules.pan115 import Pan115Module
-from .services import pt_guard
 
 try:  # 一次性任务调度接口；缺失时降级为懒连接
     from app.sdk import scheduler as scheduler_sdk
@@ -43,7 +42,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.9.0"
+    plugin_version = "1.9.1"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -60,8 +59,6 @@ class TgMediaCenter(_PluginBase):
         self._cache: Optional[CacheModule] = None
         self._forward: Optional[ForwardModule] = None
         self._interactive: Optional[InteractiveModule] = None
-        # ⑩ P9 反向开关最近一次重贴结果（供状态接口展示）
-        self._p9_r0: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -134,10 +131,6 @@ class TgMediaCenter(_PluginBase):
             ensure_schema(self.get_database())
         except Exception as err:  # pragma: no cover - 迁移失败不阻断启动
             logger.warning(f"[TgMediaCenter] 插件表结构迁移失败：{err}")
-
-        # ⑩ P9 反向开关：按配置重贴内置「新增订阅搜索」的暂停状态。
-        # 必须在**每次** init 都跑：宿主配置热重载会重建 job，上一轮的 pause 会被冲掉。
-        self.apply_p9_r0()
 
         # ④ 资源监控 / ⑥ 通用转发：启用且有监听规则时启动流水线（TG 未连接也会先起来，
         # 处理器注册由流水线健康检查在运行时就绪后自动补上）。
@@ -261,15 +254,14 @@ class TgMediaCenter(_PluginBase):
             # ⑨ 发现页入口（1.8.0）：开启后在 MP 左侧「发现」分区注册一个整页入口，
             # 页面即本插件的运行详情 / 仪表盘；默认关，避免给不用的人凭空多一项导航
             "discovery_page_enabled": False,
-            # ⑩ P9 重复获取治理（1.9.0）
+            # ⑩ P9 重复获取治理（1.9.0；反向 R0 开关 1.9.1 真机验证无收益后移除——
+            # 暂停 new_subscribe_search 后新增订阅照旧被搜索，首次搜索是事件驱动）
             # 前向闸门 A：缺失确认之后再加一层「PT 路是否在管」判定；默认关 = 完全维持现状
             "p9_forward_gate_enabled": False,
             # 成熟期 T（小时）：PT 完全没记录时，等多久才让 TG 补（RSS 间隔 20min 下 2h 已足够）
             "p9_maturity_hours": 2,
             # 下载器活跃性细化：用下载历史里的 hash 查种子，区分「在途」与「死种」
             "p9_check_downloader": True,
-            # 反向 R0：开 = 暂停宿主内置「新增订阅搜索」（5 分钟兜底）；默认关
-            "p9_pause_new_subscribe_search": False,
             # 一次性执行
             "onlyonce": False,
         }
@@ -463,26 +455,8 @@ class TgMediaCenter(_PluginBase):
     # ------------------------------------------------------------------ ⑩ P9 重复获取治理
 
     def api_p9_guard(self):
-        """宿主能力探针 + 反向开关状态（只读）。"""
+        """宿主能力探针（只读）。"""
         return api_controller.api_p9_guard(self)
-
-    def api_p9_r0_apply(self):
-        """按当前配置重贴反向开关（宿主热重载重建任务之后用）。"""
-        return api_controller.api_p9_r0_apply(self)
-
-    def apply_p9_r0(self) -> Dict[str, Any]:
-        """按当前配置重贴「反向 R0」开关状态（幂等）。
-
-        开 = 暂停宿主内置任务 ``new_subscribe_search``（新增订阅搜索，5 分钟兜底）；
-        关 = 放行。插件未启用时一律放行（开关不该在停用状态下生效）。
-
-        走旧插件 ABI（``app.sdk.scheduler`` 门面没有 pause / resume），因此宿主版本
-        不兼容时**只降级不停摆**——判定链的其余部分照常工作，问题写进返回值与日志。
-        """
-        want = self._enabled() and bool((self._config or {}).get("p9_pause_new_subscribe_search"))
-        result = pt_guard.apply_pause(want, warn_on_unavailable=want)
-        self._p9_r0 = dict(result)
-        return result
 
     # ------------------------------------------------------------------ 宿主事件
 
@@ -674,14 +648,6 @@ class TgMediaCenter(_PluginBase):
         self._pan115 = None
         # 冷却门只是内存状态（间隔 + FloodWait 截止时刻），清引用即可
         self._gate = None
-        # ⑩ P9 反向开关：插件停用时必须放行内置搜索任务，别留残留 pause。
-        # 本方法会被 init_plugin 在重贴之前调用一次，重复放行是幂等的。
-        # 不打 WARNING：宿主没有这个任务/旧接口时，不该给不用 P9 的人刷日志。
-        self._p9_r0 = None
-        try:
-            pt_guard.apply_pause(False, warn_on_unavailable=False)
-        except Exception as err:  # pragma: no cover - 恢复失败不影响插件卸载
-            logger.debug(f"[TgMediaCenter] 恢复内置订阅搜索任务失败：{err}")
 
     def _cooldown_seconds(self) -> int:
         """TG 个人号全局冷却间隔（秒），配置非法时回落 5 秒。"""

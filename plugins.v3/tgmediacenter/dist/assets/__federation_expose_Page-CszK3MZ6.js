@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, d as decisionLabel, a as decisionColor, u as unwrap, g as getPluginApi, p as postPluginApi } from './decision-Bi_MVYgQ.js';
+import { _ as _export_sfc, d as decisionLabel, b as decisionColor, u as unwrap, a as getPluginApi, p as postPluginApi } from './decision-B4AUzLCN.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,renderList:_renderList,unref:_unref} = await importShared('vue');
 
@@ -43,6 +43,9 @@ const _sfc_main = {
   props: {
   api: { type: [Object, Function], default: null },
   pluginId: { type: String, default: 'TgMediaCenter' },
+  // 作为 MP 左侧「发现」分区的整页入口渲染时置 true（1.8.0）：
+  // 整页没有"关闭"语义，隐藏关闭按钮；「设置」仍由外层弹出配置弹窗。
+  appPage: { type: Boolean, default: false },
 },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
@@ -392,17 +395,20 @@ return (_ctx, _cache) => {
             ]))]),
             _: 1
           }),
-          _createVNode(_component_VBtn, {
-            icon: "",
-            variant: "text",
-            size: "small",
-            onClick: _cache[1] || (_cache[1] = $event => (emit('close')))
-          }, {
-            default: _withCtx(() => [
-              _createVNode(_component_VIcon, { icon: "mdi-close" })
-            ]),
-            _: 1
-          })
+          (!__props.appPage)
+            ? (_openBlock(), _createBlock(_component_VBtn, {
+                key: 1,
+                icon: "",
+                variant: "text",
+                size: "small",
+                onClick: _cache[1] || (_cache[1] = $event => (emit('close')))
+              }, {
+                default: _withCtx(() => [
+                  _createVNode(_component_VIcon, { icon: "mdi-close" })
+                ]),
+                _: 1
+              }))
+            : _createCommentVNode("", true)
         ]),
         _: 1
       }),
@@ -936,6 +942,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2bf84ac8"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d472eb8d"]]);
 
 export { Page as default };

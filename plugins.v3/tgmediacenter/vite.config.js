@@ -41,6 +41,8 @@ export default defineConfig({
         './Config': './src/components/Config.vue',
         './Page': './src/components/Page.vue',
         './Dashboard': './src/components/Dashboard.vue',
+        // MP 左侧「发现」分区整页入口的承载组件（1.8.0，由 get_sidebar_nav 注册）
+        './AppPage': './src/components/AppPage.vue',
       },
       shared: {
         vue: { requiredVersion: false, generate: false, singleton: true },

@@ -943,6 +943,33 @@ class TestMediaLibraryLayers:
         )
         assert "没有同名剧集条目" in result["detail"]
 
+    def test_diagnosis_not_found_is_not_a_query_failure(self, monkeypatch):
+        """1.8.0：宿主 (None, {}) = 连接正常但库里没这条，不能说成"查询失败"。
+
+        宿主 get_tv_episodes 把自身 ""（未找到）折叠成 None，只按 item_id 判
+        会把"没找到"误报成"媒体服务器查询失败（请求未成功）"。
+        """
+        module = FakeLibraryOnlyModule(None)
+        instance = FakeEmbyClient(episodes=(None, {}))
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="学生会也有洞！", year="2026", media_type="tv", season=1, episode=2
+        )
+        assert result["missing"] is True
+        assert "没有同名剧集条目" in result["detail"]
+        assert "媒体服务器查询失败" not in result["detail"]
+
+    def test_diagnosis_query_failure_still_reported(self, monkeypatch):
+        """1.8.0：(None, None) 才是真失败（连不通/接口异常），这句提示要保留。"""
+        module = FakeLibraryOnlyModule(None)
+        instance = FakeEmbyClient(episodes=(None, None))
+        self._patch(monkeypatch, module, instance)
+        result = MediaMatcher().is_missing(
+            title="学生会也有洞！", year="2026", media_type="tv", season=1, episode=2
+        )
+        assert result["missing"] is True
+        assert "媒体服务器查询失败" in result["detail"]
+
     def test_diagnosis_survives_instance_without_probe(self, monkeypatch):
         """实例没有探测方法时不能炸（不同媒体服务器方法面不同）。"""
         module = FakeLibraryOnlyModule(None)

@@ -714,9 +714,15 @@ class MediaMatcher:
                 continue
             except Exception as err:  # pragma: no cover - 探测失败只作说明
                 return f"探测剧集条目出错：{err}"
-            if item_id is None:
+            if item_id is None and seasons is None:
+                # 1.8.0：宿主的 get_tv_episodes 会把自己的（None / "" / ID）三态
+                # **折叠**成两态——(None, None) 才是查询真失败（连不通/接口异常），
+                # 而 (None, {}) 是"连接正常、库里就是没这条"（宿主内部把 "" 转成了
+                # None）。此前只看 item_id 判失败，于是"库里没有"被误报成
+                # 「媒体服务器查询失败（请求未成功）」，回搜通知里天天出现。
                 return "媒体服务器查询失败（请求未成功）"
             if not item_id:
+                # 兼容把空串当"未找到"原样冒泡的宿主实现
                 return "媒体库中没有同名剧集条目（宿主按片名+年份精确匹配失败）"
             owned = 0
             if isinstance(seasons, dict):

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, d as decisionLabel, a as decisionColor, b as putPluginApi, c as getPluginConfig } from './decision-Bi_MVYgQ.js';
+import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d as decisionLabel, b as decisionColor, c as putPluginApi, g as getPluginConfig } from './decision-B4AUzLCN.js';
 
 /**
  * 前端构建版本。
@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, g as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.7.9';
+const FRONTEND_VERSION = '1.8.0';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -4820,8 +4820,8 @@ async function loadRules() {
     rules.value = list.map(rule => ({
       id: rule.id || newRuleId(),
       name: rule.name || '',
-      source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(Number) : [],
-      target_id: rule.target_id ? String(rule.target_id) : '',
+      source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(toChatId).filter(id => id !== '') : [],
+      target_id: toChatId(rule.target_id),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
       pin_links_enabled: Boolean(rule.pin_links_enabled),
@@ -5064,15 +5064,30 @@ const dialogOptions = computed$1(() =>
   })),
 );
 
+// 下拉项的 value 一律是 Number，v-model 也必须归一成 Number——Vuetify 的下拉
+// 按严格比较找选项，字符串 v-model 匹配不到数字 value 时会**原样显示模型值**，
+// 于是转发目标就显示成裸 ID（-1003229693136）。1.8.0 修正为与来源同口径。
+function toChatId(value) {
+  if (value === '' || value === null || value === undefined) return ''
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : ''
+}
+
+// 不在对话缓存里的会话（老规则 / 缓存过期 / 目标已不可见）：给个可识别的
+// 占位名，别让用户对着一串裸 ID 猜。
+function unknownChatTitle(id) {
+  return `未知会话（${id}）`
+}
+
 // 下拉选项 = 对话列表 + 已保存但不在缓存里的 ID（老规则/缓存过期时保证 chips 仍能显示）
 const selectItems = computed$1(() => {
   const items = dialogOptions.value.slice();
   const known = new Set(items.map(item => item.value));
   for (const rule of rules.value) {
     for (const raw of rule.source_ids || []) {
-      const id = Number(raw);
-      if (id && !known.has(id)) {
-        items.push({ title: String(id), value: id });
+      const id = toChatId(raw);
+      if (id !== '' && !known.has(id)) {
+        items.push({ title: unknownChatTitle(id), value: id });
         known.add(id);
       }
     }
@@ -5085,9 +5100,9 @@ const targetItems = computed$1(() => {
   const items = dialogOptions.value.slice();
   const known = new Set(items.map(item => item.value));
   for (const rule of rules.value) {
-    const id = Number(rule.target_id);
-    if (id && !known.has(id)) {
-      items.push({ title: String(id), value: id });
+    const id = toChatId(rule.target_id);
+    if (id !== '' && !known.has(id)) {
+      items.push({ title: unknownChatTitle(id), value: id });
       known.add(id);
     }
   }
@@ -5971,7 +5986,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigForwardPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cd06622a"]]);
+const ConfigForwardPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-58767acb"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 
@@ -6020,6 +6035,8 @@ const configDefaults = {
   notify_on_search: true,
   interactive_push: true,
   interactive_dedup: true,
+  // ⑨ 发现页入口（1.8.0）：在 MP 左侧「发现」分区注册本插件整页入口
+  discovery_page_enabled: false,
 };
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，
@@ -6188,11 +6205,22 @@ return (_ctx, _cache) => {
               "hide-details": "",
               inset: "",
               label: _unref(config).form.enabled ? '已启用' : '已停用'
-            }, null, 8, ["modelValue", "label"])
+            }, null, 8, ["modelValue", "label"]),
+            _createVNode(_component_VSwitch, {
+              modelValue: _unref(config).form.discovery_page_enabled,
+              "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((_unref(config).form.discovery_page_enabled) = $event)),
+              color: "primary",
+              "hide-details": "",
+              inset: "",
+              class: "ms-4",
+              disabled: !_unref(config).form.enabled,
+              label: '发现页',
+              title: "在 MP 左侧「发现」分区增加本插件的整页入口（内容为运行详情 / 仪表盘）。插件未启用时不生效；改动随底部「保存配置」生效。"
+            }, null, 8, ["modelValue", "disabled"])
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-              default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
+              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
                 _createTextVNode("TG媒体中心", -1)
               ]))]),
               _: 1
@@ -6311,9 +6339,9 @@ return (_ctx, _cache) => {
             _createVNode(_component_VSpacer),
             _createVNode(_component_VBtn, {
               variant: "text",
-              onClick: _cache[1] || (_cache[1] = $event => (emit('close')))
+              onClick: _cache[2] || (_cache[2] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -6324,7 +6352,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: _unref(config).saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+              default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
                 _createTextVNode(" 保存配置 ", -1)
               ]))]),
               _: 1
@@ -6340,6 +6368,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-394db4a1"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1ccf6046"]]);
 
 export { Config as default };

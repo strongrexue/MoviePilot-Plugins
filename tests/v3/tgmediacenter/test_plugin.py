@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "tgmediacenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "TG媒体中心"
-    assert TgMediaCenter.plugin_version == "1.7.9"
+    assert TgMediaCenter.plugin_version == "1.8.0"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 
@@ -52,3 +52,32 @@ def test_default_config_shape():
         assert key in config
     assert config["cache_destination"] == "smart"
     assert config["tg_user_cooldown_seconds"] == 5
+    # 1.8.0：发现页入口默认关（不开的人不该凭空多一个导航项）
+    assert config["discovery_page_enabled"] is False
+
+
+def _bare_plugin(config):
+    """只带配置快照的插件实例（get_sidebar_nav 只依赖 _config，不必跑 __init__）。"""
+    plugin = TgMediaCenter.__new__(TgMediaCenter)
+    plugin._config = dict(config)
+    return plugin
+
+
+def test_sidebar_nav_off_by_default():
+    """1.8.0：默认不注册「发现」分区入口（关闭 / 未启用两种情形都不注册）。"""
+    assert _bare_plugin({"enabled": True, "discovery_page_enabled": False}).get_sidebar_nav() == []
+    assert _bare_plugin({"enabled": False, "discovery_page_enabled": True}).get_sidebar_nav() == []
+    assert _bare_plugin({}).get_sidebar_nav() == []
+
+
+def test_sidebar_nav_registers_discovery_entry_when_enabled():
+    """1.8.0：启用插件并打开「发现页」开关后，注册一条「发现」分区整页入口。"""
+    nav = _bare_plugin({"enabled": True, "discovery_page_enabled": True}).get_sidebar_nav()
+    assert isinstance(nav, list) and len(nav) == 1
+    entry = nav[0]
+    assert entry["nav_key"] == "main"
+    assert entry["title"] == TgMediaCenter.plugin_name
+    assert entry["section"] == "discovery"
+    assert entry["permission"] == "discovery"
+    assert entry["icon"]
+    assert isinstance(entry["order"], int)

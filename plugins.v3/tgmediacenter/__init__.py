@@ -42,7 +42,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存、自定义豆瓣源订阅与 TG 通用转发。"
     plugin_icon = "tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.7.9"
+    plugin_version = "1.8.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -257,6 +257,9 @@ class TgMediaCenter(_PluginBase):
             "interactive_push": True,
             # 私聊转存查重：转存成功过的链接（台账）不再重复转存（1.7.5）
             "interactive_dedup": True,
+            # ⑨ 发现页入口（1.8.0）：开启后在 MP 左侧「发现」分区注册一个整页入口，
+            # 页面即本插件的运行详情 / 仪表盘；默认关，避免给不用的人凭空多一项导航
+            "discovery_page_enabled": False,
             # 一次性执行
             "onlyonce": False,
         }
@@ -264,6 +267,26 @@ class TgMediaCenter(_PluginBase):
     def get_page(self) -> Optional[List[dict]]:
         """详情页由 Vue 远程组件渲染。"""
         return None
+
+    def get_sidebar_nav(self) -> List[Dict[str, Any]]:
+        """MP 左侧「发现」分区的整页入口（1.8.0）。
+
+        页面由前端 ``AppPage`` 远程组件渲染，内容就是本插件的运行详情 / 仪表盘。
+        默认关闭：只有插件已启用、且用户打开配置页顶部的「发现页」开关时才注册，
+        避免给不用的人凭空多一个导航项。
+        """
+        if not self._enabled() or not self._config.get("discovery_page_enabled"):
+            return []
+        return [
+            {
+                "nav_key": "main",
+                "title": self.plugin_name,
+                "icon": "mdi-send-circle-outline",
+                "section": "discovery",
+                "permission": "discovery",
+                "order": 21,
+            }
+        ]
 
     def get_api(self) -> List[Dict[str, Any]]:
         """返回插件 API 路由声明。"""

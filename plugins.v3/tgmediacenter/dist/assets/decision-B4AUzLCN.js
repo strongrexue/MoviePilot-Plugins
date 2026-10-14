@@ -180,6 +180,12 @@ async function getPluginConfig(api, pluginId) {
   return unwrap(response)
 }
 
+/** 保存配置。 */
+async function savePluginConfig(api, pluginId, payload = {}) {
+  const response = await api.put(pluginPath(pluginId), payload);
+  return unwrap(response)
+}
+
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
   for (const [key, val] of props) {
@@ -224,4 +230,4 @@ function decisionColor(value) {
   return 'primary'
 }
 
-export { _export_sfc as _, decisionColor as a, putPluginApi as b, getPluginConfig as c, decisionLabel as d, getPluginApi as g, postPluginApi as p, unwrap as u };
+export { _export_sfc as _, getPluginApi as a, decisionColor as b, putPluginApi as c, decisionLabel as d, getPluginConfig as g, postPluginApi as p, savePluginConfig as s, unwrap as u };

@@ -20,6 +20,9 @@ import { decisionColor, decisionLabel } from './decision'
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   pluginId: { type: String, default: 'TgMediaCenter' },
+  // 作为 MP 左侧「发现」分区的整页入口渲染时置 true（1.8.0）：
+  // 整页没有"关闭"语义，隐藏关闭按钮；「设置」仍由外层弹出配置弹窗。
+  appPage: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'switch'])
 
@@ -304,7 +307,7 @@ onUnmounted(() => {
         刷新
       </VBtn>
       <VBtn variant="text" size="small" prepend-icon="mdi-cog-outline" @click="emit('switch')">设置</VBtn>
-      <VBtn icon variant="text" size="small" @click="emit('close')">
+      <VBtn v-if="!appPage" icon variant="text" size="small" @click="emit('close')">
         <VIcon icon="mdi-close" />
       </VBtn>
     </VToolbar>

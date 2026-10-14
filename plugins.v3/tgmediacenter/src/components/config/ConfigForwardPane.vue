@@ -566,8 +566,8 @@ async function loadRules() {
     rules.value = list.map(rule => ({
       id: rule.id || newRuleId(),
       name: rule.name || '',
-      source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(Number) : [],
-      target_id: rule.target_id ? String(rule.target_id) : '',
+      source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(toChatId).filter(id => id !== '') : [],
+      target_id: toChatId(rule.target_id),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
       pin_links_enabled: Boolean(rule.pin_links_enabled),
@@ -810,15 +810,30 @@ const dialogOptions = computed(() =>
   })),
 )
 
+// 下拉项的 value 一律是 Number，v-model 也必须归一成 Number——Vuetify 的下拉
+// 按严格比较找选项，字符串 v-model 匹配不到数字 value 时会**原样显示模型值**，
+// 于是转发目标就显示成裸 ID（-1003229693136）。1.8.0 修正为与来源同口径。
+function toChatId(value) {
+  if (value === '' || value === null || value === undefined) return ''
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : ''
+}
+
+// 不在对话缓存里的会话（老规则 / 缓存过期 / 目标已不可见）：给个可识别的
+// 占位名，别让用户对着一串裸 ID 猜。
+function unknownChatTitle(id) {
+  return `未知会话（${id}）`
+}
+
 // 下拉选项 = 对话列表 + 已保存但不在缓存里的 ID（老规则/缓存过期时保证 chips 仍能显示）
 const selectItems = computed(() => {
   const items = dialogOptions.value.slice()
   const known = new Set(items.map(item => item.value))
   for (const rule of rules.value) {
     for (const raw of rule.source_ids || []) {
-      const id = Number(raw)
-      if (id && !known.has(id)) {
-        items.push({ title: String(id), value: id })
+      const id = toChatId(raw)
+      if (id !== '' && !known.has(id)) {
+        items.push({ title: unknownChatTitle(id), value: id })
         known.add(id)
       }
     }
@@ -831,9 +846,9 @@ const targetItems = computed(() => {
   const items = dialogOptions.value.slice()
   const known = new Set(items.map(item => item.value))
   for (const rule of rules.value) {
-    const id = Number(rule.target_id)
-    if (id && !known.has(id)) {
-      items.push({ title: String(id), value: id })
+    const id = toChatId(rule.target_id)
+    if (id !== '' && !known.has(id)) {
+      items.push({ title: unknownChatTitle(id), value: id })
       known.add(id)
     }
   }

@@ -46,6 +46,8 @@ export const configDefaults = {
   notify_on_search: true,
   interactive_push: true,
   interactive_dedup: true,
+  // ⑨ 发现页入口（1.8.0）：在 MP 左侧「发现」分区注册本插件整页入口
+  discovery_page_enabled: false,
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

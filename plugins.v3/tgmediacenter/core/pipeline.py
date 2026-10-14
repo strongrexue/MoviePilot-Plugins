@@ -62,12 +62,15 @@ from ..model.hit_log import (
     DECISION_SKIPPED_NOT_MISSING,
     DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_NO_LINK,
+    DECISION_SKIPPED_PT_ACTIVE,
+    DECISION_SKIPPED_PT_WAITING,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_UNRECOGNIZED,
     KIND_FORWARD,
     KIND_MONITOR,
     TgHitLog,
 )
+from ..services import forward_gate as p9_gate_service
 from ..services import recognizer as recognizer_service
 
 # 单频道批量消息条数上限：超过即无视聚合窗口立即处理（防大频道刷爆缓冲）
@@ -168,10 +171,15 @@ def _task_duplicate(task: Dict[str, Any], detail: Any) -> bool:
 def _decision_for_skip(verdict: dict) -> "tuple[str, str]":
     """把"缺失判断未命中"的 verdict 归一为（决策常量, 人类可读原因）。
 
+    - verdict 显式携带 ``decision``（如 P9 闸门的 SKIP 结论）→ 直接用，
+      不再靠 reason 文本反推（字符串比对太脆，规格 §3.4）；
     - 无法判断缺失 → skipped_unknown
     - 未订阅（方案 A 门禁）→ skipped_not_subscribed
     - 其余（订阅已齐全 / 媒体库已存在）→ skipped_not_missing
     """
+    explicit = verdict.get("decision")
+    if explicit:
+        return explicit, verdict.get("reason") or "按闸门判定跳过"
     if verdict.get("missing") is None:
         return DECISION_SKIPPED_UNKNOWN, verdict.get("reason") or "无法判断缺失"
     if verdict.get("reason") == "未订阅":
@@ -197,6 +205,15 @@ class MessagePipeline:
         self._last_push_cycle = 0.0
         # P7：通知（成功汇总 / 故障），按轮次聚合后在 _push_cycle 末尾统一发出
         self._notifier = Notifier(plugin)
+        # P9 前向闸门 A（默认关）：TG 推送前判断 PT 路是否在管，见 services/forward_gate.py
+        self._p9_gate = p9_gate_service.ForwardGate(
+            matcher=self._matcher,
+            store=p9_gate_service.GateStore(
+                plugin_id=self._plugin_id(),
+                db_getter=self._db,
+            ),
+            config_getter=lambda: getattr(self._plugin, "_config", None) or {},
+        )
         self._cycle: Dict[str, Any] = self._empty_cycle()
         self._started_at = ""
         self._last_error = ""
@@ -558,6 +575,17 @@ class MessagePipeline:
             if verdict.get("missing") is None or not verdict.get("missing"):
                 decision, reason = _decision_for_skip(verdict)
                 self._record(rule, chat_id, message_id, meta, decision, reason, destination, links)
+                if verdict.get("missing") is False:
+                    # 媒体库确认已有：清除 P9 的缺失计时锚点（规格 §7）
+                    self._p9_gate.clear_anchor(meta)
+                return
+            # P9 前向闸门 A（规格 §3）：仅在确认缺失后加强——PT 路在管则拦下。
+            # 顺序不可换：media_exists 是最硬的终点真相，A 只在"确认缺"之后才有意义。
+            gate_result = self._p9_gate.check(meta, missing=True)
+            if gate_result is not None and not gate_result.passed:
+                self._record(rule, chat_id, message_id, meta,
+                             gate_result.decision or DECISION_SKIPPED_PT_ACTIVE,
+                             gate_result.reason, destination, links)
                 return
 
         # 115 类目标必须拿到可推送的链接；TG 转发 / 仅记录不需要
@@ -1448,6 +1476,15 @@ class MessagePipeline:
                 if verdict.get("missing") is None or not verdict.get("missing"):
                     decision, reason = _decision_for_skip(verdict)
                     trace.update(decision=decision, reason=reason)
+                    traces.append(trace)
+                    continue
+                # P9 前向闸门 A：与真实处理同款判定（规则测试结果必须与实际一致）。
+                # 只读预览：touch/clear 会真实写库，但与"真跑一遍"语义一致，可接受；
+                # 结论与真实处理共用 60s 缓存，同一身份反复测试不会反复打宿主。
+                gate_result = self._p9_gate.check(meta, missing=True)
+                if gate_result is not None and not gate_result.passed:
+                    trace.update(decision=gate_result.decision or DECISION_SKIPPED_PT_ACTIVE,
+                                 reason=gate_result.reason)
                     traces.append(trace)
                     continue
             destination = str(rule.get("destination") or "smart")

@@ -18,6 +18,8 @@ const DECISION_LABELS = {
   skipped_no_link: '无可推链接',
   skipped_unknown: '无法判断',
   skipped_extension: '扩展名未命中',
+  skipped_pt_active: 'PT 在途',
+  skipped_pt_waiting: '等 PT 成熟期',
 }
 
 /** 决策中文文案（未知值原样返回）。 */

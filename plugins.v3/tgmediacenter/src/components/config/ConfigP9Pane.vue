@@ -3,20 +3,18 @@ import { computed, onMounted, ref } from 'vue'
 import { getPluginApi, unwrap } from '../api'
 
 /**
- * ⑩ P9 重复获取治理面板（1.9.0 引入 / 1.9.1 移除 R0）。
+ * ⑩ P9 重复获取治理面板（1.9.0 引入 / 1.9.1 移除 R0 / 1.10.0 闸门 A 上线）。
  *
  * 背景：PT 路（MP 订阅 → 下载 → 115）与 TG 路（本插件转存 → 115）写进同一个
  * 115 + STRM + Emby，会重复拿到同一部作品。治理分两向：
  *
- * - **前向闸门 A**：TG 推送前先看「PT 路是不是已经在管」→ **P9-2 才实现**，
- *   本版只在配置里占位，界面上不给控件，免得开关点了却没效果；
+ * - **前向闸门 A**（1.10.0 起提供）：TG 推送前先看「PT 路是不是已经在管」，
+ *   默认关；判定细节见 services/forward_gate.py；
  * - **反向 R0 开关**（1.9.0 曾提供）：真机验证**否决**——暂停宿主内置的
  *   「新增订阅搜索」后，新增订阅照旧被搜索（首次搜索是 subscribe.added
  *   事件驱动，那个 5 分钟 job 只是兜底），开关无收益，1.9.1 已移除。
  *
- * 探针的意义：闸门 A 要用 `list_download_history` 与 `DownloaderHelper`，而这两组
- * 宿主能力本插件此前一处都没用过。先探清"到底能不能导入、真实落在哪个模块、
- * 有哪些字段"，再动手写判定链，避免靠猜。
+ * 探针保留：闸门依赖的宿主能力随版本可能漂移，这里随时能看到真实可用性。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -129,16 +127,49 @@ onMounted(load)
       </VCardText>
     </VCard>
 
-    <!-- 前向闸门 A（P9-2） -->
-    <VCard flat class="p9-card p9-card-muted">
+    <!-- 前向闸门 A（P9-2 起提供控件） -->
+    <VCard flat class="p9-card">
       <VCardItem>
-        <VCardTitle class="text-subtitle-2">前向闸门（未启用）</VCardTitle>
+        <VCardTitle class="text-subtitle-2">前向闸门</VCardTitle>
         <VCardSubtitle class="text-caption">
-          计划：TG 推送前依次判断「媒体库已有 → 下载历史有记录且在途 → 等过成熟期（默认 2 小时）」，
-          全都没拦住才补。这一步需要先由上面的探针确认宿主能力可用，因此放在下一阶段落地，
-          本版界面不提供开关（配置里的三个字段已占位，默认关闭）。
+          TG 推送前依次判断「媒体库已有（仅缺失）→ 下载历史近 T 有记录 → 下载器有活跃种」，
+          PT 路在管就拦下：有活跃种记「PT 在途」，PT 还没取到资源则等过成熟期 T 再补；
+          有记录但种子已死/被清则立即放行。宿主查询失败时一律放行并写 WARNING（闸门绝不静默拦截推送）。
+          改动随底部「保存配置」生效。
         </VCardSubtitle>
       </VCardItem>
+      <VCardText class="pt-0">
+        <VSwitch
+          v-model="config.form.p9_forward_gate_enabled"
+          color="primary"
+          inset
+          :disabled="!config.form.enabled"
+          hide-details
+          label="启用前向闸门（默认关，开启后 TG 路让位给 PT 路）"
+        />
+        <div class="p9-gate-fields">
+          <VTextField
+            v-model.number="config.form.p9_maturity_hours"
+            type="number"
+            min="0"
+            max="72"
+            step="1"
+            density="comfortable"
+            label="成熟期 T（小时）"
+            hint="PT 完全没有下载记录时等多久才让 TG 补。0 = 不等待；RSS 间隔 20 分钟左右时 2 小时通常足够。"
+            persistent-hint
+            :disabled="!config.form.p9_forward_gate_enabled"
+          />
+          <VSwitch
+            v-model="config.form.p9_check_downloader"
+            color="primary"
+            inset
+            hide-details
+            label="下载器活跃性细化（用 hash 查活种，区分「在途」与「死种」）"
+            :disabled="!config.form.p9_forward_gate_enabled"
+          />
+        </div>
+      </VCardText>
     </VCard>
   </div>
 </template>
@@ -150,6 +181,7 @@ onMounted(load)
   border-radius: 10px;
 }
 .p9-card-muted { opacity: 0.75; }
+.p9-gate-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .p9-message { margin: 0; }
 .p9-probe-summary {
   display: flex; align-items: center; gap: 6px;

@@ -31,6 +31,8 @@ DECISION_SKIPPED_KEYWORD = "skipped_keyword"            # 自定义关键词未�
 DECISION_SKIPPED_NO_LINK = "skipped_no_link"            # 没有可推送的链接
 DECISION_SKIPPED_UNKNOWN = "skipped_unknown"            # 无法判断缺失（无媒体服务器/订阅）
 DECISION_SKIPPED_EXTENSION = "skipped_extension"        # ⑥ 转发：文件扩展名未命中
+DECISION_SKIPPED_PT_ACTIVE = "skipped_pt_active"        # P9 闸门：PT 在途（有下载记录且活跃）
+DECISION_SKIPPED_PT_WAITING = "skipped_pt_waiting"      # P9 闸门：PT 未取到，等成熟期 T
 DECISION_FAILED = "failed"                # 处理过程出错
 
 # 流水来源（两套规则共用一张表，靠 kind 分栏）
@@ -47,6 +49,8 @@ DECISIONS = (
     DECISION_SKIPPED_NO_LINK,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_EXTENSION,
+    DECISION_SKIPPED_PT_ACTIVE,
+    DECISION_SKIPPED_PT_WAITING,
     DECISION_FAILED,
 )
 
@@ -62,6 +66,8 @@ DECISION_LABELS = {
     DECISION_SKIPPED_NO_LINK: "无可推链接",
     DECISION_SKIPPED_UNKNOWN: "无法判断",
     DECISION_SKIPPED_EXTENSION: "扩展名未命中",
+    DECISION_SKIPPED_PT_ACTIVE: "PT 在途",
+    DECISION_SKIPPED_PT_WAITING: "等 PT 成熟期",
     DECISION_FAILED: "处理失败",
 }
 

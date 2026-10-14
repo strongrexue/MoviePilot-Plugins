@@ -425,11 +425,34 @@ class MediaMatcher:
                     "season": item_season,
                     "lack_episode": getattr(item, "lack_episode", None),
                     "state": getattr(item, "state", None),
+                    # P9 订阅桥：借出宿主的媒体身份对（供下载历史精确查询）。
+                    # 快照里这对字段可能为空（脏半对会被宿主归一成 None），
+                    # 调用方须自行判空退回 title 路径。
+                    "media_source": getattr(item, "media_source", None),
+                    "media_id": getattr(item, "media_id", None),
                 }
         except Exception as err:
             logger.debug(f"读取宿主订阅失败：{err}")
             return None
         return None
+
+    def subscription_identity(
+        self, *, title: str, year: str, season: Optional[int]
+    ) -> "tuple[Optional[str], Optional[str]]":
+        """P9 订阅桥：TG 身份 → MP 订阅 → ``(media_source, media_id)``。
+
+        未命中订阅或订阅缺身份对时返回 ``(None, None)``，调用方退回
+        title 路径查下载历史。复用 ``_match_subscription`` 的翻页与匹配逻辑，
+        不另写一套片名比对（1.4.0「第 51 条之后匹配不到」的教训）。
+        """
+        sub = self._match_subscription(title=title, year=year, season=season)
+        if not sub:
+            return (None, None)
+        source = str(getattr(sub.get("media_source"), "value", "") or sub.get("media_source") or "").strip()
+        media_id = str(sub.get("media_id") or "").strip()
+        if not source or not media_id or media_id == "0":
+            return (None, None)
+        return (source, media_id)
 
     # ------------------------------------------------------------------ 媒体服务器
 

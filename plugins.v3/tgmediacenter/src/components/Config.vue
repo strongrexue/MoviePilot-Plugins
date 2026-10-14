@@ -5,6 +5,7 @@ import ConfigPan115Pane from './config/ConfigPan115Pane.vue'
 import ConfigMonitorPane from './config/ConfigMonitorPane.vue'
 import ConfigCachePane from './config/ConfigCachePane.vue'
 import ConfigForwardPane from './config/ConfigForwardPane.vue'
+import ConfigP9Pane from './config/ConfigP9Pane.vue'
 import { useConfigForm } from './config/useConfigForm'
 
 const props = defineProps({
@@ -27,6 +28,7 @@ const modules = [
   { key: 'monitor', title: '资源监控', icon: 'mdi-radar', desc: '监听频道、推送目标、仅缺集' },
   { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、同步与检索' },
   { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '关键词与扩展名匹配、置顶与内容转换' },
+  { key: 'p9', title: '重复获取治理', icon: 'mdi-shield-sync-outline', desc: '宿主能力探针、PT 侧的暂停开关' },
 ]
 
 const activeModule = ref(modules[0].key)
@@ -115,6 +117,12 @@ onMounted(config.loadConfig)
           />
           <ConfigForwardPane
             v-else-if="activeModule === 'forward'"
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :config="config"
+          />
+          <ConfigP9Pane
+            v-else-if="activeModule === 'p9'"
             :api="props.api"
             :plugin-id="props.pluginId"
             :config="config"

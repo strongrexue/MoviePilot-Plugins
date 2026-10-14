@@ -217,6 +217,13 @@ class _StubPlugin:
     def api_forward_test(self, request):
         ...
 
+    # P9 重复获取治理
+    def api_p9_guard(self):
+        ...
+
+    def api_p9_r0_apply(self):
+        ...
+
 
 def test_api_routes_contract():
     """所有路由都要声明 bear 认证与 response_model。"""
@@ -260,6 +267,9 @@ def test_api_routes_contract():
         "/forward/hits",
         "/forward/hits/clear",
         "/forward/test",
+        # P9 重复获取治理（P9-1：能力探针 + 反向开关重贴）
+        "/p9/guard",
+        "/p9/r0/apply",
     }
     for route in routes:
         assert route["auth"] == "bear"

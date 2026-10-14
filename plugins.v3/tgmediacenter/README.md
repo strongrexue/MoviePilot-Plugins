@@ -417,7 +417,7 @@ python ../../../.github/scripts/check_federation_css.py
 
 ## 版本
 
-当前 `1.8.2`。版本号需四处同步：`__init__.py` 的 `plugin_version`、
+当前 `1.9.0`。版本号需四处同步：`__init__.py` 的 `plugin_version`、
 `package.v3.json` 的 `version` 与 `history` 最新键、前端 `src/components/version.js`
 的 `FRONTEND_VERSION`——门禁脚本 `check_plugin_versions.py` 与单测会校验一致性
 （详见上方「开发与发版 · 版本号四处同步」）。

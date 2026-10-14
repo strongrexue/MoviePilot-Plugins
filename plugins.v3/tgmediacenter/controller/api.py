@@ -20,6 +20,7 @@ from ..core.pan115_client import Pan115Error
 from ..core.pan115_login import Pan115QrError
 from ..core.telegram import TelegramOperationError
 from ..model.hit_log import KIND_MONITOR
+from ..services import pt_guard
 from . import schemas as api_schemas
 
 
@@ -67,6 +68,8 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/forward/hits", plugin.api_forward_hits, ["GET"], "查询转发命中流水"),
         ("/forward/hits/clear", plugin.api_forward_hits_clear, ["POST"], "清理转发命中流水（清空或按筛选删除）"),
         ("/forward/test", plugin.api_forward_test, ["POST"], "用一段文本测试转发规则"),
+        ("/p9/guard", plugin.api_p9_guard, ["GET"], "P9 宿主能力探针与反向开关状态"),
+        ("/p9/r0/apply", plugin.api_p9_r0_apply, ["POST"], "按当前配置重贴反向开关"),
     ]
     return [
         {
@@ -600,3 +603,46 @@ def api_forward_test(plugin, request: api_schemas.ForwardTestRequest):
         raise HTTPException(status_code=400, detail="请先粘贴一条频道消息文本")
     data = _invoke(lambda: module.test_text(request.text))
     return _envelope(api_schemas.ForwardTestData.model_validate(data), message="测试完成（未落库、未推送）")
+
+
+# ---------------------------------------------------------------------- ⑩ P9 重复获取治理
+
+
+def _p9_r0_view(plugin) -> dict:
+    """反向开关的当前状态 = 配置期望值 + 宿主任务真实状态。"""
+    state = pt_guard.job_state()
+    config = getattr(plugin, "config", {}) or {}
+    enabled = _state(plugin) and _config_flag(config, "p9_pause_new_subscribe_search", False)
+    message = str(state.get("detail") or "")
+    if not state.get("available"):
+        message = f"旧调度接口不可用，开关不生效：{message}"
+    return {
+        "enabled": bool(enabled),
+        "available": bool(state.get("available")),
+        "exists": bool(state.get("exists")),
+        "paused": bool(state.get("paused")),
+        "next_run": str(state.get("next_run") or ""),
+        "message": message,
+    }
+
+
+def api_p9_guard(plugin):
+    """P9 数据源探针 + 反向开关状态（只读、无副作用）。
+
+    探针存在的意义：闸门 A 要用 ``list_download_history`` 与 ``DownloaderHelper``
+    这两组宿主能力，而它们在本插件里**此前一处都没用过**——先问清楚"到底能不能
+    导入、真实落在哪个模块"，再动手写闸门，避免判定链靠猜。
+    """
+    probe = _invoke(pt_guard.probe)
+    data = {"probe": probe, "r0": _p9_r0_view(plugin)}
+    return _envelope(api_schemas.P9GuardData.model_validate(data))
+
+
+def api_p9_r0_apply(plugin):
+    """按当前配置重贴反向开关（宿主配置热重载会重建任务，pause 会被冲掉）。"""
+    apply = getattr(plugin, "apply_p9_r0", None)
+    if callable(apply):
+        _invoke(apply)
+    data = _p9_r0_view(plugin)
+    return _envelope(api_schemas.P9R0Data.model_validate(data),
+                     message=str(data.get("message") or "已按当前配置重贴开关"))

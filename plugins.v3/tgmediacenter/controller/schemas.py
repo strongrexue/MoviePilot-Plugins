@@ -668,6 +668,48 @@ class OverviewData(BaseModel):
     recent_hits: List[MonitorHit] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------- ⑩ P9 重复获取治理
+
+
+class P9ProbeItem(BaseModel):
+    """一条宿主能力探针结论。"""
+
+    key: str = ""
+    label: str = ""
+    ok: bool = False
+    detail: str = ""
+
+
+class P9ProbeData(BaseModel):
+    """P9 数据源能力探针结果（只读）。
+
+    ``ok`` 为所有细项的交集——任一项不通过即整体不通过，用于一眼判断
+    「闸门 A 能不能开工」；细项逐条给出真实导入路径 / 字段 / 失败原因。
+    """
+
+    ok: bool = False
+    checked_at: str = ""
+    items: List[P9ProbeItem] = Field(default_factory=list)
+
+
+class P9R0Data(BaseModel):
+    """反向 R0 开关（暂停宿主内置「新增订阅搜索」）的当前状态。"""
+
+    enabled: bool = Field(default=False, description="配置期望值（插件启用 + 开关打开）")
+    available: bool = Field(default=False, description="旧调度接口是否可用")
+    exists: bool = Field(default=False, description="宿主是否注册了该内置任务")
+    paused: bool = Field(default=False, description="任务当前是否真的处于暂停")
+    next_run: str = Field(default="", description="任务的下次运行时间（暂停时为空）")
+    message: str = ""
+
+
+class P9GuardData(BaseModel):
+    """P9 治理面板聚合：能力探针 + 反向开关状态。"""
+
+    probe: P9ProbeData = Field(default_factory=P9ProbeData)
+    r0: P9R0Data = Field(default_factory=P9R0Data)
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
     "/overview": OverviewData,
@@ -702,4 +744,6 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/forward/hits": MonitorHitsData,
     "/forward/hits/clear": MonitorHitsClearData,
     "/forward/test": ForwardTestData,
+    "/p9/guard": P9GuardData,
+    "/p9/r0/apply": P9R0Data,
 }

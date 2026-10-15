@@ -178,7 +178,7 @@ defineExpose({ snapshot })
           </VCardText>
         </VCard>
 
-        <VCard v-for="(group, index) in styleGroups.value" :key="index" variant="tonal" class="ec-block">
+        <VCard v-for="(group, index) in styleGroups" :key="index" variant="tonal" class="ec-block">
           <VCardItem class="py-2">
             <VCardTitle class="text-subtitle-1">{{ group.group }}</VCardTitle>
           </VCardItem>
@@ -224,7 +224,7 @@ defineExpose({ snapshot })
         <VCard variant="tonal" class="ec-block mt-2">
           <VCardItem class="py-2">
             <VCardTitle class="text-subtitle-1">模板预设（{{ designer.templates.value.length }}）</VCardTitle>
-            <VCardSubtitle class="text-caption">仅展示效果；「载入」只套用风格参数</VCardSubtitle>
+            <VCardSubtitle class="text-caption">点击卡片即载入（仅套用风格参数，不改标题/副标题）</VCardSubtitle>
             <template #append>
               <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(templateInput)">上传</VBtn>
             </template>
@@ -236,6 +236,9 @@ defineExpose({ snapshot })
                 :key="template.filename"
                 class="ec-template"
                 :class="{ 'ec-template--active': template.layout === form.layout }"
+                role="button"
+                :title="`点击载入：${template.name || template.filename}`"
+                @click="designer.loadTemplate(template)"
               >
                 <img
                   v-if="template.has_preview"
@@ -244,11 +247,17 @@ defineExpose({ snapshot })
                   alt=""
                 />
                 <div v-else class="ec-template-noimg">{{ template.layout }}</div>
+                <VBtn
+                  class="ec-template-del"
+                  size="x-small"
+                  icon
+                  variant="text"
+                  title="删除模板"
+                  @click.stop="designer.deleteTemplate(template.filename)"
+                >
+                  <VIcon icon="mdi-close" size="14" />
+                </VBtn>
                 <div class="ec-template-name">{{ template.name || template.filename }}</div>
-                <div class="ec-template-ops">
-                  <VBtn size="x-small" variant="text" @click="designer.loadTemplate(template)">载入</VBtn>
-                  <VBtn size="x-small" variant="text" @click="designer.deleteTemplate(template.filename)">删除</VBtn>
-                </div>
               </div>
             </div>
             <div class="ec-row-wrap mt-2">
@@ -268,13 +277,13 @@ defineExpose({ snapshot })
           </VCardText>
         </VCard>
 
-        <VCard v-if="engineGroup.value" variant="tonal" class="ec-block mt-2">
+        <VCard v-if="engineGroup" variant="tonal" class="ec-block mt-2">
           <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">{{ engineGroup.value.group }}</VCardTitle>
+            <VCardTitle class="text-subtitle-1">{{ engineGroup.group }}</VCardTitle>
           </VCardItem>
           <VCardText class="ec-fields">
             <CoverField
-              v-for="item in engineGroup.value.items"
+              v-for="item in engineGroup.items"
               :key="item.key"
               :item="item"
               :config="form.config"
@@ -431,12 +440,29 @@ defineExpose({ snapshot })
   gap: 8px;
 }
 .ec-template {
+  position: relative;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.ec-template:hover {
+  border-color: rgba(var(--v-theme-primary), 0.6);
+  transform: translateY(-1px);
 }
 .ec-template--active {
   border-color: rgb(var(--v-theme-primary));
+  box-shadow: 0 0 0 1px rgba(var(--v-theme-primary), 0.35);
+}
+.ec-template-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  opacity: 0.55;
+}
+.ec-template-del:hover {
+  opacity: 1;
 }
 .ec-template-thumb {
   width: 100%;
@@ -454,16 +480,11 @@ defineExpose({ snapshot })
   background: rgba(var(--v-theme-on-surface), 0.04);
 }
 .ec-template-name {
-  padding: 4px 6px 0;
+  padding: 4px 6px 6px;
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.ec-template-ops {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 2px 4px;
 }
 .ec-template-input {
   max-width: 220px;

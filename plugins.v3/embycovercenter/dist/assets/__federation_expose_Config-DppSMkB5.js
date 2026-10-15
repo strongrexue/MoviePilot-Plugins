@@ -534,7 +534,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   }
 }
 
-const {createElementVNode:_createElementVNode$1,unref:_unref,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass} = await importShared('vue');
+const {createElementVNode:_createElementVNode$1,unref:_unref,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,withModifiers:_withModifiers,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
 const _hoisted_1$1 = { class: "ec-cover" };
@@ -554,13 +554,13 @@ const _hoisted_9 = {
 };
 const _hoisted_10 = { key: 0 };
 const _hoisted_11 = { class: "ec-templates" };
-const _hoisted_12 = ["src"];
-const _hoisted_13 = {
+const _hoisted_12 = ["title", "onClick"];
+const _hoisted_13 = ["src"];
+const _hoisted_14 = {
   key: 1,
   class: "ec-template-noimg"
 };
-const _hoisted_14 = { class: "ec-template-name" };
-const _hoisted_15 = { class: "ec-template-ops" };
+const _hoisted_15 = { class: "ec-template-name" };
 const _hoisted_16 = { class: "ec-row-wrap mt-2" };
 const _hoisted_17 = { class: "ec-chips" };
 const _hoisted_18 = {
@@ -665,6 +665,7 @@ return (_ctx, _cache) => {
   const _component_VCardText = _resolveComponent$1("VCardText");
   const _component_VCard = _resolveComponent$1("VCard");
   const _component_VProgressLinear = _resolveComponent$1("VProgressLinear");
+  const _component_VIcon = _resolveComponent$1("VIcon");
   const _component_VChip = _resolveComponent$1("VChip");
 
   return (_openBlock$1(), _createElementBlock("div", _hoisted_1$1, [
@@ -819,7 +820,7 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }),
-        (_openBlock$1(true), _createElementBlock(_Fragment, null, _renderList(_unref(styleGroups).value, (group, index) => {
+        (_openBlock$1(true), _createElementBlock(_Fragment, null, _renderList(_unref(styleGroups), (group, index) => {
           return (_openBlock$1(), _createBlock$1(_component_VCard, {
             key: index,
             variant: "tonal",
@@ -946,7 +947,7 @@ return (_ctx, _cache) => {
                 }),
                 _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
                   default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
-                    _createTextVNode$1("仅展示效果；「载入」只套用风格参数", -1)
+                    _createTextVNode$1("点击卡片即载入（仅套用风格参数，不改标题/副标题）", -1)
                   ]))]),
                   _: 1
                 })
@@ -959,7 +960,10 @@ return (_ctx, _cache) => {
                   (_openBlock$1(true), _createElementBlock(_Fragment, null, _renderList(_unref(designer).templates.value, (template) => {
                     return (_openBlock$1(), _createElementBlock("div", {
                       key: template.filename,
-                      class: _normalizeClass(["ec-template", { 'ec-template--active': template.layout === _unref(form).layout }])
+                      class: _normalizeClass(["ec-template", { 'ec-template--active': template.layout === _unref(form).layout }]),
+                      role: "button",
+                      title: `点击载入：${template.name || template.filename}`,
+                      onClick: $event => (_unref(designer).loadTemplate(template))
                     }, [
                       (template.has_preview)
                         ? (_openBlock$1(), _createElementBlock("img", {
@@ -967,32 +971,26 @@ return (_ctx, _cache) => {
                             src: _unref(designer).templatePreviewUrl(template),
                             class: "ec-template-thumb",
                             alt: ""
-                          }, null, 8, _hoisted_12))
-                        : (_openBlock$1(), _createElementBlock("div", _hoisted_13, _toDisplayString$1(template.layout), 1)),
-                      _createElementVNode$1("div", _hoisted_14, _toDisplayString$1(template.name || template.filename), 1),
-                      _createElementVNode$1("div", _hoisted_15, [
-                        _createVNode$1(_component_VBtn, {
-                          size: "x-small",
-                          variant: "text",
-                          onClick: $event => (_unref(designer).loadTemplate(template))
-                        }, {
-                          default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
-                            _createTextVNode$1("载入", -1)
-                          ]))]),
-                          _: 1
-                        }, 8, ["onClick"]),
-                        _createVNode$1(_component_VBtn, {
-                          size: "x-small",
-                          variant: "text",
-                          onClick: $event => (_unref(designer).deleteTemplate(template.filename))
-                        }, {
-                          default: _withCtx$1(() => [...(_cache[22] || (_cache[22] = [
-                            _createTextVNode$1("删除", -1)
-                          ]))]),
-                          _: 1
-                        }, 8, ["onClick"])
-                      ])
-                    ], 2))
+                          }, null, 8, _hoisted_13))
+                        : (_openBlock$1(), _createElementBlock("div", _hoisted_14, _toDisplayString$1(template.layout), 1)),
+                      _createVNode$1(_component_VBtn, {
+                        class: "ec-template-del",
+                        size: "x-small",
+                        icon: "",
+                        variant: "text",
+                        title: "删除模板",
+                        onClick: _withModifiers($event => (_unref(designer).deleteTemplate(template.filename)), ["stop"])
+                      }, {
+                        default: _withCtx$1(() => [
+                          _createVNode$1(_component_VIcon, {
+                            icon: "mdi-close",
+                            size: "14"
+                          })
+                        ]),
+                        _: 1
+                      }, 8, ["onClick"]),
+                      _createElementVNode$1("div", _hoisted_15, _toDisplayString$1(template.name || template.filename), 1)
+                    ], 10, _hoisted_12))
                   }), 128))
                 ]),
                 _createElementVNode$1("div", _hoisted_16, [
@@ -1012,7 +1010,7 @@ return (_ctx, _cache) => {
                     disabled: !templateName.value,
                     onClick: _cache[8] || (_cache[8] = $event => (_unref(designer).saveTemplate(templateName.value)))
                   }, {
-                    default: _withCtx$1(() => [...(_cache[23] || (_cache[23] = [
+                    default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
                       _createTextVNode$1(" 保存当前 ", -1)
                     ]))]),
                     _: 1
@@ -1024,7 +1022,7 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }),
-        (_unref(engineGroup).value)
+        (_unref(engineGroup))
           ? (_openBlock$1(), _createBlock$1(_component_VCard, {
               key: 0,
               variant: "tonal",
@@ -1035,7 +1033,7 @@ return (_ctx, _cache) => {
                   default: _withCtx$1(() => [
                     _createVNode$1(_component_VCardTitle, { class: "text-subtitle-1" }, {
                       default: _withCtx$1(() => [
-                        _createTextVNode$1(_toDisplayString$1(_unref(engineGroup).value.group), 1)
+                        _createTextVNode$1(_toDisplayString$1(_unref(engineGroup).group), 1)
                       ]),
                       _: 1
                     })
@@ -1044,7 +1042,7 @@ return (_ctx, _cache) => {
                 }),
                 _createVNode$1(_component_VCardText, { class: "ec-fields" }, {
                   default: _withCtx$1(() => [
-                    (_openBlock$1(true), _createElementBlock(_Fragment, null, _renderList(_unref(engineGroup).value.items, (item) => {
+                    (_openBlock$1(true), _createElementBlock(_Fragment, null, _renderList(_unref(engineGroup).items, (item) => {
                       return (_openBlock$1(), _createBlock$1(CoverField, {
                         key: item.key,
                         item: item,
@@ -1067,7 +1065,7 @@ return (_ctx, _cache) => {
             _createVNode$1(_component_VCardItem, { class: "py-2" }, {
               default: _withCtx$1(() => [
                 _createVNode$1(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                  default: _withCtx$1(() => [...(_cache[24] || (_cache[24] = [
+                  default: _withCtx$1(() => [...(_cache[22] || (_cache[22] = [
                     _createTextVNode$1("封面上传", -1)
                   ]))]),
                   _: 1
@@ -1084,7 +1082,7 @@ return (_ctx, _cache) => {
                   loading: _unref(designer).applying.value,
                   onClick: _cache[9] || (_cache[9] = $event => (pick(localImageInput.value)))
                 }, {
-                  default: _withCtx$1(() => [...(_cache[25] || (_cache[25] = [
+                  default: _withCtx$1(() => [...(_cache[23] || (_cache[23] = [
                     _createTextVNode$1(" 选择本地封面（直接替换） ", -1)
                   ]))]),
                   _: 1
@@ -1097,7 +1095,7 @@ return (_ctx, _cache) => {
                   loading: _unref(designer).applying.value,
                   onClick: _unref(designer).applyPreviewImage
                 }, {
-                  default: _withCtx$1(() => [...(_cache[26] || (_cache[26] = [
+                  default: _withCtx$1(() => [...(_cache[24] || (_cache[24] = [
                     _createTextVNode$1(" 应用当前预览图 ", -1)
                   ]))]),
                   _: 1
@@ -1121,7 +1119,7 @@ return (_ctx, _cache) => {
                   "prepend-icon": "mdi-upload",
                   onClick: _cache[10] || (_cache[10] = $event => (pick(fontInput.value)))
                 }, {
-                  default: _withCtx$1(() => [...(_cache[27] || (_cache[27] = [
+                  default: _withCtx$1(() => [...(_cache[25] || (_cache[25] = [
                     _createTextVNode$1("上传", -1)
                   ]))]),
                   _: 1
@@ -1195,7 +1193,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-a673ac8a"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-322ca931"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode} = await importShared('vue');
 

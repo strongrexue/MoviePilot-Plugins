@@ -132,9 +132,11 @@ onMounted(load)
       <VCardItem>
         <VCardTitle class="text-subtitle-2">前向闸门</VCardTitle>
         <VCardSubtitle class="text-caption">
-          TG 推送前依次判断「媒体库已有（仅缺失）→ 下载历史近 T 有记录 → 下载器有活跃种」，
+          TG 推送前依次判断「媒体库已有（仅缺失）→ 下载历史近 T 有本集记录 → 下载器有本集活跃种」，
           PT 路在管就拦下：有活跃种记「PT 在途」，PT 还没取到资源则等过成熟期 T 再补；
-          有记录但种子已死/被清则立即放行。宿主查询失败时一律放行并写 WARNING（闸门绝不静默拦截推送）。
+          有记录但种子已死/被清则立即放行。判定与计时均按「集」粒度（片名+年份+季+集）——
+          PT 追更是单集发布、单集抓取，一季可持续数月，按季计时会让季末单集的成熟期早已失效。
+          宿主查询失败时一律放行并写 WARNING（闸门绝不静默拦截推送）。
           改动随底部「保存配置」生效。
         </VCardSubtitle>
       </VCardItem>
@@ -156,7 +158,7 @@ onMounted(load)
             step="1"
             density="comfortable"
             label="成熟期 T（小时）"
-            hint="PT 完全没有下载记录时等多久才让 TG 补。0 = 不等待；RSS 间隔 20 分钟左右时 2 小时通常足够。"
+            hint="PT 完全没有本集下载记录时等多久才让 TG 补，从该集第一次发现缺失起算（每集独立计时）。0 = 不等待；RSS 间隔 20 分钟左右时 2 小时通常足够。"
             persistent-hint
             :disabled="!config.form.p9_forward_gate_enabled"
           />

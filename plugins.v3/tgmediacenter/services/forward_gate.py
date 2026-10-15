@@ -15,6 +15,12 @@
          · 下载器不可用 → 放行（fail-open）+ WARNING
          · 未启用细化 / 记录无 hash → 保守视为在管（skipped_pt_active）
 
+**粒度 = 集**（1.11.0 起，锚点键为「片名|年份|类型|季|集」）：PT 追更是单集
+发布、单集抓取，一季可能持续数月；季粒度锚点会让 ``first_missing_at`` 停留在
+首集时刻，季末单集的成熟期早已"超时"→ 形同虚设。识别不出集时降为季粒度键
+（空串占位），语义仍安全（只是多等一轮）。下载历史/活跃种匹配同样按季集，
+避免「PT 在下 E01–E04」误挡住 TG 推 E05。
+
 纪律（规格 §8/§9，硬性）：
 - **一律 fail-open 且留痕**：sdk 是宿主能力，MP 升级可能失配；fail-closed 会让
   推送静默失效，比重复获取严重得多。借鉴 1.7.9「None 静默放行」的教训，所有
@@ -25,6 +31,7 @@
 """
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -95,34 +102,39 @@ class GateResult:
 
 @dataclass(frozen=True)
 class _Identity:
-    """判定链的身份对象（季粒度；TG 侧没有 tmdbid，见规格 §2.1）。"""
+    """判定链的身份对象（集粒度；TG 侧没有 tmdbid，见规格 §2.1）。"""
 
     title: str
     year: str
     media_type: str
     season: Optional[int] = None
+    episode: Optional[int] = None
 
     @classmethod
     def from_meta(cls, meta: Optional[dict]) -> "_Identity":
         meta = meta or {}
-        season = meta.get("season")
-        try:
-            season = int(season) if season is not None else None
-        except (TypeError, ValueError):
-            season = None
+        season = _to_int(meta.get("season"))
+        episode = _to_int(meta.get("episode"))
         return cls(
             title=str(meta.get("title") or ""),
             year=str(meta.get("year") or ""),
             media_type=str(meta.get("media_type") or ""),
             season=season,
+            episode=episode,
         )
 
     @property
     def key(self) -> str:
-        """季粒度锚点键：归一片名|年份|类型|季（缺失季用空串占位）。"""
+        """集粒度锚点键：归一片名|年份|类型|季|集（缺失季/集用空串占位）。
+
+        季、集各自独立降级：识别不出季 → 季位空串；识别不出集 → 集位空串。
+        所以「E05」与「无集消息」是两个键、各自计时——同一集被拆成两个锚点
+        的代价只是多等一轮，而绝不会因此少等或永久放行。
+        """
         return "|".join([
             _normalize_title(self.title), self.year, self.media_type,
             str(self.season if self.season is not None else ""),
+            str(self.episode if self.episode is not None else ""),
         ])
 
 
@@ -375,7 +387,11 @@ class ForwardGate:
         先走订阅桥借 ``(media_source, media_id)`` 精确查；未命中订阅退回
         ``title`` 过滤（注意：过滤器 title 是精确匹配，资源名与 TMDB 名有差异
         时会漏查——漏查的代价是"多推一条"，与 fail-open 同向，可接受）。
-        时间窗口（近 T）过滤器不支持，取回后在本地按 ``date`` 筛。
+        时间窗口（近 T）过滤器不支持，取回后在本地按 ``date`` 筛；季集在本地
+        按 ``seasons``/``episodes`` 筛（见 ``_episode_matches``）。
+
+        查询缓存指纹刻意**只到季**（不含集）：同一季的各集共享一次宿主查询，
+        集粒度差异在本地筛。否则追更时每集都打一次宿主，缓存形同虚设。
         """
         source, media_id = self._matcher.subscription_identity(
             title=ident.title, year=ident.year, season=ident.season
@@ -395,7 +411,8 @@ class ForwardGate:
             return None
         return [
             r for r in records
-            if _within_window(r.get("date"), within_hours) and _season_matches(r, ident)
+            if _within_window(r.get("date"), within_hours)
+            and _episode_matches(r, ident)
         ]
 
     @staticmethod
@@ -492,6 +509,16 @@ class ForwardGate:
 # 模块级小工具（无状态）
 
 
+def _to_int(value: Any) -> Optional[int]:
+    """宽松转 int；None / 空 / 不可解析（如 "1-2" 区间）一律返回 None。"""
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _snapshot_to_dict(item: Any) -> Dict[str, Any]:
     """把宿主快照压成判定所需的最小字典（避免持有多余引用）。"""
     return {
@@ -524,24 +551,66 @@ def _within_window(date_value: Any, within_hours: float) -> bool:
     return age_hours <= max(within_hours, 0.0) + 0.01
 
 
-def _season_matches(record: Dict[str, Any], ident: _Identity) -> bool:
-    """记录的季是否与身份一致（电影 / 未识别季的身份不按季筛）。
+def _episode_matches(record: Dict[str, Any], ident: _Identity) -> bool:
+    """记录的季/集是否与身份一致（电影、未识别季/集的身份不筛）。
 
-    宿主把 ``meta.season`` 原样写进 seasons 列（int 或 "S01" 形态都有可能），
-    这里宽松解析；解析失败按"季不可知 = 匹配"处理（保守方向，同上）。
+    宿主把 ``meta.season`` / ``meta.episode`` 原样写进 ``seasons`` / ``episodes``
+    列（int、"S01"、"E01"、"1-12" 形态都可能），宽松解析：
+      · 季不一致 → 不匹配（不同季是彼此独立的下载任务）；
+      · 记录无集（整季/合集/完结包）→ 匹配；
+      · 身份无集（TG 标题没带集数）→ 匹配；
+      · 解析不出任何数字 → 匹配。
+    解析失败一律按"匹配"（保守方向，同上）：宁可少推一条，也不因解析失败
+    误判成"PT 没在管这一集"而造成重复获取。
     """
-    if ident.season is None:
-        return True
-    raw = record.get("seasons")
-    if raw in (None, ""):
-        return True
-    digits = "".join(ch for ch in str(raw) if ch.isdigit())
-    if not digits:
-        return True
-    try:
-        return int(digits) == int(ident.season)
-    except (TypeError, ValueError):
-        return True
+    if ident.season is not None:
+        raw = record.get("seasons")
+        if raw not in (None, ""):
+            digits = "".join(ch for ch in str(raw) if ch.isdigit())
+            if digits:
+                try:
+                    if int(digits) != int(ident.season):
+                        return False
+                except (TypeError, ValueError):
+                    return True
+    if ident.episode is not None:
+        raw = record.get("episodes")
+        if raw not in (None, ""):
+            found = _episode_numbers(raw)
+            if found and int(ident.episode) not in found:
+                return False
+    return True
+
+
+def _episode_numbers(raw: Any) -> "set":
+    """从宿主 ``episodes`` 列解析集数集合；识别 ``a-b`` 区间并展开。
+
+    覆盖 PT 常见写法：``E05`` / ``5`` / ``1,2,3`` / ``S01E01-E12`` / ``EP01-EP12``。
+    解析不出任何数字时返回空集——调用方按"匹配"处理（保守方向）。
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return set()
+    # 先去字母前缀（S/E/EP 等），区间符统一为 '-'，避免 "E01-E12" 被拆断
+    text = re.sub(r"[A-Za-z]+", " ", text)
+    for ch in ("~", "–", "—", "－"):
+        text = text.replace(ch, "-")
+    numbers: set = set()
+    for match in re.finditer(r"(\d+)\s*-\s*(\d+)", text):
+        try:
+            start, end = int(match.group(1)), int(match.group(2))
+        except ValueError:
+            continue
+        # 只展开可信的小区间；异常宽区间不猜，退回逐字解析
+        if 0 < start <= end <= start + 500:
+            numbers.update(range(start, end + 1))
+    rest = re.sub(r"\d+\s*-\s*\d+", " ", text)
+    for chunk in re.findall(r"\d+", rest):
+        try:
+            numbers.add(int(chunk))
+        except ValueError:
+            continue
+    return numbers
 
 
 def _torrent_active(torrent: Any) -> bool:

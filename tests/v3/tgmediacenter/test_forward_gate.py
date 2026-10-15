@@ -7,6 +7,7 @@
 - 有记录 + 有活跃种 → skipped_pt_active；无活跃种（死种）→ 放行
 - 关闭活跃性细化 / 记录无 hash → 保守 skipped_pt_active
 - 锚点维护：缺失时 touch、入库后 clear
+- 集粒度（1.11.0）：不同集各计各的成熟期；他集记录不算本集在管
 - _decision_for_skip 尊重 verdict 显式携带的 decision
 """
 from __future__ import annotations
@@ -112,14 +113,16 @@ def _patch_torrents(monkeypatch, torrents, fail=False):
         get_services=lambda: {"qb": svc}))
 
 
-def _record(hash_="abc", season=None, date=None):
+def _record(hash_="abc", season=None, episode="E01", date=None):
     return {
         "title": "测试剧", "year": "2026", "seasons": season,
-        "episodes": "E01", "download_hash": hash_, "date": date,
+        "episodes": episode, "download_hash": hash_, "date": date,
     }
 
 
-_META = {"title": "测试剧", "year": "2026", "media_type": "tv", "season": 1}
+# 集粒度锚点键 = 归一片名|年份|类型|季|集（见 _Identity.key）
+_KEY_E01 = "测试剧|2026|tv|1|1"
+_META = {"title": "测试剧", "year": "2026", "media_type": "tv", "season": 1, "episode": 1}
 
 
 # --------------------------------------------------------------------- 用例
@@ -147,7 +150,7 @@ def test_history_query_failure_fails_open(gate_env, monkeypatch):
 def test_no_records_within_maturity_waits(gate_env, monkeypatch):
     """无下载记录 + 有锚点 + 未满 T → skipped_pt_waiting。"""
     gate, _m, store, _c = gate_env
-    store.anchors["测试剧|2026|tv|1"] = datetime.now() - timedelta(minutes=30)
+    store.anchors["测试剧|2026|tv|1|1"] = datetime.now() - timedelta(minutes=30)
     _patch_history(monkeypatch, [])
     result = gate.check(_META, missing=True)
     assert not result.passed
@@ -157,7 +160,7 @@ def test_no_records_within_maturity_waits(gate_env, monkeypatch):
 def test_no_records_past_maturity_passes(gate_env, monkeypatch):
     """无下载记录 + 超过成熟期 → 放行（TG 补）。"""
     gate, _m, store, _c = gate_env
-    store.anchors["测试剧|2026|tv|1"] = datetime.now() - timedelta(hours=3)
+    store.anchors["测试剧|2026|tv|1|1"] = datetime.now() - timedelta(hours=3)
     _patch_history(monkeypatch, [])
     result = gate.check(_META, missing=True)
     assert result.passed and not result.degraded
@@ -226,7 +229,7 @@ def test_records_without_hash_conservative_skip(gate_env, monkeypatch):
 def test_records_outside_window_ignored(gate_env, monkeypatch):
     """窗口外的旧记录（> T）不算"有记录"→ 走成熟期等待分支。"""
     gate, _m, store, _c = gate_env
-    store.anchors["测试剧|2026|tv|1"] = datetime.now() - timedelta(hours=3)
+    store.anchors["测试剧|2026|tv|1|1"] = datetime.now() - timedelta(hours=3)
     old = (datetime.now() - timedelta(hours=10)).strftime("%Y-%m-%d %H:%M:%S")
     _patch_history(monkeypatch, [_record(season="S01", date=old)])
     result = gate.check(_META, missing=True)
@@ -237,7 +240,7 @@ def test_records_outside_window_ignored(gate_env, monkeypatch):
 def test_records_of_other_season_ignored(gate_env, monkeypatch):
     """其他季的下载记录不算本季"在管"→ 走成熟期分支。"""
     gate, _m, store, _c = gate_env
-    store.anchors["测试剧|2026|tv|1"] = datetime.now() - timedelta(minutes=10)
+    store.anchors["测试剧|2026|tv|1|1"] = datetime.now() - timedelta(minutes=10)
     _patch_history(monkeypatch, [_record(season="S02")])
     result = gate.check(_META, missing=True)
     assert not result.passed
@@ -250,9 +253,9 @@ def test_check_touches_anchor_on_missing_and_clears_on_exists(gate_env, monkeypa
     _patch_history(monkeypatch, [_record(season="S01")])
     _patch_torrents(monkeypatch, [])
     gate.check(_META, missing=True)
-    assert store.touched == ["测试剧|2026|tv|1"]
+    assert store.touched == [_KEY_E01]
     gate.check(_META, missing=False)
-    assert store.cleared == ["测试剧|2026|tv|1"]
+    assert store.cleared == [_KEY_E01]
 
 
 def test_subscription_bridge_used_for_precise_query(gate_env, monkeypatch):
@@ -273,6 +276,119 @@ def test_fallback_to_title_without_subscription(gate_env, monkeypatch):
     _patch_torrents(monkeypatch, [])
     gate.check(_META, missing=True)
     assert calls and calls[0] == {"title": "测试剧"}
+
+
+# --------------------------------------------------------------------- 集粒度（1.11.0）
+
+
+def test_identity_key_includes_episode():
+    """锚点键到集：季内不同集是不同的键（追更单集独立计时）。"""
+    base = {"title": "测试剧", "year": "2026", "media_type": "tv", "season": 1}
+    assert fg._Identity.from_meta({**base, "episode": 1}).key == _KEY_E01
+    assert fg._Identity.from_meta({**base, "episode": 2}).key == "测试剧|2026|tv|1|2"
+
+
+def test_identity_key_degrades_without_episode():
+    """识别不出集 → 集位空串占位（降为季粒度键，语义仍安全）。"""
+    assert fg._Identity.from_meta({
+        "title": "测试剧", "year": "2026", "media_type": "tv", "season": 1,
+    }).key == "测试剧|2026|tv|1|"
+    # 季也认不出 → 季位同样空串（五段、四个分隔符）
+    assert fg._Identity.from_meta({"title": "测试剧"}).key == "测试剧||||"
+
+
+def test_each_episode_times_its_own_maturity(gate_env, monkeypatch):
+    """核心场景（用户真机经验）：季更数月，季末单集不能沿用首集锚点。
+
+    E01 的锚点已 3 小时（超 T），但 E05 是今天才发现的 → 必须重新计时。
+    """
+    gate, _m, store, _c = gate_env
+    store.anchors[_KEY_E01] = datetime.now() - timedelta(hours=3)
+    _patch_history(monkeypatch, [])
+    meta_e05 = dict(_META, episode=5)
+    result = gate.check(meta_e05, missing=True)
+    # E05 的锚点是本轮刚 touch 的（0h < 2h）→ 仍要等 PT
+    assert not result.passed
+    assert result.decision == fg.DECISION_SKIPPED_PT_WAITING
+    # 同一轮里 E01 自己的锚点仍超期 → 放行
+    assert gate.check(_META, missing=True).passed
+
+
+def test_other_episode_record_not_in_management(gate_env, monkeypatch):
+    """PT 在下 E01–E04，TG 推 E05 → E05 没人管，走成熟期而非"在途"。"""
+    gate, _m, store, _c = gate_env
+    _patch_history(monkeypatch, [_record(season="S01", episode="E03")])
+    store.anchors["测试剧|2026|tv|1|5"] = datetime.now() - timedelta(minutes=10)
+    result = gate.check(dict(_META, episode=5), missing=True)
+    assert not result.passed
+    assert result.decision == fg.DECISION_SKIPPED_PT_WAITING
+
+
+def test_same_episode_record_blocks(gate_env, monkeypatch):
+    """同一集的下载记录 + 活跃种 → PT 在途，拦住。"""
+    gate, _m, _s, _c = gate_env
+    _patch_history(monkeypatch, [_record(season="S01", episode="E05")])
+    _patch_torrents(monkeypatch, [SimpleNamespace(
+        state=SimpleNamespace(value="downloading"), progress=10.0)])
+    result = gate.check(dict(_META, episode=5), missing=True)
+    assert not result.passed
+    assert result.decision == fg.DECISION_SKIPPED_PT_ACTIVE
+
+
+def test_whole_season_record_covers_episode(gate_env, monkeypatch):
+    """完结整季包的记录（无集字段）覆盖本季任意集。"""
+    gate, _m, _s, _c = gate_env
+    _patch_history(monkeypatch, [_record(season="S01", episode=None)])
+    _patch_torrents(monkeypatch, [SimpleNamespace(
+        state=SimpleNamespace(value="downloading"), progress=30.0)])
+    result = gate.check(dict(_META, episode=7), missing=True)
+    assert not result.passed
+    assert result.decision == fg.DECISION_SKIPPED_PT_ACTIVE
+
+
+def test_episode_range_record_covers_episode(gate_env, monkeypatch):
+    """区间形态（S01E01-E12 / EP01-EP12）解析后覆盖本集。"""
+    gate, _m, _s, _c = gate_env
+    for raw in ("S01E01-E12", "EP01-EP12", "1,2,3,4,5", "5"):
+        _patch_history(monkeypatch, [_record(season="S01", episode=raw)])
+        _patch_torrents(monkeypatch, [SimpleNamespace(
+            state=SimpleNamespace(value="downloading"), progress=30.0)])
+        result = gate.check(dict(_META, episode=5), missing=True)
+        assert not result.passed, raw
+        assert result.decision == fg.DECISION_SKIPPED_PT_ACTIVE, raw
+
+
+def test_episode_numbers_parsing():
+    """_episode_numbers：常见写法 + 区间展开 + 空/不可解析返回空集。"""
+    assert fg._episode_numbers("E05") == {5}
+    assert fg._episode_numbers("S01E01-E12") == set(range(1, 13))
+    assert fg._episode_numbers("EP01-EP12") == set(range(1, 13))
+    assert fg._episode_numbers("1,2,3") == {1, 2, 3}
+    assert fg._episode_numbers("1~3") == {1, 2, 3}
+    assert fg._episode_numbers("") == set()
+    assert fg._episode_numbers(None) == set()
+    assert fg._episode_numbers("全") == set()
+
+
+def test_episode_parse_failure_matches_conservatively(gate_env, monkeypatch):
+    """记录的集字段解析不出数字 → 按"匹配"处理（保守：宁可少推）。"""
+    gate, _m, _s, _c = gate_env
+    _patch_history(monkeypatch, [_record(season="S01", episode="完结")])
+    _patch_torrents(monkeypatch, [SimpleNamespace(
+        state=SimpleNamespace(value="downloading"), progress=30.0)])
+    result = gate.check(dict(_META, episode=5), missing=True)
+    assert not result.passed
+    assert result.decision == fg.DECISION_SKIPPED_PT_ACTIVE
+
+
+def test_history_cache_shared_across_episodes(gate_env, monkeypatch):
+    """查询缓存只到季：同季各集共享一次宿主查询，不在缓存键上带集。"""
+    gate, _m, _s, _c = gate_env
+    calls = _patch_history(monkeypatch, [_record(season="S01", episode="E01")])
+    _patch_torrents(monkeypatch, [])
+    for ep in (1, 2, 3):
+        gate.check(dict(_META, episode=ep), missing=True)
+    assert len(calls) == 1
 
 
 # --------------------------------------------------------------------- 决策归一

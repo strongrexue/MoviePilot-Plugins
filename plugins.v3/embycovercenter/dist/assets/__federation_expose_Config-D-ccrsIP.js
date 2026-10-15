@@ -157,6 +157,41 @@ function readFileAsDataUrl(file) {
 /** 内容字段：跟随「目标对象」（媒体库 / 用户输入），不随风格模板改动。 */
 const CONTENT_KEYS = ['title', 'subtitle'];
 
+/** 常见媒体库名的中英对照（副标题默认取英文名）。
+ *
+ * 命中则用英文，未命中回退库名本身；键统一小写以兼容「4K电影 / 4k电影」这类写法。
+ * 用户在副标题里手填的英文名优先于本词典（见 `libraryEnNames`）。 */
+const LIBRARY_EN_NAMES = {
+  '电影': 'Movies',
+  '电影库': 'Movies',
+  '欧美电影': 'Western Movies',
+  '华语电影': 'Chinese Movies',
+  '日韩电影': 'Asian Movies',
+  '4k电影': '4K Movies',
+  '电视剧': 'TV Shows',
+  '剧集': 'TV Shows',
+  '电视节目': 'TV Shows',
+  '动漫': 'Anime',
+  '动画': 'Anime',
+  '番剧': 'Anime',
+  '综艺': 'Variety Shows',
+  '纪录片': 'Documentaries',
+  '儿童': 'Kids',
+  '少儿': 'Kids',
+  '亲子': 'Kids',
+  '音乐': 'Music',
+  'mv': 'Music Videos',
+  '体育': 'Sports',
+  '教育': 'Education',
+  '有声书': 'Audiobooks',
+};
+
+/** 按库名查英文名；未命中返回空串。 */
+function englishNameFor(name) {
+  const key = String(name || '').trim().toLowerCase();
+  return LIBRARY_EN_NAMES[key] || ''
+}
+
 /** 按 schema 字段类型归一化配置值。
  *
  * ChillPoster 的模板预设把不少数字存成了字符串（如 `"fan_radius": "850"`），
@@ -209,6 +244,13 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     backdrop_count: Number(initialConfig.backdrop_count || 1),
     config: { ...(initialConfig.cover_config || {}) },
   });
+
+  // 各媒体库手填的英文名（副标题覆盖值），随配置持久化到插件配置。
+  const libraryEnNames = reactive$1(
+    initialConfig.library_en_names && typeof initialConfig.library_en_names === 'object'
+      ? { ...initialConfig.library_en_names }
+      : {},
+  );
 
   function report(text, ok = true) {
     message.value = text || '';
@@ -268,12 +310,22 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 主标题跟随所选媒体库（副标题保留用户自定义）。 */
-  function syncTitleFromLibrary() {
+  /** 目标对象跟随所选媒体库：主标题=库名，副标题=英文名。
+   *  英文名优先取「该库手填值」，其次内置中英词典，最后回退库名本身。 */
+  function syncFromLibrary() {
     const target = libraries.value.find(item => item.id === form.library_id);
-    if (target) {
-      form.config.title = target.name || target.id;
-    }
+    if (!target) return
+    form.config.title = target.name || target.id;
+    form.config.subtitle =
+      libraryEnNames[form.library_id] || englishNameFor(target.name) || target.name || '';
+  }
+
+  /** 用户手填副标题时记为当前媒体库的英文名覆盖值（清空则移除覆盖）。 */
+  function onSubtitleEdited(value) {
+    if (!form.library_id) return
+    const text = String(value == null ? '' : value).trim();
+    if (text) libraryEnNames[form.library_id] = text;
+    else delete libraryEnNames[form.library_id];
   }
 
   async function loadLayouts() {
@@ -319,7 +371,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       if (!libraries.value.some(item => item.id === form.library_id)) {
         form.library_id = libraries.value.length ? libraries.value[0].id : '';
       }
-      syncTitleFromLibrary();
+      syncFromLibrary();
     } catch (error) {
       libraries.value = [];
       report(error?.message || '媒体库读取失败', false);
@@ -501,7 +553,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       subtitle: form.config.subtitle,
     });
     applyDefaults(allGroups.value);
-    syncTitleFromLibrary();
+    syncFromLibrary();
     report(`已载入模板：${template.name || template.filename}（仅套用风格参数）`);
   }
 
@@ -544,7 +596,9 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     loadLibraries,
     onServerChange,
     onLayoutChange,
-    syncTitleFromLibrary,
+    libraryEnNames,
+    syncFromLibrary,
+    onSubtitleEdited,
     previewCover,
     applyCover,
     applyPreviewImage,
@@ -674,6 +728,7 @@ function snapshot() {
     assets_mode: form.mode,
     poster_count: Number(form.poster_count || 0),
     backdrop_count: Number(form.backdrop_count || 0),
+    library_en_names: { ...designer.libraryEnNames },
   }
 }
 
@@ -769,7 +824,7 @@ return (_ctx, _cache) => {
                 }),
                 _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
                   default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
-                    _createTextVNode$1("主/副标题跟随所选媒体库，载入模板不会改它们", -1)
+                    _createTextVNode$1("主标题跟随库名、副标题自动用英文名（手填即记住该库），载入模板不会改它们", -1)
                   ]))]),
                   _: 1
                 })
@@ -794,7 +849,7 @@ return (_ctx, _cache) => {
                   modelValue: _unref(form).library_id,
                   "onUpdate:modelValue": [
                     _cache[1] || (_cache[1] = $event => ((_unref(form).library_id) = $event)),
-                    _unref(designer).syncTitleFromLibrary
+                    _unref(designer).syncFromLibrary
                   ],
                   items: _unref(designer).libraryItems.value,
                   label: "媒体库",
@@ -833,12 +888,15 @@ return (_ctx, _cache) => {
                 }, null, 8, ["modelValue"]),
                 _createVNode$1(_component_VTextField, {
                   modelValue: _unref(form).config.subtitle,
-                  "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((_unref(form).config.subtitle) = $event)),
-                  label: "副标题内容",
+                  "onUpdate:modelValue": [
+                    _cache[5] || (_cache[5] = $event => ((_unref(form).config.subtitle) = $event)),
+                    _unref(designer).onSubtitleEdited
+                  ],
+                  label: "副标题内容（英文名）",
                   density: "compact",
                   variant: "outlined",
                   "hide-details": ""
-                }, null, 8, ["modelValue"])
+                }, null, 8, ["modelValue", "onUpdate:modelValue"])
               ]),
               _: 1
             })
@@ -1218,7 +1276,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-322ca931"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-8ffbb0b6"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode} = await importShared('vue');
 

@@ -76,6 +76,7 @@ function snapshot() {
     assets_mode: form.mode,
     poster_count: Number(form.poster_count || 0),
     backdrop_count: Number(form.backdrop_count || 0),
+    library_en_names: { ...designer.libraryEnNames },
   }
 }
 
@@ -123,7 +124,7 @@ defineExpose({ snapshot })
         <VCard variant="tonal" class="ec-block">
           <VCardItem class="py-2">
             <VCardTitle class="text-subtitle-1">目标对象</VCardTitle>
-            <VCardSubtitle class="text-caption">主/副标题跟随所选媒体库，载入模板不会改它们</VCardSubtitle>
+            <VCardSubtitle class="text-caption">主标题跟随库名、副标题自动用英文名（手填即记住该库），载入模板不会改它们</VCardSubtitle>
           </VCardItem>
           <VCardText class="ec-fields">
             <VSelect
@@ -142,7 +143,7 @@ defineExpose({ snapshot })
               density="compact"
               variant="outlined"
               hide-details
-              @update:model-value="designer.syncTitleFromLibrary"
+              @update:model-value="designer.syncFromLibrary"
             />
             <VSelect
               v-model="form.layout"
@@ -170,10 +171,11 @@ defineExpose({ snapshot })
             />
             <VTextField
               v-model="form.config.subtitle"
-              label="副标题内容"
+              label="副标题内容（英文名）"
               density="compact"
               variant="outlined"
               hide-details
+              @update:model-value="designer.onSubtitleEdited"
             />
           </VCardText>
         </VCard>

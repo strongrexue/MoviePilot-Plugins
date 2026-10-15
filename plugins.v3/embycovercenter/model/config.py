@@ -28,6 +28,8 @@ def default_config() -> Dict[str, Any]:
         "assets_mode": "random",
         "poster_count": 6,
         "backdrop_count": 1,
+        # 各媒体库手填的英文名（副标题覆盖值）：{ 媒体库ID: 英文名 }
+        "library_en_names": {},
         # 封面系统
         "auto_refresh_on_webhook": True,
         "cover_cron": DEFAULT_COVER_CRON,

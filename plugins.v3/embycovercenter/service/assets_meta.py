@@ -56,7 +56,7 @@ def seed_default_templates(plugin) -> int:
     target = templates_dir(plugin)
     copied = 0
     for item in sorted(source.iterdir()):
-        if not item.is_file() or item.name.lower() not in (TEMPLATE_EXTENSION, PREVIEW_EXTENSION):
+        if not item.is_file() or item.suffix.lower() not in (TEMPLATE_EXTENSION, PREVIEW_EXTENSION):
             continue
         destination = target / item.name
         if destination.exists():

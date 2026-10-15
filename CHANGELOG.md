@@ -773,6 +773,18 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
 
 > M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
 
+## v1.3.6（对齐 ChillPoster 素材读取：随机抽样）
+
+- **素材改为随机抽样**：`fetch_assets` 此前是「顺序截断」——按 Emby 返回顺序取够数量就 `break`，
+  随机性只来自 `SortBy=Random` 的排序、且样本偏小。现改为与 ChillPoster 一致：**先收集全部有效素材**，
+  `mode=random` 且素材池大于所需数量时用 `random.sample` 抽样，否则切片。每次预览的海报 / 背景组合都不同。
+- **背景图数量与来源**：背景图严格返回所需张数（此前 `max(2, backdrop_count)` 会在只需 1 张时多收一张）；
+  无背景图时 `bg_url` 不再回退到首张海报，改为空串（`_build_background` 已有纯色兜底，不会崩）。
+- **保留素材数量上限**（海报 ≤ 60、背景 ≤ 6）：防止一次预览下载几十张图撞上反向代理读超时。
+- 未改动 `EnableImageTypes` / `SortName` / 尺寸参数（与 ChillPoster 仍存在这些差异，按需再议）。
+- 验收：`py_compile` 通过；插件版本门禁通过；四处版本同步（`plugin_version` / `package.v3.json` 的
+  `version` 与 history 键 / `FRONTEND_VERSION`）。
+
 ## v1.3.5（修复：预设数字是字符串 + 首次预览 502）
 
 - **预设数字被当作字符串**：ChillPoster 的模板预设把不少数字存成了字符串

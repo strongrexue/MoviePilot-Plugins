@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import random
 from typing import Any, Dict, List, Optional
 
 from app.sdk.logging import logger
@@ -136,6 +137,9 @@ def fetch_assets(
     endpoint = _items_endpoint(ref)
     sort = {"SortBy": "Random"} if mode != "latest" else {"SortBy": "DateCreated", "SortOrder": "Descending"}
 
+    # 先收集全部有效素材，再按 ChillPoster 的方式随机抽样（random.sample），
+    # 而不是顺序截断：这样每次预览的素材组合都不一样。
+    bg_url = ""
     backdrops: List[str] = []
     if backdrop_count > 0:
         try:
@@ -152,19 +156,24 @@ def fetch_assets(
                     **sort,
                 },
             )
+            pool: List[str] = []
             for item in (data or {}).get("Items", []) if isinstance(data, dict) else []:
                 tags = item.get("BackdropImageTags") or []
                 tag = tags[0] if tags else (item.get("ImageTags") or {}).get("Backdrop")
                 if tag:
-                    backdrops.append(
+                    pool.append(
                         image_url(
                             ref,
                             f"Items/{item.get('Id')}/Images/Backdrop/0",
                             {"tag": tag, "maxHeight": BACKDROP_MAX_HEIGHT, "quality": 90},
                         )
                     )
-                if len(backdrops) >= max(2, backdrop_count):
-                    break
+            if pool:
+                if mode == "random" and len(pool) > backdrop_count:
+                    backdrops = random.sample(pool, backdrop_count)
+                else:
+                    backdrops = pool[:backdrop_count]
+                bg_url = backdrops[0]
         except emby_gateway.GatewayError as error:
             logger.warning(f"[EmbyCoverCenter] 读取背景图失败: {error}")
 
@@ -184,23 +193,27 @@ def fetch_assets(
                     **sort,
                 },
             )
+            pool: List[str] = []
             for item in (data or {}).get("Items", []) if isinstance(data, dict) else []:
                 tag = (item.get("ImageTags") or {}).get("Primary")
                 if tag:
-                    posters.append(
+                    pool.append(
                         image_url(
                             ref,
                             f"Items/{item.get('Id')}/Images/Primary",
                             {"tag": tag, "maxHeight": POSTER_MAX_HEIGHT, "quality": 90},
                         )
                     )
-                if len(posters) >= poster_count:
-                    break
+            if pool:
+                if mode == "random" and len(pool) > poster_count:
+                    posters = random.sample(pool, poster_count)
+                else:
+                    posters = pool[:poster_count]
         except emby_gateway.GatewayError as error:
             logger.warning(f"[EmbyCoverCenter] 读取海报失败: {error}")
 
     return {
-        "bg_url": backdrops[0] if backdrops else (posters[0] if posters else ""),
+        "bg_url": bg_url,
         "backdrops": backdrops,
         "posters": posters,
         "count": library_count(ref, library_id),

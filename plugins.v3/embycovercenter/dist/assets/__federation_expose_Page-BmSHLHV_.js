@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-Ct2mAw2a.js';
+import { F as FRONTEND_VERSION } from './version-C0VaG9OE.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
@@ -2442,6 +2442,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-95bf1e94"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8624a41f"]]);
 
 export { Page as default };

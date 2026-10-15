@@ -388,59 +388,65 @@
 }
 }
 
-.ec-page[data-v-95bf1e94] {
+.ec-page[data-v-8624a41f] {
   width: 100%;
   border-radius: 16px;
   overflow: hidden;
-}
-.ec-page--app[data-v-95bf1e94] {
-  /* 整页锁定视口高度：工具条/状态/Tab 固定，正文区内部滚动（窄屏同理） */
+  /* 两种宿主形态都用「头固定 + 正文内滚」结构：工具条/状态/Tab 不随内容滚走 */
   display: flex;
   flex-direction: column;
+}
+/* 插件详情弹窗模式：限高视口（上下各留宿主弹窗边距），内容紧凑时自适应、
+   超长时正文内部滚动——对齐媒体中心 / 豆瓣中心详情弹窗的高度观感 */
+.ec-page[data-v-8624a41f]:not(.ec-page--app) {
+  max-height: calc(100dvh - 160px);
+}
+.ec-page--app[data-v-8624a41f] {
+  /* 整页锁定视口高度：正文区内部滚动（窄屏同理） */
   height: calc(100dvh - 104px);
   border-radius: 14px;
 }
 /* flex 子项默认可收缩，正文以外的行都要保持自身高度 */
-.ec-page--app[data-v-95bf1e94] > :not(.ec-body) {
+.ec-page[data-v-8624a41f] > :not(.ec-body) {
   flex-shrink: 0;
 }
-.ec-toolbar[data-v-95bf1e94] {
+.ec-toolbar[data-v-8624a41f] {
   background: transparent;
   padding-right: 8px;
 }
-.ec-heading[data-v-95bf1e94] {
+.ec-heading[data-v-8624a41f] {
   min-width: 0;
 }
-.ec-label[data-v-95bf1e94] {
+.ec-label[data-v-8624a41f] {
   white-space: nowrap;
 }
-.ec-status[data-v-95bf1e94] {
+.ec-status[data-v-8624a41f] {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 8px 16px 4px;
 }
-.ec-chips[data-v-95bf1e94] {
+.ec-chips[data-v-8624a41f] {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.ec-full[data-v-95bf1e94] {
+.ec-full[data-v-8624a41f] {
   grid-column: 1 / -1;
 }
-.ec-tabs[data-v-95bf1e94] {
+.ec-tabs[data-v-8624a41f] {
   padding: 0 8px;
 }
-.ec-body[data-v-95bf1e94] {
+.ec-body[data-v-8624a41f] {
   padding: 10px 14px 16px;
 }
-/* AppPage 整页模式：正文区占满剩余高度、内部滚动 */
-.ec-page--app .ec-body[data-v-95bf1e94] {
+/* 正文区占满剩余高度、内部滚动（弹窗与整页两种模式通用） */
+.ec-page .ec-body[data-v-8624a41f] {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
-.ec-pane[data-v-95bf1e94] {
+.ec-pane[data-v-8624a41f] {
   padding: 0;
   /* 内容限宽居中（与媒体中心 / 豆瓣中心 AppPage 同为 1800px 上限），
      常规屏幕基本贴边，超宽屏才居中收窄 */
@@ -449,10 +455,10 @@
   margin: 0 auto;
 }
 @media (max-width: 760px) {
-.ec-label[data-v-95bf1e94] {
+.ec-label[data-v-8624a41f] {
     display: none;
 }
-.ec-body[data-v-95bf1e94] {
+.ec-body[data-v-8624a41f] {
     padding: 8px 8px 14px;
 }
 }

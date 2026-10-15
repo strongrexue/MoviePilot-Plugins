@@ -158,16 +158,22 @@ onMounted(load)
   width: 100%;
   border-radius: 16px;
   overflow: hidden;
-}
-.ec-page--app {
-  /* 整页锁定视口高度：工具条/状态/Tab 固定，正文区内部滚动（窄屏同理） */
+  /* 两种宿主形态都用「头固定 + 正文内滚」结构：工具条/状态/Tab 不随内容滚走 */
   display: flex;
   flex-direction: column;
+}
+/* 插件详情弹窗模式：限高视口（上下各留宿主弹窗边距），内容紧凑时自适应、
+   超长时正文内部滚动——对齐媒体中心 / 豆瓣中心详情弹窗的高度观感 */
+.ec-page:not(.ec-page--app) {
+  max-height: calc(100dvh - 160px);
+}
+.ec-page--app {
+  /* 整页锁定视口高度：正文区内部滚动（窄屏同理） */
   height: calc(100dvh - 104px);
   border-radius: 14px;
 }
 /* flex 子项默认可收缩，正文以外的行都要保持自身高度 */
-.ec-page--app > :not(.ec-body) {
+.ec-page > :not(.ec-body) {
   flex-shrink: 0;
 }
 .ec-toolbar {
@@ -200,8 +206,8 @@ onMounted(load)
 .ec-body {
   padding: 10px 14px 16px;
 }
-/* AppPage 整页模式：正文区占满剩余高度、内部滚动 */
-.ec-page--app .ec-body {
+/* 正文区占满剩余高度、内部滚动（弹窗与整页两种模式通用） */
+.ec-page .ec-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;

@@ -139,6 +139,22 @@ def get_json(ref: ServerRef, path: str, query: Optional[dict] = None) -> Any:
         raise GatewayError(f"GET {path} 返回内容不是合法 JSON") from error
 
 
+def get_raw(ref: ServerRef, path: str, query: Optional[dict] = None) -> Optional[bytes]:
+    """GET 原始字节（备份当前封面等场景）。
+
+    资源不存在（HTTP 404）返回 None；其余请求失败抛 ``GatewayError``。
+    """
+    res = ref.instance.get_data(url=_placeholder_url(ref, path, query))
+    status = getattr(res, "status_code", 0)
+    if not res:
+        raise GatewayError(f"GET {path} 失败：无响应")
+    if status == 404:
+        return None
+    if status != 200:
+        raise GatewayError(f"GET {path} 失败：HTTP {status or '无响应'}")
+    return getattr(res, "content", b"") or b""
+
+
 def post_json(ref: ServerRef, path: str, payload: Any = None, query: Optional[dict] = None) -> None:
     """POST 并校验状态码；200/204 视为成功。"""
     data = None

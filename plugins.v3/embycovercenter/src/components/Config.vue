@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import AutoCoverLibraries from './AutoCoverLibraries.vue'
+import CoverBackups from './CoverBackups.vue'
 import CoverDesignPane from './cover/CoverDesignPane.vue'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 
@@ -33,6 +34,7 @@ const form = reactive({
       ? { ...props.initialConfig.auto_cover_libraries }
       : {},
   auto_refresh_on_webhook: props.initialConfig.auto_refresh_on_webhook !== false,
+  auto_backup_enabled: props.initialConfig.auto_backup_enabled !== false,
   cover_cron: props.initialConfig.cover_cron || '0 4 * * *',
   notify_on_task_finish: props.initialConfig.notify_on_task_finish !== false,
 })
@@ -45,6 +47,7 @@ const coverRef = ref(null)
 const runningCover = ref(false)
 const runMessage = ref('')
 const runOk = ref(true)
+const showBackups = ref(false)
 
 /** 执行频率：预设 + 自定义。单独维护下拉选择值——选中「自定义」时若直接绑
  * form.cover_cron，computed getter 会立刻弹回旧预设（表现为点了没反应）。 */
@@ -129,6 +132,7 @@ function submit() {
     auto_cover_enabled: form.auto_cover_enabled,
     auto_cover_template: form.auto_cover_template,
     auto_cover_libraries: { ...form.auto_cover_libraries },
+    auto_backup_enabled: form.auto_backup_enabled,
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
@@ -243,6 +247,9 @@ onMounted(() => {
                     定时 / Emby 入库时，为选中媒体库自动生成并应用封面
                   </VCardSubtitle>
                   <template #append>
+                    <VBtn size="small" variant="text" prepend-icon="mdi-backup-restore" @click="showBackups = true">
+                      备份管理
+                    </VBtn>
                     <VBtn
                       size="small"
                       variant="tonal"
@@ -289,6 +296,15 @@ onMounted(() => {
                         variant="outlined"
                         hide-details
                         @update:model-value="onScheduleChange"
+                      />
+                    </VCol>
+                    <VCol cols="12">
+                      <VSwitch
+                        v-model="form.auto_backup_enabled"
+                        color="primary"
+                        hide-details
+                        inset
+                        label="覆盖前自动备份原版封面（每库保留最近 3 版，可在「备份管理」恢复）"
                       />
                     </VCol>
                     <VCol v-if="scheduleChoice === '__custom__'" cols="12" md="6">
@@ -350,6 +366,8 @@ onMounted(() => {
         保存配置
       </VBtn>
     </VCardActions>
+
+    <CoverBackups v-model="showBackups" :api="props.api" :plugin-id="props.pluginId" />
   </VCard>
 </template>
 

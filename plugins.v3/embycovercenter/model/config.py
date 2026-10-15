@@ -35,6 +35,8 @@ def default_config() -> Dict[str, Any]:
         "auto_cover_enabled": False,
         "auto_cover_libraries": {},
         "auto_cover_template": "",
+        # 封面备份：自动封面覆盖上传前保存原版封面（每库保留最近 3 版）
+        "auto_backup_enabled": True,
         # 封面系统
         "auto_refresh_on_webhook": True,
         "cover_cron": DEFAULT_COVER_CRON,

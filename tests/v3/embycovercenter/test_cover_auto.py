@@ -280,7 +280,10 @@ def test_run_auto_cover_invalid_template_notifies(monkeypatch, tmp_path):
     plugin.cover_engine = lambda: _FakeEngine()
     summary = cover_auto.run_auto_cover(plugin)
     assert summary["total"] == 0 and summary.get("error")
-    assert len(plugin.posted) == 1 and "封面方案无效" in plugin.posted[0][1]
+    assert len(plugin.posted) == 1
+    title, text = plugin.posted[0]
+    assert title.startswith("❌") and "执行失败" in text
+    assert "模板不存在" in text  # 原因进入详情字段
 
 
 # --------------------------------------------------------------------------- 入库事件

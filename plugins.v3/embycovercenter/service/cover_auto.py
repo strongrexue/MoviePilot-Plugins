@@ -14,11 +14,12 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 from app.sdk.logging import logger
 
-from . import assets_meta, emby_assets, emby_gateway
+from . import assets_meta, cover_backup, emby_assets, emby_gateway
 from .emby_gateway import GatewayError
 from .render_engine import PosterEngine
 
@@ -164,6 +165,8 @@ def refresh_library(
         backdrop_count=_count("backdrop_count", config.get("backdrop_count") or 1),
     )
     image = plugin.cover_engine().draw(engine_config, assets)
+    # 覆盖前备份原版封面（auto_backup_enabled 门控；失败只告警不阻断）。
+    cover_backup.backup_library(plugin, target, config)
     emby_gateway.post_raw(
         ref,
         f"Items/{library_id}/Images/Primary",
@@ -183,26 +186,93 @@ def _post_message(plugin, title: str, text: str) -> None:
         logger.warning(f"[EmbyCoverCenter] 发送通知失败：{error}")
 
 
-def _notify_run(plugin, summary: Dict[str, Any]) -> None:
-    """整轮任务结束的通知（notify_on_task_finish 门控）。"""
+def _fmt_elapsed(seconds: float) -> str:
+    """把秒数格式化成 ``h:mm:ss``（对齐 ChillPoster 的耗时展示）。"""
+    try:
+        total = max(0, int(round(float(seconds))))
+    except (TypeError, ValueError):
+        total = 0
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}"
+
+
+def _now_text() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _field_card(
+    *,
+    title: str,
+    status: str,
+    task_type: str,
+    elapsed: float,
+    ok_count: int,
+    failed: int,
+    generated: int,
+    total: int,
+    detail: str = "",
+) -> str:
+    """ChillPoster 风格的逐行字段卡；emoji 全部使用默认宽体呈现，保证首字对齐。"""
+    lines = [
+        title,
+        f"✅ 状态：{status}",
+        f"🎨 类型：{task_type}",
+        f"⌚ 耗时：{_fmt_elapsed(elapsed)}",
+        f"📌 概览：成功 {ok_count} / 失败 {failed}",
+        f"📦 生成：{generated}",
+        f"📷 处理数量：{total}",
+    ]
+    if detail:
+        lines.append(f"📋 详情：{detail}" if "\n" not in detail else f"📋 详情：\n{detail}")
+    lines.append(f"🕐 时间：{_now_text()}")
+    return "\n".join(lines)
+
+
+def _notify_run(plugin, summary: Dict[str, Any], elapsed: float = 0.0) -> None:
+    """整轮任务结束的通知（notify_on_task_finish 门控），ChillPoster 字段卡样式。"""
     config = getattr(plugin, "config", None) or {}
     if not config.get("notify_on_task_finish"):
         return
     total = int(summary.get("total") or 0)
     ok_count = int(summary.get("ok") or 0)
     failed = int(summary.get("failed") or 0)
-    if summary.get("error"):
-        text = f"封面方案无效，本轮未执行：{summary['error']}"
+    error = summary.get("error")
+    if error:
+        mark = "❌"
+        status = "执行失败"
+        detail = str(error)
+        ok_count, failed = 0, 0
+        total = total or 0
     elif total <= 0:
-        text = "未选择任何目标媒体库，请先在自动封面设置里勾选。"
+        mark = "⚠️"
+        status = "未执行"
+        detail = "未选择任何目标媒体库，请先在自动封面设置里勾选。"
+    elif failed > 0:
+        mark = "⚠️"
+        status = "执行完成（有失败）"
+        detail = "\n".join(
+            f"　❌ {item.get('server')} / {item.get('library')}：{item.get('error') or '未知原因'}"
+            for item in (summary.get("items") or [])
+            if not item.get("ok")
+        )
     else:
-        lines = [f"共 {total} 个媒体库：成功 {ok_count}，失败 {failed}。"]
-        for item in summary.get("items") or []:
-            if not item.get("ok"):
-                lines.append(f"❌ {item.get('server')} / {item.get('library')}：{item.get('error') or '未知原因'}")
-        text = "\n".join(lines)
-    name = str(getattr(plugin, "plugin_name", "") or "胖虎封面中心")
-    _post_message(plugin, f"{name} · 自动封面任务", text)
+        mark = "✅"
+        status = "执行成功"
+        detail = ""
+    title = f"{mark} 自动封面任务 · {total}"
+    text = _field_card(
+        title=title,
+        status=status,
+        task_type="自动封面任务",
+        elapsed=elapsed,
+        ok_count=ok_count,
+        failed=failed,
+        generated=ok_count,
+        total=total,
+        detail=detail,
+    )
+    _post_message(plugin, title, text)
 
 
 def run_auto_cover(plugin) -> Dict[str, Any]:
@@ -213,6 +283,7 @@ def run_auto_cover(plugin) -> Dict[str, Any]:
     :returns: 汇总 ``{total, ok, failed, items, error?}``。
     """
     config = getattr(plugin, "config", None) or {}
+    started = time.monotonic()
     if not _TASK_LOCK.acquire(blocking=False):
         logger.info("[EmbyCoverCenter] 自动封面任务已在执行，本轮跳过")
         return {"total": 0, "ok": 0, "failed": 0, "items": [], "error": "已有任务在执行，本轮跳过"}
@@ -222,7 +293,7 @@ def run_auto_cover(plugin) -> Dict[str, Any]:
         except (ValueError, GatewayError) as error:
             logger.error(f"[EmbyCoverCenter] 自动封面封面方案无效：{error}")
             summary = {"total": 0, "ok": 0, "failed": 0, "items": [], "error": str(error)}
-            _notify_run(plugin, summary)
+            _notify_run(plugin, summary, time.monotonic() - started)
             return summary
         targets = selected_targets(plugin, config)
         items: List[Dict[str, Any]] = [None] * len(targets)  # type: ignore[list-item]
@@ -264,8 +335,9 @@ def run_auto_cover(plugin) -> Dict[str, Any]:
             "ok": ok_count,
             "failed": len(targets) - ok_count,
             "items": [item for item in items if item],
+            "elapsed": time.monotonic() - started,
         }
-        _notify_run(plugin, summary)
+        _notify_run(plugin, summary, time.monotonic() - started)
         return summary
     finally:
         _TASK_LOCK.release()
@@ -379,7 +451,8 @@ def handle_webhook(plugin, event) -> None:
 def _refresh_one_quietly(plugin, ref, server: str, library_id: str) -> None:
     """入库触发的单库刷新（后台线程）：失败只记日志并按通知设置告知。"""
     config = getattr(plugin, "config", None) or {}
-    name = str(getattr(plugin, "plugin_name", "") or "胖虎封面中心")
+    started = time.monotonic()
+    label = f"{server} / {library_id}"
     try:
         library_name = ""
         for library in emby_assets.list_libraries(ref):
@@ -389,6 +462,7 @@ def _refresh_one_quietly(plugin, ref, server: str, library_id: str) -> None:
         if not library_name:
             logger.info(f"[EmbyCoverCenter] 入库刷新跳过：媒体库 {library_id} 已不存在")
             return
+        label = f"{server} / {library_name}"
         layout, style = resolve_design(plugin, config)
         refresh_library(
             plugin,
@@ -397,10 +471,33 @@ def _refresh_one_quietly(plugin, ref, server: str, library_id: str) -> None:
             style,
             config,
         )
-        logger.info(f"[EmbyCoverCenter] 入库自动刷新完成：{server} / {library_name}")
+        logger.info(f"[EmbyCoverCenter] 入库自动刷新完成：{label}")
         if config.get("notify_on_task_finish"):
-            _post_message(plugin, f"{name} · 入库自动刷新", f"✅ {server} / {library_name} 封面已更新")
+            title = f"✅ 入库自动刷新 · {label}"
+            text = _field_card(
+                title=title,
+                status="执行成功",
+                task_type="入库自动刷新",
+                elapsed=time.monotonic() - started,
+                ok_count=1,
+                failed=0,
+                generated=1,
+                total=1,
+            )
+            _post_message(plugin, title, text)
     except (GatewayError, ValueError, OSError) as error:
-        logger.warning(f"[EmbyCoverCenter] 入库自动刷新失败 {server} / {library_id}：{error}")
+        logger.warning(f"[EmbyCoverCenter] 入库自动刷新失败 {label}：{error}")
         if config.get("notify_on_task_finish"):
-            _post_message(plugin, f"{name} · 入库自动刷新", f"❌ {server} / {library_id}：{error}")
+            title = f"❌ 入库自动刷新 · {label}"
+            text = _field_card(
+                title=title,
+                status="执行失败",
+                task_type="入库自动刷新",
+                elapsed=time.monotonic() - started,
+                ok_count=0,
+                failed=1,
+                generated=0,
+                total=1,
+                detail=str(error),
+            )
+            _post_message(plugin, title, text)

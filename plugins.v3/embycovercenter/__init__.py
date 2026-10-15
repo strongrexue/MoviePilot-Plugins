@@ -25,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.5.1"
+    plugin_version = "1.6.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -320,6 +320,14 @@ class EmbyCoverCenter(_PluginBase):
     def api_apply(self, request: api_schemas.CoverApplyRequest):
         """应用封面到媒体库。"""
         return api_controller.api_apply(self, request=request)
+
+    def api_cover_backups(self):
+        """返回封面备份列表。"""
+        return api_controller.api_cover_backups(self)
+
+    def api_cover_backup_restore(self, request: api_schemas.CoverBackupRestoreRequest):
+        """从备份恢复媒体库封面。"""
+        return api_controller.api_cover_backup_restore(self, request=request)
 
     def api_auto_cover_run(self):
         """立即运行自动封面任务（后台线程）。"""

@@ -17,7 +17,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from ..service import assets_meta
-from ..service import cover_auto
+from ..service import cover_backup
 from ..service import emby_assets
 from ..service import emby_gateway
 from ..service import emby_tasks as tasks_service
@@ -59,6 +59,8 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/preview", plugin.api_preview, ["POST"], "生成封面预览"),
         ("/apply", plugin.api_apply, ["POST"], "应用封面到媒体库"),
         ("/auto_cover/run", plugin.api_auto_cover_run, ["POST"], "立即运行自动封面任务"),
+        ("/cover_backups", plugin.api_cover_backups, ["GET"], "获取封面备份列表"),
+        ("/cover_backup/restore", plugin.api_cover_backup_restore, ["POST"], "从备份恢复媒体库封面"),
     ]
     routes: List[Dict[str, Any]] = [
         {
@@ -399,6 +401,23 @@ def api_auto_cover_run(plugin):
         {"status": "success", "message": "自动封面任务已在后台启动，完成后按通知设置推送结果"},
         api_schemas.OkData,
     )
+
+
+def api_cover_backups(plugin):
+    """返回封面备份列表。"""
+    return _to_response({"backups": cover_backup.list_backups(plugin)}, api_schemas.CoverBackupListData)
+
+
+def api_cover_backup_restore(plugin, request: api_schemas.CoverBackupRestoreRequest):
+    """把备份封面写回媒体库。"""
+
+    def _run():
+        if not request.server or not request.library_id:
+            raise ValueError("缺少服务器或媒体库 ID")
+        cover_backup.restore_library(plugin, request.server, request.library_id, request.timestamp or "")
+        return {"status": "success", "message": "封面已从备份恢复"}
+
+    return _to_response(_guard(_run), api_schemas.EmbyActionData)
 
 
 def api_asset_font(plugin, name: str):

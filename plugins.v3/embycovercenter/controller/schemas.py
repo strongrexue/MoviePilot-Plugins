@@ -228,6 +228,37 @@ class CoverApplyData(BaseModel):
     message: str = ""
 
 
+class CoverBackupVersion(BaseModel):
+    """一个备份版本。"""
+
+    timestamp: str = ""
+    size: int = 0
+    filename: str = ""
+
+
+class CoverBackupItem(BaseModel):
+    """一个媒体库的备份集合。"""
+
+    server: str = ""
+    library_id: str = ""
+    library_name: str = ""
+    versions: List[CoverBackupVersion] = Field(default_factory=list)
+
+
+class CoverBackupListData(BaseModel):
+    """封面备份列表。"""
+
+    backups: List[CoverBackupItem] = Field(default_factory=list)
+
+
+class CoverBackupRestoreRequest(BaseModel):
+    """从备份恢复封面请求。"""
+
+    server: str = ""
+    library_id: str = ""
+    timestamp: str = ""
+
+
 class FontUploadRequest(BaseModel):
     """字体上传请求（base64）。"""
 
@@ -286,4 +317,6 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/preview": CoverPreviewData,
     "/apply": CoverApplyData,
     "/auto_cover/run": OkData,
+    "/cover_backups": CoverBackupListData,
+    "/cover_backup/restore": EmbyActionData,
 }

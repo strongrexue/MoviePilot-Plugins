@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "embycovercenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert EmbyCoverCenter.plugin_name == "胖虎封面中心"
-    assert EmbyCoverCenter.plugin_version == "1.5.1"
+    assert EmbyCoverCenter.plugin_version == "1.6.0"
     assert EmbyCoverCenter.plugin_config_prefix == "embycovercenter_"
 
 
@@ -63,13 +63,15 @@ def test_default_config_shape():
     config = EmbyCoverCenter.default_config()
     for key in ("enabled", "discovery_page_enabled", "selected_servers",
                 "auto_refresh_on_webhook", "cover_cron", "notify_on_task_finish",
-                "auto_cover_enabled", "auto_cover_libraries", "auto_cover_template"):
+                "auto_cover_enabled", "auto_cover_libraries", "auto_cover_template",
+                "auto_backup_enabled"):
         assert key in config
     assert config["discovery_page_enabled"] is False
     assert config["cover_cron"] == "0 4 * * *"
     assert config["auto_cover_enabled"] is False
     assert config["auto_cover_libraries"] == {}
     assert config["auto_cover_template"] == ""
+    assert config["auto_backup_enabled"] is True
 
 
 def _bare_plugin(config):

@@ -13,10 +13,21 @@ from typing import Any, Dict, List
 from app import schemas
 from app.sdk.logging import logger
 from fastapi import HTTPException
+from fastapi.responses import FileResponse
 
+from ..service import assets_meta
+from ..service import emby_assets
+from ..service import emby_gateway
 from ..service import emby_tasks as tasks_service
 from ..service.emby_gateway import GatewayError
+from ..service.render_engine import COMMON_SCHEMA_FIELDS, PosterEngine
 from . import schemas as api_schemas
+
+# 原生响应：字体文件与模板预览图（二进制流，不走 envelope）。
+NATIVE_ROUTE_CONTENT = {
+    "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
+    "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+}
 
 
 def _response_model(path: str):
@@ -34,8 +45,19 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/emby_tasks/{task_id}/triggers", plugin.api_emby_task_triggers_save, ["POST"], "保存 Emby 计划任务触发器"),
         ("/emby_tasks/{task_id}/run", plugin.api_emby_task_run, ["POST"], "立即运行 Emby 计划任务"),
         ("/emby_tasks/{task_id}/stop", plugin.api_emby_task_stop, ["POST"], "停止 Emby 计划任务"),
+        ("/libraries", plugin.api_libraries, ["GET"], "获取媒体库列表"),
+        ("/layouts", plugin.api_layouts, ["GET"], "获取封面布局与参数字段"),
+        ("/fonts", plugin.api_fonts, ["GET"], "获取可用字体"),
+        ("/fonts/upload", plugin.api_font_upload, ["POST"], "上传字体（base64）"),
+        ("/fonts/delete", plugin.api_font_delete, ["POST"], "删除字体"),
+        ("/templates", plugin.api_templates, ["GET"], "获取模板预设"),
+        ("/templates/save", plugin.api_template_save, ["POST"], "保存模板预设"),
+        ("/templates/delete", plugin.api_template_delete, ["POST"], "删除模板预设"),
+        ("/templates/upload", plugin.api_template_upload, ["POST"], "上传模板文件（base64）"),
+        ("/preview", plugin.api_preview, ["POST"], "生成封面预览"),
+        ("/apply", plugin.api_apply, ["POST"], "应用封面到媒体库"),
     ]
-    return [
+    routes: List[Dict[str, Any]] = [
         {
             "path": path,
             "endpoint": endpoint,
@@ -46,6 +68,34 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         }
         for path, endpoint, methods, summary in definitions
     ]
+    routes.append(
+        {
+            "path": "/asset/font/{name}",
+            "endpoint": plugin.api_asset_font,
+            "methods": ["GET"],
+            "auth": "bear",
+            # 浏览器 <img> 无法携带 Bearer 头，字体与预览图属于设计素材，放行匿名读取。
+            "allow_anonymous": True,
+            "summary": "获取字体文件",
+            "response_model": None,
+            "response_class": FileResponse,
+            "responses": {200: {"content": NATIVE_ROUTE_CONTENT}},
+        }
+    )
+    routes.append(
+        {
+            "path": "/asset/template/{filename}",
+            "endpoint": plugin.api_asset_template_preview,
+            "methods": ["GET"],
+            "auth": "bear",
+            "allow_anonymous": True,
+            "summary": "获取模板预览图",
+            "response_model": None,
+            "response_class": FileResponse,
+            "responses": {200: {"content": NATIVE_ROUTE_CONTENT}},
+        }
+    )
+    return routes
 
 
 def _raise_gateway_http(error: GatewayError) -> None:
@@ -154,3 +204,175 @@ def api_emby_task_stop(plugin, task_id: str, server: str = ""):
         _raise_gateway_http(error)
         return None
     return _to_response({"status": "success", "message": "停止命令已发送"}, api_schemas.EmbyActionData)
+
+
+# --------------------------------------------------------------------------- 封面系统
+
+
+def _guard(callback):
+    """执行可能抛网关 / 校验错误的业务函数，并映射为 HTTP 错误。"""
+    try:
+        return callback()
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except GatewayError as error:
+        _raise_gateway_http(error)
+
+
+def _library_name(ref, library_id: str) -> str:
+    """按 ID 取媒体库名称（取不到时退回 ID 本身）。"""
+    if not library_id:
+        return ""
+    for library in emby_assets.list_libraries(ref):
+        if library.get("id") == library_id:
+            return str(library.get("name") or library_id)
+    return library_id
+
+
+def _prepare_config(request, ref) -> Dict[str, Any]:
+    """把请求参数整理成引擎可用的渲染配置。"""
+    config = dict(request.config or {})
+    config["engine"] = request.layout or "classic"
+    if not config.get("title"):
+        config["title"] = _library_name(ref, request.library_id)
+    return config
+
+
+def _fetch_assets(request, ref) -> Dict[str, Any]:
+    """按请求参数读取媒体库素材。"""
+    return emby_assets.fetch_assets(
+        ref,
+        request.library_id,
+        mode=request.mode,
+        poster_count=request.poster_count,
+        backdrop_count=request.backdrop_count,
+    )
+
+
+def api_libraries(plugin, server: str = ""):
+    """返回媒体库列表。"""
+    return _to_response(
+        _guard(lambda: {"libraries": emby_assets.list_libraries(emby_gateway.resolve(server))}),
+        api_schemas.LibraryListData,
+    )
+
+
+def api_layouts(plugin):
+    """返回布局清单与其参数字段（含引擎通用字段）。"""
+    engine: PosterEngine = plugin.cover_engine()
+    return _to_response(
+        {"common_fields": COMMON_SCHEMA_FIELDS, "layouts": engine.layout_schemas()},
+        api_schemas.LayoutListData,
+    )
+
+
+def api_fonts(plugin):
+    """返回数据目录内可用字体。"""
+    return _to_response({"fonts": assets_meta.list_fonts(plugin)}, api_schemas.FontListData)
+
+
+def api_font_upload(plugin, request: api_schemas.FontUploadRequest):
+    """上传字体（base64）。"""
+    _guard(lambda: assets_meta.save_font_base64(plugin, request.name, request.data))
+    return _to_response({"fonts": assets_meta.list_fonts(plugin)}, api_schemas.FontListData)
+
+
+def api_font_delete(plugin, request: api_schemas.NameRequest):
+    """删除字体。"""
+    if not _guard(lambda: assets_meta.delete_font(plugin, request.name)):
+        raise HTTPException(status_code=404, detail="字体不存在")
+    return _to_response({"fonts": assets_meta.list_fonts(plugin)}, api_schemas.FontListData)
+
+
+def api_templates(plugin):
+    """返回模板预设列表。"""
+    return _to_response({"templates": assets_meta.list_templates(plugin)}, api_schemas.TemplateListData)
+
+
+def api_template_save(plugin, request: api_schemas.TemplateSaveRequest):
+    """保存模板预设（可选附带预览 dataURL）。"""
+    _guard(
+        lambda: assets_meta.save_template(
+            plugin,
+            request.filename,
+            layout=request.layout,
+            config=request.config,
+            name=request.name,
+            preview_data_url=request.preview or None,
+        )
+    )
+    return _to_response({"templates": assets_meta.list_templates(plugin)}, api_schemas.TemplateListData)
+
+
+def api_template_delete(plugin, request: api_schemas.NameRequest):
+    """删除模板预设。"""
+    if not _guard(lambda: assets_meta.delete_template(plugin, request.filename)):
+        raise HTTPException(status_code=404, detail="模板不存在")
+    return _to_response({"templates": assets_meta.list_templates(plugin)}, api_schemas.TemplateListData)
+
+
+def api_template_upload(plugin, request: api_schemas.TemplateUploadRequest):
+    """上传模板 JSON（base64）。"""
+    _guard(lambda: assets_meta.save_template_base64(plugin, request.filename, request.data))
+    return _to_response({"templates": assets_meta.list_templates(plugin)}, api_schemas.TemplateListData)
+
+
+def api_preview(plugin, request: api_schemas.CoverPreviewRequest):
+    """生成封面预览，返回 dataURL。"""
+
+    def _run():
+        ref = emby_gateway.resolve(request.server)
+        engine: PosterEngine = plugin.cover_engine()
+        config = _prepare_config(request, ref)
+        assets = _fetch_assets(request, ref)
+        image = engine.draw(config, assets)
+        return {
+            "image": f"data:{PosterEngine.base64_mime(image)};base64,{image}",
+            "count": int(assets.get("count") or 0),
+            "title": str(config.get("title") or ""),
+        }
+
+    return _to_response(_guard(_run), api_schemas.CoverPreviewData)
+
+
+def api_apply(plugin, request: api_schemas.CoverApplyRequest):
+    """把封面写回媒体库：带 ``image_data`` 时直接上传成品图，否则现场渲染后上传。"""
+
+    def _run():
+        if not request.library_id:
+            raise ValueError("缺少媒体库 ID")
+        ref = emby_gateway.resolve(request.server)
+        config = _prepare_config(request, ref)
+        image = str(request.image_data or "").split(",", 1)[-1]
+        if not image:
+            engine: PosterEngine = plugin.cover_engine()
+            image = engine.draw(config, _fetch_assets(request, ref))
+        emby_gateway.post_raw(
+            ref,
+            f"Items/{request.library_id}/Images/Primary",
+            data=image,
+            content_type=PosterEngine.base64_mime(image),
+        )
+        return {"uploaded": True, "message": "封面已更新"}
+
+    return _to_response(_guard(_run), api_schemas.CoverApplyData)
+
+
+def api_asset_font(plugin, name: str):
+    """原生返回字体文件。"""
+    try:
+        path = assets_meta.font_path(plugin, name)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return FileResponse(path, media_type="application/octet-stream")
+
+
+def api_asset_template_preview(plugin, filename: str):
+    """原生返回模板预览图。"""
+    try:
+        path = assets_meta.template_preview_path(plugin, filename)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if path is None:
+        raise HTTPException(status_code=404, detail="预览图不存在")
+    return FileResponse(path, media_type="image/jpeg")

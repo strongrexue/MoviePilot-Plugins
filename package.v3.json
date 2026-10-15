@@ -91,13 +91,14 @@
         "name": "胖虎封面中心",
         "description": "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。",
         "labels": "Emby,媒体库,封面",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "release": true,
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png",
         "author": "strongrexue",
         "system_version": ">=3.0.0",
         "level": 1,
         "history": {
+            "v1.2.0": "M3 封面渲染引擎：PosterEngine（布局按需加载、静态 JPEG + 动态 APNG、数量角标）+ 内置布局 classic/wall/minimal（schema 驱动参数表单）；媒体库与素材读取（VirtualFolders + Views、Items?ImageTypes=Primary/Backdrop）；字体/模板资源管理（数据目录 + 文件名校验 + 模板预览缩略图）；接口 /libraries、/layouts、/fonts(+upload/delete)、/templates(+save/delete/upload)、/preview、/apply，外加 /asset/font 与 /asset/template 两个原生资源端点；配置页新增「封面设计」面板（生成预览、渲染并应用、直接上传成品图替换、字体与模板管理）。",
             "v1.1.0": "M2：Emby 任务中心落地——复用宿主媒体服务器模块透传读取 ScheduledTasks（含隐藏/禁用任务兜底），任务按分类分组、运行中置顶；支持编辑触发器（每天/每周/按间隔/启动时）、立即运行与停止（停止走 RequestUtils 补齐 DELETE）；详情页新增任务面板。",
             "v1.0.0": "首个版本：M1 骨架（四个联邦入口：配置 / 详情 / 仪表盘 / 发现页整页；插件 API /ping 与 /status；媒体服务器发现与配置读写）。"
         }

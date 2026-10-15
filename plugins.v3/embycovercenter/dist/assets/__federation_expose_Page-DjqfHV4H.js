@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-C6TXstWj.js';
-import { F as FRONTEND_VERSION } from './version-ClyaAWXX.js';
+import { F as FRONTEND_VERSION } from './version-CEguOYk9.js';
 
 /**
  * Emby 计划任务中心的前端状态与动作。

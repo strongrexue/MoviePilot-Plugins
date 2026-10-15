@@ -20,6 +20,12 @@ def default_config() -> Dict[str, Any]:
         "discovery_page_enabled": False,
         # 参与封面的媒体服务器名称；空 = 全部已启用服务器
         "selected_servers": [],
+        # 封面：默认布局与布局参数（cover_config 由前端按布局 schema 填充）
+        "cover_layout": "classic",
+        "cover_config": {},
+        "assets_mode": "random",
+        "poster_count": 6,
+        "backdrop_count": 1,
         # 封面系统
         "auto_refresh_on_webhook": True,
         "cover_cron": DEFAULT_COVER_CRON,

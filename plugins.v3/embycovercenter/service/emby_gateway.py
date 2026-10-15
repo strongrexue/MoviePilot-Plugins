@@ -116,8 +116,8 @@ def _placeholder_url(ref: ServerRef, path: str, query: Optional[dict] = None) ->
     return url
 
 
-def _real_url(ref: ServerRef, path: str, query: Optional[dict] = None) -> str:
-    """构建真实 URL（供 RequestUtils 直接请求）。"""
+def real_url(ref: ServerRef, path: str, query: Optional[dict] = None) -> str:
+    """构建真实 URL（供 RequestUtils 直接请求 / 前端展示图片）。"""
     from app.sdk.network import UrlUtils
 
     host = UrlUtils.standardize_base_url(ref.host) if ref.host else ""
@@ -152,6 +152,18 @@ def post_json(ref: ServerRef, path: str, payload: Any = None, query: Optional[di
         raise GatewayError(f"POST {path} 失败：HTTP {status or '无响应'}")
 
 
+def post_raw(ref: ServerRef, path: str, data: Any, content_type: str, query: Optional[dict] = None) -> None:
+    """POST 原始字符串 body（用于封面 base64 上传等非 JSON 场景）。"""
+    res = ref.instance.post_data(
+        url=_placeholder_url(ref, path, query),
+        data=data,
+        headers={"Content-Type": content_type},
+    )
+    status = getattr(res, "status_code", 0)
+    if not res or status not in (200, 204):
+        raise GatewayError(f"POST {path} 失败：HTTP {status or '无响应'}")
+
+
 def delete(ref: ServerRef, path: str, query: Optional[dict] = None) -> None:
     """DELETE（宿主模块透传不提供该动词，用 RequestUtils 补齐）。"""
     if not ref.host or not ref.apikey:
@@ -159,7 +171,7 @@ def delete(ref: ServerRef, path: str, query: Optional[dict] = None) -> None:
     from app.sdk.network import RequestUtils
 
     res = RequestUtils(headers={"X-Emby-Token": ref.apikey}, timeout=20).delete_res(
-        url=_real_url(ref, path, query)
+        url=real_url(ref, path, query)
     )
     status = getattr(res, "status_code", 0)
     if not res or status not in (200, 204):

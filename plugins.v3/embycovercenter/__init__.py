@@ -14,7 +14,8 @@ from app.sdk.plugin import _PluginBase
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
 from .model.config import default_config
-from .service import mediaserver
+from .service import assets_meta, mediaserver
+from .service.render_engine import PosterEngine
 
 
 class EmbyCoverCenter(_PluginBase):
@@ -24,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.1.0"
+    plugin_version = "1.2.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -66,6 +67,8 @@ class EmbyCoverCenter(_PluginBase):
         # 内容一致则不写，避免每次加载都触发一次配置写入。
         if raw != merged:
             self.update_config(merged)
+        # 资源子目录（字体 / 模板 / 布局）只建目录，不写回插件源码目录。
+        assets_meta.ensure_dirs(self)
 
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""
@@ -168,3 +171,61 @@ class EmbyCoverCenter(_PluginBase):
     def list_servers(self) -> List[Dict[str, Any]]:
         """返回已启用媒体服务器摘要（复用宿主 MediaServerHelper）。"""
         return mediaserver.list_servers()
+
+    def cover_engine(self) -> PosterEngine:
+        """返回封面渲染引擎；每次调用新建实例，避免跨实例共享图片与布局缓存。"""
+        return PosterEngine(self)
+
+    # ------------------------------------------------------------------ 封面 API 转发
+
+    def api_libraries(self, server: str = ""):
+        """获取媒体库列表。"""
+        return api_controller.api_libraries(self, server=server)
+
+    def api_layouts(self):
+        """获取封面布局与参数字段。"""
+        return api_controller.api_layouts(self)
+
+    def api_fonts(self):
+        """获取可用字体。"""
+        return api_controller.api_fonts(self)
+
+    def api_font_upload(self, request: api_schemas.FontUploadRequest):
+        """上传字体（base64）。"""
+        return api_controller.api_font_upload(self, request=request)
+
+    def api_font_delete(self, request: api_schemas.NameRequest):
+        """删除字体。"""
+        return api_controller.api_font_delete(self, request=request)
+
+    def api_templates(self):
+        """获取模板预设。"""
+        return api_controller.api_templates(self)
+
+    def api_template_save(self, request: api_schemas.TemplateSaveRequest):
+        """保存模板预设。"""
+        return api_controller.api_template_save(self, request=request)
+
+    def api_template_delete(self, request: api_schemas.NameRequest):
+        """删除模板预设。"""
+        return api_controller.api_template_delete(self, request=request)
+
+    def api_template_upload(self, request: api_schemas.TemplateUploadRequest):
+        """上传模板文件（base64）。"""
+        return api_controller.api_template_upload(self, request=request)
+
+    def api_preview(self, request: api_schemas.CoverPreviewRequest):
+        """生成封面预览。"""
+        return api_controller.api_preview(self, request=request)
+
+    def api_apply(self, request: api_schemas.CoverApplyRequest):
+        """应用封面到媒体库。"""
+        return api_controller.api_apply(self, request=request)
+
+    def api_asset_font(self, name: str):
+        """原生返回字体文件。"""
+        return api_controller.api_asset_font(self, name=name)
+
+    def api_asset_template_preview(self, filename: str):
+        """原生返回模板预览图。"""
+        return api_controller.api_asset_template_preview(self, filename=filename)

@@ -1,0 +1,122 @@
+
+.ec-cover[data-v-86152ca8] {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.ec-cover-body[data-v-86152ca8] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ec-msg[data-v-86152ca8] {
+  font-size: 12px;
+}
+.ec-section[data-v-86152ca8] {
+  height: 100%;
+}
+.ec-grid[data-v-86152ca8] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ec-subtitle[data-v-86152ca8] {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 6px;
+  opacity: 0.8;
+}
+.ec-actions[data-v-86152ca8] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ec-preview-card[data-v-86152ca8] {
+  min-height: 220px;
+}
+.ec-preview-body[data-v-86152ca8] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.ec-preview[data-v-86152ca8] {
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.ec-placeholder[data-v-86152ca8] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  font-size: 13px;
+  opacity: 0.6;
+}
+.ec-chips[data-v-86152ca8] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ec-templates[data-v-86152ca8] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ec-template[data-v-86152ca8] {
+  width: 132px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ec-template-thumb[data-v-86152ca8] {
+  width: 100%;
+  height: 74px;
+  object-fit: cover;
+}
+.ec-template-name[data-v-86152ca8] {
+  padding: 4px 6px 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ec-template-ops[data-v-86152ca8] {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px 4px;
+}
+.ec-template-input[data-v-86152ca8] {
+  max-width: 220px;
+}
+.ec-hidden[data-v-86152ca8] {
+  display: none;
+}
+@media (max-width: 760px) {
+.ec-grid[data-v-86152ca8] {
+    grid-template-columns: 1fr;
+}
+}
+
+.ec-config[data-v-5271b45b] {
+  width: min(1120px, calc(100vw - 48px));
+  max-width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.ec-header[data-v-5271b45b] {
+  padding: 14px 18px;
+}
+.ec-body[data-v-5271b45b] {
+  max-height: min(70vh, 720px);
+  overflow-y: auto;
+}
+.ec-pane[data-v-5271b45b] {
+  height: 100%;
+}
+@media (max-width: 760px) {
+.ec-config[data-v-5271b45b] {
+    width: min(100%, calc(100vw - 16px));
+}
+}

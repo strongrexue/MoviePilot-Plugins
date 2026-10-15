@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -121,6 +121,140 @@ class EmbyActionData(BaseModel):
     message: str = ""
 
 
+class LibraryInfo(BaseModel):
+    """媒体库条目。"""
+
+    id: str = ""
+    name: str = ""
+    type: str = "unknown"
+    paths: List[str] = Field(default_factory=list)
+    cover_url: str = ""
+
+
+class LibraryListData(BaseModel):
+    """媒体库列表。"""
+
+    libraries: List[LibraryInfo] = Field(default_factory=list)
+
+
+class LayoutField(BaseModel):
+    """布局参数字段（前端据此生成表单）。"""
+
+    key: str = ""
+    label: str = ""
+    type: str = "text"
+    default: Any = None
+    step: float = 0
+    options: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class LayoutInfo(BaseModel):
+    """一个布局及其专属参数。"""
+
+    name: str = ""
+    fields: List[LayoutField] = Field(default_factory=list)
+
+
+class LayoutListData(BaseModel):
+    """布局清单（含引擎通用字段）。"""
+
+    common_fields: List[LayoutField] = Field(default_factory=list)
+    layouts: List[LayoutInfo] = Field(default_factory=list)
+
+
+class FontListData(BaseModel):
+    """可用字体列表。"""
+
+    fonts: List[str] = Field(default_factory=list)
+
+
+class TemplateInfo(BaseModel):
+    """模板预设条目。"""
+
+    filename: str = ""
+    name: str = ""
+    layout: str = "classic"
+    config: Dict[str, Any] = Field(default_factory=dict)
+    has_preview: bool = False
+
+
+class TemplateListData(BaseModel):
+    """模板预设列表。"""
+
+    templates: List[TemplateInfo] = Field(default_factory=list)
+
+
+class CoverPreviewRequest(BaseModel):
+    """封面预览请求。"""
+
+    server: str = ""
+    library_id: str = ""
+    layout: str = "classic"
+    config: Dict[str, Any] = Field(default_factory=dict)
+    mode: str = "random"
+    poster_count: int = 6
+    backdrop_count: int = 1
+
+
+class CoverPreviewData(BaseModel):
+    """封面预览结果（dataURL）。"""
+
+    image: str = ""
+    count: int = 0
+    title: str = ""
+
+
+class CoverApplyRequest(CoverPreviewRequest):
+    """封面应用请求：带 image_data 时直接上传成品图。"""
+
+    image_data: str = ""
+
+
+class CoverApplyData(BaseModel):
+    """封面应用结果。"""
+
+    uploaded: bool = False
+    message: str = ""
+
+
+class FontUploadRequest(BaseModel):
+    """字体上传请求（base64）。"""
+
+    name: str = ""
+    data: str = ""
+
+
+class NameRequest(BaseModel):
+    """按文件名操作（删除字体 / 模板）。"""
+
+    name: str = ""
+    filename: str = ""
+
+
+class TemplateSaveRequest(BaseModel):
+    """保存模板预设。"""
+
+    filename: str = ""
+    name: str = ""
+    layout: str = "classic"
+    config: Dict[str, Any] = Field(default_factory=dict)
+    preview: str = ""
+
+
+class TemplateUploadRequest(BaseModel):
+    """上传模板 JSON（base64）。"""
+
+    filename: str = ""
+    data: str = ""
+
+
+class OkData(BaseModel):
+    """通用操作结果。"""
+
+    status: str = "success"
+    message: str = ""
+
+
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/ping": PingData,
     "/status": StatusData,
@@ -129,4 +263,15 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/emby_tasks/{task_id}/triggers": EmbyTaskData,
     "/emby_tasks/{task_id}/run": EmbyActionData,
     "/emby_tasks/{task_id}/stop": EmbyActionData,
+    "/libraries": LibraryListData,
+    "/layouts": LayoutListData,
+    "/fonts": FontListData,
+    "/fonts/upload": FontListData,
+    "/fonts/delete": FontListData,
+    "/templates": TemplateListData,
+    "/templates/save": TemplateListData,
+    "/templates/delete": TemplateListData,
+    "/templates/upload": TemplateListData,
+    "/preview": CoverPreviewData,
+    "/apply": CoverApplyData,
 }

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import CoverDesignPane from './cover/CoverDesignPane.vue'
 import { getPluginApi, unwrap } from './api'
 
 /**
@@ -30,6 +31,7 @@ const form = reactive({
 const servers = ref([])
 const loadingServers = ref(false)
 const serverError = ref('')
+const coverRef = ref(null)
 
 const cronPresets = [
   { title: '每天 04:00', value: '0 4 * * *' },
@@ -61,6 +63,7 @@ async function loadServers() {
 
 function submit() {
   if (props.busy) return
+  const cover = coverRef.value?.snapshot ? coverRef.value.snapshot() : {}
   emit('save', {
     enabled: form.enabled,
     discovery_page_enabled: form.discovery_page_enabled,
@@ -68,6 +71,7 @@ function submit() {
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
+    ...cover,
   })
 }
 
@@ -186,6 +190,14 @@ onMounted(loadServers)
           </VCard>
         </VCol>
       </VRow>
+
+      <CoverDesignPane
+        ref="coverRef"
+        :api="props.api"
+        :plugin-id="props.pluginId"
+        :initial-config="props.initialConfig"
+        :servers="servers"
+      />
     </VCardText>
     <VDivider />
     <VCardActions>

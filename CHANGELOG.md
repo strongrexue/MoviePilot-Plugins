@@ -769,8 +769,31 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
 |---|---|---|---|---|
 | M1 | 插件骨架：仓库结构、市场元数据、联邦构建链（四个入口）、插件 API `/ping` `/status`、媒体服务器发现、配置读写 | `1.0.0` | 并入 `ec-stage-m2` | ✅ 已完成 |
 | M2 | Emby 任务中心：任务列表（分类分组 / 运行中置顶 / 隐藏兜底）、触发器编辑、立即运行、停止 | `1.1.0` | `ec-stage-m2` | 🚧 代码完成，待真机验证 |
+| M3 | 封面渲染引擎：PosterEngine（布局按需加载 / 静态 JPEG + APNG / 数量角标）、内置布局与 schema 驱动表单、媒体库与素材读取、字体 / 模板资源管理、`/preview` 与 `/apply`、原生资源端点 | `1.2.0` | `ec-stage-m3` | 🚧 代码完成，待真机验证 |
 
 > M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
+
+## v1.2.0（M3 封面渲染引擎）
+
+- 新增 `service/render_engine.py`：`PosterEngine` 移植——布局脚本**按需 importlib 加载**并缓存在实例上
+  （避免导入期副作用与分身污染），支持静态 JPEG 与动态 APNG（320×180，帧数上限 300）、
+  数量角标（none / box / ribbon）、cover 模式贴图与圆角遮罩、按宽度换行的文本绘制。
+- 新增 `service/layouts/`：内置 `classic`（顶部标题 + 底部海报横排，动态横向位移）、
+  `wall`（网格海报墙 + 底部标题条）、`minimal`（背景 + 居中标题）；每个布局导出
+  `get_schema()` 与 `render()`，前端表单按 schema 自动生成。
+- 新增 `service/assets_meta.py`：字体 / 模板在**插件数据目录**管理，附文件名校验（拒绝路径穿越）；
+  模板保存可同时落盘一张 JPEG 缩略图。
+- 新增 `service/emby_assets.py`：媒体库列表（`Library/VirtualFolders` + `Users/{uid}/Views`）、
+  库内数量、素材读取（`Items?ImageTypes=Primary|Backdrop`，把 `ImageTags` 拼成带 `tag`/`api_key`
+  的图片 URL）。
+- 新增接口：`/libraries`、`/layouts`、`/fonts`(+`upload`/`delete`)、`/templates`(+`save`/`delete`/`upload`)、
+  `/preview`（返回 dataURL）、`/apply`（不带 `image_data` 现场渲染，带 `image_data` 直接上传成品图）；
+  另加两个**原生资源端点** `/asset/font/{name}`、`/asset/template/{filename}`（`response_model=None` +
+  `FileResponse`，放行匿名读取以便浏览器 `<img>` 加载）。
+- 前端：配置页新增「封面设计」面板（目标对象 / 素材选择 / 详细参数 / 封面上传 / 字体与模板管理），
+  参数表单由布局 schema 驱动；「应用当前预览图」「选择本地封面（直接替换）」两个入口。
+- 字体不随插件分发（避免版权与体积问题），未上传时回退 PIL 默认字体。
+- 验收：`compileall` 通过；两道门禁通过；`vite build`（clean + 联邦产物）成功。
 
 ## v1.1.0（M2 Emby 任务中心）
 

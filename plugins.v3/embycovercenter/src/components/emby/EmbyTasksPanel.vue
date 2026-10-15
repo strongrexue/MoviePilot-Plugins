@@ -1,12 +1,12 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useEmbyTasks, TRIGGER_TYPE_OPTIONS, WEEK_DAY_OPTIONS } from './useEmbyTasks'
 
 /**
  * Emby 计划任务中心面板。
  *
- * 分类手风琴（同时只展开一个，点开新分类自动收起上一个）；任务行卡片化，
- * 支持编辑触发器、立即运行、停止。
+ * 分类卡片双列瀑布流（全部展开、CSS 多列自动填充，窄屏自动回退单列）；
+ * 任务行卡片化，支持编辑触发器、立即运行、停止。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -23,9 +23,6 @@ const tasks = useEmbyTasks({
 
 const { state, dialog } = tasks
 const { load, run, stop, openTriggers, addDraft, removeDraft, closeDialog, saveTriggers } = tasks
-
-/** 当前展开的分类（按索引；Vuetify 手风琴模式下打开新面板会自动收起旧面板）。 */
-const openCategory = ref(0)
 
 const serverItems = computed(() =>
   props.servers.map(server => ({
@@ -86,84 +83,82 @@ onMounted(load)
         暂无任务数据。
       </div>
 
-      <VExpansionPanels v-model="openCategory" variant="accordion" flat class="ec-cats">
-        <VExpansionPanel v-for="(category, index) in state.categories" :key="category.name" :value="index">
-          <template #title>
-            <VIcon icon="mdi-view-list-outline" size="16" class="me-2 ec-cat-icon" />
+      <div class="ec-cats">
+        <div v-for="category in state.categories" :key="category.name" class="ec-cat">
+          <div class="ec-cat-head">
+            <VIcon icon="mdi-view-list-outline" size="16" class="ec-cat-icon" />
             <span class="ec-cat-name">{{ category.name }}</span>
-            <VChip size="x-small" variant="tonal" color="grey" label class="ms-2">{{ category.count }}</VChip>
-            <VChip v-if="runningCountIn(category)" size="x-small" variant="tonal" color="primary" label class="ms-2">
+            <VChip size="x-small" variant="tonal" color="grey" label>{{ category.count }}</VChip>
+            <VChip v-if="runningCountIn(category)" size="x-small" variant="tonal" color="primary" label>
               {{ runningCountIn(category) }} 运行中
             </VChip>
-          </template>
-          <template #text>
-            <div class="ec-task-list">
-              <div
-                v-for="task in category.tasks"
-                :key="task.id"
-                class="ec-task"
-                :class="{ 'ec-task--running': task.is_running }"
-              >
-                <VChip :color="statusColor(task)" variant="tonal" size="small" label class="ec-task-chip">
-                  {{ task.status_label }}
-                </VChip>
-                <div class="ec-task-main">
-                  <div class="ec-task-title">{{ task.name }}</div>
-                  <div class="ec-task-meta">
-                    {{ task.trigger_summary }}
-                    <span v-if="task.last_run_time"> · 上次 {{ task.last_run_time }}</span>
-                  </div>
+          </div>
+          <div class="ec-task-list">
+            <div
+              v-for="task in category.tasks"
+              :key="task.id"
+              class="ec-task"
+              :class="{ 'ec-task--running': task.is_running }"
+            >
+              <VChip :color="statusColor(task)" variant="tonal" size="small" label class="ec-task-chip">
+                {{ task.status_label }}
+              </VChip>
+              <div class="ec-task-main">
+                <div class="ec-task-title">{{ task.name }}</div>
+                <div class="ec-task-meta">
+                  {{ task.trigger_summary }}
+                  <span v-if="task.last_run_time"> · 上次 {{ task.last_run_time }}</span>
                 </div>
-                <div class="ec-task-side">
-                  <span v-if="task.is_running" class="ec-progress">{{ task.progress }}%</span>
-                  <VBtn
-                    size="small"
-                    variant="text"
-                    prepend-icon="mdi-play"
-                    title="立即运行"
-                    :disabled="!!state.actionId && state.actionId !== task.id"
-                    :loading="state.actionId === task.id"
-                    @click="run(task.id)"
-                  >
-                    运行
-                  </VBtn>
-                  <VBtn
-                    v-if="task.is_running"
-                    size="small"
-                    color="error"
-                    variant="text"
-                    prepend-icon="mdi-stop"
-                    title="停止"
-                    :disabled="!!state.actionId && state.actionId !== task.id"
-                    :loading="state.actionId === task.id"
-                    @click="stop(task.id)"
-                  >
-                    停止
-                  </VBtn>
-                  <VBtn
-                    size="small"
-                    variant="text"
-                    prepend-icon="mdi-clock-edit-outline"
-                    title="编辑触发器"
-                    :disabled="!!state.actionId"
-                    @click="openTriggers(task)"
-                  >
-                    触发器
-                  </VBtn>
-                </div>
-                <VProgressLinear
-                  v-if="task.is_running"
-                  :model-value="task.progress"
-                  height="3"
-                  color="primary"
-                  rounded
-                  class="ec-task-bar"
-                />
               </div>
+              <div class="ec-task-side">
+                <span v-if="task.is_running" class="ec-progress">{{ task.progress }}%</span>
+                <VBtn
+                  size="small"
+                  variant="text"
+                  prepend-icon="mdi-play"
+                  title="立即运行"
+                  :disabled="!!state.actionId && state.actionId !== task.id"
+                  :loading="state.actionId === task.id"
+                  @click="run(task.id)"
+                >
+                  运行
+                </VBtn>
+                <VBtn
+                  v-if="task.is_running"
+                  size="small"
+                  color="error"
+                  variant="text"
+                  prepend-icon="mdi-stop"
+                  title="停止"
+                  :disabled="!!state.actionId && state.actionId !== task.id"
+                  :loading="state.actionId === task.id"
+                  @click="stop(task.id)"
+                >
+                  停止
+                </VBtn>
+                <VBtn
+                  size="small"
+                  variant="text"
+                  prepend-icon="mdi-clock-edit-outline"
+                  title="编辑触发器"
+                  :disabled="!!state.actionId"
+                  @click="openTriggers(task)"
+                >
+                  触发器
+                </VBtn>
+              </div>
+              <VProgressLinear
+                v-if="task.is_running"
+                :model-value="task.progress"
+                height="3"
+                color="primary"
+                rounded
+                class="ec-task-bar"
+              />
             </div>
-          </template>
-        </VExpansionPanel>
-      </VExpansionPanels>
+          </div>
+        </div>
+      </div>
     </VCardText>
 
     <VDialog v-model="dialog.visible" max-width="760" :persistent="dialog.saving">
@@ -260,41 +255,44 @@ onMounted(load)
 .ec-server {
   max-width: 220px;
 }
-/* 分类手风琴：每个分类独立成卡片（对齐封面设计分组与模板预设的观感） */
+/* 分类双列瀑布流：全部展开，CSS 多列自动填充（分类高低不齐时自动匀），窄屏回退单列 */
 .ec-cats {
-  background: transparent;
+  columns: 2;
+  column-gap: 12px;
 }
-.ec-cat-icon {
-  color: rgb(var(--v-theme-primary));
-}
-.ec-cat-name {
-  font-weight: 600;
-}
-:deep(.v-expansion-panel) {
+.ec-cat {
+  break-inside: avoid;
+  margin: 0 0 12px;
   border-radius: 12px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   background: rgba(var(--v-theme-on-surface), 0.04);
   overflow: hidden;
-  isolation: isolate;
 }
-:deep(.v-expansion-panel + .v-expansion-panel) {
-  margin-top: 10px;
-}
-:deep(.v-expansion-panel--active) {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-  border-color: rgba(var(--v-theme-primary), 0.35);
-}
-:deep(.v-expansion-panel-title) {
-  min-height: 46px;
-}
-:deep(.v-expansion-panel-title--active) {
+.ec-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  font-size: 13px;
+  font-weight: 600;
+}
+.ec-cat-icon {
+  color: rgb(var(--v-theme-primary));
+}
+.ec-cat-head .v-chip {
+  margin-left: 2px;
 }
 .ec-task-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-bottom: 4px;
+  padding: 10px 12px 12px;
+}
+@media (max-width: 1000px) {
+  .ec-cats {
+    columns: 1;
+  }
 }
 .ec-task {
   position: relative;

@@ -137,6 +137,13 @@ def delete_font(plugin, name: Any) -> bool:
 # --------------------------------------------------------------------------- 模板
 
 
+def default_template_preview(name: Any) -> Optional[Path]:
+    """插件包内随分发的默认模板缩略图（数据目录缺失时的兜底来源）。"""
+    safe = _safe_name(name, (PREVIEW_EXTENSION,))
+    path = PACKAGE_DEFAULTS_DIR / "templates" / safe
+    return path if path.exists() else None
+
+
 def list_templates(plugin) -> List[Dict[str, Any]]:
     """返回模板预设列表（含布局、参数与预览图标记）。"""
     directory = templates_dir(plugin)
@@ -150,13 +157,14 @@ def list_templates(plugin) -> List[Dict[str, Any]]:
             logger.warning(f"[EmbyCoverCenter] 跳过损坏模板 {item.name}: {error}")
             continue
         preview = item.with_suffix(PREVIEW_EXTENSION)
+        has_preview = preview.exists() or default_template_preview(preview.name) is not None
         result.append(
             {
                 "filename": item.name,
                 "name": str(data.get("name") or item.stem),
                 "layout": str(data.get("layout") or "classic"),
                 "config": data.get("config") if isinstance(data.get("config"), dict) else {},
-                "has_preview": preview.exists(),
+                "has_preview": has_preview,
             }
         )
     return result
@@ -175,10 +183,13 @@ def read_template(plugin, filename: Any) -> Dict[str, Any]:
 
 
 def template_preview_path(plugin, filename: Any) -> Optional[Path]:
-    """返回模板预览图路径（不存在时 None）。"""
+    """返回模板缩略图路径：优先数据目录，缺失时回退到插件包内的默认缩略图。"""
     safe = _safe_name(filename, (TEMPLATE_EXTENSION,))
-    preview = (templates_dir(plugin) / safe).with_suffix(PREVIEW_EXTENSION)
-    return preview if preview.exists() else None
+    preview_name = str(Path(safe).with_suffix(PREVIEW_EXTENSION).name)
+    local = templates_dir(plugin) / preview_name
+    if local.exists():
+        return local
+    return default_template_preview(preview_name)
 
 
 def save_template(

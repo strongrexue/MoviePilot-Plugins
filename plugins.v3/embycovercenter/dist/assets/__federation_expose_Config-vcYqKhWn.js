@@ -1075,7 +1075,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cb17a494"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b5278f82"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode} = await importShared('vue');
 

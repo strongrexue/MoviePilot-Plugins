@@ -25,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -70,7 +70,9 @@ class EmbyCoverCenter(_PluginBase):
         # 资源子目录（字体 / 模板 / 布局）只建目录，不写回插件源码目录；
         # 默认模板预设首次初始化时从插件包拷入数据目录（只补缺失）。
         assets_meta.ensure_dirs(self)
-        assets_meta.seed_default_templates(self)
+        copied = assets_meta.seed_default_templates(self)
+        if copied:
+            logger.info(f"[EmbyCoverCenter] 已补全默认模板 {copied} 个文件")
 
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""

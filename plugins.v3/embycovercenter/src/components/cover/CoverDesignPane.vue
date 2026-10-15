@@ -415,7 +415,7 @@ defineExpose({ snapshot })
 }
 .ec-cols {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
   gap: 12px;
   align-items: start;
 }

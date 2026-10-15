@@ -506,6 +506,7 @@ defineExpose({ snapshot })
 }
 .ec-acc-title {
   font-weight: 600;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -518,23 +519,28 @@ defineExpose({ snapshot })
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 每个分组独立成卡片（对齐模板预设卡片的观感），组间留空隙 */
+/* 每个分组独立成卡片（对齐模板预设卡片的观感），组间留空隙；
+   收起态只有一行标题，底色/描边必须足够明显才能在深色主题下分出边界 */
 :deep(.v-expansion-panel) {
   border-radius: 12px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  background: rgba(var(--v-theme-on-surface), 0.04);
+  background: rgba(var(--v-theme-on-surface), 0.07);
   overflow: hidden;
   isolation: isolate;
+  transition: background 0.15s, border-color 0.15s;
 }
 :deep(.v-expansion-panel + .v-expansion-panel) {
-  margin-top: 10px;
+  margin-top: 12px;
+}
+:deep(.v-expansion-panel:not(.v-expansion-panel--active):hover) {
+  border-color: rgba(var(--v-theme-primary), 0.45);
 }
 :deep(.v-expansion-panel--active) {
-  background: rgba(var(--v-theme-on-surface), 0.06);
+  background: rgba(var(--v-theme-on-surface), 0.09);
   border-color: rgba(var(--v-theme-primary), 0.35);
 }
 :deep(.v-expansion-panel-title) {
-  min-height: 48px;
+  min-height: 52px;
 }
 :deep(.v-expansion-panel-title--active) {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));

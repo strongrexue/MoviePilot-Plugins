@@ -30,6 +30,11 @@ def default_config() -> Dict[str, Any]:
         "backdrop_count": 1,
         # 各媒体库手填的英文名（副标题覆盖值）：{ 媒体库ID: 英文名 }
         "library_en_names": {},
+        # 自动封面任务：开关 / 目标媒体库（{ 服务器名: [库ID,...] }）/ 封面方案
+        # （模板预设文件名；空串 = 跟随封面设计）；执行频率沿用 cover_cron
+        "auto_cover_enabled": False,
+        "auto_cover_libraries": {},
+        "auto_cover_template": "",
         # 封面系统
         "auto_refresh_on_webhook": True,
         "cover_cron": DEFAULT_COVER_CRON,

@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from ..service import assets_meta
+from ..service import cover_auto
 from ..service import emby_assets
 from ..service import emby_gateway
 from ..service import emby_tasks as tasks_service
@@ -57,6 +58,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/templates/upload", plugin.api_template_upload, ["POST"], "上传模板文件（base64）"),
         ("/preview", plugin.api_preview, ["POST"], "生成封面预览"),
         ("/apply", plugin.api_apply, ["POST"], "应用封面到媒体库"),
+        ("/auto_cover/run", plugin.api_auto_cover_run, ["POST"], "立即运行自动封面任务"),
     ]
     routes: List[Dict[str, Any]] = [
         {
@@ -386,6 +388,17 @@ def api_apply(plugin, request: api_schemas.CoverApplyRequest):
         return {"uploaded": True, "message": "封面已更新"}
 
     return _to_response(_guard(_run), api_schemas.CoverApplyData)
+
+
+def api_auto_cover_run(plugin):
+    """立即运行自动封面任务：后台线程执行，接口立即返回。"""
+    if not plugin.get_state():
+        raise HTTPException(status_code=400, detail="插件未启用，请先在配置里开启")
+    cover_auto.run_auto_cover_async(plugin)
+    return _to_response(
+        {"status": "success", "message": "自动封面任务已在后台启动，完成后按通知设置推送结果"},
+        api_schemas.OkData,
+    )
 
 
 def api_asset_font(plugin, name: str):

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi } from './api-VNFYmuQY.js';
+import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi } from './_plugin-vue_export-helper-bD9RbwOy.js';
 
 const {toDisplayString:_toDisplayString$1,createElementVNode:_createElementVNode$1,resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,openBlock:_openBlock$1,createElementBlock:_createElementBlock$1,createCommentVNode:_createCommentVNode$1,createBlock:_createBlock$1,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
@@ -712,18 +712,10 @@ const modeItems = [
   { title: '最新入库', value: 'latest' },
 ];
 
-const fontInput = ref(null);
-const templateInput = ref(null);
-const localImageInput = ref(null);
 const templateName = ref('');
 
 /** 默认只展开 1-2 组：目标对象 + 第一个布局分组（无布局分组时只展开目标对象）。 */
 const openSections = ref(['target', 'style-0']);
-
-function pick(reference) {
-  const element = reference.value;
-  if (element) element.click();
-}
 
 function onFontPicked(event) {
   const file = event.target.files?.[0];
@@ -871,7 +863,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createElementVNode("div", _hoisted_2, [
-      _cache[15] || (_cache[15] = _createElementVNode("div", { class: "ec-toolbar-head" }, [
+      _cache[12] || (_cache[12] = _createElementVNode("div", { class: "ec-toolbar-head" }, [
         _createElementVNode("div", { class: "ec-h" }, "封面设计"),
         _createElementVNode("div", { class: "ec-sub" }, "选媒体库 → 调风格 → 生成预览 → 应用到媒体库封面")
       ], -1)),
@@ -882,7 +874,7 @@ return (_ctx, _cache) => {
           loading: _unref(designer).loading.value,
           onClick: _unref(designer).loadAll
         }, {
-          default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+          default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
             _createTextVNode("刷新", -1)
           ]))]),
           _: 1
@@ -894,7 +886,7 @@ return (_ctx, _cache) => {
           loading: _unref(designer).previewing.value,
           onClick: _unref(designer).previewCover
         }, {
-          default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+          default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
             _createTextVNode(" 生成预览 ", -1)
           ]))]),
           _: 1
@@ -907,7 +899,7 @@ return (_ctx, _cache) => {
           loading: _unref(designer).applying.value,
           onClick: _unref(designer).applyCover
         }, {
-          default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+          default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
             _createTextVNode(" 渲染并应用 ", -1)
           ]))]),
           _: 1
@@ -941,7 +933,7 @@ return (_ctx, _cache) => {
               loading: _unref(designer).previewing.value,
               onClick: _unref(designer).previewCover
             }, {
-              default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
+              default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
                 _createTextVNode(" 生成 ", -1)
               ]))]),
               _: 1
@@ -949,13 +941,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-              default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+              default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
                 _createTextVNode("预览", -1)
               ]))]),
               _: 1
             }),
             _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+              default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
                 _createTextVNode("横版占满 · 生成后可一键应用为当前媒体库封面", -1)
               ]))]),
               _: 1
@@ -1004,13 +996,14 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCardItem, { class: "py-2" }, {
           append: _withCtx(() => [
             _createVNode(_component_VBtn, {
+              tag: "label",
+              for: "ec-upload-template",
               size: "small",
               variant: "text",
-              "prepend-icon": "mdi-upload",
-              onClick: _cache[0] || (_cache[0] = $event => (pick(templateInput.value)))
+              "prepend-icon": "mdi-upload"
             }, {
-              default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
-                _createTextVNode("上传", -1)
+              default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+                _createTextVNode(" 上传 ", -1)
               ]))]),
               _: 1
             })
@@ -1023,7 +1016,7 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+              default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
                 _createTextVNode("横版占满 · 点击卡片即载入（仅套用风格参数，不改标题/副标题）", -1)
               ]))]),
               _: 1
@@ -1073,7 +1066,7 @@ return (_ctx, _cache) => {
             _createElementVNode("div", _hoisted_13, [
               _createVNode(_component_VTextField, {
                 modelValue: templateName.value,
-                "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((templateName).value = $event)),
+                "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((templateName).value = $event)),
                 label: "模板文件名",
                 placeholder: "如 我的封面.json",
                 density: "compact",
@@ -1085,9 +1078,9 @@ return (_ctx, _cache) => {
                 size: "small",
                 variant: "tonal",
                 disabled: !templateName.value,
-                onClick: _cache[2] || (_cache[2] = $event => (_unref(designer).saveTemplate(templateName.value)))
+                onClick: _cache[1] || (_cache[1] = $event => (_unref(designer).saveTemplate(templateName.value)))
               }, {
-                default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
                   _createTextVNode(" 保存当前 ", -1)
                 ]))]),
                 _: 1
@@ -1101,7 +1094,7 @@ return (_ctx, _cache) => {
     }),
     _createVNode(_component_VExpansionPanels, {
       modelValue: openSections.value,
-      "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((openSections).value = $event)),
+      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((openSections).value = $event)),
       variant: "accordion",
       flat: "",
       multiple: "",
@@ -1128,7 +1121,7 @@ return (_ctx, _cache) => {
                     _createVNode(_component_VSelect, {
                       modelValue: _unref(form).server,
                       "onUpdate:modelValue": [
-                        _cache[3] || (_cache[3] = $event => ((_unref(form).server) = $event)),
+                        _cache[2] || (_cache[2] = $event => ((_unref(form).server) = $event)),
                         _unref(designer).onServerChange
                       ],
                       items: serverItems.value,
@@ -1140,7 +1133,7 @@ return (_ctx, _cache) => {
                     _createVNode(_component_VSelect, {
                       modelValue: _unref(form).library_id,
                       "onUpdate:modelValue": [
-                        _cache[4] || (_cache[4] = $event => ((_unref(form).library_id) = $event)),
+                        _cache[3] || (_cache[3] = $event => ((_unref(form).library_id) = $event)),
                         _unref(designer).syncFromLibrary
                       ],
                       items: _unref(designer).libraryItems.value,
@@ -1152,7 +1145,7 @@ return (_ctx, _cache) => {
                     _createVNode(_component_VSelect, {
                       modelValue: _unref(form).layout,
                       "onUpdate:modelValue": [
-                        _cache[5] || (_cache[5] = $event => ((_unref(form).layout) = $event)),
+                        _cache[4] || (_cache[4] = $event => ((_unref(form).layout) = $event)),
                         _unref(designer).onLayoutChange
                       ],
                       items: _unref(designer).layoutItems.value,
@@ -1163,7 +1156,7 @@ return (_ctx, _cache) => {
                     }, null, 8, ["modelValue", "items", "onUpdate:modelValue"]),
                     _createVNode(_component_VSelect, {
                       modelValue: _unref(form).mode,
-                      "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((_unref(form).mode) = $event)),
+                      "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((_unref(form).mode) = $event)),
                       items: modeItems,
                       label: "素材模式",
                       density: "compact",
@@ -1175,7 +1168,7 @@ return (_ctx, _cache) => {
                   ? (_openBlock(), _createElementBlock("div", _hoisted_17, [
                       _createVNode(_component_VTextField, {
                         modelValue: _unref(form).config.title,
-                        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((_unref(form).config.title) = $event)),
+                        "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((_unref(form).config.title) = $event)),
                         label: "主标题内容",
                         density: "compact",
                         variant: "outlined",
@@ -1184,7 +1177,7 @@ return (_ctx, _cache) => {
                       _createVNode(_component_VTextField, {
                         modelValue: _unref(form).config.subtitle,
                         "onUpdate:modelValue": [
-                          _cache[8] || (_cache[8] = $event => ((_unref(form).config.subtitle) = $event)),
+                          _cache[7] || (_cache[7] = $event => ((_unref(form).config.subtitle) = $event)),
                           _unref(designer).onSubtitleEdited
                         ],
                         label: "副标题内容（英文名）",
@@ -1192,7 +1185,7 @@ return (_ctx, _cache) => {
                         variant: "outlined",
                         "hide-details": ""
                       }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                      _cache[22] || (_cache[22] = _createElementVNode("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题自动取英文名（手填即记住该库），载入模板不会改它们。 ", -1))
+                      _cache[19] || (_cache[19] = _createElementVNode("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题自动取英文名（手填即记住该库），载入模板不会改它们。 ", -1))
                     ]))
                   : (block.kind === 'style' || block.kind === 'engine')
                     ? (_openBlock(), _createElementBlock("div", _hoisted_18, [
@@ -1208,13 +1201,14 @@ return (_ctx, _cache) => {
                     : (block.kind === 'upload')
                       ? (_openBlock(), _createElementBlock("div", _hoisted_19, [
                           _createVNode(_component_VBtn, {
+                            tag: "label",
+                            for: "ec-upload-local-image",
                             size: "small",
                             variant: "tonal",
                             "prepend-icon": "mdi-image",
-                            loading: _unref(designer).applying.value,
-                            onClick: _cache[9] || (_cache[9] = $event => (pick(localImageInput.value)))
+                            loading: _unref(designer).applying.value
                           }, {
-                            default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                            default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
                               _createTextVNode(" 选择本地封面（直接替换） ", -1)
                             ]))]),
                             _: 1
@@ -1227,7 +1221,7 @@ return (_ctx, _cache) => {
                             loading: _unref(designer).applying.value,
                             onClick: _unref(designer).applyPreviewImage
                           }, {
-                            default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
+                            default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
                               _createTextVNode(" 应用当前预览图 ", -1)
                             ]))]),
                             _: 1
@@ -1253,13 +1247,14 @@ return (_ctx, _cache) => {
                               ? (_openBlock(), _createElementBlock("span", _hoisted_21, " 未上传字体（中文会回退为方块），请先上传 .ttf/.otf "))
                               : _createCommentVNode("", true),
                             _createVNode(_component_VBtn, {
+                              tag: "label",
+                              for: "ec-upload-font",
                               size: "small",
                               variant: "text",
-                              "prepend-icon": "mdi-upload",
-                              onClick: _cache[10] || (_cache[10] = $event => (pick(fontInput.value)))
+                              "prepend-icon": "mdi-upload"
                             }, {
-                              default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
-                                _createTextVNode("上传字体", -1)
+                              default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
+                                _createTextVNode(" 上传字体 ", -1)
                               ]))]),
                               _: 1
                             })
@@ -1273,34 +1268,31 @@ return (_ctx, _cache) => {
       _: 1
     }, 8, ["modelValue"]),
     _createElementVNode("input", {
-      ref_key: "fontInput",
-      ref: fontInput,
+      id: "ec-upload-font",
       type: "file",
       accept: ".ttf,.otf,.ttc",
-      class: "ec-hidden",
+      class: "ec-file-input",
       onChange: onFontPicked
-    }, null, 544),
+    }, null, 32),
     _createElementVNode("input", {
-      ref_key: "templateInput",
-      ref: templateInput,
+      id: "ec-upload-template",
       type: "file",
       accept: ".json",
-      class: "ec-hidden",
+      class: "ec-file-input",
       onChange: onTemplatePicked
-    }, null, 544),
+    }, null, 32),
     _createElementVNode("input", {
-      ref_key: "localImageInput",
-      ref: localImageInput,
+      id: "ec-upload-local-image",
       type: "file",
       accept: "image/*",
-      class: "ec-hidden",
+      class: "ec-file-input",
       onChange: onLocalImagePicked
-    }, null, 544)
+    }, null, 32)
   ]))
 }
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6733af92"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a1426737"]]);
 
 export { CoverDesignPane as C };

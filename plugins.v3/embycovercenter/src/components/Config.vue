@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import AutoCoverLibraries from './AutoCoverLibraries.vue'
 import CoverDesignPane from './cover/CoverDesignPane.vue'
-import { getPluginApi, unwrap } from './api'
+import { getPluginApi, postPluginApi, unwrap } from './api'
 
 /**
  * 插件配置面板：顶部总开关 + 两个分区（基础设置 / 封面设计）。
@@ -25,6 +26,12 @@ const form = reactive({
   selected_servers: Array.isArray(props.initialConfig.selected_servers)
     ? [...props.initialConfig.selected_servers]
     : [],
+  auto_cover_enabled: props.initialConfig.auto_cover_enabled === true,
+  auto_cover_template: props.initialConfig.auto_cover_template || '',
+  auto_cover_libraries:
+    props.initialConfig.auto_cover_libraries && typeof props.initialConfig.auto_cover_libraries === 'object'
+      ? { ...props.initialConfig.auto_cover_libraries }
+      : {},
   auto_refresh_on_webhook: props.initialConfig.auto_refresh_on_webhook !== false,
   cover_cron: props.initialConfig.cover_cron || '0 4 * * *',
   notify_on_task_finish: props.initialConfig.notify_on_task_finish !== false,
@@ -33,13 +40,27 @@ const form = reactive({
 const servers = ref([])
 const loadingServers = ref(false)
 const serverError = ref('')
+const templates = ref([])
 const coverRef = ref(null)
+const runningCover = ref(false)
+const runMessage = ref('')
+const runOk = ref(true)
 
-const cronPresets = [
+/** 执行频率：预设 + 自定义；保存值不在预设里即视为自定义（文本框展示当前值）。 */
+const scheduleOptions = [
   { title: '每天 04:00', value: '0 4 * * *' },
   { title: '每 6 小时', value: '0 */6 * * *' },
   { title: '每周一 04:00', value: '0 4 * * 1' },
+  { title: '每小时', value: '0 * * * *' },
+  { title: '每 30 分钟', value: '*/30 * * * *' },
+  { title: '自定义 Cron', value: '__custom__' },
 ]
+const schedule = computed({
+  get: () => (scheduleOptions.some(item => item.value === form.cover_cron) ? form.cover_cron : '__custom__'),
+  set: value => {
+    if (value && value !== '__custom__') form.cover_cron = value
+  },
+})
 
 const serverItems = computed(() =>
   servers.value.map(server => ({
@@ -47,6 +68,14 @@ const serverItems = computed(() =>
     value: server.name,
   })),
 )
+
+const templateItems = computed(() => [
+  { title: '跟随封面设计', value: '' },
+  ...templates.value.map(template => ({
+    title: template.name || template.filename,
+    value: template.filename,
+  })),
+])
 
 async function loadServers() {
   if (loadingServers.value) return
@@ -63,6 +92,31 @@ async function loadServers() {
   }
 }
 
+async function loadTemplates() {
+  try {
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'templates')) || {}
+    templates.value = Array.isArray(data.templates) ? data.templates : []
+  } catch (error) {
+    templates.value = []
+  }
+}
+
+async function runAutoCover() {
+  if (runningCover.value) return
+  runningCover.value = true
+  runMessage.value = ''
+  try {
+    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'auto_cover/run', {})) || {}
+    runMessage.value = data.message || '自动封面任务已在后台启动'
+    runOk.value = true
+  } catch (error) {
+    runMessage.value = error?.message || '启动失败'
+    runOk.value = false
+  } finally {
+    runningCover.value = false
+  }
+}
+
 function submit() {
   if (props.busy) return
   const cover = coverRef.value?.snapshot ? coverRef.value.snapshot() : {}
@@ -70,6 +124,9 @@ function submit() {
     enabled: form.enabled,
     discovery_page_enabled: form.discovery_page_enabled,
     selected_servers: [...form.selected_servers],
+    auto_cover_enabled: form.auto_cover_enabled,
+    auto_cover_template: form.auto_cover_template,
+    auto_cover_libraries: { ...form.auto_cover_libraries },
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
@@ -77,7 +134,10 @@ function submit() {
   })
 }
 
-onMounted(loadServers)
+onMounted(() => {
+  loadServers()
+  loadTemplates()
+})
 </script>
 
 <template>
@@ -176,18 +236,84 @@ onMounted(loadServers)
             <VCol cols="12">
               <VCard variant="tonal" class="ec-block">
                 <VCardItem class="py-2">
-                  <VCardTitle class="text-subtitle-1">定时封面任务</VCardTitle>
+                  <VCardTitle class="text-subtitle-1">自动封面任务</VCardTitle>
+                  <VCardSubtitle class="text-caption">
+                    定时 / Emby 入库时，为选中媒体库自动生成并应用封面
+                  </VCardSubtitle>
+                  <template #append>
+                    <VBtn
+                      size="small"
+                      variant="tonal"
+                      prepend-icon="mdi-play"
+                      :loading="runningCover"
+                      :disabled="!form.enabled"
+                      @click="runAutoCover"
+                    >
+                      立即运行
+                    </VBtn>
+                  </template>
                 </VCardItem>
                 <VCardText>
-                  <VCombobox
-                    v-model="form.cover_cron"
-                    :items="cronPresets"
-                    label="Cron 表达式"
-                    hint="自动生成媒体库封面的执行时间"
-                    persistent-hint
-                    density="compact"
-                    variant="outlined"
-                  />
+                  <VAlert v-if="runMessage" :type="runOk ? 'success' : 'error'" variant="tonal" density="compact" class="mb-2">
+                    {{ runMessage }}
+                  </VAlert>
+                  <VRow dense>
+                    <VCol cols="12" md="4">
+                      <VSwitch
+                        v-model="form.auto_cover_enabled"
+                        color="primary"
+                        hide-details
+                        inset
+                        class="mt-2"
+                        label="启用定时自动封面"
+                      />
+                    </VCol>
+                    <VCol cols="12" md="4">
+                      <VSelect
+                        v-model="form.auto_cover_template"
+                        :items="templateItems"
+                        label="封面方案"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                      />
+                    </VCol>
+                    <VCol cols="12" md="4">
+                      <VSelect
+                        v-model="schedule"
+                        :items="scheduleOptions"
+                        label="执行频率"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                      />
+                    </VCol>
+                    <VCol v-if="schedule === '__custom__'" cols="12" md="6">
+                      <VTextField
+                        v-model="form.cover_cron"
+                        label="Cron 表达式"
+                        placeholder="分 时 日 月 周，如 30 5 * * *"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                      />
+                    </VCol>
+                    <VCol cols="12">
+                      <AutoCoverLibraries
+                        v-model="form.auto_cover_libraries"
+                        :api="props.api"
+                        :plugin-id="props.pluginId"
+                        :servers="servers"
+                        :disabled="!servers.length"
+                      />
+                    </VCol>
+                    <VCol cols="12">
+                      <div class="text-caption text-medium-emphasis">
+                        「跟随封面设计」使用封面设计 Tab 当前保存的布局与参数；执行时只处理所选媒体库与
+                        「参与封面的服务器」的交集。Emby 入库自动刷新由上方开关控制，同样只刷新这里勾选的媒体库。
+                      </div>
+                    </VCol>
+                  </VRow>
                 </VCardText>
               </VCard>
             </VCol>

@@ -41,18 +41,10 @@ const modeItems = [
   { title: '最新入库', value: 'latest' },
 ]
 
-const fontInput = ref(null)
-const templateInput = ref(null)
-const localImageInput = ref(null)
 const templateName = ref('')
 
 /** 默认只展开 1-2 组：目标对象 + 第一个布局分组（无布局分组时只展开目标对象）。 */
 const openSections = ref(['target', 'style-0'])
-
-function pick(reference) {
-  const element = reference.value
-  if (element) element.click()
-}
 
 function onFontPicked(event) {
   const file = event.target.files?.[0]
@@ -256,7 +248,9 @@ defineExpose({ snapshot })
         <VCardTitle class="text-subtitle-1">模板预设（{{ designer.templates.value.length }}）</VCardTitle>
         <VCardSubtitle class="text-caption">横版占满 · 点击卡片即载入（仅套用风格参数，不改标题/副标题）</VCardSubtitle>
         <template #append>
-          <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(templateInput)">上传</VBtn>
+          <VBtn tag="label" for="ec-upload-template" size="small" variant="text" prepend-icon="mdi-upload">
+            上传
+          </VBtn>
         </template>
       </VCardItem>
       <VCardText>
@@ -387,11 +381,12 @@ defineExpose({ snapshot })
 
           <div v-else-if="block.kind === 'upload'" class="ec-row-wrap">
             <VBtn
+              tag="label"
+              for="ec-upload-local-image"
               size="small"
               variant="tonal"
               prepend-icon="mdi-image"
               :loading="designer.applying.value"
-              @click="pick(localImageInput)"
             >
               选择本地封面（直接替换）
             </VBtn>
@@ -421,15 +416,17 @@ defineExpose({ snapshot })
             <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
               未上传字体（中文会回退为方块），请先上传 .ttf/.otf
             </span>
-            <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(fontInput)">上传字体</VBtn>
+            <VBtn tag="label" for="ec-upload-font" size="small" variant="text" prepend-icon="mdi-upload">
+              上传字体
+            </VBtn>
           </div>
         </template>
       </VExpansionPanel>
     </VExpansionPanels>
 
-    <input ref="fontInput" type="file" accept=".ttf,.otf,.ttc" class="ec-hidden" @change="onFontPicked" />
-    <input ref="templateInput" type="file" accept=".json" class="ec-hidden" @change="onTemplatePicked" />
-    <input ref="localImageInput" type="file" accept="image/*" class="ec-hidden" @change="onLocalImagePicked" />
+    <input id="ec-upload-font" type="file" accept=".ttf,.otf,.ttc" class="ec-file-input" @change="onFontPicked" />
+    <input id="ec-upload-template" type="file" accept=".json" class="ec-file-input" @change="onTemplatePicked" />
+    <input id="ec-upload-local-image" type="file" accept="image/*" class="ec-file-input" @change="onLocalImagePicked" />
   </div>
 </template>
 
@@ -599,8 +596,17 @@ defineExpose({ snapshot })
 .ec-template-input {
   max-width: 220px;
 }
-.ec-hidden {
-  display: none;
+/* 文件选择框：视觉隐藏但**不可用 display:none**——宿主环境下对 display:none
+   的 input 程序化 click() 不弹窗（三处上传按钮失灵的根因），现改由
+   <VBtn tag="label" for=...> 原生激活，输入框只需视觉隐藏（clip 技法）。 */
+.ec-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  pointer-events: none;
 }
 @media (max-width: 760px) {
   .ec-fields {

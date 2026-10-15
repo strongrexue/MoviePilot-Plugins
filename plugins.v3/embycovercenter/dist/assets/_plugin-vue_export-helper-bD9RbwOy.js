@@ -1,11 +1,3 @@
-const _export_sfc = (sfc, props) => {
-  const target = sfc.__vccOpts || sfc;
-  for (const [key, val] of props) {
-    target[key] = val;
-  }
-  return target;
-};
-
 /**
  * 插件 API 封装。
  *
@@ -123,5 +115,13 @@ async function savePluginConfig(api, pluginId, payload = {}) {
   const response = await api.put(pluginPath(pluginId), payload);
   return unwrap(response)
 }
+
+const _export_sfc = (sfc, props) => {
+  const target = sfc.__vccOpts || sfc;
+  for (const [key, val] of props) {
+    target[key] = val;
+  }
+  return target;
+};
 
 export { RENDER_TIMEOUT_MS as R, _export_sfc as _, getPluginApi as a, getPluginConfig as g, postPluginApi as p, savePluginConfig as s, unwrap as u };

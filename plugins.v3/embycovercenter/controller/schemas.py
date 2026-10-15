@@ -285,4 +285,5 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/templates/upload": TemplateListData,
     "/preview": CoverPreviewData,
     "/apply": CoverApplyData,
+    "/auto_cover/run": OkData,
 }

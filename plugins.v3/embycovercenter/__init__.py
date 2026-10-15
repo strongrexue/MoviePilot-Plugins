@@ -13,8 +13,8 @@ from app.sdk.plugin import _PluginBase
 
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
-from .model.config import default_config
-from .service import assets_meta, mediaserver
+from .model.config import DEFAULT_COVER_CRON, default_config
+from .service import assets_meta, cover_auto, mediaserver
 from .service.render_engine import PosterEngine
 
 
@@ -25,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.4.6"
+    plugin_version = "1.5.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -77,13 +77,16 @@ class EmbyCoverCenter(_PluginBase):
         fonts = assets_meta.seed_default_fonts(self)
         if fonts:
             logger.info(f"[EmbyCoverCenter] 已补全默认字体 {fonts} 个文件")
+        # 入库自动刷新：注册宿主 WebhookMessage 事件监听（旧宿主无事件总线时静默降级）。
+        self._install_webhook_listener()
 
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""
         return bool(self._config.get("enabled"))
 
     def stop_service(self) -> None:
-        """释放后台资源（引擎线程池与图片缓存）。"""
+        """释放后台资源（事件监听、渲染引擎线程池与图片缓存）。"""
+        self._uninstall_webhook_listener()
         engine = getattr(self, "_cover_engine", None)
         if engine is not None:
             try:
@@ -109,8 +112,86 @@ class EmbyCoverCenter(_PluginBase):
         return api_controller.get_api(self)
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """M1 暂不注册定时服务；封面任务在 M4 接入。"""
-        return []
+        """注册自动封面定时任务（auto_cover_enabled 开启时，频率取 cover_cron）。
+
+        :note: ``trigger`` 必须是 ``CronTrigger`` 对象；本方法整体兜底，任何异常
+            只记录日志并降级为空列表（注册异常不能拖垮插件加载）。
+        """
+        if not self.get_state() or not self._config.get("auto_cover_enabled"):
+            return []
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+        except Exception as error:  # pragma: no cover - 宿主缺调度依赖
+            logger.warning(f"[EmbyCoverCenter] 调度依赖不可用，自动封面定时降级：{error}")
+            return []
+        cron = str(self._config.get("cover_cron") or DEFAULT_COVER_CRON).strip()
+        try:
+            trigger = CronTrigger.from_crontab(cron)
+        except Exception as error:
+            logger.warning(f"[EmbyCoverCenter] Cron 表达式无效（{cron}），自动封面定时未注册：{error}")
+            return []
+        return [
+            {
+                "func": self.run_auto_cover_job,
+                "trigger": trigger,
+                "name": "胖虎封面中心 自动封面任务",
+                "id": "embycovercenter_auto_cover",
+            }
+        ]
+
+    def run_auto_cover_job(self) -> None:
+        """定时任务入口：吞掉所有异常，不让调度线程带崩。"""
+        try:
+            cover_auto.run_auto_cover(self)
+        except Exception as error:  # pragma: no cover - 定时兜底
+            logger.error(f"[EmbyCoverCenter] 自动封面任务异常：{error}")
+
+    # ------------------------------------------------------------------ 入库事件监听
+
+    def on_webhook_message(self, event) -> None:
+        """宿主 WebhookMessage 事件：Emby 入库后自动刷新对应媒体库封面。
+
+        处理器**必须定义在插件主类上**，否则宿主事件分发会静默跳过。
+        """
+        try:
+            cover_auto.handle_webhook(self, event)
+        except Exception as error:  # pragma: no cover - 事件回调不能抛回宿主
+            logger.warning(f"[EmbyCoverCenter] 处理入库事件失败：{error}")
+
+    def _install_webhook_listener(self) -> bool:
+        """注册宿主入库事件监听（宿主无事件总线或旧版本无该事件时静默降级）。"""
+        try:
+            from app.sdk.events import eventmanager
+            from app.schemas.types import EventType
+        except Exception as error:  # pragma: no cover - 宿主未提供事件总线
+            logger.debug(f"[EmbyCoverCenter] 宿主事件总线不可用，入库自动刷新不启用：{error}")
+            return False
+        # 事件名随宿主版本演进：拿不到就当不支持，不能用异常类兜
+        event_type = getattr(EventType, "WebhookMessage", None)
+        if event_type is None:  # pragma: no cover - 旧宿主无此事件
+            logger.debug("[EmbyCoverCenter] 宿主未提供 WebhookMessage 事件，入库自动刷新不启用")
+            return False
+        try:
+            eventmanager.add_event_listener(event_type, self.on_webhook_message)
+        except Exception as error:  # pragma: no cover
+            logger.warning(f"[EmbyCoverCenter] 注册入库事件监听失败：{error}")
+            return False
+        self._webhook_eventmanager = eventmanager
+        self._webhook_event_type = event_type
+        logger.info("[EmbyCoverCenter] 入库自动刷新已监听 WebhookMessage 事件")
+        return True
+
+    def _uninstall_webhook_listener(self) -> None:
+        """移除宿主入库事件监听。"""
+        manager = getattr(self, "_webhook_eventmanager", None)
+        event_type = getattr(self, "_webhook_event_type", None)
+        self._webhook_eventmanager = None
+        self._webhook_event_type = None
+        if manager is not None and event_type is not None:
+            try:
+                manager.remove_event_listener(event_type, self.on_webhook_message)
+            except Exception as error:  # pragma: no cover
+                logger.debug(f"[EmbyCoverCenter] 移除入库事件监听失败：{error}")
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
@@ -239,6 +320,10 @@ class EmbyCoverCenter(_PluginBase):
     def api_apply(self, request: api_schemas.CoverApplyRequest):
         """应用封面到媒体库。"""
         return api_controller.api_apply(self, request=request)
+
+    def api_auto_cover_run(self):
+        """立即运行自动封面任务（后台线程）。"""
+        return api_controller.api_auto_cover_run(self)
 
     def api_asset_font(self, name: str):
         """原生返回字体文件。"""

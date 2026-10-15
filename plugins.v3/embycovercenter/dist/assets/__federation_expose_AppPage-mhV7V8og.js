@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-DrqHnE5C.js';
-import Page from './__federation_expose_Page-DjqfHV4H.js';
+import Config from './__federation_expose_Config-XzIA4xnu.js';
+import Page from './__federation_expose_Page-D3FOOM2b.js';
 import { _ as _export_sfc, g as getPluginConfig, s as savePluginConfig } from './_plugin-vue_export-helper-C6TXstWj.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,resolveComponent:_resolveComponent,createCommentVNode:_createCommentVNode,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');

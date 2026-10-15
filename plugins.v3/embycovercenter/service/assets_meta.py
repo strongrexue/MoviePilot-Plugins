@@ -17,6 +17,8 @@ TEMPLATE_EXTENSION = ".json"
 PREVIEW_EXTENSION = ".jpg"
 # 预览图最大边（等比缩放后保存）。
 PREVIEW_MAX_SIDE = 640
+# 随插件分发的默认资源目录（首次初始化时只补缺失，不覆盖用户文件）。
+PACKAGE_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "defaults"
 
 
 def data_root(plugin) -> Path:
@@ -43,6 +45,26 @@ def ensure_dirs(plugin) -> None:
             path.mkdir(parents=True, exist_ok=True)
         except Exception as error:  # pragma: no cover - 磁盘异常
             logger.error(f"[EmbyCoverCenter] 创建资源目录失败 {path}: {error}")
+
+
+def seed_default_templates(plugin) -> int:
+    """把随插件分发的默认模板预设拷进数据目录（只补缺失，不覆盖用户文件）。"""
+    source = PACKAGE_DEFAULTS_DIR / "templates"
+    if not source.exists():
+        return 0
+    ensure_dirs(plugin)
+    target = templates_dir(plugin)
+    copied = 0
+    for item in sorted(source.glob(f"*{TEMPLATE_EXTENSION}")):
+        destination = target / item.name
+        if destination.exists():
+            continue
+        try:
+            destination.write_bytes(item.read_bytes())
+            copied += 1
+        except Exception as error:
+            logger.warning(f"[EmbyCoverCenter] 拷贝默认模板失败 {item.name}: {error}")
+    return copied
 
 
 def _safe_name(raw: Any, extensions: tuple) -> str:

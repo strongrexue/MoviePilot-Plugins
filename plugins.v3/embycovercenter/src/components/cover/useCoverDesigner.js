@@ -61,7 +61,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     libraries.value.map(item => ({ title: item.name || item.id, value: item.id })),
   )
   const layoutItems = computed(() =>
-    layouts.value.map(item => ({ title: item.name, value: item.name })),
+    layouts.value.map(item => ({ title: item.label || item.name, value: item.name })),
   )
   const fontItems = computed(() => [
     { title: '默认（自动回退）', value: '' },

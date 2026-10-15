@@ -152,6 +152,7 @@ class LayoutInfo(BaseModel):
     """一个布局及其专属参数。"""
 
     name: str = ""
+    label: str = ""
     fields: List[LayoutField] = Field(default_factory=list)
 
 

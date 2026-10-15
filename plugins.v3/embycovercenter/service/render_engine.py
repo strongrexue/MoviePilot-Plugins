@@ -31,6 +31,13 @@ IMG_CACHE_MAX = 32
 
 DEFAULT_ENGINE = "classic"
 
+# 内置布局的中文展示名（前端布局下拉用）。
+LAYOUT_LABELS = {
+    "classic": "经典平铺",
+    "wall": "海报墙",
+    "minimal": "极简",
+}
+
 COMMON_SCHEMA_FIELDS: List[Dict[str, Any]] = [
     {"key": "title", "label": "主标题", "type": "text", "default": ""},
     {"key": "subtitle", "label": "副标题", "type": "text", "default": ""},
@@ -105,12 +112,18 @@ class PosterEngine:
         return self._layouts
 
     def layout_schemas(self) -> List[Dict[str, Any]]:
-        """返回每个布局的参数字段（前端据此生成表单）。"""
+        """返回每个布局的展示名与参数字段（前端据此生成表单）。"""
         result: List[Dict[str, Any]] = []
         for name, module in self.layout_modules.items():
             schema = module.get_schema() if hasattr(module, "get_schema") else None
             fields = schema.get("fields") if isinstance(schema, dict) else None
-            result.append({"name": name, "fields": fields if isinstance(fields, list) else []})
+            result.append(
+                {
+                    "name": name,
+                    "label": LAYOUT_LABELS.get(name, name),
+                    "fields": fields if isinstance(fields, list) else [],
+                }
+            )
         return sorted(result, key=lambda item: item["name"])
 
     # -------------------------------------------------------------- 素材与字体

@@ -10,6 +10,10 @@
 const SLOW_REQUEST_MS = 1500
 const DEFAULT_TIMEOUT_MS = 20000
 
+/** 渲染类接口（预取素材 + 合成）耗时远高于普通查询，单独放宽到 60s：
+ *  首次预览「海报墙」这类布局要并行下载几十张海报，20s 会误判超时。 */
+export const RENDER_TIMEOUT_MS = 60000
+
 function pluginPath(pluginId, path = '') {
   const id = String(pluginId || '').trim()
   if (!id) throw new Error('缺少 MoviePilot 注入的 pluginId')

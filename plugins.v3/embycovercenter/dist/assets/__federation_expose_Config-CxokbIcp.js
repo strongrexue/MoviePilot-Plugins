@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as unwrap, p as postPluginApi, a as getPluginApi } from './api-D2QZyJBU.js';
+import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi } from './api-VNFYmuQY.js';
 
 const {toDisplayString:_toDisplayString$2,createElementVNode:_createElementVNode$2,resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$1,createCommentVNode:_createCommentVNode$2,createBlock:_createBlock$2,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
@@ -405,7 +405,9 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     if (previewing.value) return
     previewing.value = true;
     try {
-      const data = unwrap(await postPluginApi(api(), pluginId(), 'preview', requestBody())) || {};
+      const data = unwrap(
+        await postPluginApi(api(), pluginId(), 'preview', requestBody(), { timeoutMs: RENDER_TIMEOUT_MS }),
+      ) || {};
       previewImage.value = String(data.image || '');
       previewInfo.value = { count: Number(data.count || 0), title: String(data.title || '') };
       report('预览已生成');
@@ -421,7 +423,9 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     if (applying.value) return
     applying.value = true;
     try {
-      const data = unwrap(await postPluginApi(api(), pluginId(), 'apply', requestBody())) || {};
+      const data = unwrap(
+        await postPluginApi(api(), pluginId(), 'apply', requestBody(), { timeoutMs: RENDER_TIMEOUT_MS }),
+      ) || {};
       report(data.uploaded ? '封面已应用' : '应用未生效', !!data.uploaded);
     } catch (error) {
       report(error?.message || '应用失败', false);

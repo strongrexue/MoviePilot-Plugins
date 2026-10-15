@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc } from './api-D2QZyJBU.js';
-import { F as FRONTEND_VERSION } from './version-DK7K7ypE.js';
+import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc } from './api-VNFYmuQY.js';
+import { F as FRONTEND_VERSION } from './version-CJg6Vy0m.js';
 
 /**
  * Emby 计划任务中心的前端状态与动作。

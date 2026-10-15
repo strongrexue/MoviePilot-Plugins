@@ -773,6 +773,18 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
 
 > M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
 
+## v1.3.8（修复预览「请求超时（20 秒）」）
+
+- **根因**：[render_engine.py](file:///workspace/MoviePilot-Plugins/plugins.v3/embycovercenter/service/render_engine.py) 的 `draw()`
+  在每次渲染结束时执行 `self._img_cache.clear()`，把刚下载的素材全部丢掉 —— 于是「改一个参数再点预览」
+  又得**重新下载几十张海报**（海报墙预设一次 40 张），几次下来轻易超过前端 20s 超时。
+- **图片缓存不再每次清空**：由 `IMG_CACHE_MAX=128` 做 LRU 上限、`close()` 在插件停止时释放；
+  配合素材元数据 120s 短缓存，同一批 URL 在缓存期内二次预览基本瞬间完成。
+- **单张素材下载超时 20s → 12s**：素材都很小，超时即该地址不可达，尽早失败，避免一张图把整轮拖到 20s。
+- **渲染类接口前端超时放宽到 60s**：`/preview`、`/apply` 单独用 `RENDER_TIMEOUT_MS`，
+  首次预览重布局（并行下载几十张海报）不再被 20s 误判为失败。
+- 验收：`py_compile` 通过；插件版本门禁 + 联邦 CSS 门禁通过；四处版本同步。
+
 ## v1.3.7（修复内置模板播种 + 副标题英文名）
 
 - **模板预设只剩 9 个**：根因是 `assets_meta.seed_default_templates` 的过滤条件写错 ——

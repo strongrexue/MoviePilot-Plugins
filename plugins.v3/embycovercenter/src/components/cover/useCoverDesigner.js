@@ -6,7 +6,7 @@
  * 组件只负责渲染，不本地推测后端状态。
  */
 import { computed, reactive, ref } from 'vue'
-import { getPluginApi, postPluginApi, unwrap } from '../api'
+import { getPluginApi, postPluginApi, unwrap, RENDER_TIMEOUT_MS } from '../api'
 
 /** 读取文件为 dataURL（上传字体 / 模板 / 成品图都用它）。 */
 function readFileAsDataUrl(file) {
@@ -269,7 +269,9 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     if (previewing.value) return
     previewing.value = true
     try {
-      const data = unwrap(await postPluginApi(api(), pluginId(), 'preview', requestBody())) || {}
+      const data = unwrap(
+        await postPluginApi(api(), pluginId(), 'preview', requestBody(), { timeoutMs: RENDER_TIMEOUT_MS }),
+      ) || {}
       previewImage.value = String(data.image || '')
       previewInfo.value = { count: Number(data.count || 0), title: String(data.title || '') }
       report('预览已生成')
@@ -285,7 +287,9 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     if (applying.value) return
     applying.value = true
     try {
-      const data = unwrap(await postPluginApi(api(), pluginId(), 'apply', requestBody())) || {}
+      const data = unwrap(
+        await postPluginApi(api(), pluginId(), 'apply', requestBody(), { timeoutMs: RENDER_TIMEOUT_MS }),
+      ) || {}
       report(data.uploaded ? '封面已应用' : '应用未生效', !!data.uploaded)
     } catch (error) {
       report(error?.message || '应用失败', false)

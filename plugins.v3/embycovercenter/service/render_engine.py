@@ -160,7 +160,9 @@ class PosterEngine:
             else:
                 from app.sdk.network import RequestUtils
 
-                res = RequestUtils(timeout=20).get_res(url=url)
+                # 单张素材超时压到 12s：素材都很小，超时说明该地址不可达，
+                # 让它尽早失败，别把整个预览拖到前端 20s 超时。
+                res = RequestUtils(timeout=12).get_res(url=url)
                 if res is None or res.status_code != 200:
                     return None
                 img = Image.open(BytesIO(res.content)).convert("RGBA")
@@ -462,7 +464,9 @@ class PosterEngine:
                 frame = frame.resize((out_w, out_h), Image.LANCZOS)
             frame.save(output, format="JPEG", quality=90)
 
-        self._img_cache.clear()
+        # 这里**不清空**图片缓存：素材元数据有 120s 短缓存，同一批 URL 在缓存期内
+        # 多次预览可命中，避免「改一个参数就重新下载几十张海报」把预览拖过 20s 超时。
+        # 缓存由 IMG_CACHE_MAX 做 LRU 上限、由 close() 在插件停止时释放。
         return base64.b64encode(output.getvalue()).decode("utf-8")
 
     @staticmethod

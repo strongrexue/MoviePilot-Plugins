@@ -16,6 +16,7 @@ import hashlib
 import importlib.util
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
@@ -504,6 +505,10 @@ class PosterEngine:
             pass
         return bg
 
+    def build_background_for_layout(self, config, assets, size):
+        """供布局的 render_anim 构建与 _render_frame 完全一致的基底背景。"""
+        return self._build_background(config, assets, size)
+
     def _render_frame(
         self,
         config: Dict[str, Any],
@@ -547,26 +552,41 @@ class PosterEngine:
         output = BytesIO()
 
         # 并行预取本轮要用的素材，避免串行下载拖到网关读超时。
+        t0 = time.perf_counter()
         self.prefetch(
             [assets.get("bg_url")]
             + list(assets.get("backdrops") or [])
             + list(assets.get("posters") or [])
         )
+        t_prefetch = time.perf_counter()
 
         if config.get("enable_animation"):
             total_frames = max(2, min(int(config.get("anim_frames") or 30), ANIM_MAX_FRAMES))
             duration = max(20, int(config.get("anim_duration") or 100))
             target_h = max(1, int(ANIM_TARGET_WIDTH * 9 / 16))
             frames: List[Image.Image] = []
-            for index in range(total_frames):
-                step = index / float(total_frames - 1) if total_frames > 1 else 0.0
-                frame = self._render_frame(config, assets, fonts, step=step)
-                frame = frame.convert("RGBA").resize((ANIM_TARGET_WIDTH, target_h), Image.LANCZOS)
-                frames.append(frame)
+            layout = str(config.get("engine") or config.get("cover_layout") or DEFAULT_ENGINE)
+            render = self.layout_modules.get(layout) or self.layout_modules.get(DEFAULT_ENGINE)
+            if render is not None and hasattr(render, "render_anim"):
+                # 布局自带动画快速通道：素材与基底只处理一次，逐帧只做位移合成。
+                # sink 先画角标再缩到输出尺寸，全尺寸帧不驻留内存。
+                def _sink(raw_frame: Image.Image) -> None:
+                    frame = self._draw_badge(raw_frame, config, assets.get("count"))
+                    frames.append(frame.convert("RGBA").resize((ANIM_TARGET_WIDTH, target_h), Image.LANCZOS))
+
+                render.render_anim(self, config, assets, fonts, _sink)
+            if not frames:
+                # 兼容未实现 render_anim 的布局：逐帧全量渲染（慢，仅兜底）。
+                for index in range(total_frames):
+                    step = index / float(total_frames - 1) if total_frames > 1 else 0.0
+                    frame = self._render_frame(config, assets, fonts, step=step)
+                    frame = frame.convert("RGBA").resize((ANIM_TARGET_WIDTH, target_h), Image.LANCZOS)
+                    frames.append(frame)
             frames[0].save(
                 output, format="PNG", save_all=True, append_images=frames[1:],
                 duration=duration, loop=0, optimize=False,
             )
+            mode = f"动画×{len(frames)}帧"
         else:
             frame = self._render_frame(config, assets, fonts).convert("RGB")
             out_w = int(config.get("output_width") or 0)
@@ -574,10 +594,17 @@ class PosterEngine:
             if out_w > 0 and out_h > 0 and frame.size != (out_w, out_h):
                 frame = frame.resize((out_w, out_h), Image.LANCZOS)
             frame.save(output, format="JPEG", quality=90)
+            mode = "静态"
 
         # 这里**不清空**图片缓存：素材元数据有 120s 短缓存，同一批 URL 在缓存期内
         # 多次预览可命中，避免「改一个参数就重新下载几十张海报」把预览拖过 20s 超时。
         # 缓存由 IMG_CACHE_MAX 做 LRU 上限、由 close() 在插件停止时释放。
+        logger.info(
+            "[EmbyCoverCenter] 渲染完成：%s，素材预取 %.1fs，渲染+编码 %.1fs",
+            mode,
+            t_prefetch - t0,
+            time.perf_counter() - t_prefetch,
+        )
         return base64.b64encode(output.getvalue()).decode("utf-8")
 
     @staticmethod

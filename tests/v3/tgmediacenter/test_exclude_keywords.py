@@ -82,6 +82,48 @@ def test_decision_registered():
     assert DECISION_LABELS[DECISION_SKIPPED_EXCLUDED] == "命中排除词"
 
 
+# --------------------------------------------------------------------- 仅排除词模式（1.13.1 回归）
+
+
+def test_match_rule_exclude_only_mode_passes_clean_message():
+    """启用关键词过滤但只填排除词 → 白名单不设限，干净消息正常命中。"""
+    rule = {
+        "match_custom_keywords": True,
+        "custom_keywords": [],
+        "exclude_keywords": ["加更", "花絮"],
+    }
+    verdict = forward_engine.match_rule(rule, text="x", cleaned="综艺 正片 第5期")
+    assert verdict["matched"] is True
+    # 脏消息仍被逻辑零拦截
+    verdict = forward_engine.match_rule(rule, text="x", cleaned="综艺 加更篇")
+    assert verdict["matched"] is False and verdict["stage"] == "excluded"
+
+
+def test_validate_rule_exclude_only_mode_allowed():
+    """只配排除词的规则可以保存；连排除词也没有才拦。"""
+    rule = {
+        "target_id": -1003229693136,
+        "match_custom_keywords": True,
+        "custom_keywords": [],
+        "exclude_keywords": ["加更"],
+    }
+    assert forward_engine.validate_rule(rule) == ""
+    rule["exclude_keywords"] = []
+    assert "未填写关键词" in forward_engine.validate_rule(rule)
+
+
+def test_rule_response_models_keep_exclude_keywords():
+    """回归锁（1.13.0 真机事故）：接口响应模型必须保留 exclude_keywords，
+    否则保存后返回的规则丢字段 → 前端输入框清空、配置被旧值覆盖。"""
+    from app.plugins.tgmediacenter.controller import schemas as api_schemas
+
+    assert "exclude_keywords" in api_schemas.MonitorRule.model_fields
+    assert "exclude_keywords" in api_schemas.ForwardRule.model_fields
+    payload = {"id": "r1", "exclude_keywords": ["加更", "花絮"]}
+    assert api_schemas.MonitorRule.model_validate(payload).exclude_keywords == ["加更", "花絮"]
+    assert api_schemas.ForwardRule.model_validate(payload).exclude_keywords == ["加更", "花絮"]
+
+
 # --------------------------------------------------------------------- 归一化
 
 

@@ -115,21 +115,26 @@ def match_rule(
     if rule.get("match_custom_keywords"):
         keywords = [str(kw) for kw in (rule.get("custom_keywords") or []) if str(kw).strip()]
         if not keywords:
-            return {
-                "matched": False,
-                "reason": "逻辑一：已启用关键词过滤但未填写任何关键词",
-                "stage": "logic_one",
-                "detail": detail,
-            }
-        hits = [kw for kw in keywords if kw in haystack]
-        detail["logic_one"] = {"keywords": keywords, "hits": hits}
-        if not hits:
-            return {
-                "matched": False,
-                "reason": "逻辑一：未命中任何关键词",
-                "stage": "logic_one",
-                "detail": detail,
-            }
+            # 仅排除词模式（1.13.1）：白名单不设限，黑名单（逻辑零）已生效。
+            # 若连排除词也没有，视为配置错误（挡住防止意外全放）。
+            if not [str(kw) for kw in (rule.get("exclude_keywords") or []) if str(kw).strip()]:
+                return {
+                    "matched": False,
+                    "reason": "逻辑一：已启用关键词过滤但未填写任何关键词",
+                    "stage": "logic_one",
+                    "detail": detail,
+                }
+            detail["logic_one"] = None
+        else:
+            hits = [kw for kw in keywords if kw in haystack]
+            detail["logic_one"] = {"keywords": keywords, "hits": hits}
+            if not hits:
+                return {
+                    "matched": False,
+                    "reason": "逻辑一：未命中任何关键词",
+                    "stage": "logic_one",
+                    "detail": detail,
+                }
     else:
         detail["logic_one"] = None
 
@@ -245,5 +250,8 @@ def validate_rule(rule: Dict[str, Any]) -> str:
     if rule.get("match_file_extensions") and not (rule.get("file_extensions_to_match") or []):
         return f"规则「{name}」启用了扩展名过滤但未填写扩展名"
     if rule.get("match_custom_keywords") and not (rule.get("custom_keywords") or []):
-        return f"规则「{name}」启用了关键词过滤但未填写关键词"
+        # 「仅排除词」模式放行：启用关键词过滤但只填了排除词 = 白名单不设限、
+        # 只做黑名单（1.13.1；此前会拦下，导致只配排除词的规则保存不了）
+        if not (rule.get("exclude_keywords") or []):
+            return f"规则「{name}」启用了关键词过滤但未填写关键词"
     return ""

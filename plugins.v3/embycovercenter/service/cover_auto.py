@@ -211,20 +211,28 @@ def _field_card(
     failed: int,
     generated: int,
     total: int,
+    target: str = "",
     detail: str = "",
 ) -> str:
     """ChillPoster 风格的逐行字段卡；emoji 全部使用默认宽体呈现，保证首字对齐。
 
     标题不进正文（post_message 的 title 参数已单独展示，避免通知里重复两行）。
+    :param target: 可选的目标展示（如「服务器 / 媒体库」），类型行之后插入。
     """
     lines = [
         f"✅ 状态：{status}",
         f"🎨 类型：{task_type}",
-        f"⌚ 耗时：{_fmt_elapsed(elapsed)}",
-        f"📌 概览：成功 {ok_count} / 失败 {failed}",
-        f"📦 生成：{generated}",
-        f"📷 处理数量：{total}",
     ]
+    if target:
+        lines.append(f"📺 目标：{target}")
+    lines.extend(
+        [
+            f"⌚ 耗时：{_fmt_elapsed(elapsed)}",
+            f"📌 概览：成功 {ok_count} / 失败 {failed}",
+            f"📦 生成：{generated}",
+            f"📷 处理数量：{total}",
+        ]
+    )
     if detail:
         lines.append(f"📋 详情：{detail}" if "\n" not in detail else f"📋 详情：\n{detail}")
     lines.append(f"🕐 时间：{_now_text()}")
@@ -262,7 +270,7 @@ def _notify_run(plugin, summary: Dict[str, Any], elapsed: float = 0.0) -> None:
         mark = "✅"
         status = "执行成功"
         detail = ""
-    title = f"{mark} 自动封面任务 · {total}"
+    title = f"{mark} 胖虎封面中心"
     text = _field_card(
         title=title,
         status=status,
@@ -475,11 +483,12 @@ def _refresh_one_quietly(plugin, ref, server: str, library_id: str) -> None:
         )
         logger.info(f"[EmbyCoverCenter] 入库自动刷新完成：{label}")
         if config.get("notify_on_task_finish"):
-            title = f"✅ 入库自动刷新 · {label}"
+            title = "✅ 胖虎封面中心"
             text = _field_card(
                 title=title,
                 status="执行成功",
                 task_type="入库自动刷新",
+                target=label,
                 elapsed=time.monotonic() - started,
                 ok_count=1,
                 failed=0,
@@ -490,11 +499,12 @@ def _refresh_one_quietly(plugin, ref, server: str, library_id: str) -> None:
     except (GatewayError, ValueError, OSError) as error:
         logger.warning(f"[EmbyCoverCenter] 入库自动刷新失败 {label}：{error}")
         if config.get("notify_on_task_finish"):
-            title = f"❌ 入库自动刷新 · {label}"
+            title = "❌ 胖虎封面中心"
             text = _field_card(
                 title=title,
                 status="执行失败",
                 task_type="入库自动刷新",
+                target=label,
                 elapsed=time.monotonic() - started,
                 ok_count=0,
                 failed=1,

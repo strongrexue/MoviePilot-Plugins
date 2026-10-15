@@ -505,6 +505,7 @@ defineExpose({ snapshot })
   background: transparent;
 }
 .ec-acc-title {
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -517,11 +518,26 @@ defineExpose({ snapshot })
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 每个分组独立成卡片（对齐模板预设卡片的观感），组间留空隙 */
 :deep(.v-expansion-panel) {
-  border-radius: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  overflow: hidden;
+  isolation: isolate;
+}
+:deep(.v-expansion-panel + .v-expansion-panel) {
+  margin-top: 10px;
+}
+:deep(.v-expansion-panel--active) {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  border-color: rgba(var(--v-theme-primary), 0.35);
 }
 :deep(.v-expansion-panel-title) {
-  min-height: 44px;
+  min-height: 48px;
+}
+:deep(.v-expansion-panel-title--active) {
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 .ec-acc-icon {
   color: rgb(var(--v-theme-primary));

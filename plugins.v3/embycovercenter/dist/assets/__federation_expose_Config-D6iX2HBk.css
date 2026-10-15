@@ -101,34 +101,34 @@
 }
 }
 
-.ec-config[data-v-4a58caf8] {
+.ec-config[data-v-a37531d3] {
   width: min(1360px, calc(100vw - 48px));
   max-width: 100%;
   border-radius: 14px;
   overflow: hidden;
 }
-.ec-header[data-v-4a58caf8] {
+.ec-header[data-v-a37531d3] {
   padding: 14px 18px;
 }
-.ec-tabs[data-v-4a58caf8] {
+.ec-tabs[data-v-a37531d3] {
   padding: 0 8px;
 }
-.ec-body[data-v-4a58caf8] {
+.ec-body[data-v-a37531d3] {
   max-height: min(74vh, 820px);
   overflow-y: auto;
   padding: 14px 16px 4px;
 }
-.ec-pane[data-v-4a58caf8] {
+.ec-pane[data-v-a37531d3] {
   padding: 0;
 }
-.ec-block[data-v-4a58caf8] {
+.ec-block[data-v-a37531d3] {
   border-radius: 10px;
 }
 @media (max-width: 760px) {
-.ec-config[data-v-4a58caf8] {
+.ec-config[data-v-a37531d3] {
     width: min(100%, calc(100vw - 16px));
 }
-.ec-body[data-v-4a58caf8] {
+.ec-body[data-v-a37531d3] {
     padding: 10px 10px 4px;
 }
 }

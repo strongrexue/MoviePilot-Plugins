@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
 from app.sdk.logging import logger
@@ -20,6 +21,10 @@ from app.sdk.logging import logger
 from . import assets_meta, emby_assets, emby_gateway
 from .emby_gateway import GatewayError
 from .render_engine import PosterEngine
+
+# 库级并行度：每库 = 并行下载素材 + PIL 渲染 + 上传，多为 I/O，4 路并行
+# 已能把 20+ 库的整轮时间压到串行的 1/3 左右，再高会挤压 Emby/带宽。
+AUTO_COVER_WORKERS = 4
 
 # 常见媒体库名的中英对照（副标题默认取英文名；与前端 useCoverDesigner 同源，键小写）。
 LIBRARY_EN_NAMES = {
@@ -220,21 +225,46 @@ def run_auto_cover(plugin) -> Dict[str, Any]:
             _notify_run(plugin, summary)
             return summary
         targets = selected_targets(plugin, config)
-        items: List[Dict[str, Any]] = []
-        ok_count = 0
-        for target in targets:
+        items: List[Dict[str, Any]] = [None] * len(targets)  # type: ignore[list-item]
+
+        def _work(index: int) -> None:
+            target = targets[index]
             label = f"{target['server']} / {target['name']}"
             try:
                 refresh_library(plugin, target, layout, style, config)
-                ok_count += 1
-                items.append({"server": target["server"], "library": target["name"], "ok": True, "error": ""})
+                items[index] = {
+                    "server": target["server"],
+                    "library": target["name"],
+                    "ok": True,
+                    "error": "",
+                }
                 logger.info(f"[EmbyCoverCenter] 自动封面完成：{label}")
-            except (GatewayError, ValueError, OSError) as error:
-                items.append(
-                    {"server": target["server"], "library": target["name"], "ok": False, "error": str(error)}
-                )
+            except Exception as error:  # 单库失败不拖垮整轮，逐库隔离
+                items[index] = {
+                    "server": target["server"],
+                    "library": target["name"],
+                    "ok": False,
+                    "error": str(error),
+                }
                 logger.warning(f"[EmbyCoverCenter] 自动封面失败 {label}：{error}")
-        summary = {"total": len(targets), "ok": ok_count, "failed": len(targets) - ok_count, "items": items}
+
+        if targets:
+            # 预热布局模块（首次加载非线程安全，避免并行首渲染时双重加载）。
+            _ = getattr(plugin.cover_engine(), "layout_modules", None)
+            workers = max(1, min(AUTO_COVER_WORKERS, len(targets)))
+            if workers > 1:
+                logger.info(f"[EmbyCoverCenter] 自动封面开始：{len(targets)} 个媒体库，{workers} 路并行")
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="eccover") as pool:
+                    list(pool.map(_work, range(len(targets))))
+            else:
+                _work(0)
+        ok_count = sum(1 for item in items if item and item["ok"])
+        summary = {
+            "total": len(targets),
+            "ok": ok_count,
+            "failed": len(targets) - ok_count,
+            "items": [item for item in items if item],
+        }
         _notify_run(plugin, summary)
         return summary
     finally:

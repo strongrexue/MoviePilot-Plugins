@@ -46,7 +46,8 @@ const runningCover = ref(false)
 const runMessage = ref('')
 const runOk = ref(true)
 
-/** 执行频率：预设 + 自定义；保存值不在预设里即视为自定义（文本框展示当前值）。 */
+/** 执行频率：预设 + 自定义。单独维护下拉选择值——选中「自定义」时若直接绑
+ * form.cover_cron，computed getter 会立刻弹回旧预设（表现为点了没反应）。 */
 const scheduleOptions = [
   { title: '每天 04:00', value: '0 4 * * *' },
   { title: '每 6 小时', value: '0 */6 * * *' },
@@ -55,12 +56,13 @@ const scheduleOptions = [
   { title: '每 30 分钟', value: '*/30 * * * *' },
   { title: '自定义 Cron', value: '__custom__' },
 ]
-const schedule = computed({
-  get: () => (scheduleOptions.some(item => item.value === form.cover_cron) ? form.cover_cron : '__custom__'),
-  set: value => {
-    if (value && value !== '__custom__') form.cover_cron = value
-  },
-})
+const scheduleChoice = ref(
+  scheduleOptions.some(item => item.value === form.cover_cron) ? form.cover_cron : '__custom__',
+)
+function onScheduleChange(value) {
+  scheduleChoice.value = value
+  if (value && value !== '__custom__') form.cover_cron = value
+}
 
 const serverItems = computed(() =>
   servers.value.map(server => ({
@@ -280,15 +282,16 @@ onMounted(() => {
                     </VCol>
                     <VCol cols="12" md="4">
                       <VSelect
-                        v-model="schedule"
+                        :model-value="scheduleChoice"
                         :items="scheduleOptions"
                         label="执行频率"
                         density="compact"
                         variant="outlined"
                         hide-details
+                        @update:model-value="onScheduleChange"
                       />
                     </VCol>
-                    <VCol v-if="schedule === '__custom__'" cols="12" md="6">
+                    <VCol v-if="scheduleChoice === '__custom__'" cols="12" md="6">
                       <VTextField
                         v-model="form.cover_cron"
                         label="Cron 表达式"

@@ -419,6 +419,86 @@ def test_webhook_defensive_event_data_shapes(monkeypatch):
     assert ("locate", "i3") in calls
 
 
+# --------------------------------------------------------------------------- 提速：磁盘缓存与并行
+
+
+def test_engine_disk_cache_avoids_redownload(tmp_path, monkeypatch):
+    """素材磁盘缓存：新引擎实例（内存缓存为空）命中磁盘后不再发 HTTP。
+
+    素材 URL 带 Emby 图片 tag（内容寻址），这是自动封面第二轮提速的根据。
+    """
+    import sys
+    from io import BytesIO as _BytesIO
+
+    from PIL import Image as _Image
+
+    from app.plugins.embycovercenter.service.render_engine import PosterEngine
+
+    buffer = _BytesIO()
+    _Image.new("RGB", (4, 4), (200, 30, 30)).save(buffer, format="JPEG")
+    payload = buffer.getvalue()  # 引擎下载路径拿原始字节
+
+    calls = []
+
+    class _Res:
+        status_code = 200
+        content = payload
+
+    class _FakeHttp:
+        def get_res(self, url=None, **kwargs):
+            calls.append(url)
+            return _Res()
+
+    network = types.ModuleType("app.sdk.network")
+    network.RequestUtils = lambda timeout=None: _FakeHttp()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "app.sdk.network", network)
+
+    plugin = _FakePlugin(data_path=tmp_path)
+    engine = PosterEngine(plugin)
+    url = "http://emby/Items/1/Images/Primary?tag=abc"
+
+    first = engine.download_img(url)
+    assert first is not None and len(calls) == 1
+    engine.download_img(url)  # 内存缓存命中
+    assert len(calls) == 1
+
+    # 新实例（内存缓存为空）→ 磁盘缓存命中，仍不发 HTTP
+    engine2 = PosterEngine(plugin)
+    second = engine2.download_img(url)
+    assert len(calls) == 1
+    assert second is not None and second.size == first.size
+
+
+def test_run_auto_cover_parallel_keeps_all_results(monkeypatch, tmp_path):
+    """并行执行后汇总仍完整：顺序无关、成功/失败计数正确。"""
+    monkeypatch.setattr(cover_auto.emby_gateway, "resolve", lambda server: object())
+    monkeypatch.setattr(
+        cover_auto.emby_assets,
+        "list_libraries",
+        lambda ref: [{"id": f"lib{i}", "name": f"库{i}"} for i in range(1, 7)],
+    )
+    monkeypatch.setattr(
+        cover_auto.emby_assets,
+        "fetch_assets",
+        lambda ref, library_id, mode="random", poster_count=6, backdrop_count=1: {},
+    )
+    monkeypatch.setattr(cover_auto.emby_gateway, "post_raw", lambda *a, **k: None)
+
+    plugin = _FakePlugin(
+        {
+            "cover_layout": "经典平铺",
+            "cover_config": {},
+            "notify_on_task_finish": False,
+            "auto_cover_libraries": {"Emby": [f"lib{i}" for i in range(1, 7)]},
+        },
+        data_path=tmp_path,
+    )
+    plugin.cover_engine = lambda: _FakeEngine()
+    summary = cover_auto.run_auto_cover(plugin)
+    assert summary["total"] == 6 and summary["ok"] == 6 and summary["failed"] == 0
+    assert {item["library"] for item in summary["items"]} == {f"库{i}" for i in range(1, 7)}
+
+
 # --------------------------------------------------------------------------- 服务注册与接线
 
 

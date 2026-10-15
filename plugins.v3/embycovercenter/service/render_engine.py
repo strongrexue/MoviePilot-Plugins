@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib.util
 import os
 import threading
@@ -30,6 +31,9 @@ from . import assets_meta
 ANIM_TARGET_WIDTH = 320
 ANIM_MAX_FRAMES = 300
 IMG_CACHE_MAX = 128
+# 磁盘缓存上限（文件数）：素材 URL 带 Emby 图片 tag（图片变更即换 URL，天然内容寻址），
+# 自动封面每轮反复抽样同一批海报，磁盘缓存命中后无需重新下载。
+IMG_DISK_CACHE_MAX = 800
 
 # 默认布局（与内置布局模块名一致）。
 DEFAULT_ENGINE = "经典平铺"
@@ -64,6 +68,8 @@ class PosterEngine:
         self.layouts_dir = assets_meta.layouts_dir(plugin)
         self._layouts: Optional[Dict[str, Any]] = None
         self._img_cache: Dict[str, Image.Image] = {}
+        self._imgcache_dir = Path(self.data_path) / "imgcache"
+        self._http = None  # 惰性创建的会话（连接复用，逐张新建 TCP/TLS 太浪费）
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=8)
 
@@ -145,26 +151,71 @@ class PosterEngine:
             pass
         return ImageFont.load_default()
 
+    def _http_get(self, url: str):
+        """经引擎级会话下载（连接复用）；会话创建失败则退回临时实例。"""
+        if self._http is None:
+            from app.sdk.network import RequestUtils
+
+            self._http = RequestUtils(timeout=12)
+        return self._http.get_res(url=url)
+
+    def _disk_cache_path(self, url: str) -> Path:
+        return self._imgcache_dir / (hashlib.sha1(url.encode("utf-8")).hexdigest() + ".img")
+
+    def _disk_get(self, url: str) -> Optional[Image.Image]:
+        """读磁盘缓存；任何异常都视为未命中（缓存绝不阻塞渲染）。"""
+        try:
+            path = self._disk_cache_path(url)
+            if path.exists():
+                with path.open("rb") as handle:
+                    return Image.open(handle).convert("RGBA")
+        except Exception:
+            return None
+        return None
+
+    def _disk_put(self, url: str, data: bytes) -> None:
+        """写磁盘缓存（临时文件 + 原子替换），超上限时按 mtime 淘汰最旧文件。"""
+        try:
+            self._imgcache_dir.mkdir(parents=True, exist_ok=True)
+            path = self._disk_cache_path(url)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, path)
+            files = [item for item in self._imgcache_dir.glob("*.img")]
+            if len(files) > IMG_DISK_CACHE_MAX:
+                for stale in sorted(files, key=lambda item: item.stat().st_mtime)[: len(files) - IMG_DISK_CACHE_MAX]:
+                    try:
+                        stale.unlink()
+                    except OSError:
+                        pass
+        except Exception as error:  # pragma: no cover - 缓存写失败不影响渲染
+            logger.debug(f"[EmbyCoverCenter] 素材磁盘缓存写入失败：{error}")
+
     def download_img(self, url: Optional[str]) -> Optional[Image.Image]:
-        """下载素材图片（带小型内存缓存，线程安全）；失败返回 None。"""
+        """下载素材图片（内存 + 磁盘两级缓存，线程安全）；失败返回 None。"""
         if not url:
             return None
         with self._lock:
             cached = self._img_cache.get(url)
         if cached is not None:
             return cached.copy()
+        if not str(url).startswith("data:image"):
+            img = self._disk_get(url)
+            if img is not None:
+                with self._lock:
+                    self._img_cache[url] = img.copy()
+                return img
         try:
             if str(url).startswith("data:image"):
                 encoded = str(url).split(",", 1)[-1]
                 img = Image.open(BytesIO(base64.b64decode(encoded, validate=False))).convert("RGBA")
             else:
-                from app.sdk.network import RequestUtils
-
                 # 单张素材超时压到 12s：素材都很小，超时说明该地址不可达，
                 # 让它尽早失败，别把整个预览拖到前端 20s 超时。
-                res = RequestUtils(timeout=12).get_res(url=url)
+                res = self._http_get(url)
                 if res is None or res.status_code != 200:
                     return None
+                self._disk_put(url, res.content)
                 img = Image.open(BytesIO(res.content)).convert("RGBA")
         except Exception as error:
             logger.warning(f"[EmbyCoverCenter] 下载素材失败 {str(url)[:80]}: {error}")

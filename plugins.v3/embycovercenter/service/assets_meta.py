@@ -66,7 +66,49 @@ def seed_default_templates(plugin) -> int:
             copied += 1
         except Exception as error:
             logger.warning(f"[EmbyCoverCenter] 拷贝默认模板失败 {item.name}: {error}")
+    copied += fix_known_template_bugs(plugin)
     return copied
+
+
+# 内置模板的历史错误字段（仅当用户端文件仍是旧错误值时才修正，不动用户自定义内容）：
+# - 旋转默认：角标白底白字，数字不可见；
+# - 动态平铺：引用了不存在的字体文件名（内置字体无 "(商用需授权)" 后缀）。
+TEMPLATE_FIELD_FIXES = {
+    "旋转默认.json": (
+        {"badge_bg_color": "#ffffff", "badge_text_color": "#ffffff"},
+        {"badge_text_color": "#0f172a"},
+    ),
+    "动态平铺.json": (
+        {"font_title": "字魂白鸽天行体(商用需授权).ttf"},
+        {"font_title": "字魂白鸽天行体.ttf"},
+    ),
+}
+
+
+def fix_known_template_bugs(plugin) -> int:
+    """修正用户数据目录里内置模板的历史错误字段；返回修复文件数。"""
+    import json
+
+    target = templates_dir(plugin)
+    fixed = 0
+    for name, (old_values, new_values) in TEMPLATE_FIELD_FIXES.items():
+        path = target / name
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            config = data.get("config")
+            if not isinstance(config, dict):
+                continue
+            if not all(str(config.get(key)) == value for key, value in old_values.items()):
+                continue  # 用户已自定义，跳过
+            config.update(new_values)
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
+            fixed += 1
+            logger.info(f"[EmbyCoverCenter] 已修正内置模板历史问题：{name}")
+        except Exception as error:
+            logger.warning(f"[EmbyCoverCenter] 修正模板失败 {name}: {error}")
+    return fixed
 
 
 def seed_default_fonts(plugin) -> int:

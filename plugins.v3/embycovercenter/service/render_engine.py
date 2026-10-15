@@ -21,7 +21,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from app.sdk.logging import logger
 
@@ -57,6 +57,25 @@ COMMON_SCHEMA_FIELDS: List[Dict[str, Any]] = [
 ]
 
 COMMON_GROUP_NAME = "引擎通用（画布 / 输出 / 动态 / 角标）"
+
+# 字体缺失时的回退优先序：只放内置且包含中文字形的字体，
+# 避免回退到英文书法字体导致中文画成方框（tofu）。
+PREFERRED_FALLBACK_FONTS = [
+    "优设标题黑.ttf",
+    "字魂白鸽天行体.ttf",
+    "方正行楷_GBK.ttf",
+    "HYZhuanShuF.ttf",
+    "剑豪体.ttf",
+    "叶根友毛笔行书.ttf",
+    "字小魂扶摇手书.ttf",
+    "字小魂京都和风体.ttf",
+    "仓耳舒圆体W02.ttf",
+    "杨任东竹石体.ttf",
+    "汉仪雪峰体简.ttf",
+    "熊兔流星体.ttf",
+    "OPPOSans-H.ttf",
+    "OPPOSans-M.ttf",
+]
 
 
 class PosterEngine:
@@ -134,7 +153,7 @@ class PosterEngine:
     # -------------------------------------------------------------- 素材与字体
 
     def load_font(self, filename: Optional[str], size: int) -> ImageFont.FreeTypeFont:
-        """按文件名加载字体；缺失时回退到目录内任意字体或 PIL 默认字体。"""
+        """按文件名加载字体；缺失时优先回退到内置中文字体，避免中文渲染成方框。"""
         size = max(1, int(size or 1))
         if filename:
             path = self.fonts_dir / str(filename)
@@ -143,6 +162,15 @@ class PosterEngine:
                     return ImageFont.truetype(str(path), size)
                 except Exception as error:
                     logger.warning(f"[EmbyCoverCenter] 字体加载失败 {filename}: {error}")
+        # 回退顺序：已知中文字体优先（英文字体无 CJK 字形会把中文画成方框），
+        # 再退目录内任意字体，最后 PIL 默认字体。
+        for name in PREFERRED_FALLBACK_FONTS:
+            candidate = self.fonts_dir / name
+            if candidate.exists():
+                try:
+                    return ImageFont.truetype(str(candidate), size)
+                except Exception:
+                    continue
         try:
             for item in sorted(self.fonts_dir.iterdir()):
                 if item.is_file() and item.name.lower().endswith(assets_meta.FONT_EXTENSIONS):
@@ -389,6 +417,16 @@ class PosterEngine:
             fill_color = (r, g, b, 255)
         except Exception:
             fill_color = (0, 0, 0, 255)
+        # 防御：字色与底色过近（如模板误配成白底白字）时数字会不可见，
+        # 按底色亮度自动改用深/浅字色。
+        try:
+            tr, tg, tb = ImageColor.getrgb(text_color)
+            lum_bg = (0.299 * fill_color[0] + 0.587 * fill_color[1] + 0.114 * fill_color[2]) / 255
+            lum_tx = (0.299 * tr + 0.587 * tg + 0.114 * tb) / 255
+            if abs(lum_bg - lum_tx) < 0.35:
+                text_color = "#0f172a" if lum_bg > 0.5 else "#ffffff"
+        except Exception:
+            pass
 
         if style == "ribbon":
             bbox = draw.textbbox((0, 0), text, font=font)
@@ -430,11 +468,19 @@ class PosterEngine:
     def _build_background(self, config: Dict[str, Any], assets: Dict[str, Any], size: tuple) -> Image.Image:
         canvas_w, canvas_h = size
         bg_url = assets.get("bg_url")
+        if not bg_url:
+            # 媒体库没有 backdrop 时用首张海报兜底（放大铺满后走统一模糊），
+            # 避免整张封面只剩纯色底。
+            posters = [url for url in (assets.get("posters") or []) if url]
+            bg_url = posters[0] if posters else None
         bg = self.download_img(bg_url)
         if bg is None:
             bg = Image.new("RGBA", (canvas_w, canvas_h), (20, 30, 50, 255))
         if bg.size != (canvas_w, canvas_h):
-            bg = bg.resize((canvas_w, canvas_h), Image.LANCZOS)
+            try:
+                bg = ImageOps.fit(bg.convert("RGB"), (canvas_w, canvas_h), method=Image.LANCZOS)
+            except Exception:
+                bg = bg.resize((canvas_w, canvas_h), Image.LANCZOS)
         blur = int(config.get("blur_radius") or 0)
         if blur > 0:
             bg = bg.filter(ImageFilter.GaussianBlur(blur))

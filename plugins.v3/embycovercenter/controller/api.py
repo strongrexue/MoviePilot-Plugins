@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from ..service import assets_meta
+from ..service import cover_auto
 from ..service import cover_backup
 from ..service import emby_assets
 from ..service import emby_gateway

@@ -1,0 +1,117 @@
+"""render_engine 修复回归：字体中文回退 / 角标对比度 / 背景海报兜底 / 内置模板修复。"""
+import json
+import shutil
+from pathlib import Path
+
+from app.plugins.embycovercenter.service import assets_meta
+from app.plugins.embycovercenter.service.render_engine import PosterEngine
+
+PACKAGE = Path(assets_meta.__file__).resolve().parent.parent
+
+
+class _FakePlugin:
+    def __init__(self, data_path):
+        self._data_path = Path(data_path)
+
+    def get_data_path(self):
+        return self._data_path
+
+
+def _make_engine(tmp_path, fonts=()):
+    plugin = _FakePlugin(tmp_path)
+    assets_meta.ensure_dirs(plugin)
+    for name in fonts:
+        src = PACKAGE / "defaults" / "fonts" / name
+        if src.exists():
+            shutil.copy(src, assets_meta.fonts_dir(plugin) / name)
+    return PosterEngine(plugin)
+
+
+def test_load_font_prefers_cjk_on_missing(tmp_path):
+    """引用不存在的字体时，回退应优先中文字体而不是按文件名排序拿到英文字体。"""
+    engine = _make_engine(tmp_path, fonts=("Bodoni MT Black.TTF", "优设标题黑.ttf"))
+    font = engine.load_font("不存在的字体.ttf", 40)
+    assert str(font.path).endswith("优设标题黑.ttf")
+
+
+def test_load_font_missing_cjk_falls_back_to_any(tmp_path):
+    """目录里只有英文字体时回退到目录内任意字体（不崩）。"""
+    engine = _make_engine(tmp_path, fonts=("Bodoni MT Black.TTF",))
+    font = engine.load_font("缺失.ttf", 40)
+    assert font is not None
+
+
+def test_badge_white_on_white_gets_contrast(tmp_path):
+    """白底白字（模板历史错误配置）应自动改为深色字，数字可见。"""
+    engine = _make_engine(tmp_path, fonts=("优设标题黑.ttf",))
+    img = engine._draw_badge(
+        __import__("PIL.Image", fromlist=["Image"]).new("RGBA", (300, 160), (255, 255, 255, 255)),
+        {"badge_style": "box", "badge_bg_color": "#ffffff", "badge_text_color": "#ffffff", "badge_size": 40},
+        "386",
+    )
+    # 角标区域内应出现深色像素（#0f172a 的字；box 从 (30,30) 起约占到 (150,150)）
+    dark = sum(
+        1
+        for x in range(20, 160)
+        for y in range(20, 150)
+        if sum(img.getpixel((x, y))[:3]) < 240
+    )
+    assert dark > 30
+
+
+def test_badge_normal_colors_untouched(tmp_path):
+    """正常深底白字不应被改写。"""
+    engine = _make_engine(tmp_path, fonts=("优设标题黑.ttf",))
+    img = engine._draw_badge(
+        __import__("PIL.Image", fromlist=["Image"]).new("RGBA", (300, 160), (255, 255, 255, 255)),
+        {"badge_style": "box", "badge_bg_color": "#0f172a", "badge_text_color": "#ffffff", "badge_size": 40},
+        "386",
+    )
+    # 深色底应该仍占多数（角标底色存在）
+    dark = sum(
+        1
+        for x in range(0, 120)
+        for y in range(0, 60)
+        if sum(img.getpixel((x, y))[:3]) < 240
+    )
+    assert dark > 300
+
+
+def test_background_falls_back_to_first_poster(tmp_path, monkeypatch):
+    """无 backdrop 时用首张海报兜底做背景（不再是纯色底）。"""
+    from PIL import Image
+
+    engine = _make_engine(tmp_path)
+    red_poster = Image.new("RGB", (200, 300), (200, 30, 30))
+    monkeypatch.setattr(engine, "download_img", lambda url: red_poster.copy() if url else None)
+    bg = engine._build_background({"blur_radius": 0}, {"posters": ["http://p1"]}, (192, 108))
+    # 背景应来自海报（红色）而不是默认纯色底 (20,30,50)
+    pixel = bg.convert("RGB").getpixel((5, 5))
+    assert pixel == (200, 30, 30)
+
+
+def test_fix_known_template_bugs(tmp_path):
+    """历史错误模板字段自动修正；用户自定义值不动。"""
+    plugin = _FakePlugin(tmp_path)
+    templates = assets_meta.templates_dir(plugin)
+    templates.mkdir(parents=True, exist_ok=True)
+    # 旧错误值 → 修正
+    stale = {
+        "name": "旋转默认",
+        "config": {"badge_bg_color": "#ffffff", "badge_text_color": "#ffffff", "title": "x"},
+    }
+    (templates / "旋转默认.json").write_text(json.dumps(stale, ensure_ascii=False), encoding="utf-8")
+    # 用户自定义 → 不动
+    custom = {
+        "name": "动态平铺",
+        "config": {"font_title": "我的字体.ttf"},
+    }
+    (templates / "动态平铺.json").write_text(json.dumps(custom, ensure_ascii=False), encoding="utf-8")
+
+    fixed = assets_meta.fix_known_template_bugs(plugin)
+    assert fixed == 1
+    patched = json.loads((templates / "旋转默认.json").read_text(encoding="utf-8"))
+    assert patched["config"]["badge_text_color"] == "#0f172a"
+    assert patched["config"]["title"] == "x"  # 其余字段不丢
+    untouched = json.loads((templates / "动态平铺.json").read_text(encoding="utf-8"))
+    assert untouched["config"]["font_title"] == "我的字体.ttf"

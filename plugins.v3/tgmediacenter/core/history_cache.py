@@ -553,6 +553,53 @@ class HistoryCacheService:
             "message_date": utc_to_local_naive(date).isoformat(timespec="seconds") if date else "",
         }
 
+    def scan_messages(
+        self,
+        chat_ids: List[int],
+        *,
+        after_created: Optional[datetime] = None,
+        after_id: int = 0,
+        limit: int = 100,
+    ) -> List[dict]:
+        """按频道扫缓存消息（供存量补扫的全量 / 增量使用）。
+
+        返回消息视图（在 ``_search_view`` 基础上附 ``id`` / ``created_at``，
+        供分页游标与水位推进），按 ``id`` 升序：
+        - ``after_created`` 非空 → 只取入库时间晚于该时刻的消息（增量补扫）；
+        - ``after_id`` 非零 → 只取 id 更大的消息（全量补扫的分页游标）。
+        """
+        db = self._db()
+        if db is None:
+            return []
+        try:
+            from sqlalchemy import select
+
+            filters = [TgMessageCache.plugin_id == self._plugin_id()]
+            if chat_ids:
+                filters.append(TgMessageCache.chat_id.in_([int(item) for item in chat_ids]))
+            if after_created is not None:
+                filters.append(TgMessageCache.created_at > after_created)
+            if after_id:
+                filters.append(TgMessageCache.id > int(after_id))
+            with db.session() as session:
+                rows = list(session.execute(
+                    select(TgMessageCache)
+                    .where(*filters)
+                    .order_by(TgMessageCache.id.asc())
+                    .limit(int(limit))
+                ).scalars().all())
+            result: List[dict] = []
+            for row in rows:
+                view = self._search_view(row)
+                created = getattr(row, "created_at", None)
+                view["id"] = int(getattr(row, "id", 0) or 0)
+                view["created_at"] = created.isoformat(timespec="seconds") if created else ""
+                result.append(view)
+            return result
+        except Exception as err:
+            logger.warning(f"扫描消息缓存失败：{err}")
+            return []
+
     # ------------------------------------------------------------------ 维护
 
     def stats(self, chat_ids: List[int]) -> List[dict]:

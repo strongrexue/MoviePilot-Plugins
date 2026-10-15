@@ -46,6 +46,14 @@ from ..services.matcher import MediaMatcher
 # 缓存回搜在命中流水里的"虚拟规则"标识（便于在流水里与监控规则区分）
 CACHE_SEARCH_RULE_ID = "cache_search"
 CACHE_SEARCH_RULE_NAME = "缓存回搜"
+# 存量补扫在命中流水里的"虚拟规则"标识
+CACHE_BACKFILL_RULE_ID = "cache_backfill"
+CACHE_BACKFILL_RULE_NAME = "存量补扫"
+# 存量补扫：增量水位 / 运行摘要 的插件数据键
+_BACKFILL_WATERMARK_KEY = "cache_backfill_watermark"
+_BACKFILL_STATE_KEY = "cache_backfill_state"
+# 存量补扫单批扫描条数
+_BACKFILL_BATCH = 100
 # 上次订阅快照的插件数据键。
 # v2：1.4.1 的推送因 push_task.chat_id 超出 int32 全部入队失败，但快照已把
 # 那批订阅记为「已处理」；换键作废旧快照，修复后首次检查会全量重搜——
@@ -55,6 +63,7 @@ _SUB_STATE_KEY = "cache_sub_state"
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
 DEFAULT_SUBSCRIBE_CRON = "*/30 * * * *"
+DEFAULT_BACKFILL_CRON = "*/30 * * * *"
 # 订阅事件防抖秒数：批量添加订阅时合并为一次回搜
 _EVENT_DEBOUNCE_SECONDS = 5.0
 
@@ -80,6 +89,20 @@ class CacheModule:
             "last_error": "",
             "checking": False,
         }
+        # 存量补扫（反扫缓存，见 _backfill_* 方法）：后台线程 + 可停止
+        self._backfill_thread: Optional[threading.Thread] = None
+        self._backfill_cancel = threading.Event()
+        self._backfill_state: Dict[str, Any] = {
+            "running": False,
+            "full": False,
+            "processed": 0,
+            "pushed": 0,
+            "skipped": 0,
+            "started_at": "",
+            "finished_at": "",
+            "last_error": "",
+        }
+        self._p9_gate: Optional[Any] = None  # 懒加载前向闸门（P9）
 
     # ------------------------------------------------------ 订阅事件（实时回搜）
 
@@ -279,6 +302,10 @@ class CacheModule:
     def subscribe_enabled(self) -> bool:
         return bool(self._cfg("cache_subscribe_enabled", True))
 
+    def backfill_cron(self) -> str:
+        """存量补扫 cron（独立配置，默认与订阅兜底同频 30 分钟）。"""
+        return _normalize_cron(self._cfg("cache_backfill_cron"), DEFAULT_BACKFILL_CRON)
+
     def notify_enabled(self) -> bool:
         """回搜结果通知开关（115 面板「通知」卡片里的第三个开关，默认开）。"""
         return bool(self._cfg("notify_on_search", True))
@@ -323,6 +350,8 @@ class CacheModule:
             "sync_days": self.sync_days(),
             "batch_size": self.batch_size(),
             "subscribe_enabled": self.subscribe_enabled(),
+            "backfill_enabled": self.backfill_enabled(),
+            "backfill_cron": self.backfill_cron(),
             "cron": self.cron(),
             "subscribe_cron": self.subscribe_cron(),
             "destinations": [
@@ -362,6 +391,11 @@ class CacheModule:
                 patch["cache_batch_size"] = 200
         if "subscribe_enabled" in data:
             patch["cache_subscribe_enabled"] = bool(data.get("subscribe_enabled"))
+        if "backfill_enabled" in data:
+            patch["cache_backfill_enabled"] = bool(data.get("backfill_enabled"))
+        if "backfill_cron" in data:
+            patch["cache_backfill_cron"] = _normalize_cron(
+                data.get("backfill_cron"), DEFAULT_BACKFILL_CRON)
         if "cron" in data:
             patch["cache_cron"] = _normalize_cron(data.get("cron"), DEFAULT_SYNC_CRON)
         if "subscribe_cron" in data:
@@ -738,6 +772,233 @@ class CacheModule:
                 "last_error": str(stored.get("last_error") or ""),
             }
 
+    # ------------------------------------------------------------------ 存量补扫
+
+    def backfill_enabled(self) -> bool:
+        """存量补扫开关（默认关，独立于订阅回搜）。"""
+        return bool(self._cfg("cache_backfill_enabled"))
+
+    def _backfill_gate(self):
+        """懒加载前向闸门（P9）：补扫候选入队前判「PT 路是否在管」。
+
+        与监控流水线用同一份判定链与配置（config_getter 读插件 _config），
+        但独立实例——补扫与监控处理的媒体身份不同，结论缓存各自维护即可；
+        锚点表 ``tgmc_p9_gate`` 是同一张，读写天然共享。
+        """
+        if self._p9_gate is None:
+            from ..services import forward_gate as p9
+            self._p9_gate = p9.ForwardGate(
+                matcher=self._matcher,
+                store=p9.GateStore(plugin_id=self._plugin_id(), db_getter=self._db),
+                config_getter=lambda: getattr(self._plugin, "_config", None) or {},
+            )
+        return self._p9_gate
+
+    def backfill_state(self) -> dict:
+        """存量补扫运行态（含跨重启保留的最近一次摘要与增量水位）。"""
+        with self._lock:
+            state = dict(self._backfill_state)
+        stored = self._plugin.get_data(_BACKFILL_STATE_KEY) or {}
+        if isinstance(stored, dict):
+            state["last_run_at"] = str(stored.get("last_run_at") or "")
+            state["last_run_pushed"] = int(stored.get("last_run_pushed") or 0)
+            state["last_run_skipped"] = int(stored.get("last_run_skipped") or 0)
+        watermark = self._backfill_watermark()
+        state["watermark"] = watermark.isoformat(timespec="seconds") if watermark else ""
+        state["enabled"] = self.backfill_enabled()
+        return state
+
+    def _backfill_watermark(self) -> Optional[datetime]:
+        stored = self._plugin.get_data(_BACKFILL_WATERMARK_KEY)
+        if not stored:
+            return None
+        try:
+            return datetime.fromisoformat(str(stored))
+        except (TypeError, ValueError):
+            return None
+
+    def _set_backfill_watermark(self, value: datetime) -> None:
+        self._plugin.save_data(_BACKFILL_WATERMARK_KEY, value.isoformat(timespec="seconds"))
+
+    def start_backfill(self, *, full: bool = False) -> dict:
+        """触发存量补扫（后台线程）；``full=True`` 全量、否则增量。"""
+        if not self.enabled():
+            return {"started": False, "message": "未启用消息缓存"}
+        if not self.chat_ids():
+            return {"started": False, "message": "未选择要缓存的频道"}
+        with self._lock:
+            if self._backfill_state.get("running"):
+                return {"started": False, "message": "存量补扫已在运行中"}
+            self._backfill_cancel.clear()
+            self._backfill_state.update({
+                "running": True,
+                "full": bool(full),
+                "processed": 0,
+                "pushed": 0,
+                "skipped": 0,
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "finished_at": "",
+                "last_error": "",
+            })
+            thread = threading.Thread(
+                target=self._backfill_worker, args=(bool(full),), daemon=True)
+            self._backfill_thread = thread
+        thread.start()
+        label = "全量" if full else "增量"
+        logger.info(f"[{self._plugin_id()}] 存量补扫已启动（{label}）")
+        return {"started": True, "message": f"已启动存量补扫（{label}）"}
+
+    def cancel_backfill(self) -> dict:
+        """请求停止存量补扫（后台线程在当前批次结束后退出）。"""
+        running = bool(self._backfill_state.get("running"))
+        self._backfill_cancel.set()
+        if not running:
+            return {"stopped": False, "message": "当前没有正在进行的存量补扫"}
+        return {"stopped": True, "message": "已请求停止存量补扫（当前批次结束后退出）"}
+
+    def run_backfill_job(self) -> None:
+        """定时增量补扫（复用 ``cache_subscribe_cron`` 触发）。"""
+        if not (self.enabled() and self.backfill_enabled() and self.chat_ids()):
+            return
+        if self._backfill_state.get("running"):
+            return
+        result = self.start_backfill(full=False)
+        if not result.get("started"):
+            logger.debug(f"[{self._plugin_id()}] 存量补扫未启动：{result.get('message')}")
+
+    def _backfill_worker(self, full: bool) -> None:
+        chat_ids = self.chat_ids()
+        watermark = self._backfill_watermark()
+        if not full and watermark is None:
+            # 首次增量：只建基线（水位=now），不翻历史——存量 2 万+ 条全判一遍
+            # 代价大且多为已完结入库的老资源，想要历史缺口走「全量补扫」手动触发。
+            self._set_backfill_watermark(datetime.now())
+            self._finish_backfill(pushed=0, skipped=0)
+            return
+        after_created = None if full else watermark
+        after_id = 0
+        pushed = skipped = processed = 0
+        max_created = watermark
+        error = ""
+        try:
+            while not self._backfill_cancel.is_set():
+                items = self._history.scan_messages(
+                    chat_ids, after_created=after_created, after_id=after_id,
+                    limit=_BACKFILL_BATCH,
+                )
+                if not items:
+                    break
+                for item in items:
+                    if self._backfill_cancel.is_set():
+                        break
+                    processed += 1
+                    if self._backfill_one(item) == "pushed":
+                        pushed += 1
+                    else:
+                        skipped += 1
+                    after_id = int(item.get("id") or 0)
+                    created = item.get("created_at")
+                    if created:
+                        try:
+                            ts = datetime.fromisoformat(created)
+                        except (TypeError, ValueError):
+                            ts = None
+                        if ts is not None and (max_created is None or ts > max_created):
+                            max_created = ts
+                with self._lock:
+                    self._backfill_state.update(
+                        processed=processed, pushed=pushed, skipped=skipped)
+        except Exception as err:  # pragma: no cover - 兜底，保证线程体不崩
+            error = str(err)
+            logger.warning(f"[{self._plugin_id()}] 存量补扫出错：{err}")
+        finally:
+            if max_created is not None:
+                self._set_backfill_watermark(max_created)
+            self._finish_backfill(pushed=pushed, skipped=skipped, error=error)
+
+    def _backfill_one(self, item: dict) -> str:
+        """单条缓存消息的补扫判定链：链接 → 判重 → 缺失 → P9 闸门 → 入队。
+
+        与监控流水线同款顺序（``is_missing`` 之后接前向闸门），只是来源为缓存
+        而非实时消息。返回 ``"pushed"`` / ``"skipped"``（具体跳过原因进 DEBUG 日志）。
+        """
+        chat_id = int(item.get("chat_id") or 0)
+        message_id = int(item.get("message_id") or 0)
+        links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
+        title = str(item.get("title") or "").strip()
+        if not links:
+            return "skipped"
+        if self._hit_exists_any(chat_id, message_id):
+            return "skipped"
+        if not title:
+            return "skipped"
+        verdict = self._matcher.is_missing(
+            title=title,
+            year=str(item.get("year") or ""),
+            media_type=str(item.get("media_type") or ""),
+            season=item.get("season"),
+            episode=item.get("episode"),
+            episode_end=item.get("episode_end"),
+            require_subscription=True,
+        )
+        if verdict.get("missing") is not True:
+            logger.debug(
+                f"[{self._plugin_id()}] 存量补扫跳过：{title}（{_skip_label(verdict)}）")
+            return "skipped"
+        meta = {
+            "title": title,
+            "year": str(item.get("year") or ""),
+            "media_type": str(item.get("media_type") or ""),
+            "season": item.get("season"),
+            "episode": item.get("episode"),
+        }
+        gate_result = self._backfill_gate().check(meta, missing=True)
+        if gate_result is not None and not gate_result.passed:
+            logger.debug(
+                f"[{self._plugin_id()}] 存量补扫跳过：{title}（{gate_result.reason}）")
+            return "skipped"
+        task_id = push_queue.enqueue_push(
+            self._db(),
+            self._plugin_id(),
+            rule_id=CACHE_BACKFILL_RULE_ID,
+            chat_id=chat_id,
+            message_id=message_id,
+            destination=self.destination(),
+            target_id="",
+            links=links,
+            text=str(item.get("text") or ""),
+            title=title,
+        )
+        if not task_id:
+            return "skipped"
+        self._record_backfill_hit(item, verdict, task_id)
+        return "pushed"
+
+    def _finish_backfill(self, *, pushed: int, skipped: int, error: str = "") -> None:
+        with self._lock:
+            self._backfill_state.update(
+                running=False, pushed=pushed, skipped=skipped,
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+                last_error=str(error or ""),
+            )
+        self._plugin.save_data(_BACKFILL_STATE_KEY, {
+            "last_run_at": datetime.now().isoformat(timespec="seconds"),
+            "last_run_pushed": int(pushed),
+            "last_run_skipped": int(skipped),
+            "last_error": str(error or ""),
+        })
+        logger.info(
+            f"[{self._plugin_id()}] 存量补扫完成：推送 {pushed} 条，跳过 {skipped} 条"
+            + (f"（出错：{error}）" if error else "")
+        )
+        # 补扫是常态后台，只在真的推了时发一条汇总，没推就静默（不回搜通知的
+        # 「没推也说原因」口径，避免每轮定时都冒通知）
+        if pushed:
+            text = f"存量补扫完成：推送 {pushed} 条"
+            if skipped:
+                text += f"，跳过 {skipped} 条"
+            self._notify(f"{ICON_SEARCH} 胖虎媒体中心 存量补扫", text)
+
     # ------------------------------------------------------------------ 命中流水
 
     def _plugin_id(self) -> str:
@@ -748,6 +1009,9 @@ class CacheModule:
 
     def _hit_exists(self, chat_id: int, message_id: int) -> bool:
         """该缓存消息是否已因回搜推送过（虚拟规则维度去重）。"""
+        return self._hit_exists_by_rule(chat_id, message_id, CACHE_SEARCH_RULE_ID)
+
+    def _hit_exists_by_rule(self, chat_id: int, message_id: int, rule_id: str) -> bool:
         db = self._db()
         if db is None:
             return False
@@ -758,7 +1022,7 @@ class CacheModule:
                 row = session.execute(
                     select(TgHitLog.id).where(
                         TgHitLog.plugin_id == self._plugin_id(),
-                        TgHitLog.rule_id == CACHE_SEARCH_RULE_ID,
+                        TgHitLog.rule_id == rule_id,
                         TgHitLog.chat_id == int(chat_id),
                         TgHitLog.message_id == int(message_id),
                     )
@@ -767,6 +1031,64 @@ class CacheModule:
         except Exception as err:  # pragma: no cover
             logger.debug(f"查询缓存回搜流水失败：{err}")
             return False
+
+    def _hit_exists_any(self, chat_id: int, message_id: int) -> bool:
+        """该缓存消息是否已被**任何路径**推送过（不限虚拟规则）。
+
+        存量补扫的判重口径：监控命中 / 订阅回搜 / 交互转存回执……只要这条
+        消息有过一次「命中推送」流水，补扫就不再推——它判的是"资源已经
+        被送进过推送队列"，而不是"是否由补扫本人推过"。
+        """
+        db = self._db()
+        if db is None:
+            return False
+        try:
+            from sqlalchemy import select
+
+            with db.session() as session:
+                row = session.execute(
+                    select(TgHitLog.id).where(
+                        TgHitLog.plugin_id == self._plugin_id(),
+                        TgHitLog.chat_id == int(chat_id),
+                        TgHitLog.message_id == int(message_id),
+                        TgHitLog.decision == DECISION_HIT,
+                    )
+                ).first()
+                return row is not None
+        except Exception as err:  # pragma: no cover
+            logger.debug(f"查询命中流水失败：{err}")
+            return False
+
+    def _record_backfill_hit(self, item: dict, verdict: dict, task_id: int) -> None:
+        """写一条存量补扫的命中流水（虚拟规则 cache_backfill，与回搜区分）。"""
+        logger.info(
+            f"[{self._plugin_id()}] 存量补扫命中：「{item.get('title')}」"
+            f"（chat={item.get('chat_id')}, msg={item.get('message_id')}）已入推送队列 #{task_id}"
+        )
+        db = self._db()
+        if db is None:
+            return
+        try:
+            with db.session() as session:
+                session.add(TgHitLog(
+                    plugin_id=self._plugin_id(),
+                    rule_id=CACHE_BACKFILL_RULE_ID,
+                    rule_name=CACHE_BACKFILL_RULE_NAME,
+                    chat_id=int(item.get("chat_id") or 0),
+                    message_id=int(item.get("message_id") or 0),
+                    title=str(item.get("title") or "")[:250],
+                    year=str(item.get("year") or "")[:16],
+                    season=item.get("season"),
+                    episode=item.get("episode"),
+                    media_type=str(item.get("media_type") or "")[:16],
+                    decision=DECISION_HIT,
+                    destination=self.destination()[:32],
+                    target_id="",
+                    detail=f"存量补扫：{verdict.get('reason') or ''}；已入推送队列 #{task_id}"[:500],
+                ))
+                session.commit()
+        except Exception as err:  # pragma: no cover - 冲突说明已处理过
+            logger.debug(f"写存量补扫流水失败：{err}")
 
     def _record_hit(self, item: dict, subscription: str, verdict: dict, task_id: int) -> None:
         """写一条缓存回搜的命中流水（与监控流水同表，用虚拟规则区分）。"""
@@ -822,6 +1144,7 @@ class CacheModule:
             "channels": channels,
             "sync": self._history.progress(),
             "subscribe": self.subscribe_state(),
+            "backfill": self.backfill_state(),
             "matcher": {
                 "queries_available": bool(matcher_status.get("queries_available")),
                 "mediaserver_available": bool(matcher_status.get("mediaserver_available")),

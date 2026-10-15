@@ -208,6 +208,15 @@
             >
               <template #label><span class="cache-switch-label">订阅新增时回搜缓存</span></template>
             </VSwitch>
+            <VSwitch
+              v-model="settings.backfill_enabled"
+              color="primary"
+              hide-details
+              inset
+              @update:model-value="syncSettingsToForm"
+            >
+              <template #label><span class="cache-switch-label">存量补扫（定时反扫缓存补缺集）</span></template>
+            </VSwitch>
             <div class="cache-hint">
               推送目标决定「回搜命中」时怎么送：智能（115 可用则转存，否则仅记录）/ 115 / TG 转发 / 仅记录。
             </div>
@@ -226,6 +235,14 @@
           <VTextField
             v-model="settings.subscribe_cron"
             label="订阅兜底检查定时（cron）"
+            density="compact"
+            variant="outlined"
+            hide-details
+            @update:model-value="syncSettingsToForm"
+          />
+          <VTextField
+            v-model="settings.backfill_cron"
+            label="存量补扫定时（cron）"
             density="compact"
             variant="outlined"
             hide-details
@@ -426,6 +443,69 @@
       </VCardText>
     </VCard>
 
+    <!-- 存量补扫 -->
+    <VCard flat class="cache-card">
+      <VCardItem>
+        <VCardTitle class="text-subtitle-2">存量补扫</VCardTitle>
+      </VCardItem>
+      <VCardText>
+        <div class="cache-hint">
+          反扫缓存补缺集：定时捞出<strong>水位之后新入库</strong>的缓存消息，逐条判缺失
+          （已订阅 + 媒体库缺，与监控同款判定）→ 过前向闸门（PT 在途不抢）→ 入队推送。
+          判重按命中流水：一条消息无论被监控 / 回搜 / 补扫哪条路推过，都只推一次。
+          <br>
+          首次开启只建立水位基线（不翻历史）；想补历史缺口用「全量补扫」手动触发
+          （后台分批跑，可随时停止）。推送仅在真的推了时发一条汇总通知，没推不打扰。
+        </div>
+        <div class="cache-actions">
+          <VChip size="small" variant="tonal" :color="status?.backfill?.enabled ? 'success' : 'default'" label>
+            {{ status?.backfill?.enabled ? '定时已开启' : '定时未开启' }}
+          </VChip>
+          <VChip size="small" variant="tonal" :color="status?.backfill?.running ? 'info' : 'default'" label>
+            {{ status?.backfill?.running ? (status.backfill.full ? '全量扫描中' : '增量扫描中') : '空闲' }}
+          </VChip>
+          <VChip v-if="status?.backfill?.watermark" size="small" variant="tonal" label>
+            水位 {{ status.backfill.watermark }}
+          </VChip>
+        </div>
+        <div v-if="status?.backfill?.running" class="cache-actions">
+          <span class="cache-hint">
+            已扫 {{ status.backfill.processed ?? 0 }} 条 · 推送 {{ status.backfill.pushed ?? 0 }} 条 ·
+            跳过 {{ status.backfill.skipped ?? 0 }} 条（30 秒自动刷新）
+          </span>
+          <VBtn
+            variant="tonal"
+            prepend-icon="mdi-stop-circle-outline"
+            :loading="busy === 'backfillCancel'"
+            @click="cancelBackfill"
+          >
+            停止补扫
+          </VBtn>
+        </div>
+        <div class="cache-actions">
+          <VBtn
+            variant="tonal"
+            prepend-icon="mdi-refresh-circle"
+            :loading="busy === 'backfill'"
+            :disabled="!status?.enabled || Boolean(status?.backfill?.running)"
+            @click="startBackfill(false)"
+          >
+            立即增量补扫
+          </VBtn>
+          <VBtn
+            variant="tonal"
+            prepend-icon="mdi-database-search-outline"
+            :loading="busy === 'backfill'"
+            :disabled="!status?.enabled || Boolean(status?.backfill?.running)"
+            @click="startBackfill(true)"
+          >
+            全量补扫一次
+          </VBtn>
+        </div>
+        <div v-if="backfillSummary" class="cache-hint">{{ backfillSummary }}</div>
+      </VCardText>
+    </VCard>
+
     <div class="cache-hint">
       存储占用：缓存的是净化后的消息全文与识别字段（片名 / 年份 / 季集 / 链接），单条约 1~2 KB；
       单频道万级消息约几十 MB，由 MoviePilot 的插件数据库承载，不会影响宿主业务数据。
@@ -490,6 +570,8 @@ const settings = ref({
   end_date: '',
   batch_size: 200,
   subscribe_enabled: true,
+  backfill_enabled: false,
+  backfill_cron: '*/30 * * * *',
   cron: '0 */6 * * *',
   subscribe_cron: '*/5 * * * *',
 })
@@ -530,6 +612,8 @@ function syncSettingsToForm() {
   form.value.cache_sync_days = Number(settings.value.sync_days) || 30
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200
   form.value.cache_subscribe_enabled = Boolean(settings.value.subscribe_enabled)
+  form.value.cache_backfill_enabled = Boolean(settings.value.backfill_enabled)
+  form.value.cache_backfill_cron = settings.value.backfill_cron
   form.value.cache_cron = settings.value.cron
   form.value.cache_subscribe_cron = settings.value.subscribe_cron
 }
@@ -545,6 +629,8 @@ function applySettings(data) {
     end_date: '',
     batch_size: Number(source.batch_size) || 200,
     subscribe_enabled: source.subscribe_enabled !== false,
+    backfill_enabled: Boolean(source.backfill_enabled),
+    backfill_cron: source.backfill_cron || '*/30 * * * *',
     cron: source.cron || '0 */6 * * *',
     subscribe_cron: source.subscribe_cron || '*/5 * * * *',
   }
@@ -606,6 +692,8 @@ async function saveSettings() {
       sync_days: Number(settings.value.sync_days) || 30,
       batch_size: Number(settings.value.batch_size) || 200,
       subscribe_enabled: Boolean(settings.value.subscribe_enabled),
+      backfill_enabled: Boolean(settings.value.backfill_enabled),
+      backfill_cron: String(settings.value.backfill_cron || '').trim() || '*/30 * * * *',
       cron: String(settings.value.cron || '').trim() || '0 */6 * * *',
       subscribe_cron: String(settings.value.subscribe_cron || '').trim() || '*/5 * * * *',
     }
@@ -719,6 +807,50 @@ async function checkSubscriptions() {
     busy.value = ''
   }
 }
+
+// ------------------------------------------------------------------ 存量补扫
+
+async function startBackfill(full) {
+  if (busy.value) return
+  busy.value = 'backfill'
+  setMessage(full ? '正在启动全量补扫…' : '正在启动增量补扫…')
+  try {
+    const data = unwrap(await postPluginApi(
+      props.api, props.pluginId, 'cache/backfill/start', { full: Boolean(full) },
+      { timeoutMs: 30000 },
+    ))
+    setMessage(data?.message || (data?.started ? '补扫已启动' : '补扫未启动'), Boolean(data?.started))
+    await loadStatus()
+  } catch (err) {
+    setMessage(err?.message || '启动补扫失败', false)
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function cancelBackfill() {
+  if (busy.value) return
+  busy.value = 'backfillCancel'
+  try {
+    const data = unwrap(await postPluginApi(
+      props.api, props.pluginId, 'cache/backfill/cancel', {}, { timeoutMs: 15000 },
+    ))
+    setMessage(data?.message || '已请求停止补扫', Boolean(data?.stopped))
+    await loadStatus()
+  } catch (err) {
+    setMessage(err?.message || '停止补扫失败', false)
+  } finally {
+    busy.value = ''
+  }
+}
+
+const backfillSummary = computed(() => {
+  const bf = status.value?.backfill
+  if (!bf) return ''
+  if (bf.running) return ''
+  if (!bf.last_run_at) return '尚未运行过（开启定时后按 cron 自动增量；首次运行只建立水位基线）'
+  return `上次运行 ${bf.last_run_at}：推送 ${bf.last_run_pushed ?? 0} 条，跳过 ${bf.last_run_skipped ?? 0} 条`
+})
 
 // ------------------------------------------------------------------ 展示辅助
 

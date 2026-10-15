@@ -429,6 +429,24 @@ class CacheSubscribeState(BaseModel):
     last_error: str = ""
 
 
+class CacheBackfillState(BaseModel):
+    """存量补扫运行态（含跨重启保留的最近一次摘要与增量水位）。"""
+
+    enabled: bool = False
+    running: bool = False
+    full: bool = False
+    processed: int = 0
+    pushed: int = 0
+    skipped: int = 0
+    started_at: str = ""
+    finished_at: str = ""
+    last_error: str = ""
+    last_run_at: str = ""
+    last_run_pushed: int = 0
+    last_run_skipped: int = 0
+    watermark: str = ""
+
+
 class CacheSettingsData(BaseModel):
     """缓存设置（含前端下拉选项）。"""
 
@@ -439,6 +457,8 @@ class CacheSettingsData(BaseModel):
     sync_days: int = 30
     batch_size: int = 200
     subscribe_enabled: bool = True
+    backfill_enabled: bool = False
+    backfill_cron: str = "*/30 * * * *"
     cron: str = "0 */6 * * *"
     subscribe_cron: str = "*/5 * * * *"
     destinations: List[OptionItem] = Field(default_factory=list)
@@ -455,6 +475,8 @@ class CacheSettingsRequest(BaseModel):
     sync_days: Optional[int] = None
     batch_size: Optional[int] = None
     subscribe_enabled: Optional[bool] = None
+    backfill_enabled: Optional[bool] = None
+    backfill_cron: Optional[str] = Field(default=None, description="存量补扫 cron（5 段）")
     cron: Optional[str] = Field(default=None, description="增量同步 cron（5 段）")
     subscribe_cron: Optional[str] = Field(default=None, description="订阅检查 cron（5 段）")
 
@@ -479,6 +501,7 @@ class CacheStatusData(BaseModel):
     channels: List[CacheChannelStat] = Field(default_factory=list)
     sync: CacheSyncState = Field(default_factory=CacheSyncState)
     subscribe: CacheSubscribeState = Field(default_factory=CacheSubscribeState)
+    backfill: CacheBackfillState = Field(default_factory=CacheBackfillState)
     matcher: CacheMatcherStatus = Field(default_factory=CacheMatcherStatus)
     settings: CacheSettingsData = Field(default_factory=CacheSettingsData)
 
@@ -558,6 +581,26 @@ class CacheCheckSubscriptionsData(BaseModel):
     subscriptions: int = 0
     new: int = 0
     pushed: int = 0
+
+
+class CacheBackfillStartRequest(BaseModel):
+    """触发存量补扫。"""
+
+    full: bool = Field(default=False, description="True=全量（翻全部缓存历史）；False=增量（自水位起）")
+
+
+class CacheBackfillStartData(BaseModel):
+    """存量补扫触发结果。"""
+
+    started: bool = False
+    message: str = ""
+
+
+class CacheBackfillCancelData(BaseModel):
+    """停止存量补扫结果。"""
+
+    stopped: bool = False
+    message: str = ""
     message: str = ""
     details: List[Dict[str, Any]] = Field(default_factory=list)
 
@@ -731,6 +774,9 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/cache/clear": CacheClearData,
     "/cache/search": CacheSearchData,
     "/cache/check_subscriptions": CacheCheckSubscriptionsData,
+    "/cache/backfill/status": CacheBackfillState,
+    "/cache/backfill/start": CacheBackfillStartData,
+    "/cache/backfill/cancel": CacheBackfillCancelData,
     "/forward/rules": ForwardRulesData,
     "/forward/status": ForwardStatusData,
     "/forward/hits": MonitorHitsData,

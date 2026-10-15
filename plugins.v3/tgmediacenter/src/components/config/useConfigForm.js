@@ -35,8 +35,10 @@ export const configDefaults = {
   cache_sync_days: 30,
   cache_batch_size: 200,
   cache_subscribe_enabled: true,
+  cache_backfill_enabled: false,
   cache_cron: '0 */6 * * *',
   cache_subscribe_cron: '*/30 * * * *',
+  cache_backfill_cron: '*/30 * * * *',
   // ⑥ TG 通用转发（规则结构见 /forward/rules 接口返回；id 由后端补缺，f 前缀）
   forward_enabled: false,
   forward_rules: [],

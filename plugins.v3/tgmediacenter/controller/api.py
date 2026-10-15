@@ -62,6 +62,9 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/cache/clear", plugin.api_cache_clear, ["POST"], "清空指定频道的缓存"),
         ("/cache/search", plugin.api_cache_search, ["POST"], "检索缓存消息"),
         ("/cache/check_subscriptions", plugin.api_cache_check_subscriptions, ["POST"], "立即检查新增订阅并回搜缓存"),
+        ("/cache/backfill/status", plugin.api_cache_backfill_status, ["GET"], "存量补扫运行态"),
+        ("/cache/backfill/start", plugin.api_cache_backfill_start, ["POST"], "触发存量补扫（全量/增量）"),
+        ("/cache/backfill/cancel", plugin.api_cache_backfill_cancel, ["POST"], "停止存量补扫"),
         ("/forward/rules", plugin.api_forward_rules, ["GET"], "获取 TG 通用转发规则"),
         ("/forward/rules", plugin.api_forward_rules_save, ["PUT", "POST"], "保存 TG 通用转发规则"),
         ("/forward/status", plugin.api_forward_status, ["GET"], "获取转发运行状态"),
@@ -528,6 +531,33 @@ def api_cache_check_subscriptions(plugin):
     module = _cache(plugin)
     data = _invoke(lambda: module.check_subscriptions(trigger="手动"))
     return _envelope(api_schemas.CacheCheckSubscriptionsData.model_validate(data), message=data.get("message", ""))
+
+
+def api_cache_backfill_status(plugin):
+    """存量补扫运行态（进度、水位、最近一次结果）。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.backfill_state())
+    return _envelope(api_schemas.CacheBackfillState.model_validate(data))
+
+
+def api_cache_backfill_start(plugin, request: api_schemas.CacheBackfillStartRequest):
+    """触发存量补扫（full=True 全量翻历史，False 增量自水位起）。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.start_backfill(full=bool(request.full)))
+    return _envelope(
+        api_schemas.CacheBackfillStartData.model_validate(data),
+        message=data.get("message", ""),
+    )
+
+
+def api_cache_backfill_cancel(plugin):
+    """请求停止存量补扫（当前批次结束后退出）。"""
+    module = _cache(plugin)
+    data = _invoke(lambda: module.cancel_backfill())
+    return _envelope(
+        api_schemas.CacheBackfillCancelData.model_validate(data),
+        message=data.get("message", ""),
+    )
 
 
 # ---------------------------------------------------------------------- ⑥ TG 通用转发

@@ -197,6 +197,16 @@ class _StubPlugin:
     def api_cache_check_subscriptions(self):
         ...
 
+    # 存量补扫（1.12.0）
+    def api_cache_backfill_status(self):
+        ...
+
+    def api_cache_backfill_start(self, request):
+        ...
+
+    def api_cache_backfill_cancel(self):
+        ...
+
     # P6 通用转发
     def api_forward_rules(self):
         ...
@@ -258,6 +268,10 @@ def test_api_routes_contract():
         "/cache/clear",
         "/cache/search",
         "/cache/check_subscriptions",
+        # 存量补扫（1.12.0）
+        "/cache/backfill/status",
+        "/cache/backfill/start",
+        "/cache/backfill/cancel",
         # P6 通用转发（rules 同时注册 GET 与 PUT）
         "/forward/rules",
         "/forward/status",

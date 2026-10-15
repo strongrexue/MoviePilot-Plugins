@@ -42,7 +42,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.11.0"
+    plugin_version = "1.12.0"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -237,12 +237,14 @@ class TgMediaCenter(_PluginBase):
             "cache_sync_days": 30,
             "cache_batch_size": 200,
             "cache_subscribe_enabled": True,
+            "cache_backfill_enabled": False,
             # ⑥ TG 通用转发
             "forward_enabled": False,
             "forward_rules": [],
             # 定时任务
             "cache_cron": "0 */6 * * *",
             "cache_subscribe_cron": "*/30 * * * *",
+            "cache_backfill_cron": "*/30 * * * *",
             # 通知
             "notify_on_hit": True,
             "notify_on_error": True,
@@ -423,6 +425,18 @@ class TgMediaCenter(_PluginBase):
     def api_cache_check_subscriptions(self):
         """立即检查新增订阅并回搜缓存。"""
         return api_controller.api_cache_check_subscriptions(self)
+
+    def api_cache_backfill_status(self):
+        """存量补扫运行态。"""
+        return api_controller.api_cache_backfill_status(self)
+
+    def api_cache_backfill_start(self, request: api_schemas.CacheBackfillStartRequest):
+        """触发存量补扫（全量/增量）。"""
+        return api_controller.api_cache_backfill_start(self, request)
+
+    def api_cache_backfill_cancel(self):
+        """停止存量补扫。"""
+        return api_controller.api_cache_backfill_cancel(self)
 
     # ------------------------------------------------------------------ ⑥ TG 通用转发
 
@@ -612,6 +626,14 @@ class TgMediaCenter(_PluginBase):
                     "name": "胖虎媒体中心 订阅回搜",
                     "id": "tgmediacenter_cache_subscribe",
                 })
+            if cache.backfill_enabled():
+                cron = cache.backfill_cron()
+                services.append({
+                    "func": cache.run_backfill_job,
+                    "trigger": CronTrigger.from_crontab(cron),
+                    "name": "胖虎媒体中心 存量补扫",
+                    "id": "tgmediacenter_cache_backfill",
+                })
         except Exception as err:  # pragma: no cover - 定时任务注册失败不影响插件加载
             logger.warning(f"[TgMediaCenter] 注册缓存定时任务失败：{err}")
             return []
@@ -638,6 +660,10 @@ class TgMediaCenter(_PluginBase):
                 cache.cancel_sync()
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止缓存同步失败：{err}")
+            try:
+                cache.cancel_backfill()
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[TgMediaCenter] 停止存量补扫失败：{err}")
         credentials, self._credentials = self._credentials, None
         if credentials is not None:
             try:

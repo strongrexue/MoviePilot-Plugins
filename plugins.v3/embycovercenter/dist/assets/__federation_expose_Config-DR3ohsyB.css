@@ -118,34 +118,28 @@
   filter: brightness(1.06);
 }
 
-.ec-config[data-v-e7449dfc] {
+.ec-config[data-v-12688718] {
   width: min(1360px, calc(100vw - 48px));
   max-width: 100%;
   border-radius: 14px;
   overflow: hidden;
 }
-.ec-header[data-v-e7449dfc] {
+.ec-header[data-v-12688718] {
   padding: 14px 18px;
 }
-.ec-tabs[data-v-e7449dfc] {
-  padding: 0 8px;
-}
-.ec-body[data-v-e7449dfc] {
+.ec-body[data-v-12688718] {
   max-height: min(74vh, 820px);
   overflow-y: auto;
   padding: 14px 16px 4px;
 }
-.ec-pane[data-v-e7449dfc] {
-  padding: 0;
-}
-.ec-block[data-v-e7449dfc] {
+.ec-block[data-v-12688718] {
   border-radius: 10px;
 }
 @media (max-width: 760px) {
-.ec-config[data-v-e7449dfc] {
+.ec-config[data-v-12688718] {
     width: min(100%, calc(100vw - 16px));
 }
-.ec-body[data-v-e7449dfc] {
+.ec-body[data-v-12688718] {
     padding: 10px 10px 4px;
 }
 }

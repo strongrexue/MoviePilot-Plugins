@@ -6,7 +6,7 @@
  * 组件只负责渲染，不本地推测后端状态。
  */
 import { computed, reactive, ref } from 'vue'
-import { getPluginApi, postPluginApi, unwrap, RENDER_TIMEOUT_MS } from '../api'
+import { getPluginApi, postPluginApi, savePluginConfig, unwrap, RENDER_TIMEOUT_MS } from '../api'
 
 /** 读取文件为 dataURL（上传字体 / 模板 / 成品图都用它）。 */
 function readFileAsDataUrl(file) {
@@ -265,6 +265,23 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
+  /** 把当前封面方案持久化到插件配置（下次进入页面与自动封面「跟随封面设计」
+   *  都读它）。只写设计字段，基础字段由设置弹窗负责；失败不影响应用结果。 */
+  async function saveScheme() {
+    try {
+      await savePluginConfig(api(), pluginId(), {
+        cover_layout: form.layout,
+        cover_config: { ...form.config },
+        assets_mode: form.mode,
+        poster_count: Number(form.poster_count || 0),
+        backdrop_count: Number(form.backdrop_count || 0),
+        library_en_names: { ...libraryEnNames },
+      })
+    } catch {
+      /* 方案保存失败时保持静默：封面本身已应用成功 */
+    }
+  }
+
   async function previewCover() {
     if (previewing.value) return
     previewing.value = true
@@ -290,6 +307,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       const data = unwrap(
         await postPluginApi(api(), pluginId(), 'apply', requestBody(), { timeoutMs: RENDER_TIMEOUT_MS }),
       ) || {}
+      if (data.uploaded) saveScheme()
       report(data.uploaded ? '封面已应用' : '应用未生效', !!data.uploaded)
     } catch (error) {
       report(error?.message || '应用失败', false)
@@ -309,6 +327,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
           image_data: previewImage.value,
         }),
       ) || {}
+      if (data.uploaded) saveScheme()
       report(data.uploaded ? '预览图已设为封面' : '应用未生效', !!data.uploaded)
     } catch (error) {
       report(error?.message || '应用失败', false)
@@ -329,6 +348,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
           image_data: imageData,
         }),
       ) || {}
+      if (data.uploaded) saveScheme()
       report(data.uploaded ? '成品图已设为封面' : '应用未生效', !!data.uploaded)
     } catch (error) {
       report(error?.message || '上传失败', false)

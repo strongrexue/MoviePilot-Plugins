@@ -159,20 +159,6 @@ const blocks = computed(() => {
 })
 
 onMounted(designer.loadAll)
-
-/** 供父组件保存配置时取当前封面设置（这些字段会持久化到插件配置）。 */
-function snapshot() {
-  return {
-    cover_layout: form.layout,
-    cover_config: { ...form.config },
-    assets_mode: form.mode,
-    poster_count: Number(form.poster_count || 0),
-    backdrop_count: Number(form.backdrop_count || 0),
-    library_en_names: { ...designer.libraryEnNames },
-  }
-}
-
-defineExpose({ snapshot })
 </script>
 
 <template>

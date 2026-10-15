@@ -114,9 +114,18 @@ export async function getPluginConfig(api, pluginId) {
   return unwrap(response)
 }
 
-/** 保存配置。 */
+/** 保存配置：与当前已存配置浅合并后整体写回。
+ *
+ * 宿主的 PUT 是整份替换，而设置弹窗只保存基础字段、封面设计页只保存设计字段，
+ * 先读后并才能保证部分保存不把另一侧的字段冲掉。 */
 export async function savePluginConfig(api, pluginId, payload = {}) {
-  if (!api?.put) throw new Error('缺少 MoviePilot 配置 API')
-  const response = await api.put(pluginPath(pluginId), payload)
+  if (!api?.get || !api?.put) throw new Error('缺少 MoviePilot 配置 API')
+  let current = {}
+  try {
+    current = (await getPluginConfig(api, pluginId)) || {}
+  } catch {
+    current = {}
+  }
+  const response = await api.put(pluginPath(pluginId), { ...current, ...payload })
   return unwrap(response)
 }

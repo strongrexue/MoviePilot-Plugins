@@ -2,13 +2,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import AutoCoverLibraries from './AutoCoverLibraries.vue'
 import CoverBackups from './CoverBackups.vue'
-import CoverDesignPane from './cover/CoverDesignPane.vue'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 
 /**
- * 插件配置面板：顶部总开关 + 两个分区（基础设置 / 封面设计）。
+ * 插件配置面板：顶部总开关 + 基础设置。
  *
- * 纪律：字段与后端 model/config.py 的 default_config() 保持一致；配置由宿主
+ * 封面设计不在配置弹窗里（在插件页的「封面设计」Tab 调整，应用封面时自动保存）；
+ * 字段与后端 model/config.py 的 default_config() 保持一致；配置由宿主
  * `plugin/<id>` 的 GET/PUT 承载，本组件只负责渲染与回填，不做本地持久化。
  */
 const props = defineProps({
@@ -18,8 +18,6 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
 })
 const emit = defineEmits(['save', 'close'])
-
-const tab = ref('base')
 
 const form = reactive({
   enabled: props.initialConfig.enabled === true,
@@ -43,7 +41,6 @@ const servers = ref([])
 const loadingServers = ref(false)
 const serverError = ref('')
 const templates = ref([])
-const coverRef = ref(null)
 const runningCover = ref(false)
 const runMessage = ref('')
 const runOk = ref(true)
@@ -124,7 +121,6 @@ async function runAutoCover() {
 
 function submit() {
   if (props.busy) return
-  const cover = coverRef.value?.snapshot ? coverRef.value.snapshot() : {}
   emit('save', {
     enabled: form.enabled,
     discovery_page_enabled: form.discovery_page_enabled,
@@ -136,7 +132,6 @@ function submit() {
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
-    ...cover,
   })
 }
 
@@ -168,16 +163,8 @@ onMounted(() => {
     </VCardItem>
     <VDivider />
 
-    <VTabs v-model="tab" density="comfortable" color="primary" class="ec-tabs">
-      <VTab value="base" prepend-icon="mdi-cog-outline">基础设置</VTab>
-      <VTab value="cover" prepend-icon="mdi-image-edit-outline">封面设计</VTab>
-    </VTabs>
-    <VDivider />
-
     <div class="ec-body">
-      <VWindow v-model="tab" :touch="false">
-        <VWindowItem value="base" class="ec-pane">
-          <VRow dense>
+      <VRow dense>
             <VCol cols="12" md="6">
               <VCard variant="tonal" class="ec-block">
                 <VCardItem class="py-2">
@@ -328,8 +315,9 @@ onMounted(() => {
                     </VCol>
                     <VCol cols="12">
                       <div class="text-caption text-medium-emphasis">
-                        「跟随封面设计」使用封面设计 Tab 当前保存的布局与参数；执行时只处理所选媒体库与
-                        「参与封面的服务器」的交集。Emby 入库自动刷新由上方开关控制，同样只刷新这里勾选的媒体库。
+                        「跟随封面设计」使用封面设计页最近一次应用的布局与参数（在插件页「封面设计」里
+                        应用封面后自动保存）；执行时只处理所选媒体库与「参与封面的服务器」的交集。
+                        Emby 入库自动刷新由上方开关控制，同样只刷新这里勾选的媒体库。
                       </div>
                     </VCol>
                   </VRow>
@@ -337,18 +325,6 @@ onMounted(() => {
               </VCard>
             </VCol>
           </VRow>
-        </VWindowItem>
-
-        <VWindowItem value="cover" class="ec-pane">
-          <CoverDesignPane
-            ref="coverRef"
-            :api="props.api"
-            :plugin-id="props.pluginId"
-            :initial-config="props.initialConfig"
-            :servers="servers"
-          />
-        </VWindowItem>
-      </VWindow>
     </div>
 
     <VDivider />
@@ -381,16 +357,10 @@ onMounted(() => {
 .ec-header {
   padding: 14px 18px;
 }
-.ec-tabs {
-  padding: 0 8px;
-}
 .ec-body {
   max-height: min(74vh, 820px);
   overflow-y: auto;
   padding: 14px 16px 4px;
-}
-.ec-pane {
-  padding: 0;
 }
 .ec-block {
   border-radius: 10px;

@@ -1,6 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as unwrap, a as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-bD9RbwOy.js';
-import { C as CoverDesignPane } from './CoverDesignPane-Be32Nmzd.js';
+import { u as unwrap, a as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-BGiM_AXo.js';
 
 const {toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$1,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,normalizeClass:_normalizeClass,withModifiers:_withModifiers,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -499,9 +498,10 @@ const _hoisted_1 = { class: "ec-body" };
 const {computed,onMounted,reactive,ref} = await importShared('vue');
 
 /**
- * 插件配置面板：顶部总开关 + 两个分区（基础设置 / 封面设计）。
+ * 插件配置面板：顶部总开关 + 基础设置。
  *
- * 纪律：字段与后端 model/config.py 的 default_config() 保持一致；配置由宿主
+ * 封面设计不在配置弹窗里（在插件页的「封面设计」Tab 调整，应用封面时自动保存）；
+ * 字段与后端 model/config.py 的 default_config() 保持一致；配置由宿主
  * `plugin/<id>` 的 GET/PUT 承载，本组件只负责渲染与回填，不做本地持久化。
  */
 
@@ -518,8 +518,6 @@ const _sfc_main = {
 
 const props = __props;
 const emit = __emit;
-
-const tab = ref('base');
 
 const form = reactive({
   enabled: props.initialConfig.enabled === true,
@@ -543,7 +541,6 @@ const servers = ref([]);
 const loadingServers = ref(false);
 const serverError = ref('');
 const templates = ref([]);
-const coverRef = ref(null);
 const runningCover = ref(false);
 const runMessage = ref('');
 const runOk = ref(true);
@@ -624,7 +621,6 @@ async function runAutoCover() {
 
 function submit() {
   if (props.busy) return
-  const cover = coverRef.value?.snapshot ? coverRef.value.snapshot() : {};
   emit('save', {
     enabled: form.enabled,
     discovery_page_enabled: form.discovery_page_enabled,
@@ -636,7 +632,6 @@ function submit() {
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
-    ...cover,
   });
 }
 
@@ -653,8 +648,6 @@ return (_ctx, _cache) => {
   const _component_VSwitch = _resolveComponent("VSwitch");
   const _component_VCardItem = _resolveComponent("VCardItem");
   const _component_VDivider = _resolveComponent("VDivider");
-  const _component_VTab = _resolveComponent("VTab");
-  const _component_VTabs = _resolveComponent("VTabs");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VCard = _resolveComponent("VCard");
   const _component_VCol = _resolveComponent("VCol");
@@ -663,8 +656,6 @@ return (_ctx, _cache) => {
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VRow = _resolveComponent("VRow");
-  const _component_VWindowItem = _resolveComponent("VWindowItem");
-  const _component_VWindow = _resolveComponent("VWindow");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VCardActions = _resolveComponent("VCardActions");
 
@@ -702,13 +693,13 @@ return (_ctx, _cache) => {
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-            default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+            default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
               _createTextVNode("胖虎封面中心", -1)
             ]))]),
             _: 1
           }),
           _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
-            default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+            default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
               _createTextVNode("Emby 媒体库封面生成与任务中心", -1)
             ]))]),
             _: 1
@@ -717,355 +708,308 @@ return (_ctx, _cache) => {
         _: 1
       }),
       _createVNode(_component_VDivider),
-      _createVNode(_component_VTabs, {
-        modelValue: tab.value,
-        "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((tab).value = $event)),
-        density: "comfortable",
-        color: "primary",
-        class: "ec-tabs"
-      }, {
-        default: _withCtx(() => [
-          _createVNode(_component_VTab, {
-            value: "base",
-            "prepend-icon": "mdi-cog-outline"
-          }, {
-            default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
-              _createTextVNode("基础设置", -1)
-            ]))]),
-            _: 1
-          }),
-          _createVNode(_component_VTab, {
-            value: "cover",
-            "prepend-icon": "mdi-image-edit-outline"
-          }, {
-            default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
-              _createTextVNode("封面设计", -1)
-            ]))]),
-            _: 1
-          })
-        ]),
-        _: 1
-      }, 8, ["modelValue"]),
-      _createVNode(_component_VDivider),
       _createElementVNode("div", _hoisted_1, [
-        _createVNode(_component_VWindow, {
-          modelValue: tab.value,
-          "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((tab).value = $event)),
-          touch: false
-        }, {
+        _createVNode(_component_VRow, { dense: "" }, {
           default: _withCtx(() => [
-            _createVNode(_component_VWindowItem, {
-              value: "base",
-              class: "ec-pane"
+            _createVNode(_component_VCol, {
+              cols: "12",
+              md: "6"
             }, {
               default: _withCtx(() => [
-                _createVNode(_component_VRow, { dense: "" }, {
+                _createVNode(_component_VCard, {
+                  variant: "tonal",
+                  class: "ec-block"
+                }, {
                   default: _withCtx(() => [
-                    _createVNode(_component_VCol, {
-                      cols: "12",
-                      md: "6"
-                    }, {
+                    _createVNode(_component_VCardItem, { class: "py-2" }, {
                       default: _withCtx(() => [
-                        _createVNode(_component_VCard, {
-                          variant: "tonal",
-                          class: "ec-block"
+                        _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
+                          default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+                            _createTextVNode("基础", -1)
+                          ]))]),
+                          _: 1
+                        })
+                      ]),
+                      _: 1
+                    }),
+                    _createVNode(_component_VCardText, null, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_VSwitch, {
+                          modelValue: form.discovery_page_enabled,
+                          "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((form.discovery_page_enabled) = $event)),
+                          color: "primary",
+                          "hide-details": "",
+                          inset: "",
+                          class: "mb-3",
+                          label: "在「发现」分区显示整页入口"
+                        }, null, 8, ["modelValue"]),
+                        _createVNode(_component_VSwitch, {
+                          modelValue: form.auto_refresh_on_webhook,
+                          "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((form.auto_refresh_on_webhook) = $event)),
+                          color: "primary",
+                          "hide-details": "",
+                          inset: "",
+                          class: "mb-3",
+                          label: "Emby 入库后自动刷新对应媒体库封面"
+                        }, null, 8, ["modelValue"]),
+                        _createVNode(_component_VSwitch, {
+                          modelValue: form.notify_on_task_finish,
+                          "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.notify_on_task_finish) = $event)),
+                          color: "primary",
+                          "hide-details": "",
+                          inset: "",
+                          label: "任务完成后发送通知（走 MP 通知渠道）"
+                        }, null, 8, ["modelValue"])
+                      ]),
+                      _: 1
+                    })
+                  ]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }),
+            _createVNode(_component_VCol, {
+              cols: "12",
+              md: "6"
+            }, {
+              default: _withCtx(() => [
+                _createVNode(_component_VCard, {
+                  variant: "tonal",
+                  class: "ec-block"
+                }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_VCardItem, { class: "py-2" }, {
+                      append: _withCtx(() => [
+                        _createVNode(_component_VBtn, {
+                          size: "small",
+                          variant: "text",
+                          loading: loadingServers.value,
+                          onClick: loadServers
                         }, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_VCardItem, { class: "py-2" }, {
+                          default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+                            _createTextVNode("刷新", -1)
+                          ]))]),
+                          _: 1
+                        }, 8, ["loading"])
+                      ]),
+                      default: _withCtx(() => [
+                        _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
+                          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+                            _createTextVNode("媒体服务器", -1)
+                          ]))]),
+                          _: 1
+                        })
+                      ]),
+                      _: 1
+                    }),
+                    _createVNode(_component_VCardText, null, {
+                      default: _withCtx(() => [
+                        (serverError.value)
+                          ? (_openBlock(), _createBlock(_component_VAlert, {
+                              key: 0,
+                              type: "warning",
+                              variant: "tonal",
+                              density: "compact",
+                              class: "mb-2"
+                            }, {
                               default: _withCtx(() => [
-                                _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                                  default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
-                                    _createTextVNode("基础", -1)
-                                  ]))]),
-                                  _: 1
-                                })
+                                _createTextVNode(_toDisplayString(serverError.value), 1)
                               ]),
                               _: 1
-                            }),
-                            _createVNode(_component_VCardText, null, {
+                            }))
+                          : _createCommentVNode("", true),
+                        _createVNode(_component_VSelect, {
+                          modelValue: form.selected_servers,
+                          "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.selected_servers) = $event)),
+                          items: serverItems.value,
+                          label: "参与封面的服务器",
+                          chips: "",
+                          multiple: "",
+                          clearable: "",
+                          density: "compact",
+                          variant: "outlined",
+                          disabled: !servers.value.length
+                        }, null, 8, ["modelValue", "items", "disabled"]),
+                        _cache[18] || (_cache[18] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-1" }, " 留空表示使用全部已启用的媒体服务器。 ", -1))
+                      ]),
+                      _: 1
+                    })
+                  ]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }),
+            _createVNode(_component_VCol, { cols: "12" }, {
+              default: _withCtx(() => [
+                _createVNode(_component_VCard, {
+                  variant: "tonal",
+                  class: "ec-block"
+                }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_VCardItem, { class: "py-2" }, {
+                      append: _withCtx(() => [
+                        _createVNode(_component_VBtn, {
+                          size: "small",
+                          variant: "text",
+                          "prepend-icon": "mdi-backup-restore",
+                          onClick: _cache[5] || (_cache[5] = $event => (showBackups.value = true))
+                        }, {
+                          default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                            _createTextVNode(" 备份管理 ", -1)
+                          ]))]),
+                          _: 1
+                        }),
+                        _createVNode(_component_VBtn, {
+                          size: "small",
+                          variant: "tonal",
+                          "prepend-icon": "mdi-play",
+                          loading: runningCover.value,
+                          disabled: !form.enabled,
+                          onClick: runAutoCover
+                        }, {
+                          default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
+                            _createTextVNode(" 立即运行 ", -1)
+                          ]))]),
+                          _: 1
+                        }, 8, ["loading", "disabled"])
+                      ]),
+                      default: _withCtx(() => [
+                        _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
+                          default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+                            _createTextVNode("自动封面任务", -1)
+                          ]))]),
+                          _: 1
+                        }),
+                        _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
+                          default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+                            _createTextVNode(" 定时 / Emby 入库时，为选中媒体库自动生成并应用封面 ", -1)
+                          ]))]),
+                          _: 1
+                        })
+                      ]),
+                      _: 1
+                    }),
+                    _createVNode(_component_VCardText, null, {
+                      default: _withCtx(() => [
+                        (runMessage.value)
+                          ? (_openBlock(), _createBlock(_component_VAlert, {
+                              key: 0,
+                              type: runOk.value ? 'success' : 'error',
+                              variant: "tonal",
+                              density: "compact",
+                              class: "mb-2"
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode(_toDisplayString(runMessage.value), 1)
+                              ]),
+                              _: 1
+                            }, 8, ["type"]))
+                          : _createCommentVNode("", true),
+                        _createVNode(_component_VRow, { dense: "" }, {
+                          default: _withCtx(() => [
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              md: "4"
+                            }, {
                               default: _withCtx(() => [
                                 _createVNode(_component_VSwitch, {
-                                  modelValue: form.discovery_page_enabled,
-                                  "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((form.discovery_page_enabled) = $event)),
+                                  modelValue: form.auto_cover_enabled,
+                                  "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.auto_cover_enabled) = $event)),
                                   color: "primary",
                                   "hide-details": "",
                                   inset: "",
-                                  class: "mb-3",
-                                  label: "在「发现」分区显示整页入口"
-                                }, null, 8, ["modelValue"]),
-                                _createVNode(_component_VSwitch, {
-                                  modelValue: form.auto_refresh_on_webhook,
-                                  "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.auto_refresh_on_webhook) = $event)),
-                                  color: "primary",
-                                  "hide-details": "",
-                                  inset: "",
-                                  class: "mb-3",
-                                  label: "Emby 入库后自动刷新对应媒体库封面"
-                                }, null, 8, ["modelValue"]),
-                                _createVNode(_component_VSwitch, {
-                                  modelValue: form.notify_on_task_finish,
-                                  "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.notify_on_task_finish) = $event)),
-                                  color: "primary",
-                                  "hide-details": "",
-                                  inset: "",
-                                  label: "任务完成后发送通知（走 MP 通知渠道）"
+                                  class: "mt-2",
+                                  label: "启用定时自动封面"
                                 }, null, 8, ["modelValue"])
                               ]),
                               _: 1
-                            })
-                          ]),
-                          _: 1
-                        })
-                      ]),
-                      _: 1
-                    }),
-                    _createVNode(_component_VCol, {
-                      cols: "12",
-                      md: "6"
-                    }, {
-                      default: _withCtx(() => [
-                        _createVNode(_component_VCard, {
-                          variant: "tonal",
-                          class: "ec-block"
-                        }, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_VCardItem, { class: "py-2" }, {
-                              append: _withCtx(() => [
-                                _createVNode(_component_VBtn, {
-                                  size: "small",
-                                  variant: "text",
-                                  loading: loadingServers.value,
-                                  onClick: loadServers
-                                }, {
-                                  default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
-                                    _createTextVNode("刷新", -1)
-                                  ]))]),
-                                  _: 1
-                                }, 8, ["loading"])
-                              ]),
-                              default: _withCtx(() => [
-                                _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                                  default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
-                                    _createTextVNode("媒体服务器", -1)
-                                  ]))]),
-                                  _: 1
-                                })
-                              ]),
-                              _: 1
                             }),
-                            _createVNode(_component_VCardText, null, {
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              md: "4"
+                            }, {
                               default: _withCtx(() => [
-                                (serverError.value)
-                                  ? (_openBlock(), _createBlock(_component_VAlert, {
-                                      key: 0,
-                                      type: "warning",
-                                      variant: "tonal",
-                                      density: "compact",
-                                      class: "mb-2"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createTextVNode(_toDisplayString(serverError.value), 1)
-                                      ]),
-                                      _: 1
-                                    }))
-                                  : _createCommentVNode("", true),
                                 _createVNode(_component_VSelect, {
-                                  modelValue: form.selected_servers,
-                                  "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.selected_servers) = $event)),
-                                  items: serverItems.value,
-                                  label: "参与封面的服务器",
-                                  chips: "",
-                                  multiple: "",
-                                  clearable: "",
+                                  modelValue: form.auto_cover_template,
+                                  "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.auto_cover_template) = $event)),
+                                  items: templateItems.value,
+                                  label: "封面方案",
                                   density: "compact",
                                   variant: "outlined",
-                                  disabled: !servers.value.length
-                                }, null, 8, ["modelValue", "items", "disabled"]),
-                                _cache[22] || (_cache[22] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-1" }, " 留空表示使用全部已启用的媒体服务器。 ", -1))
-                              ]),
-                              _: 1
-                            })
-                          ]),
-                          _: 1
-                        })
-                      ]),
-                      _: 1
-                    }),
-                    _createVNode(_component_VCol, { cols: "12" }, {
-                      default: _withCtx(() => [
-                        _createVNode(_component_VCard, {
-                          variant: "tonal",
-                          class: "ec-block"
-                        }, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_VCardItem, { class: "py-2" }, {
-                              append: _withCtx(() => [
-                                _createVNode(_component_VBtn, {
-                                  size: "small",
-                                  variant: "text",
-                                  "prepend-icon": "mdi-backup-restore",
-                                  onClick: _cache[6] || (_cache[6] = $event => (showBackups.value = true))
-                                }, {
-                                  default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
-                                    _createTextVNode(" 备份管理 ", -1)
-                                  ]))]),
-                                  _: 1
-                                }),
-                                _createVNode(_component_VBtn, {
-                                  size: "small",
-                                  variant: "tonal",
-                                  "prepend-icon": "mdi-play",
-                                  loading: runningCover.value,
-                                  disabled: !form.enabled,
-                                  onClick: runAutoCover
-                                }, {
-                                  default: _withCtx(() => [...(_cache[26] || (_cache[26] = [
-                                    _createTextVNode(" 立即运行 ", -1)
-                                  ]))]),
-                                  _: 1
-                                }, 8, ["loading", "disabled"])
-                              ]),
-                              default: _withCtx(() => [
-                                _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                                  default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
-                                    _createTextVNode("自动封面任务", -1)
-                                  ]))]),
-                                  _: 1
-                                }),
-                                _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
-                                  default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
-                                    _createTextVNode(" 定时 / Emby 入库时，为选中媒体库自动生成并应用封面 ", -1)
-                                  ]))]),
-                                  _: 1
-                                })
+                                  "hide-details": ""
+                                }, null, 8, ["modelValue", "items"])
                               ]),
                               _: 1
                             }),
-                            _createVNode(_component_VCardText, null, {
+                            _createVNode(_component_VCol, {
+                              cols: "12",
+                              md: "4"
+                            }, {
                               default: _withCtx(() => [
-                                (runMessage.value)
-                                  ? (_openBlock(), _createBlock(_component_VAlert, {
-                                      key: 0,
-                                      type: runOk.value ? 'success' : 'error',
-                                      variant: "tonal",
-                                      density: "compact",
-                                      class: "mb-2"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createTextVNode(_toDisplayString(runMessage.value), 1)
-                                      ]),
-                                      _: 1
-                                    }, 8, ["type"]))
-                                  : _createCommentVNode("", true),
-                                _createVNode(_component_VRow, { dense: "" }, {
+                                _createVNode(_component_VSelect, {
+                                  "model-value": scheduleChoice.value,
+                                  items: scheduleOptions,
+                                  label: "执行频率",
+                                  density: "compact",
+                                  variant: "outlined",
+                                  "hide-details": "",
+                                  "onUpdate:modelValue": onScheduleChange
+                                }, null, 8, ["model-value"])
+                              ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_VCol, { cols: "12" }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_VSwitch, {
+                                  modelValue: form.auto_backup_enabled,
+                                  "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.auto_backup_enabled) = $event)),
+                                  color: "primary",
+                                  "hide-details": "",
+                                  inset: "",
+                                  label: "覆盖前自动备份原版封面（每库保留最近 3 版，可在「备份管理」恢复）"
+                                }, null, 8, ["modelValue"])
+                              ]),
+                              _: 1
+                            }),
+                            (scheduleChoice.value === '__custom__')
+                              ? (_openBlock(), _createBlock(_component_VCol, {
+                                  key: 0,
+                                  cols: "12",
+                                  md: "6"
+                                }, {
                                   default: _withCtx(() => [
-                                    _createVNode(_component_VCol, {
-                                      cols: "12",
-                                      md: "4"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createVNode(_component_VSwitch, {
-                                          modelValue: form.auto_cover_enabled,
-                                          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.auto_cover_enabled) = $event)),
-                                          color: "primary",
-                                          "hide-details": "",
-                                          inset: "",
-                                          class: "mt-2",
-                                          label: "启用定时自动封面"
-                                        }, null, 8, ["modelValue"])
-                                      ]),
-                                      _: 1
-                                    }),
-                                    _createVNode(_component_VCol, {
-                                      cols: "12",
-                                      md: "4"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createVNode(_component_VSelect, {
-                                          modelValue: form.auto_cover_template,
-                                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.auto_cover_template) = $event)),
-                                          items: templateItems.value,
-                                          label: "封面方案",
-                                          density: "compact",
-                                          variant: "outlined",
-                                          "hide-details": ""
-                                        }, null, 8, ["modelValue", "items"])
-                                      ]),
-                                      _: 1
-                                    }),
-                                    _createVNode(_component_VCol, {
-                                      cols: "12",
-                                      md: "4"
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createVNode(_component_VSelect, {
-                                          "model-value": scheduleChoice.value,
-                                          items: scheduleOptions,
-                                          label: "执行频率",
-                                          density: "compact",
-                                          variant: "outlined",
-                                          "hide-details": "",
-                                          "onUpdate:modelValue": onScheduleChange
-                                        }, null, 8, ["model-value"])
-                                      ]),
-                                      _: 1
-                                    }),
-                                    _createVNode(_component_VCol, { cols: "12" }, {
-                                      default: _withCtx(() => [
-                                        _createVNode(_component_VSwitch, {
-                                          modelValue: form.auto_backup_enabled,
-                                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.auto_backup_enabled) = $event)),
-                                          color: "primary",
-                                          "hide-details": "",
-                                          inset: "",
-                                          label: "覆盖前自动备份原版封面（每库保留最近 3 版，可在「备份管理」恢复）"
-                                        }, null, 8, ["modelValue"])
-                                      ]),
-                                      _: 1
-                                    }),
-                                    (scheduleChoice.value === '__custom__')
-                                      ? (_openBlock(), _createBlock(_component_VCol, {
-                                          key: 0,
-                                          cols: "12",
-                                          md: "6"
-                                        }, {
-                                          default: _withCtx(() => [
-                                            _createVNode(_component_VTextField, {
-                                              modelValue: form.cover_cron,
-                                              "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.cover_cron) = $event)),
-                                              label: "Cron 表达式",
-                                              placeholder: "分 时 日 月 周，如 30 5 * * *",
-                                              density: "compact",
-                                              variant: "outlined",
-                                              "hide-details": ""
-                                            }, null, 8, ["modelValue"])
-                                          ]),
-                                          _: 1
-                                        }))
-                                      : _createCommentVNode("", true),
-                                    _createVNode(_component_VCol, { cols: "12" }, {
-                                      default: _withCtx(() => [
-                                        _createVNode(_sfc_main$2, {
-                                          modelValue: form.auto_cover_libraries,
-                                          "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((form.auto_cover_libraries) = $event)),
-                                          api: props.api,
-                                          "plugin-id": props.pluginId,
-                                          servers: servers.value,
-                                          disabled: !servers.value.length
-                                        }, null, 8, ["modelValue", "api", "plugin-id", "servers", "disabled"])
-                                      ]),
-                                      _: 1
-                                    }),
-                                    _createVNode(_component_VCol, { cols: "12" }, {
-                                      default: _withCtx(() => [...(_cache[27] || (_cache[27] = [
-                                        _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, " 「跟随封面设计」使用封面设计 Tab 当前保存的布局与参数；执行时只处理所选媒体库与 「参与封面的服务器」的交集。Emby 入库自动刷新由上方开关控制，同样只刷新这里勾选的媒体库。 ", -1)
-                                      ]))]),
-                                      _: 1
-                                    })
+                                    _createVNode(_component_VTextField, {
+                                      modelValue: form.cover_cron,
+                                      "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.cover_cron) = $event)),
+                                      label: "Cron 表达式",
+                                      placeholder: "分 时 日 月 周，如 30 5 * * *",
+                                      density: "compact",
+                                      variant: "outlined",
+                                      "hide-details": ""
+                                    }, null, 8, ["modelValue"])
                                   ]),
                                   _: 1
-                                })
+                                }))
+                              : _createCommentVNode("", true),
+                            _createVNode(_component_VCol, { cols: "12" }, {
+                              default: _withCtx(() => [
+                                _createVNode(_sfc_main$2, {
+                                  modelValue: form.auto_cover_libraries,
+                                  "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.auto_cover_libraries) = $event)),
+                                  api: props.api,
+                                  "plugin-id": props.pluginId,
+                                  servers: servers.value,
+                                  disabled: !servers.value.length
+                                }, null, 8, ["modelValue", "api", "plugin-id", "servers", "disabled"])
                               ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_VCol, { cols: "12" }, {
+                              default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                                _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, " 「跟随封面设计」使用封面设计页最近一次应用的布局与参数（在插件页「封面设计」里 应用封面后自动保存）；执行时只处理所选媒体库与「参与封面的服务器」的交集。 Emby 入库自动刷新由上方开关控制，同样只刷新这里勾选的媒体库。 ", -1)
+                              ]))]),
                               _: 1
                             })
                           ]),
@@ -1079,26 +1023,10 @@ return (_ctx, _cache) => {
                 })
               ]),
               _: 1
-            }),
-            _createVNode(_component_VWindowItem, {
-              value: "cover",
-              class: "ec-pane"
-            }, {
-              default: _withCtx(() => [
-                _createVNode(CoverDesignPane, {
-                  ref_key: "coverRef",
-                  ref: coverRef,
-                  api: props.api,
-                  "plugin-id": props.pluginId,
-                  "initial-config": props.initialConfig,
-                  servers: servers.value
-                }, null, 8, ["api", "plugin-id", "initial-config", "servers"])
-              ]),
-              _: 1
             })
           ]),
           _: 1
-        }, 8, ["modelValue"])
+        })
       ]),
       _createVNode(_component_VDivider),
       _createVNode(_component_VCardActions, null, {
@@ -1107,9 +1035,9 @@ return (_ctx, _cache) => {
           _createVNode(_component_VBtn, {
             variant: "text",
             disabled: props.busy,
-            onClick: _cache[13] || (_cache[13] = $event => (emit('close')))
+            onClick: _cache[11] || (_cache[11] = $event => (emit('close')))
           }, {
-            default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
+            default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
               _createTextVNode("取消", -1)
             ]))]),
             _: 1
@@ -1122,7 +1050,7 @@ return (_ctx, _cache) => {
             disabled: props.busy,
             onClick: submit
           }, {
-            default: _withCtx(() => [...(_cache[29] || (_cache[29] = [
+            default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
               _createTextVNode(" 保存配置 ", -1)
             ]))]),
             _: 1
@@ -1132,7 +1060,7 @@ return (_ctx, _cache) => {
       }),
       _createVNode(_sfc_main$1, {
         modelValue: showBackups.value,
-        "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((showBackups).value = $event)),
+        "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((showBackups).value = $event)),
         api: props.api,
         "plugin-id": props.pluginId
       }, null, 8, ["modelValue", "api", "plugin-id"])
@@ -1143,6 +1071,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e7449dfc"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-12688718"]]);
 
 export { Config as default };

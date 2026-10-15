@@ -4,13 +4,16 @@ import CoverField from './CoverField.vue'
 import { useCoverDesigner } from './useCoverDesigner'
 
 /**
- * 封面设计面板。
+ * 封面设计面板（单列 / 对齐 ChillPoster）。
  *
- * 结构：
- * - 左列（目标对象 + 风格参数）：选服务器/媒体库/风格，以及该风格的 schema 驱动参数；
- * - 右列（预览 + 模板 + 引擎通用 + 封面上传 + 字体）：视觉与资源相关的都放右侧，列更宽。
+ * 自上而下全部占满宽度：
+ * - 顶部工具条：刷新 / 生成预览 / 渲染并应用；
+ * - 预览横版：左侧合成结果，右侧参数摘要；
+ * - 模板预设横版：点卡片即载入；
+ * - 可折叠分组（点击展开/收起，头部右侧带一行关键值摘要）：
+ *   目标对象 → 布局分组 → 文字内容 → 其余布局分组 → 引擎通用 → 封面上传 → 字体。
  *
- * 主/副标题属于「目标对象」（跟随媒体库 / 用户输入），载入模板只套用风格参数。
+ * 主/副标题属于「文字内容」（跟随媒体库 / 用户输入），载入模板只套用风格参数。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -43,6 +46,9 @@ const templateInput = ref(null)
 const localImageInput = ref(null)
 const templateName = ref('')
 
+/** 默认只展开 1-2 组：目标对象 + 第一个布局分组（无布局分组时只展开目标对象）。 */
+const openSections = ref(['target', 'style-0'])
+
 function pick(reference) {
   const element = reference.value
   if (element) element.click()
@@ -65,6 +71,100 @@ function onLocalImagePicked(event) {
   event.target.value = ''
   if (file) designer.applyLocalImage(file)
 }
+
+const currentLayoutLabel = computed(() => {
+  const hit = designer.layoutItems.value.find(item => item.value === form.layout)
+  return hit ? hit.title : form.layout
+})
+
+const currentLibraryName = computed(() => {
+  const hit = designer.libraries.value.find(item => item.id === form.library_id)
+  return hit ? (hit.name || hit.id) : '未选媒体库'
+})
+
+const canvasLabel = computed(() => {
+  const width = Number(form.config.canvas_width || 0)
+  const height = Number(form.config.canvas_height || 0)
+  return width && height ? `${width} × ${height}` : '—'
+})
+
+/** 头部摘要：取前两个有值的可读参数，收起时也能一眼看到关键设置。 */
+function summarize(items) {
+  const readable = ['range', 'number', 'select', 'font', 'color']
+  const parts = []
+  for (const item of items || []) {
+    if (parts.length >= 2) break
+    if (!item || !readable.includes(item.type)) continue
+    const value = form.config[item.key]
+    if (value === undefined || value === null || value === '') continue
+    let text = String(value)
+    if (item.type === 'select' && Array.isArray(item.options)) {
+      const hit = item.options.find(option => String(option.value) === text)
+      if (hit) text = String(hit.label || text)
+    }
+    parts.push(`${item.label} ${text}`)
+  }
+  return parts.join(' · ') || '—'
+}
+
+/** 折叠分组清单：目标对象 → 布局分组 → 文字内容 → 其余布局分组 → 引擎通用 → 封面上传 → 字体。 */
+const blocks = computed(() => {
+  const list = []
+  list.push({
+    id: 'target',
+    kind: 'target',
+    icon: 'mdi-crosshairs-gps',
+    title: '目标对象',
+    summary: `${form.server || '未选服务器'} · ${currentLibraryName.value} · ${currentLayoutLabel.value}`,
+  })
+  const styles = styleGroups.value.filter(group => group.items.length)
+  if (styles.length) {
+    list.push({
+      id: 'style-0',
+      kind: 'style',
+      icon: 'mdi-image-multiple-outline',
+      title: styles[0].group,
+      summary: summarize(styles[0].items),
+      items: styles[0].items,
+    })
+  }
+  list.push({
+    id: 'content',
+    kind: 'content',
+    icon: 'mdi-format-text',
+    title: '文字内容',
+    summary: `${form.config.title || '—'} / ${form.config.subtitle || '—'}`,
+  })
+  styles.slice(1).forEach((group, index) => {
+    list.push({
+      id: `style-${index + 1}`,
+      kind: 'style',
+      icon: 'mdi-tune-variant',
+      title: group.group,
+      summary: summarize(group.items),
+      items: group.items,
+    })
+  })
+  if (engineGroup.value) {
+    list.push({
+      id: 'engine',
+      kind: 'engine',
+      icon: 'mdi-cog-outline',
+      title: engineGroup.value.group,
+      summary: summarize(engineGroup.value.items),
+      items: engineGroup.value.items,
+    })
+  }
+  list.push({ id: 'upload', kind: 'upload', icon: 'mdi-image-plus', title: '封面上传', summary: '成品图替换 / 应用当前预览' })
+  list.push({
+    id: 'fonts',
+    kind: 'fonts',
+    icon: 'mdi-format-font',
+    title: `字体（${designer.fonts.value.length}）`,
+    summary: '点击已装字体右侧 × 可删除',
+  })
+  return list
+})
 
 onMounted(designer.loadAll)
 
@@ -114,19 +214,111 @@ defineExpose({ snapshot })
       </div>
     </div>
 
-    <VAlert v-if="message" :type="messageOk ? 'success' : 'error'" variant="tonal" density="compact" class="mb-2">
+    <VAlert v-if="message" :type="messageOk ? 'success' : 'error'" variant="tonal" density="compact">
       {{ message }}
     </VAlert>
 
-    <div class="ec-cols">
-      <!-- 左：目标对象 + 风格参数 -->
-      <div class="ec-controls">
-        <VCard variant="tonal" class="ec-block">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">目标对象</VCardTitle>
-            <VCardSubtitle class="text-caption">主标题跟随库名、副标题自动用英文名（手填即记住该库），载入模板不会改它们</VCardSubtitle>
-          </VCardItem>
-          <VCardText class="ec-fields">
+    <!-- 预览：横版占满 -->
+    <VCard variant="tonal" class="ec-band">
+      <VCardItem class="py-2">
+        <VCardTitle class="text-subtitle-1">预览</VCardTitle>
+        <VCardSubtitle class="text-caption">横版占满 · 生成后可一键应用为当前媒体库封面</VCardSubtitle>
+        <template #append>
+          <VBtn
+            size="small"
+            variant="text"
+            prepend-icon="mdi-image-refresh"
+            :loading="designer.previewing.value"
+            @click="designer.previewCover"
+          >
+            生成
+          </VBtn>
+        </template>
+      </VCardItem>
+      <VCardText>
+        <VProgressLinear v-if="designer.previewing.value" indeterminate color="primary" height="2" class="mb-2" />
+        <div class="ec-preview-grid">
+          <div class="ec-preview-stage">
+            <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
+            <div v-else class="ec-placeholder">点击「生成」查看封面效果</div>
+          </div>
+          <ul class="ec-meta">
+            <li><span>布局</span><b>{{ currentLayoutLabel }}</b></li>
+            <li><span>媒体库</span><b>{{ form.config.title || '—' }}</b></li>
+            <li><span>条目数</span><b>{{ previewInfo.count || 0 }}</b></li>
+            <li><span>画布</span><b>{{ canvasLabel }}</b></li>
+          </ul>
+        </div>
+      </VCardText>
+    </VCard>
+
+    <!-- 模板预设：横版占满 -->
+    <VCard variant="tonal" class="ec-band">
+      <VCardItem class="py-2">
+        <VCardTitle class="text-subtitle-1">模板预设（{{ designer.templates.value.length }}）</VCardTitle>
+        <VCardSubtitle class="text-caption">横版占满 · 点击卡片即载入（仅套用风格参数，不改标题/副标题）</VCardSubtitle>
+        <template #append>
+          <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(templateInput)">上传</VBtn>
+        </template>
+      </VCardItem>
+      <VCardText>
+        <div class="ec-templates">
+          <div
+            v-for="template in designer.templates.value"
+            :key="template.filename"
+            class="ec-template"
+            :class="{ 'ec-template--active': template.layout === form.layout }"
+            role="button"
+            :title="`点击载入：${template.name || template.filename}`"
+            @click="designer.loadTemplate(template)"
+          >
+            <img
+              v-if="template.has_preview"
+              :src="designer.templatePreviewUrl(template)"
+              class="ec-template-thumb"
+              alt=""
+            />
+            <div v-else class="ec-template-noimg">{{ template.layout }}</div>
+            <VBtn
+              class="ec-template-del"
+              size="x-small"
+              icon
+              variant="text"
+              title="删除模板"
+              @click.stop="designer.deleteTemplate(template.filename)"
+            >
+              <VIcon icon="mdi-close" size="14" />
+            </VBtn>
+            <div class="ec-template-name">{{ template.name || template.filename }}</div>
+          </div>
+        </div>
+        <div class="ec-row-wrap mt-2">
+          <VTextField
+            v-model="templateName"
+            label="模板文件名"
+            placeholder="如 我的封面.json"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="ec-template-input"
+          />
+          <VBtn size="small" variant="tonal" :disabled="!templateName" @click="designer.saveTemplate(templateName)">
+            保存当前
+          </VBtn>
+        </div>
+      </VCardText>
+    </VCard>
+
+    <!-- 可折叠分组 -->
+    <VExpansionPanels v-model="openSections" variant="accordion" flat multiple class="ec-acc">
+      <VExpansionPanel v-for="block in blocks" :key="block.id" :value="block.id">
+        <template #title>
+          <VIcon :icon="block.icon" size="18" class="ec-acc-icon me-2" />
+          <span class="ec-acc-title">{{ block.title }}</span>
+          <span class="ec-acc-sum ms-auto">{{ block.summary }}</span>
+        </template>
+        <template #text>
+          <div v-if="block.kind === 'target'" class="ec-fields">
             <VSelect
               v-model="form.server"
               :items="serverItems"
@@ -162,6 +354,9 @@ defineExpose({ snapshot })
               variant="outlined"
               hide-details
             />
+          </div>
+
+          <div v-else-if="block.kind === 'content'" class="ec-fields">
             <VTextField
               v-model="form.config.title"
               label="主标题内容"
@@ -177,129 +372,29 @@ defineExpose({ snapshot })
               hide-details
               @update:model-value="designer.onSubtitleEdited"
             />
-          </VCardText>
-        </VCard>
+            <div class="text-caption text-medium-emphasis ec-span">
+              主标题跟随所选媒体库，副标题自动取英文名（手填即记住该库），载入模板不会改它们。
+            </div>
+          </div>
 
-        <VCard v-for="(group, index) in styleGroups" :key="index" variant="tonal" class="ec-block">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">{{ group.group }}</VCardTitle>
-          </VCardItem>
-          <VCardText class="ec-fields">
+          <div v-else-if="block.kind === 'style' || block.kind === 'engine'" class="ec-fields">
             <CoverField
-              v-for="item in group.items"
+              v-for="item in block.items"
               :key="item.key"
               :item="item"
               :config="form.config"
               :fonts="designer.fontItems.value"
             />
-          </VCardText>
-        </VCard>
-      </div>
+          </div>
 
-      <!-- 右：预览 + 模板预设 + 引擎通用 + 封面上传 + 字体 -->
-      <div class="ec-preview-side">
-        <VCard variant="tonal" class="ec-preview-card">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">预览</VCardTitle>
-            <template #append>
-              <VBtn
-                size="small"
-                variant="text"
-                prepend-icon="mdi-image-refresh"
-                :loading="designer.previewing.value"
-                @click="designer.previewCover"
-              >
-                生成
-              </VBtn>
-            </template>
-          </VCardItem>
-          <VCardText class="ec-preview-body">
-            <VProgressLinear v-if="designer.previewing.value" indeterminate color="primary" height="2" />
-            <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
-            <div v-else class="ec-placeholder">点击「生成」查看封面效果</div>
-            <div v-if="previewInfo.title" class="text-caption">
-              {{ previewInfo.title }}<span v-if="previewInfo.count"> · {{ previewInfo.count }} 部</span>
-            </div>
-          </VCardText>
-        </VCard>
-
-        <VCard variant="tonal" class="ec-block mt-2">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">模板预设（{{ designer.templates.value.length }}）</VCardTitle>
-            <VCardSubtitle class="text-caption">点击卡片即载入（仅套用风格参数，不改标题/副标题）</VCardSubtitle>
-            <template #append>
-              <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(templateInput)">上传</VBtn>
-            </template>
-          </VCardItem>
-          <VCardText>
-            <div class="ec-templates">
-              <div
-                v-for="template in designer.templates.value"
-                :key="template.filename"
-                class="ec-template"
-                :class="{ 'ec-template--active': template.layout === form.layout }"
-                role="button"
-                :title="`点击载入：${template.name || template.filename}`"
-                @click="designer.loadTemplate(template)"
-              >
-                <img
-                  v-if="template.has_preview"
-                  :src="designer.templatePreviewUrl(template)"
-                  class="ec-template-thumb"
-                  alt=""
-                />
-                <div v-else class="ec-template-noimg">{{ template.layout }}</div>
-                <VBtn
-                  class="ec-template-del"
-                  size="x-small"
-                  icon
-                  variant="text"
-                  title="删除模板"
-                  @click.stop="designer.deleteTemplate(template.filename)"
-                >
-                  <VIcon icon="mdi-close" size="14" />
-                </VBtn>
-                <div class="ec-template-name">{{ template.name || template.filename }}</div>
-              </div>
-            </div>
-            <div class="ec-row-wrap mt-2">
-              <VTextField
-                v-model="templateName"
-                label="模板文件名"
-                placeholder="如 我的封面.json"
-                density="compact"
-                variant="outlined"
-                hide-details
-                class="ec-template-input"
-              />
-              <VBtn size="small" variant="tonal" :disabled="!templateName" @click="designer.saveTemplate(templateName)">
-                保存当前
-              </VBtn>
-            </div>
-          </VCardText>
-        </VCard>
-
-        <VCard v-if="engineGroup" variant="tonal" class="ec-block mt-2">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">{{ engineGroup.group }}</VCardTitle>
-          </VCardItem>
-          <VCardText class="ec-fields">
-            <CoverField
-              v-for="item in engineGroup.items"
-              :key="item.key"
-              :item="item"
-              :config="form.config"
-              :fonts="designer.fontItems.value"
-            />
-          </VCardText>
-        </VCard>
-
-        <VCard variant="tonal" class="ec-block mt-2">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">封面上传</VCardTitle>
-          </VCardItem>
-          <VCardText class="ec-row-wrap">
-            <VBtn size="small" variant="tonal" prepend-icon="mdi-image" :loading="designer.applying.value" @click="pick(localImageInput)">
+          <div v-else-if="block.kind === 'upload'" class="ec-row-wrap">
+            <VBtn
+              size="small"
+              variant="tonal"
+              prepend-icon="mdi-image"
+              :loading="designer.applying.value"
+              @click="pick(localImageInput)"
+            >
               选择本地封面（直接替换）
             </VBtn>
             <VBtn
@@ -312,36 +407,27 @@ defineExpose({ snapshot })
             >
               应用当前预览图
             </VBtn>
-          </VCardText>
-        </VCard>
+          </div>
 
-        <VCard variant="tonal" class="ec-block mt-2">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">字体（{{ designer.fonts.value.length }}）</VCardTitle>
-            <template #append>
-              <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(fontInput)">上传</VBtn>
-            </template>
-          </VCardItem>
-          <VCardText>
-            <div class="ec-chips">
-              <VChip
-                v-for="name in designer.fonts.value"
-                :key="name"
-                size="small"
-                variant="tonal"
-                closable
-                @click:close="designer.deleteFont(name)"
-              >
-                {{ name }}
-              </VChip>
-              <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
-                未上传字体（中文会回退为方块），请先上传 .ttf/.otf
-              </span>
-            </div>
-          </VCardText>
-        </VCard>
-      </div>
-    </div>
+          <div v-else-if="block.kind === 'fonts'" class="ec-chips">
+            <VChip
+              v-for="name in designer.fonts.value"
+              :key="name"
+              size="small"
+              variant="tonal"
+              closable
+              @click:close="designer.deleteFont(name)"
+            >
+              {{ name }}
+            </VChip>
+            <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
+              未上传字体（中文会回退为方块），请先上传 .ttf/.otf
+            </span>
+            <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(fontInput)">上传字体</VBtn>
+          </div>
+        </template>
+      </VExpansionPanel>
+    </VExpansionPanels>
 
     <input ref="fontInput" type="file" accept=".ttf,.otf,.ttc" class="ec-hidden" @change="onFontPicked" />
     <input ref="templateInput" type="file" accept=".json" class="ec-hidden" @change="onTemplatePicked" />
@@ -353,7 +439,7 @@ defineExpose({ snapshot })
 .ec-cover {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
 }
 .ec-toolbar {
@@ -376,25 +462,95 @@ defineExpose({ snapshot })
   align-items: center;
   gap: 6px;
 }
-.ec-cols {
+.ec-band {
+  border-radius: 10px;
+}
+.ec-preview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
-.ec-controls {
+.ec-preview-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  overflow: hidden;
+}
+.ec-preview {
+  width: 100%;
+  max-height: 46vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.ec-placeholder {
+  padding: 24px;
+  font-size: 13px;
+  opacity: 0.6;
+  text-align: center;
+}
+.ec-meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-width: 0;
+  gap: 6px;
 }
-.ec-block {
+.ec-meta li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+.ec-meta span {
+  font-size: 12px;
+  opacity: 0.65;
+}
+.ec-meta b {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ec-acc {
+  background: transparent;
+}
+.ec-acc-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ec-acc-sum {
+  max-width: 46%;
+  font-size: 12px;
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:deep(.v-expansion-panel) {
   border-radius: 10px;
+}
+:deep(.v-expansion-panel-title) {
+  min-height: 44px;
+}
+.ec-acc-icon {
+  color: rgb(var(--v-theme-primary));
 }
 .ec-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 12px;
+}
+.ec-span {
+  grid-column: 1 / -1;
 }
 .ec-row-wrap {
   display: flex;
@@ -402,38 +558,10 @@ defineExpose({ snapshot })
   align-items: center;
   gap: 8px;
 }
-.ec-preview-side {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.ec-preview-card {
-  min-height: 220px;
-  border-radius: 10px;
-}
-.ec-preview-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-.ec-preview {
-  width: 100%;
-  max-height: 40vh;
-  object-fit: contain;
-  border-radius: 8px;
-}
-.ec-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 180px;
-  font-size: 13px;
-  opacity: 0.6;
-}
 .ec-chips {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 .ec-templates {
@@ -494,14 +622,14 @@ defineExpose({ snapshot })
 .ec-hidden {
   display: none;
 }
-@media (max-width: 1100px) {
-  .ec-cols {
-    grid-template-columns: 1fr;
+@media (max-width: 900px) {
+  .ec-preview-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 760px) {
   .ec-fields {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

@@ -1301,6 +1301,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-41deeb24"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-da385e61"]]);
 
 export { CoverDesignPane as C };

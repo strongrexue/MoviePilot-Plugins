@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { C as CoverDesignPane } from './CoverDesignPane-ww6oVgzK.js';
+import { C as CoverDesignPane } from './CoverDesignPane-C8ocoEs1.js';
 import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc, g as getPluginConfig } from './api-VNFYmuQY.js';
-import { F as FRONTEND_VERSION } from './version-DMC8q08t.js';
+import { F as FRONTEND_VERSION } from './version-CSx8D4qT.js';
 
 /**
  * Emby 计划任务中心的前端状态与动作。

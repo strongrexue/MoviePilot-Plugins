@@ -773,6 +773,17 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
 
 > M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
 
+## v1.4.5（分组底色与模板预设完全对齐）
+
+- 查明「模板预设」tonal 卡片的底色配方：VCard `variant="tonal"` = 文字色（on-surface）@
+  `--v-activated-opacity`（12%）铺在页面背景上——1.4.4 手调的 7%/9% 与之存在色差；
+- [CoverDesignPane.vue](file:///d:/projects/MoviePilot-Plugins/plugins.v3/embycovercenter/src/components/cover/CoverDesignPane.vue)
+  分组底色改用同一配方（收起 12%，展开 15% + 品牌色描边保留层级区分）；
+- 标题行回退 44px、字号回退默认（1.4.4 的加高/放大撤销）；
+- 组间距 12px → 10px，对齐 `.ec-cover` 容器里预览/模板预设区块间的 10px gap。
+
+- 验收：`npm run build` + 联邦 CSS 门禁 + 插件版本门禁通过；四处版本同步（1.4.5）。
+
 ## v1.4.4（封面设计收起态分组边界增强）
 
 真机反馈：任务中心分类卡片区分明显，封面设计的分组"还是没区分开"。

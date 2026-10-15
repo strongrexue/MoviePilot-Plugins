@@ -506,7 +506,6 @@ defineExpose({ snapshot })
 }
 .ec-acc-title {
   font-weight: 600;
-  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -519,28 +518,29 @@ defineExpose({ snapshot })
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 每个分组独立成卡片（对齐模板预设卡片的观感），组间留空隙；
-   收起态只有一行标题，底色/描边必须足够明显才能在深色主题下分出边界 */
+/* 每个分组独立成卡片，底色与「预览 / 模板预设」tonal 卡片完全一致
+   （VCard variant=tonal = currentColor @ --v-activated-opacity 0.12 铺在页面背景上）；
+   组间距对齐 .ec-cover 的 10px gap；展开态底色略深 + 品牌色描边作层级区分 */
 :deep(.v-expansion-panel) {
   border-radius: 12px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  background: rgba(var(--v-theme-on-surface), 0.07);
+  background: rgba(var(--v-theme-on-surface), 0.12);
   overflow: hidden;
   isolation: isolate;
   transition: background 0.15s, border-color 0.15s;
 }
 :deep(.v-expansion-panel + .v-expansion-panel) {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 :deep(.v-expansion-panel:not(.v-expansion-panel--active):hover) {
   border-color: rgba(var(--v-theme-primary), 0.45);
 }
 :deep(.v-expansion-panel--active) {
-  background: rgba(var(--v-theme-on-surface), 0.09);
+  background: rgba(var(--v-theme-on-surface), 0.15);
   border-color: rgba(var(--v-theme-primary), 0.35);
 }
 :deep(.v-expansion-panel-title) {
-  min-height: 52px;
+  min-height: 44px;
 }
 :deep(.v-expansion-panel-title--active) {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));

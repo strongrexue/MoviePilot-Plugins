@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 
 /**
@@ -48,6 +48,7 @@ async function load() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'cover_backups')) || {}
     backups.value = Array.isArray(data.backups) ? data.backups : []
+    loadThumbs()
   } catch (err) {
     error.value = err?.message || '读取备份列表失败'
     backups.value = []
@@ -55,6 +56,33 @@ async function load() {
     loading.value = false
   }
 }
+
+/** 并发拉取各版本缩略图（列表先出、缩略图后补，失败静默留空）。 */
+function loadThumbs() {
+  for (const item of backups.value) {
+    for (const version of item.versions) {
+      postPluginApi(props.api, props.pluginId, 'cover_backup/thumb', {
+        server: item.server,
+        library_id: item.library_id,
+        timestamp: version.timestamp,
+      })
+        .then(data => {
+          version.thumb = unwrap(data)?.image || ''
+        })
+        .catch(() => {
+          version.thumb = ''
+        })
+    }
+  }
+}
+
+/** 恢复确认弹窗里展示的目标缩略图。 */
+const pendingThumb = computed(() => {
+  if (!pending.value) return ''
+  const stamp = pending.value.timestamp || pending.value.item.versions[0]?.timestamp || ''
+  const found = pending.value.item.versions.find(version => version.timestamp === stamp)
+  return found?.thumb || ''
+})
 
 async function restore(item, timestamp) {
   const key = `${item.server}/${item.library_id}/${timestamp || 'latest'}`
@@ -95,7 +123,7 @@ onMounted(load)
 <template>
   <VDialog
     :model-value="props.modelValue"
-    max-width="640"
+    max-width="760"
     scrollable
     @update:model-value="value => emit('update:modelValue', value)"
   >
@@ -123,29 +151,35 @@ onMounted(load)
             <span class="text-subtitle-2">{{ item.server }} · {{ item.library_name }}</span>
           </div>
           <div class="ec-bk-versions">
-            <VChip
+            <div
               v-for="version in item.versions"
               :key="version.filename"
-              size="small"
-              variant="tonal"
-              color="primary"
-              class="ma-1"
-              :disabled="!!restoring"
+              class="ec-bk-ver"
+              :class="{ 'ec-bk-ver--busy': restoring === `${item.server}/${item.library_id}/${version.timestamp}` }"
+              role="button"
+              title="点击恢复该版本"
               @click="openRestore(item, version.timestamp)"
             >
-              <VProgressCircular v-if="restoring === `${item.server}/${item.library_id}/${version.timestamp}`" size="12" width="2" indeterminate class="mr-1" />
-              {{ formatStamp(version.timestamp) }} · {{ formatSize(version.size) }}
-            </VChip>
-            <VChip
+              <div class="ec-bk-thumb">
+                <img v-if="version.thumb" :src="version.thumb" alt="" />
+                <VProgressCircular v-else size="14" width="2" indeterminate />
+              </div>
+              <div class="ec-bk-stamp">{{ formatStamp(version.timestamp) }}</div>
+              <div class="ec-bk-size">{{ formatSize(version.size) }}</div>
+            </div>
+            <div
               v-if="item.versions.length > 1"
-              size="small"
-              variant="outlined"
-              class="ma-1"
-              :disabled="!!restoring"
+              class="ec-bk-ver"
+              role="button"
+              title="恢复到最新一版备份"
               @click="openRestore(item, item.versions[0].timestamp)"
             >
-              恢复最新
-            </VChip>
+              <div class="ec-bk-thumb">
+                <VIcon icon="mdi-restore" size="20" class="text-medium-emphasis" />
+              </div>
+              <div class="ec-bk-stamp">恢复最新</div>
+              <div class="ec-bk-size">{{ formatStamp(item.versions[0].timestamp) }}</div>
+            </div>
           </div>
         </div>
       </VCardText>
@@ -164,6 +198,9 @@ onMounted(load)
         <VCardText class="text-body-2">
           将把「{{ pending.item.server }} · {{ pending.item.library_name }}」的封面恢复为
           {{ pending.label }} 的备份，会覆盖 Emby 里的当前封面。确定恢复吗？
+          <div v-if="pendingThumb" class="ec-bk-confirm-thumb">
+            <img :src="pendingThumb" alt="待恢复封面" />
+          </div>
         </VCardText>
         <VCardActions>
           <VSpacer />
@@ -186,10 +223,66 @@ onMounted(load)
   padding: 8px 10px;
   background: rgba(var(--v-theme-primary), 0.04);
 }
-.ec-bk .ec-bk-versions .v-chip {
-  cursor: pointer;
+/* 版本卡片：缩略图 + 日期 + 大小，点击弹出恢复确认 */
+.ec-bk .ec-bk-versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.ec-bk .ec-bk-versions .v-chip:hover {
+.ec-bk .ec-bk-ver {
+  width: 118px;
+  padding: 4px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  transition: border-color 0.15s, filter 0.15s;
+}
+.ec-bk .ec-bk-ver:hover {
+  border-color: rgba(var(--v-theme-primary), 0.55);
   filter: brightness(1.06);
+}
+.ec-bk .ec-bk-ver--busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.ec-bk .ec-bk-thumb {
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+}
+.ec-bk .ec-bk-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ec-bk .ec-bk-stamp {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ec-bk .ec-bk-size {
+  font-size: 10px;
+  opacity: 0.6;
+}
+/* 恢复确认弹窗里的目标封面小图 */
+.ec-bk-confirm-thumb {
+  margin-top: 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 240px;
+}
+.ec-bk-confirm-thumb img {
+  width: 100%;
+  display: block;
 }
 </style>

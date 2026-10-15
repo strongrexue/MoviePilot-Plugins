@@ -21,6 +21,8 @@ from .emby_gateway import GatewayError
 BACKUP_KEEP = 3
 # 备份目录名（位于插件数据目录下）。
 BACKUP_DIRNAME = "backups"
+# 缩略图高度（备份管理列表展示用）。
+THUMB_HEIGHT = 120
 
 
 def backups_root(plugin) -> Path:
@@ -148,6 +150,43 @@ def list_backups(plugin) -> List[Dict[str, Any]]:
     return result
 
 
+def _resolve_backup_path(plugin, server: str, library_id: str, timestamp: str = "") -> Optional[Path]:
+    """定位备份文件：timestamp 非空找指定版，否则取最新一版；不存在返回 None。"""
+    directory = _library_dir(plugin, server, library_id)
+    if timestamp:
+        candidate = directory / f"{timestamp}.jpg"
+        return candidate if candidate.exists() else None
+    versions = sorted(directory.glob("*.jpg"), reverse=True)
+    return versions[0] if versions else None
+
+
+def backup_thumb(plugin, server: str, library_id: str, timestamp: str = "") -> Optional[str]:
+    """返回备份封面的缩略图 data URI（JPEG）；备份不存在或解码失败返回 None。
+
+    备份原图 200~500 KB，列表里每库 3 版，缩略图（高 120）单张仅几 KB，
+    打开备份弹窗一次性拉取也轻量。
+    """
+    image_path = _resolve_backup_path(plugin, server, library_id, timestamp)
+    if image_path is None:
+        return None
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(image_path) as image:
+            rgb = image.convert("RGB")
+            width = max(1, round(rgb.width * THUMB_HEIGHT / rgb.height))
+            thumb = rgb.resize((width, THUMB_HEIGHT))
+            buffer = BytesIO()
+            thumb.save(buffer, format="JPEG", quality=82)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+    except Exception as error:  # 缩略图只是展示辅助，失败不拖垮列表
+        logger.warning(f"[EmbyCoverCenter] 生成备份缩略图失败 {server}/{library_id}/{timestamp or 'latest'}：{error}")
+        return None
+
+
 def restore_library(plugin, server: str, library_id: str, timestamp: str = "") -> None:
     """把备份封面写回媒体库 Primary；timestamp 为空用最新一版。
 
@@ -156,14 +195,7 @@ def restore_library(plugin, server: str, library_id: str, timestamp: str = "") -
     """
     from .render_engine import PosterEngine
 
-    directory = _library_dir(plugin, server, library_id)
-    image_path: Optional[Path] = None
-    if timestamp:
-        candidate = directory / f"{timestamp}.jpg"
-        image_path = candidate if candidate.exists() else None
-    else:
-        versions = sorted(directory.glob("*.jpg"), reverse=True)
-        image_path = versions[0] if versions else None
+    image_path = _resolve_backup_path(plugin, server, library_id, timestamp)
     if image_path is None:
         raise ValueError("备份不存在或已被清理")
     ref = emby_gateway.resolve(server)

@@ -210,10 +210,10 @@ def test_run_auto_cover_renders_and_notifies(monkeypatch, tmp_path):
     assert drawn_assets == {"posters": []}
     assert len(plugin.posted) == 1
     title, text = plugin.posted[0]
-    assert "自动封面任务" in title
+    assert "胖虎封面中心" in title
     assert "成功 1" in text
     # 标题不重复进正文（post_message 的 title 已单独展示）
-    assert not text.splitlines()[0].startswith(("✅ 自动封面任务", "⚠️ 自动封面任务", "❌ 自动封面任务"))
+    assert not text.splitlines()[0].startswith(("✅ 胖虎封面中心", "⚠️ 胖虎封面中心", "❌ 胖虎封面中心"))
 
 
 def test_run_auto_cover_prefers_manual_english_name(monkeypatch, tmp_path):

@@ -62,6 +62,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/auto_cover/run", plugin.api_auto_cover_run, ["POST"], "立即运行自动封面任务"),
         ("/cover_backups", plugin.api_cover_backups, ["GET"], "获取封面备份列表"),
         ("/cover_backup/restore", plugin.api_cover_backup_restore, ["POST"], "从备份恢复媒体库封面"),
+        ("/cover_backup/thumb", plugin.api_cover_backup_thumb, ["POST"], "获取备份封面缩略图"),
     ]
     routes: List[Dict[str, Any]] = [
         {
@@ -419,6 +420,12 @@ def api_cover_backup_restore(plugin, request: api_schemas.CoverBackupRestoreRequ
         return {"status": "success", "message": "封面已从备份恢复"}
 
     return _to_response(_guard(_run), api_schemas.EmbyActionData)
+
+
+def api_cover_backup_thumb(plugin, request: api_schemas.CoverBackupRestoreRequest):
+    """返回备份封面缩略图（data URI）。"""
+    image = cover_backup.backup_thumb(plugin, request.server, request.library_id, request.timestamp or "")
+    return _to_response({"image": image or ""}, api_schemas.CoverBackupThumbData)
 
 
 def api_asset_font(plugin, name: str):

@@ -159,3 +159,48 @@ def test_fix_known_template_bugs(tmp_path):
     assert patched["config"]["title"] == "x"  # 其余字段不丢
     untouched = json.loads((templates / "动态平铺.json").read_text(encoding="utf-8"))
     assert untouched["config"]["font_title"] == "我的字体.ttf"
+
+
+def test_anim_fast_path_matches_frame_by_frame_render(tmp_path, monkeypatch):
+    """render_anim 快速通道应与逐帧 render() 视觉一致（动画帧间只有海报水平偏移变化）。"""
+    from PIL import Image, ImageChops
+
+    engine = _make_engine(tmp_path, fonts=("优设标题黑.ttf",))
+    colors = [(120, 160, 90), (90, 120, 200), (200, 90, 90)]
+
+    def fake_download(url):
+        if not url:
+            return None
+        idx = int(url.rsplit("p", 1)[-1]) % len(colors)
+        return Image.new("RGB", (200, 300), colors[idx])
+
+    monkeypatch.setattr(engine, "download_img", fake_download)
+    config = {
+        "engine": "经典平铺(动态)",
+        "title": "电影",
+        "subtitle": "Movies",
+        "canvas_width": 480,
+        "canvas_height": 270,
+        "poster_count": 5,
+        "backdrop_count": 0,
+        "enable_animation": True,
+        "anim_frames": 12,
+        "anim_duration": 33,
+        "badge_style": "none",
+    }
+    assets = {"posters": [f"http://p{i}" for i in range(5)], "count": 0}
+    fonts = {"main": engine.load_font(None, 30), "sub": engine.load_font(None, 20), "count": engine.load_font(None, 16)}
+
+    fast = []
+    render = engine.layout_modules["经典平铺(动态)"]
+    render.render_anim(engine, config, assets, fonts, sink=fast.append)
+
+    slow = []
+    for index in range(12):
+        step = index / float(11)
+        slow.append(engine._render_frame(config, assets, fonts, step=step))
+
+    assert len(fast) == len(slow) == 12
+    for a, b in zip(fast, slow):
+        bbox = ImageChops.difference(a.convert("RGB"), b.convert("RGB")).getbbox()
+        assert bbox is None  # 逐帧像素完全一致

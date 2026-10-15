@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { u as unwrap, a as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-BGiM_AXo.js';
 
-const {toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$1,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,normalizeClass:_normalizeClass,withModifiers:_withModifiers,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
+const {toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$1,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,normalizeClass:_normalizeClass$1,withModifiers:_withModifiers,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
 
 const _hoisted_1$2 = { class: "ec-acl" };
@@ -11,22 +11,22 @@ const _hoisted_4$1 = {
   key: 0,
   class: "text-caption text-medium-emphasis"
 };
-const _hoisted_5 = ["onClick"];
-const _hoisted_6 = { class: "ec-acl-name" };
-const _hoisted_7 = { class: "ec-acl-count" };
-const _hoisted_8 = { class: "ec-acl-grid" };
-const _hoisted_9 = ["disabled", "onClick"];
-const _hoisted_10 = { class: "ec-acl-chip-text" };
-const _hoisted_11 = {
+const _hoisted_5$1 = ["onClick"];
+const _hoisted_6$1 = { class: "ec-acl-name" };
+const _hoisted_7$1 = { class: "ec-acl-count" };
+const _hoisted_8$1 = { class: "ec-acl-grid" };
+const _hoisted_9$1 = ["disabled", "onClick"];
+const _hoisted_10$1 = { class: "ec-acl-chip-text" };
+const _hoisted_11$1 = {
   key: 0,
   class: "text-caption text-error ec-acl-error"
 };
-const _hoisted_12 = {
+const _hoisted_12$1 = {
   key: 1,
   class: "text-caption text-medium-emphasis ec-acl-error"
 };
 
-const {computed: computed$1,onMounted: onMounted$2,reactive: reactive$1,ref: ref$2,watch} = await importShared('vue');
+const {computed: computed$2,onMounted: onMounted$2,reactive: reactive$1,ref: ref$2,watch} = await importShared('vue');
 
 /**
  * 自动封面目标媒体库选择（ChillPoster 风格）：
@@ -54,7 +54,7 @@ const sections = ref$2([]);
 const loading = ref$2(false);
 const open = reactive$1({});
 
-const selectedTotal = computed$1(() =>
+const selectedTotal = computed$2(() =>
   Object.values(props.modelValue || {}).reduce(
     (sum, list) => sum + (Array.isArray(list) ? list.length : 0),
     0,
@@ -192,10 +192,10 @@ return (_ctx, _cache) => {
           _createVNode$2(_component_VIcon, {
             icon: "mdi-chevron-down",
             size: "18",
-            class: _normalizeClass(["ec-acl-caret", { 'ec-acl-caret--closed': !open[section.name] }])
+            class: _normalizeClass$1(["ec-acl-caret", { 'ec-acl-caret--closed': !open[section.name] }])
           }, null, 8, ["class"]),
-          _createElementVNode$2("span", _hoisted_6, _toDisplayString$2(section.name), 1),
-          _createElementVNode$2("span", _hoisted_7, _toDisplayString$2(countSelected(section)) + "/" + _toDisplayString$2(section.libraries.length), 1),
+          _createElementVNode$2("span", _hoisted_6$1, _toDisplayString$2(section.name), 1),
+          _createElementVNode$2("span", _hoisted_7$1, _toDisplayString$2(countSelected(section)) + "/" + _toDisplayString$2(section.libraries.length), 1),
           _createVNode$2(_component_VCheckboxBtn, {
             "model-value": allSelected(section),
             indeterminate: countSelected(section) > 0 && !allSelected(section),
@@ -206,13 +206,13 @@ return (_ctx, _cache) => {
             onClick: _cache[0] || (_cache[0] = _withModifiers(() => {}, ["stop"])),
             "onUpdate:modelValue": $event => (toggleSection(section))
           }, null, 8, ["model-value", "indeterminate", "disabled", "onUpdate:modelValue"])
-        ], 8, _hoisted_5),
-        _withDirectives(_createElementVNode$2("div", _hoisted_8, [
+        ], 8, _hoisted_5$1),
+        _withDirectives(_createElementVNode$2("div", _hoisted_8$1, [
           (_openBlock$2(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(section.libraries, (library) => {
             return (_openBlock$2(), _createElementBlock$1("button", {
               key: library.id,
               type: "button",
-              class: _normalizeClass(["ec-acl-chip", { 'ec-acl-chip--on': isSelected(section.name, library.id) }]),
+              class: _normalizeClass$1(["ec-acl-chip", { 'ec-acl-chip--on': isSelected(section.name, library.id) }]),
               disabled: props.disabled,
               onClick: $event => (toggle(section.name, library.id))
             }, [
@@ -220,13 +220,13 @@ return (_ctx, _cache) => {
                 icon: isSelected(section.name, library.id) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline',
                 size: "14"
               }, null, 8, ["icon"]),
-              _createElementVNode$2("span", _hoisted_10, _toDisplayString$2(library.name || library.id), 1)
-            ], 10, _hoisted_9))
+              _createElementVNode$2("span", _hoisted_10$1, _toDisplayString$2(library.name || library.id), 1)
+            ], 10, _hoisted_9$1))
           }), 128)),
           (section.error)
-            ? (_openBlock$2(), _createElementBlock$1("div", _hoisted_11, _toDisplayString$2(section.error), 1))
+            ? (_openBlock$2(), _createElementBlock$1("div", _hoisted_11$1, _toDisplayString$2(section.error), 1))
             : (!section.libraries.length)
-              ? (_openBlock$2(), _createElementBlock$1("div", _hoisted_12, " 该服务器暂无媒体库 "))
+              ? (_openBlock$2(), _createElementBlock$1("div", _hoisted_12$1, " 该服务器暂无媒体库 "))
               : _createCommentVNode$2("", true)
         ], 512), [
           [_vShow, open[section.name]]
@@ -239,7 +239,7 @@ return (_ctx, _cache) => {
 
 };
 
-const {createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,createElementVNode:_createElementVNode$1} = await importShared('vue');
+const {createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,toDisplayString:_toDisplayString$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment,createElementVNode:_createElementVNode$1,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
 const _hoisted_1$1 = {
@@ -249,8 +249,21 @@ const _hoisted_1$1 = {
 const _hoisted_2 = { class: "d-flex align-center mb-1" };
 const _hoisted_3 = { class: "text-subtitle-2" };
 const _hoisted_4 = { class: "ec-bk-versions" };
+const _hoisted_5 = ["onClick"];
+const _hoisted_6 = { class: "ec-bk-thumb" };
+const _hoisted_7 = ["src"];
+const _hoisted_8 = { class: "ec-bk-stamp" };
+const _hoisted_9 = { class: "ec-bk-size" };
+const _hoisted_10 = ["onClick"];
+const _hoisted_11 = { class: "ec-bk-thumb" };
+const _hoisted_12 = { class: "ec-bk-size" };
+const _hoisted_13 = {
+  key: 0,
+  class: "ec-bk-confirm-thumb"
+};
+const _hoisted_14 = ["src"];
 
-const {onMounted: onMounted$1,ref: ref$1} = await importShared('vue');
+const {computed: computed$1,onMounted: onMounted$1,ref: ref$1} = await importShared('vue');
 
 /**
  * 封面备份管理：按服务器分节列出各媒体库的备份版本，支持恢复（指定版本或最新）。
@@ -305,6 +318,7 @@ async function load() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'cover_backups')) || {};
     backups.value = Array.isArray(data.backups) ? data.backups : [];
+    loadThumbs();
   } catch (err) {
     error.value = err?.message || '读取备份列表失败';
     backups.value = [];
@@ -312,6 +326,33 @@ async function load() {
     loading.value = false;
   }
 }
+
+/** 并发拉取各版本缩略图（列表先出、缩略图后补，失败静默留空）。 */
+function loadThumbs() {
+  for (const item of backups.value) {
+    for (const version of item.versions) {
+      postPluginApi(props.api, props.pluginId, 'cover_backup/thumb', {
+        server: item.server,
+        library_id: item.library_id,
+        timestamp: version.timestamp,
+      })
+        .then(data => {
+          version.thumb = unwrap(data)?.image || '';
+        })
+        .catch(() => {
+          version.thumb = '';
+        });
+    }
+  }
+}
+
+/** 恢复确认弹窗里展示的目标缩略图。 */
+const pendingThumb = computed$1(() => {
+  if (!pending.value) return ''
+  const stamp = pending.value.timestamp || pending.value.item.versions[0]?.timestamp || '';
+  const found = pending.value.item.versions.find(version => version.timestamp === stamp);
+  return found?.thumb || ''
+});
 
 async function restore(item, timestamp) {
   const key = `${item.server}/${item.library_id}/${timestamp || 'latest'}`;
@@ -357,7 +398,6 @@ return (_ctx, _cache) => {
   const _component_VAlert = _resolveComponent$1("VAlert");
   const _component_VIcon = _resolveComponent$1("VIcon");
   const _component_VProgressCircular = _resolveComponent$1("VProgressCircular");
-  const _component_VChip = _resolveComponent$1("VChip");
   const _component_VCardText = _resolveComponent$1("VCardText");
   const _component_VCard = _resolveComponent$1("VCard");
   const _component_VSpacer = _resolveComponent$1("VSpacer");
@@ -366,7 +406,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$1(), _createBlock$1(_component_VDialog, {
     "model-value": props.modelValue,
-    "max-width": "640",
+    "max-width": "760",
     scrollable: "",
     "onUpdate:modelValue": _cache[2] || (_cache[2] = value => emit('update:modelValue', value))
   }, {
@@ -454,44 +494,49 @@ return (_ctx, _cache) => {
                   ]),
                   _createElementVNode$1("div", _hoisted_4, [
                     (_openBlock$1(true), _createElementBlock(_Fragment, null, _renderList(item.versions, (version) => {
-                      return (_openBlock$1(), _createBlock$1(_component_VChip, {
+                      return (_openBlock$1(), _createElementBlock("div", {
                         key: version.filename,
-                        size: "small",
-                        variant: "tonal",
-                        color: "primary",
-                        class: "ma-1",
-                        disabled: !!restoring.value,
+                        class: _normalizeClass(["ec-bk-ver", { 'ec-bk-ver--busy': restoring.value === `${item.server}/${item.library_id}/${version.timestamp}` }]),
+                        role: "button",
+                        title: "点击恢复该版本",
                         onClick: $event => (openRestore(item, version.timestamp))
-                      }, {
-                        default: _withCtx$1(() => [
-                          (restoring.value === `${item.server}/${item.library_id}/${version.timestamp}`)
-                            ? (_openBlock$1(), _createBlock$1(_component_VProgressCircular, {
+                      }, [
+                        _createElementVNode$1("div", _hoisted_6, [
+                          (version.thumb)
+                            ? (_openBlock$1(), _createElementBlock("img", {
                                 key: 0,
-                                size: "12",
+                                src: version.thumb,
+                                alt: ""
+                              }, null, 8, _hoisted_7))
+                            : (_openBlock$1(), _createBlock$1(_component_VProgressCircular, {
+                                key: 1,
+                                size: "14",
                                 width: "2",
-                                indeterminate: "",
-                                class: "mr-1"
+                                indeterminate: ""
                               }))
-                            : _createCommentVNode$1("", true),
-                          _createTextVNode$1(" " + _toDisplayString$1(formatStamp(version.timestamp)) + " · " + _toDisplayString$1(formatSize(version.size)), 1)
                         ]),
-                        _: 2
-                      }, 1032, ["disabled", "onClick"]))
+                        _createElementVNode$1("div", _hoisted_8, _toDisplayString$1(formatStamp(version.timestamp)), 1),
+                        _createElementVNode$1("div", _hoisted_9, _toDisplayString$1(formatSize(version.size)), 1)
+                      ], 10, _hoisted_5))
                     }), 128)),
                     (item.versions.length > 1)
-                      ? (_openBlock$1(), _createBlock$1(_component_VChip, {
+                      ? (_openBlock$1(), _createElementBlock("div", {
                           key: 0,
-                          size: "small",
-                          variant: "outlined",
-                          class: "ma-1",
-                          disabled: !!restoring.value,
+                          class: "ec-bk-ver",
+                          role: "button",
+                          title: "恢复到最新一版备份",
                           onClick: $event => (openRestore(item, item.versions[0].timestamp))
-                        }, {
-                          default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
-                            _createTextVNode$1(" 恢复最新 ", -1)
-                          ]))]),
-                          _: 1
-                        }, 8, ["disabled", "onClick"]))
+                        }, [
+                          _createElementVNode$1("div", _hoisted_11, [
+                            _createVNode$1(_component_VIcon, {
+                              icon: "mdi-restore",
+                              size: "20",
+                              class: "text-medium-emphasis"
+                            })
+                          ]),
+                          _cache[5] || (_cache[5] = _createElementVNode$1("div", { class: "ec-bk-stamp" }, "恢复最新", -1)),
+                          _createElementVNode$1("div", _hoisted_12, _toDisplayString$1(formatStamp(item.versions[0].timestamp)), 1)
+                        ], 8, _hoisted_10))
                       : _createCommentVNode$1("", true)
                   ])
                 ]))
@@ -525,7 +570,15 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode$1(_component_VCardText, { class: "text-body-2" }, {
                     default: _withCtx$1(() => [
-                      _createTextVNode$1(" 将把「" + _toDisplayString$1(pending.value.item.server) + " · " + _toDisplayString$1(pending.value.item.library_name) + "」的封面恢复为 " + _toDisplayString$1(pending.value.label) + " 的备份，会覆盖 Emby 里的当前封面。确定恢复吗？ ", 1)
+                      _createTextVNode$1(" 将把「" + _toDisplayString$1(pending.value.item.server) + " · " + _toDisplayString$1(pending.value.item.library_name) + "」的封面恢复为 " + _toDisplayString$1(pending.value.label) + " 的备份，会覆盖 Emby 里的当前封面。确定恢复吗？ ", 1),
+                      (pendingThumb.value)
+                        ? (_openBlock$1(), _createElementBlock("div", _hoisted_13, [
+                            _createElementVNode$1("img", {
+                              src: pendingThumb.value,
+                              alt: "待恢复封面"
+                            }, null, 8, _hoisted_14)
+                          ]))
+                        : _createCommentVNode$1("", true)
                     ]),
                     _: 1
                   }),

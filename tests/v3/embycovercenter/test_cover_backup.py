@@ -115,3 +115,25 @@ def test_restore_missing_backup_raises_value_error(tmp_path):
     plugin = _FakePlugin(data_path=tmp_path)
     with pytest.raises(ValueError):
         cover_backup.restore_library(plugin, "Emby", "lib404", "")
+
+
+def test_backup_thumb_returns_data_uri(tmp_path, _png_bytes):
+    """缩略图：真实 JPEG 备份 → data URI；缺文件 → None。"""
+    from io import BytesIO
+
+    from PIL import Image
+
+    plugin = _FakePlugin(data_path=tmp_path)
+    # 生成一张 64x32 的真 JPEG 备份（PNG 字节无法被 PIL 按 JPEG 解码校验）
+    directory = cover_backup._library_dir(plugin, "Emby", "lib1")
+    directory.mkdir(parents=True, exist_ok=True)
+    buffer = BytesIO()
+    Image.new("RGB", (64, 32), color=(200, 100, 50)).save(buffer, format="JPEG")
+    (directory / "20260101-000001.jpg").write_bytes(buffer.getvalue())
+
+    uri = cover_backup.backup_thumb(plugin, "Emby", "lib1", "20260101-000001")
+    assert uri and uri.startswith("data:image/jpeg;base64,")
+
+    # 不带 timestamp → 取最新一版；不存在的库 → None
+    assert cover_backup.backup_thumb(plugin, "Emby", "lib1", "").startswith("data:image/jpeg")
+    assert cover_backup.backup_thumb(plugin, "Emby", "lib404", "") is None

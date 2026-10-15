@@ -259,6 +259,12 @@ class CoverBackupRestoreRequest(BaseModel):
     timestamp: str = ""
 
 
+class CoverBackupThumbData(BaseModel):
+    """备份封面缩略图（data URI，空串表示无法生成）。"""
+
+    image: str = ""
+
+
 class FontUploadRequest(BaseModel):
     """字体上传请求（base64）。"""
 
@@ -319,4 +325,5 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/auto_cover/run": OkData,
     "/cover_backups": CoverBackupListData,
     "/cover_backup/restore": EmbyActionData,
+    "/cover_backup/thumb": CoverBackupThumbData,
 }

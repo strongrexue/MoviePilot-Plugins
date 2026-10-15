@@ -773,6 +773,36 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
 
 > M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
 
+## v1.4.1（界面修复与打磨：版本横幅根因修复 / 预览摘要瘦身 / 任务中心美化）
+
+### 修复「前端组件 v1.3.9 ≠ 后端 v1.4.0」横幅硬刷新仍不消失
+
+- **根因不是浏览器缓存**：1.4.0 发布时 dist 产物先于
+  [src/components/version.js](file:///d:/projects/MoviePilot-Plugins/plugins.v3/embycovercenter/src/components/version.js)
+  的版本号提升构建，产物 `version-CajbELYT.js` 里烤死的还是 `FRONTEND_VERSION = '1.3.9'`
+  ——硬刷新拿到的「新组件」自身仍报旧版，横幅永远不会消失（chunk 哈希因 version.js 注释改动而变化，
+  提交 diff 上看不出产物过期）。与 tgmediacenter v1.7.3 是同一类事故。
+- 本版按源码状态重建 dist（产物 `version-qi42jDPI.js` 报 1.4.1），更新插件后横幅即消失；
+- 新增回归测试
+  [test_dist_frontend_version_matches_backend](file:///d:/projects/MoviePilot-Plugins/tests/v3/embycovercenter/test_plugin.py)：
+  直接核对 `dist/assets/version-*.js` 内容与 `plugin_version` 一致（且不残留多个版本 chunk），
+  dist 未随源码重建时发版即失败。
+
+### 封面设计预览区瘦身
+
+- 撤掉右侧「布局 / 媒体库 / 条目数 / 画布」竖排摘要列（观感突兀，且「媒体库」一行错读了
+  主标题字段 `form.config.title` 而非真实库名）；预览图占满整行；
+- 摘要改为一行小字胶囊置于预览下方，媒体库改用 `currentLibraryName`（真实库名）。
+
+### Emby 任务中心美化
+
+- 任务行由「分割线 + 小字按钮」改为圆角卡片：状态徽章前置、悬停描边、运行中卡片品牌色高亮；
+- 操作改为图标按钮（立即运行 ▶ / 停止 ■ / 编辑触发器），原「运行 / 停止 / 触发器」文字按钮取消；
+- 运行中任务在卡片底部显示进度条（`VProgressLinear`），其余任务执行期间互斥禁用操作按钮；
+- 分组头加图标与数量徽章。
+
+- 验收：`npm run build` + 联邦 CSS 门禁 + 插件版本门禁 + `py_compile` 通过；四处版本同步（1.4.1）。
+
 ## v1.4.0（封面设计界面重构为单列 + 可折叠分组）
 
 按确认的效果图落地（对齐 ChillPoster 的折叠分组手感）：

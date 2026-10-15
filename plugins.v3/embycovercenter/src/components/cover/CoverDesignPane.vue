@@ -8,7 +8,7 @@ import { useCoverDesigner } from './useCoverDesigner'
  *
  * 自上而下全部占满宽度：
  * - 顶部工具条：刷新 / 生成预览 / 渲染并应用；
- * - 预览横版：左侧合成结果，右侧参数摘要；
+ * - 预览横版：合成结果占满整行，关键参数摘要压成图下一行小字；
  * - 模板预设横版：点卡片即载入；
  * - 可折叠分组（点击展开/收起，头部右侧带一行关键值摘要）：
  *   目标对象 → 布局分组 → 文字内容 → 其余布局分组 → 引擎通用 → 封面上传 → 字体。
@@ -237,17 +237,15 @@ defineExpose({ snapshot })
       </VCardItem>
       <VCardText>
         <VProgressLinear v-if="designer.previewing.value" indeterminate color="primary" height="2" class="mb-2" />
-        <div class="ec-preview-grid">
-          <div class="ec-preview-stage">
-            <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
-            <div v-else class="ec-placeholder">点击「生成」查看封面效果</div>
-          </div>
-          <ul class="ec-meta">
-            <li><span>布局</span><b>{{ currentLayoutLabel }}</b></li>
-            <li><span>媒体库</span><b>{{ form.config.title || '—' }}</b></li>
-            <li><span>条目数</span><b>{{ previewInfo.count || 0 }}</b></li>
-            <li><span>画布</span><b>{{ canvasLabel }}</b></li>
-          </ul>
+        <div class="ec-preview-stage">
+          <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
+          <div v-else class="ec-placeholder">点击「生成」查看封面效果</div>
+        </div>
+        <div class="ec-meta">
+          <span>布局 {{ currentLayoutLabel }}</span>
+          <span>媒体库 {{ currentLibraryName }}</span>
+          <span>条目 {{ previewInfo.count || 0 }}</span>
+          <span>画布 {{ canvasLabel }}</span>
         </div>
       </VCardText>
     </VCard>
@@ -465,12 +463,6 @@ defineExpose({ snapshot })
 .ec-band {
   border-radius: 10px;
 }
-.ec-preview-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
 .ec-preview-stage {
   display: flex;
   align-items: center;
@@ -493,31 +485,21 @@ defineExpose({ snapshot })
   text-align: center;
 }
 .ec-meta {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 6px;
-}
-.ec-meta li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(var(--v-theme-on-surface), 0.04);
+  margin-top: 8px;
 }
 .ec-meta span {
+  padding: 2px 10px;
+  border-radius: 999px;
   font-size: 12px;
-  opacity: 0.65;
-}
-.ec-meta b {
-  font-size: 13px;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+  opacity: 0.75;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
 }
 .ec-acc {
   background: transparent;
@@ -621,11 +603,6 @@ defineExpose({ snapshot })
 }
 .ec-hidden {
   display: none;
-}
-@media (max-width: 900px) {
-  .ec-preview-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 @media (max-width: 760px) {
   .ec-fields {

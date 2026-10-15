@@ -79,33 +79,65 @@ onMounted(load)
       </div>
 
       <div v-for="category in state.categories" :key="category.name" class="ec-group">
-        <div class="ec-group-title">{{ category.name }}（{{ category.count }}）</div>
-        <div v-for="task in category.tasks" :key="task.id" class="ec-task">
-          <div class="ec-task-main">
-            <div class="ec-task-title">{{ task.name }}</div>
-            <div class="ec-task-meta">
-              {{ task.trigger_summary }}
-              <span v-if="task.last_run_time"> · 上次 {{ task.last_run_time }}</span>
-            </div>
-          </div>
-          <div class="ec-task-side">
-            <VChip :color="statusColor(task)" variant="tonal" size="x-small" label>
+        <div class="ec-group-head">
+          <VIcon icon="mdi-view-list-outline" size="16" />
+          <span class="ec-group-name">{{ category.name }}</span>
+          <VChip size="x-small" variant="tonal" color="grey" label>{{ category.count }}</VChip>
+        </div>
+        <div class="ec-task-list">
+          <div v-for="task in category.tasks" :key="task.id" class="ec-task" :class="{ 'ec-task--running': task.is_running }">
+            <VChip :color="statusColor(task)" variant="tonal" size="small" label class="ec-task-chip">
               {{ task.status_label }}
             </VChip>
-            <span v-if="task.is_running" class="ec-progress">{{ task.progress }}%</span>
-            <VBtn size="x-small" variant="text" :loading="state.actionId === task.id" @click="run(task.id)">
-              运行
-            </VBtn>
-            <VBtn
+            <div class="ec-task-main">
+              <div class="ec-task-title">{{ task.name }}</div>
+              <div class="ec-task-meta">
+                {{ task.trigger_summary }}
+                <span v-if="task.last_run_time"> · 上次 {{ task.last_run_time }}</span>
+              </div>
+            </div>
+            <div class="ec-task-side">
+              <span v-if="task.is_running" class="ec-progress">{{ task.progress }}%</span>
+              <VBtn
+                size="small"
+                icon="mdi-play"
+                variant="text"
+                rounded
+                title="立即运行"
+                :disabled="!!state.actionId && state.actionId !== task.id"
+                :loading="state.actionId === task.id"
+                @click="run(task.id)"
+              />
+              <VBtn
+                v-if="task.is_running"
+                size="small"
+                icon="mdi-stop"
+                color="error"
+                variant="text"
+                rounded
+                title="停止"
+                :disabled="!!state.actionId && state.actionId !== task.id"
+                :loading="state.actionId === task.id"
+                @click="stop(task.id)"
+              />
+              <VBtn
+                size="small"
+                icon="mdi-clock-edit-outline"
+                variant="text"
+                rounded
+                title="编辑触发器"
+                :disabled="!!state.actionId"
+                @click="openTriggers(task)"
+              />
+            </div>
+            <VProgressLinear
               v-if="task.is_running"
-              size="x-small"
-              variant="text"
-              :loading="state.actionId === task.id"
-              @click="stop(task.id)"
-            >
-              停止
-            </VBtn>
-            <VBtn size="x-small" variant="text" @click="openTriggers(task)">触发器</VBtn>
+              :model-value="task.progress"
+              height="3"
+              color="primary"
+              rounded
+              class="ec-task-bar"
+            />
           </div>
         </div>
       </div>
@@ -206,28 +238,51 @@ onMounted(load)
   max-width: 220px;
 }
 .ec-group {
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
-.ec-group-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 6px 0 4px;
-  opacity: 0.8;
-}
-.ec-task {
+.ec-group-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  gap: 6px;
+  margin: 4px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.ec-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ec-task {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ec-task:hover {
+  border-color: rgba(var(--v-theme-primary), 0.45);
+}
+.ec-task--running {
+  border-color: rgba(var(--v-theme-primary), 0.55);
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+.ec-task-chip {
+  flex: 0 0 auto;
 }
 .ec-task-main {
   min-width: 0;
+  flex: 1;
 }
 .ec-task-title {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 13.5px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -242,12 +297,21 @@ onMounted(load)
 .ec-task-side {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: 0 0 auto;
 }
 .ec-progress {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  margin-right: 6px;
+  opacity: 0.8;
+}
+.ec-task-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0;
 }
 .ec-trigger-body {
   display: flex;

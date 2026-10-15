@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "embycovercenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert EmbyCoverCenter.plugin_name == "胖虎封面中心"
-    assert EmbyCoverCenter.plugin_version == "1.4.0"
+    assert EmbyCoverCenter.plugin_version == "1.4.1"
     assert EmbyCoverCenter.plugin_config_prefix == "embycovercenter_"
 
 
@@ -32,6 +32,24 @@ def test_frontend_version_matches_backend():
     assert match, "未能在 version.js 中找到 FRONTEND_VERSION"
     assert match.group(1) == EmbyCoverCenter.plugin_version, (
         "前端 version.js 与插件 plugin_version 不一致，发版时需同步"
+    )
+
+
+def test_dist_frontend_version_matches_backend():
+    """构建产物里的 FRONTEND_VERSION 必须与插件版本一致（dist 过期防护）。
+
+    回归保护：1.4.0 发布时 dist 先于 src 版本号提升构建，产物里烤死的还是 1.3.9，
+    「前端组件 vX ≠ 后端 vY」横幅硬刷新也无法消除——版本号烤在产物里，与浏览器缓存无关。
+    此测试直接核对构建产物，dist 未随源码重建时发版即失败。
+    """
+    chunks = sorted((PLUGIN_DIR / "dist" / "assets").glob("version-*.js"))
+    assert chunks, "dist/assets 下未找到 version-*.js，请先 npm run build"
+    assert len(chunks) == 1, f"dist 残留多个版本 chunk（应先 clean 再构建）：{[c.name for c in chunks]}"
+    content = chunks[0].read_text(encoding="utf-8")
+    match = re.search(r"FRONTEND_VERSION\s*=\s*'([^']+)'", content)
+    assert match, "dist 版本 chunk 中未找到 FRONTEND_VERSION"
+    assert match.group(1) == EmbyCoverCenter.plugin_version, (
+        "dist 构建产物版本过期（先于源码版本构建）：请重新 npm run build 再发布"
     )
 
 

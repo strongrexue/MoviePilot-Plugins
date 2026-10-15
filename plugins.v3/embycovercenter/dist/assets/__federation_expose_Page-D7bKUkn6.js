@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { C as CoverDesignPane } from './CoverDesignPane-C5M3Lje_.js';
+import { C as CoverDesignPane } from './CoverDesignPane-7GAsEHAl.js';
 import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc, g as getPluginConfig } from './api-VNFYmuQY.js';
-import { F as FRONTEND_VERSION } from './version-CajbELYT.js';
+import { F as FRONTEND_VERSION } from './version-qi42jDPI.js';
 
 /**
  * Emby 计划任务中心的前端状态与动作。
@@ -184,7 +184,7 @@ function useEmbyTasks({ api, pluginId, notify }) {
   return { state, dialog, load, run, stop, openTriggers, addDraft, removeDraft, closeDialog, saveTriggers }
 }
 
-const {unref:_unref$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList,Fragment:_Fragment} = await importShared('vue');
+const {unref:_unref$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass$1} = await importShared('vue');
 
 
 const _hoisted_1$1 = { class: "ec-actions" };
@@ -192,13 +192,15 @@ const _hoisted_2$1 = {
   key: 1,
   class: "text-caption text-medium-emphasis"
 };
-const _hoisted_3 = { class: "ec-group-title" };
-const _hoisted_4 = { class: "ec-task-main" };
-const _hoisted_5 = { class: "ec-task-title" };
-const _hoisted_6 = { class: "ec-task-meta" };
-const _hoisted_7 = { key: 0 };
-const _hoisted_8 = { class: "ec-task-side" };
-const _hoisted_9 = {
+const _hoisted_3 = { class: "ec-group-head" };
+const _hoisted_4 = { class: "ec-group-name" };
+const _hoisted_5 = { class: "ec-task-list" };
+const _hoisted_6 = { class: "ec-task-main" };
+const _hoisted_7 = { class: "ec-task-title" };
+const _hoisted_8 = { class: "ec-task-meta" };
+const _hoisted_9 = { key: 0 };
+const _hoisted_10 = { class: "ec-task-side" };
+const _hoisted_11 = {
   key: 0,
   class: "ec-progress"
 };
@@ -259,8 +261,8 @@ return (_ctx, _cache) => {
   const _component_VCardItem = _resolveComponent$1("VCardItem");
   const _component_VProgressLinear = _resolveComponent$1("VProgressLinear");
   const _component_VAlert = _resolveComponent$1("VAlert");
-  const _component_VCardText = _resolveComponent$1("VCardText");
   const _component_VIcon = _resolveComponent$1("VIcon");
+  const _component_VCardText = _resolveComponent$1("VCardText");
   const _component_VDivider = _resolveComponent$1("VDivider");
   const _component_VTextField = _resolveComponent$1("VTextField");
   const _component_VSpacer = _resolveComponent$1("VSpacer");
@@ -372,74 +374,102 @@ return (_ctx, _cache) => {
               key: category.name,
               class: "ec-group"
             }, [
-              _createElementVNode$1("div", _hoisted_3, _toDisplayString$1(category.name) + "（" + _toDisplayString$1(category.count) + "）", 1),
-              (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(category.tasks, (task) => {
-                return (_openBlock$1(), _createElementBlock$1("div", {
-                  key: task.id,
-                  class: "ec-task"
-                }, [
-                  _createElementVNode$1("div", _hoisted_4, [
-                    _createElementVNode$1("div", _hoisted_5, _toDisplayString$1(task.name), 1),
-                    _createElementVNode$1("div", _hoisted_6, [
-                      _createTextVNode$1(_toDisplayString$1(task.trigger_summary) + " ", 1),
-                      (task.last_run_time)
-                        ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_7, " · 上次 " + _toDisplayString$1(task.last_run_time), 1))
-                        : _createCommentVNode$1("", true)
-                    ])
+              _createElementVNode$1("div", _hoisted_3, [
+                _createVNode$1(_component_VIcon, {
+                  icon: "mdi-view-list-outline",
+                  size: "16"
+                }),
+                _createElementVNode$1("span", _hoisted_4, _toDisplayString$1(category.name), 1),
+                _createVNode$1(_component_VChip, {
+                  size: "x-small",
+                  variant: "tonal",
+                  color: "grey",
+                  label: ""
+                }, {
+                  default: _withCtx$1(() => [
+                    _createTextVNode$1(_toDisplayString$1(category.count), 1)
                   ]),
-                  _createElementVNode$1("div", _hoisted_8, [
+                  _: 2
+                }, 1024)
+              ]),
+              _createElementVNode$1("div", _hoisted_5, [
+                (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(category.tasks, (task) => {
+                  return (_openBlock$1(), _createElementBlock$1("div", {
+                    key: task.id,
+                    class: _normalizeClass$1(["ec-task", { 'ec-task--running': task.is_running }])
+                  }, [
                     _createVNode$1(_component_VChip, {
                       color: statusColor(task),
                       variant: "tonal",
-                      size: "x-small",
-                      label: ""
+                      size: "small",
+                      label: "",
+                      class: "ec-task-chip"
                     }, {
                       default: _withCtx$1(() => [
                         _createTextVNode$1(_toDisplayString$1(task.status_label), 1)
                       ]),
                       _: 2
                     }, 1032, ["color"]),
+                    _createElementVNode$1("div", _hoisted_6, [
+                      _createElementVNode$1("div", _hoisted_7, _toDisplayString$1(task.name), 1),
+                      _createElementVNode$1("div", _hoisted_8, [
+                        _createTextVNode$1(_toDisplayString$1(task.trigger_summary) + " ", 1),
+                        (task.last_run_time)
+                          ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_9, " · 上次 " + _toDisplayString$1(task.last_run_time), 1))
+                          : _createCommentVNode$1("", true)
+                      ])
+                    ]),
+                    _createElementVNode$1("div", _hoisted_10, [
+                      (task.is_running)
+                        ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_11, _toDisplayString$1(task.progress) + "%", 1))
+                        : _createCommentVNode$1("", true),
+                      _createVNode$1(_component_VBtn, {
+                        size: "small",
+                        icon: "mdi-play",
+                        variant: "text",
+                        rounded: "",
+                        title: "立即运行",
+                        disabled: !!_unref$1(state).actionId && _unref$1(state).actionId !== task.id,
+                        loading: _unref$1(state).actionId === task.id,
+                        onClick: $event => (_unref$1(run)(task.id))
+                      }, null, 8, ["disabled", "loading", "onClick"]),
+                      (task.is_running)
+                        ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                            key: 1,
+                            size: "small",
+                            icon: "mdi-stop",
+                            color: "error",
+                            variant: "text",
+                            rounded: "",
+                            title: "停止",
+                            disabled: !!_unref$1(state).actionId && _unref$1(state).actionId !== task.id,
+                            loading: _unref$1(state).actionId === task.id,
+                            onClick: $event => (_unref$1(stop)(task.id))
+                          }, null, 8, ["disabled", "loading", "onClick"]))
+                        : _createCommentVNode$1("", true),
+                      _createVNode$1(_component_VBtn, {
+                        size: "small",
+                        icon: "mdi-clock-edit-outline",
+                        variant: "text",
+                        rounded: "",
+                        title: "编辑触发器",
+                        disabled: !!_unref$1(state).actionId,
+                        onClick: $event => (_unref$1(openTriggers)(task))
+                      }, null, 8, ["disabled", "onClick"])
+                    ]),
                     (task.is_running)
-                      ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_9, _toDisplayString$1(task.progress) + "%", 1))
-                      : _createCommentVNode$1("", true),
-                    _createVNode$1(_component_VBtn, {
-                      size: "x-small",
-                      variant: "text",
-                      loading: _unref$1(state).actionId === task.id,
-                      onClick: $event => (_unref$1(run)(task.id))
-                    }, {
-                      default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
-                        _createTextVNode$1(" 运行 ", -1)
-                      ]))]),
-                      _: 1
-                    }, 8, ["loading", "onClick"]),
-                    (task.is_running)
-                      ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
-                          key: 1,
-                          size: "x-small",
-                          variant: "text",
-                          loading: _unref$1(state).actionId === task.id,
-                          onClick: $event => (_unref$1(stop)(task.id))
-                        }, {
-                          default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
-                            _createTextVNode$1(" 停止 ", -1)
-                          ]))]),
-                          _: 1
-                        }, 8, ["loading", "onClick"]))
-                      : _createCommentVNode$1("", true),
-                    _createVNode$1(_component_VBtn, {
-                      size: "x-small",
-                      variant: "text",
-                      onClick: $event => (_unref$1(openTriggers)(task))
-                    }, {
-                      default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
-                        _createTextVNode$1("触发器", -1)
-                      ]))]),
-                      _: 1
-                    }, 8, ["onClick"])
-                  ])
-                ]))
-              }), 128))
+                      ? (_openBlock$1(), _createBlock$1(_component_VProgressLinear, {
+                          key: 0,
+                          "model-value": task.progress,
+                          height: "3",
+                          color: "primary",
+                          rounded: "",
+                          class: "ec-task-bar"
+                        }, null, 8, ["model-value"]))
+                      : _createCommentVNode$1("", true)
+                  ], 2))
+                }), 128))
+              ])
             ]))
           }), 128))
         ]),
@@ -575,7 +605,7 @@ return (_ctx, _cache) => {
                     disabled: _unref$1(dialog).saving,
                     onClick: _unref$1(addDraft)
                   }, {
-                    default: _withCtx$1(() => [...(_cache[7] || (_cache[7] = [
+                    default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
                       _createTextVNode$1(" 添加计划 ", -1)
                     ]))]),
                     _: 1
@@ -592,7 +622,7 @@ return (_ctx, _cache) => {
                     disabled: _unref$1(dialog).saving,
                     onClick: _unref$1(closeDialog)
                   }, {
-                    default: _withCtx$1(() => [...(_cache[8] || (_cache[8] = [
+                    default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
                       _createTextVNode$1("取消", -1)
                     ]))]),
                     _: 1
@@ -604,7 +634,7 @@ return (_ctx, _cache) => {
                     disabled: _unref$1(dialog).saving,
                     onClick: _unref$1(saveTriggers)
                   }, {
-                    default: _withCtx$1(() => [...(_cache[9] || (_cache[9] = [
+                    default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
                       _createTextVNode$1(" 保存触发器 ", -1)
                     ]))]),
                     _: 1
@@ -625,7 +655,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const EmbyTasksPanel = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-9e46884c"]]);
+const EmbyTasksPanel = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b21624e4"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,unref:_unref,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock} = await importShared('vue');
 

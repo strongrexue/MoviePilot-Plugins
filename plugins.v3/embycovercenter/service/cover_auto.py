@@ -213,9 +213,11 @@ def _field_card(
     total: int,
     detail: str = "",
 ) -> str:
-    """ChillPoster 风格的逐行字段卡；emoji 全部使用默认宽体呈现，保证首字对齐。"""
+    """ChillPoster 风格的逐行字段卡；emoji 全部使用默认宽体呈现，保证首字对齐。
+
+    标题不进正文（post_message 的 title 参数已单独展示，避免通知里重复两行）。
+    """
     lines = [
-        title,
         f"✅ 状态：{status}",
         f"🎨 类型：{task_type}",
         f"⌚ 耗时：{_fmt_elapsed(elapsed)}",

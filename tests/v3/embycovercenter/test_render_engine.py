@@ -88,6 +88,50 @@ def test_background_falls_back_to_first_poster(tmp_path, monkeypatch):
     # 背景应来自海报（红色）而不是默认纯色底 (20,30,50)
     pixel = bg.convert("RGB").getpixel((5, 5))
     assert pixel == (200, 30, 30)
+    assert bg.mode == "RGBA"  # 布局普遍用 alpha_composite，必须 RGBA
+
+
+def test_background_bright_poster_replaces_dark_backdrop(tmp_path, monkeypatch):
+    """backdrop 近黑（暗色主题图）时应换更亮的海报做背景。"""
+    from PIL import Image
+
+    engine = _make_engine(tmp_path)
+    dark_backdrop = Image.new("RGB", (1920, 1080), (5, 5, 5))
+    bright_poster = Image.new("RGB", (200, 300), (220, 180, 60))
+
+    def fake_download(url):
+        if url == "http://bg":
+            return dark_backdrop.copy()
+        if url == "http://p1":
+            return bright_poster.copy()
+        return None
+
+    monkeypatch.setattr(engine, "download_img", fake_download)
+    bg = engine._build_background(
+        {"blur_radius": 0}, {"bg_url": "http://bg", "posters": ["http://p1"]}, (192, 108)
+    )
+    assert bg.convert("RGB").getpixel((5, 5)) == (220, 180, 60)
+
+
+def test_real_layout_composite_does_not_break(tmp_path, monkeypatch):
+    """回归：背景海报兜底后走真实布局渲染，alpha_composite 不再报 wrong mode。"""
+    from PIL import Image
+
+    engine = _make_engine(tmp_path, fonts=("优设标题黑.ttf",))
+    poster = Image.new("RGB", (200, 300), (120, 160, 90))
+    monkeypatch.setattr(engine, "download_img", lambda url: poster.copy() if url else None)
+    config = {
+        "engine": "经典平铺",
+        "title": "儿童",
+        "subtitle": "Kids",
+        "canvas_width": 480,
+        "canvas_height": 270,
+        "poster_count": 3,
+        "backdrop_count": 0,
+    }
+    assets = {"posters": ["http://p1", "http://p2", "http://p3"], "count": 386}
+    encoded = engine.draw(config, assets)  # 不抛 "image has wrong mode" 即通过
+    assert encoded
 
 
 def test_fix_known_template_bugs(tmp_path):

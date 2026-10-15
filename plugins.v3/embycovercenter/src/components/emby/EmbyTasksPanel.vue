@@ -178,6 +178,8 @@ onMounted(load)
             <VSelect
               v-model="draft.type"
               :items="TRIGGER_TYPE_OPTIONS"
+              item-title="label"
+              item-value="value"
               label="类型"
               density="compact"
               variant="outlined"
@@ -196,6 +198,8 @@ onMounted(load)
               v-if="draft.type === 'WeeklyTrigger'"
               v-model="draft.day_of_week"
               :items="WEEK_DAY_OPTIONS"
+              item-title="label"
+              item-value="value"
               label="星期"
               density="compact"
               variant="outlined"

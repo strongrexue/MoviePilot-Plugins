@@ -465,22 +465,36 @@ class PosterEngine:
 
     # -------------------------------------------------------------- 渲染
 
+    @staticmethod
+    def _mean_luma(img: Image.Image) -> float:
+        """缩略图平均亮度（0-255），用于检测近黑背景。"""
+        small = img.convert("L").resize((32, 18))
+        pixels = list(small.getdata())
+        return sum(pixels) / max(1, len(pixels))
+
     def _build_background(self, config: Dict[str, Any], assets: Dict[str, Any], size: tuple) -> Image.Image:
         canvas_w, canvas_h = size
-        bg_url = assets.get("bg_url")
-        if not bg_url:
-            # 媒体库没有 backdrop 时用首张海报兜底（放大铺满后走统一模糊），
+        posters = [url for url in (assets.get("posters") or []) if url]
+        bg = self.download_img(assets.get("bg_url"))
+        if bg is None and posters:
+            # 媒体库没有 backdrop（或下载失败）时用首张海报兜底，
             # 避免整张封面只剩纯色底。
-            posters = [url for url in (assets.get("posters") or []) if url]
-            bg_url = posters[0] if posters else None
-        bg = self.download_img(bg_url)
+            bg = self.download_img(posters[0])
         if bg is None:
             bg = Image.new("RGBA", (canvas_w, canvas_h), (20, 30, 50, 255))
-        if bg.size != (canvas_w, canvas_h):
-            try:
-                bg = ImageOps.fit(bg.convert("RGB"), (canvas_w, canvas_h), method=Image.LANCZOS)
-            except Exception:
-                bg = bg.resize((canvas_w, canvas_h), Image.LANCZOS)
+        else:
+            if bg.size != (canvas_w, canvas_h):
+                bg = ImageOps.fit(bg, (canvas_w, canvas_h), method=Image.LANCZOS)
+            # 背景过暗（暗色主题图/近黑图）时尝试换更亮的海报。
+            if self._mean_luma(bg) < 26 and posters:
+                alt = self.download_img(posters[0])
+                if alt is not None:
+                    alt = ImageOps.fit(alt, (canvas_w, canvas_h), method=Image.LANCZOS)
+                    if self._mean_luma(alt) > self._mean_luma(bg):
+                        bg = alt
+        # 布局普遍使用 Image.alpha_composite，背景必须统一 RGBA。
+        if bg.mode != "RGBA":
+            bg = bg.convert("RGBA")
         blur = int(config.get("blur_radius") or 0)
         if blur > 0:
             bg = bg.filter(ImageFilter.GaussianBlur(blur))

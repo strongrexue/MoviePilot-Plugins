@@ -212,6 +212,8 @@ def test_run_auto_cover_renders_and_notifies(monkeypatch, tmp_path):
     title, text = plugin.posted[0]
     assert "自动封面任务" in title
     assert "成功 1" in text
+    # 标题不重复进正文（post_message 的 title 已单独展示）
+    assert not text.splitlines()[0].startswith(("✅ 自动封面任务", "⚠️ 自动封面任务", "❌ 自动封面任务"))
 
 
 def test_run_auto_cover_prefers_manual_english_name(monkeypatch, tmp_path):

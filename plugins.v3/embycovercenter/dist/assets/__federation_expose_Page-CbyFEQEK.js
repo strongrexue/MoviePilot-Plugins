@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { C as CoverDesignPane } from './CoverDesignPane-Be32Nmzd.js';
 import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc, g as getPluginConfig } from './_plugin-vue_export-helper-bD9RbwOy.js';
-import { F as FRONTEND_VERSION } from './version-C_f6wb3I.js';
+import { F as FRONTEND_VERSION } from './version-Cavj33YJ.js';
 
 /**
  * Emby 计划任务中心的前端状态与动作。
@@ -567,6 +567,8 @@ return (_ctx, _cache) => {
                         modelValue: draft.type,
                         "onUpdate:modelValue": $event => ((draft.type) = $event),
                         items: _unref$1(TRIGGER_TYPE_OPTIONS),
+                        "item-title": "label",
+                        "item-value": "value",
                         label: "类型",
                         density: "compact",
                         variant: "outlined",
@@ -589,6 +591,8 @@ return (_ctx, _cache) => {
                             modelValue: draft.day_of_week,
                             "onUpdate:modelValue": $event => ((draft.day_of_week) = $event),
                             items: _unref$1(WEEK_DAY_OPTIONS),
+                            "item-title": "label",
+                            "item-value": "value",
                             label: "星期",
                             density: "compact",
                             variant: "outlined",
@@ -690,7 +694,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const EmbyTasksPanel = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-e3e2ef09"]]);
+const EmbyTasksPanel = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-18525921"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,unref:_unref,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock} = await importShared('vue');
 

@@ -329,6 +329,10 @@ class EmbyCoverCenter(_PluginBase):
         """从备份恢复媒体库封面。"""
         return api_controller.api_cover_backup_restore(self, request=request)
 
+    def api_cover_backup_thumb(self, request: api_schemas.CoverBackupRestoreRequest):
+        """返回备份封面缩略图。"""
+        return api_controller.api_cover_backup_thumb(self, request=request)
+
     def api_auto_cover_run(self):
         """立即运行自动封面任务（后台线程）。"""
         return api_controller.api_auto_cover_run(self)

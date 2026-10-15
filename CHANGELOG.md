@@ -773,6 +773,25 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
 
 > M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
 
+## v1.3.9（移植 ChillPoster 全套字体 + 插件页双 Tab）
+
+### 预设字体
+- 移植 ChillPoster 全套预设字体 **34 个（约 151MB）**，随插件包分发在 `defaults/fonts/`，
+  首次初始化时由 [`assets_meta.seed_default_fonts`](file:///workspace/MoviePilot-Plugins/plugins.v3/embycovercenter/service/assets_meta.py)
+  播种到数据目录 `fonts/`（**只补缺失**，不覆盖用户自己上传的字体）。
+- 含 OPPOSans 全系列、仓耳舒圆体、优设标题黑 / 鲨鱼菲特、剑豪体、叶根友毛笔行书、方正行楷、
+  汉仪雪峰体、腾祥潮黑简、字魂白鸽天行体、胡晓波猛男体、Showcard Gothic 等。
+- ⚠️ 体积提醒：字体使插件目录增大到 ~151MB，发布 zip 与更新下载量随之变大。
+
+### 插件页面双 Tab
+- [`Page.vue`](file:///workspace/MoviePilot-Plugins/plugins.v3/embycovercenter/src/components/Page.vue)
+  主区改为两个可切换 Tab：**封面设计**（复用 `CoverDesignPane`，从已保存配置起步，
+  可生成预览并应用到媒体库）与 **Emby 任务中心**（复用原 `EmbyTasksPanel`）。
+- 顶部工具条保留 刷新 / 连通测试 / 设置；运行状态改为紧凑状态条（启用状态 / 版本 / 服务器数）。
+- 同一份 `Page.vue` 既服务插件详情页，也服务「发现」侧栏整页入口，两个入口都能看到双 Tab。
+
+- 验收：`py_compile` 通过；插件版本门禁 + 联邦 CSS 门禁通过；四处版本同步。
+
 ## v1.3.8（修复预览「请求超时（20 秒）」）
 
 - **根因**：[render_engine.py](file:///workspace/MoviePilot-Plugins/plugins.v3/embycovercenter/service/render_engine.py) 的 `draw()`

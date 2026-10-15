@@ -1,5 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc } from './api-VNFYmuQY.js';
+import { C as CoverDesignPane } from './CoverDesignPane-1m0HJdov.js';
+import { p as postPluginApi, u as unwrap, a as getPluginApi, _ as _export_sfc, g as getPluginConfig } from './api-VNFYmuQY.js';
 import { F as FRONTEND_VERSION } from './version-CJg6Vy0m.js';
 
 /**
@@ -183,7 +184,7 @@ function useEmbyTasks({ api, pluginId, notify }) {
   return { state, dialog, load, run, stop, openTriggers, addDraft, removeDraft, closeDialog, saveTriggers }
 }
 
-const {unref:_unref$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList$1,Fragment:_Fragment$1} = await importShared('vue');
+const {unref:_unref$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList,Fragment:_Fragment} = await importShared('vue');
 
 
 const _hoisted_1$1 = { class: "ec-actions" };
@@ -191,8 +192,8 @@ const _hoisted_2$1 = {
   key: 1,
   class: "text-caption text-medium-emphasis"
 };
-const _hoisted_3$1 = { class: "ec-group-title" };
-const _hoisted_4$1 = { class: "ec-task-main" };
+const _hoisted_3 = { class: "ec-group-title" };
+const _hoisted_4 = { class: "ec-task-main" };
 const _hoisted_5 = { class: "ec-task-title" };
 const _hoisted_6 = { class: "ec-task-meta" };
 const _hoisted_7 = { key: 0 };
@@ -366,18 +367,18 @@ return (_ctx, _cache) => {
           (!_unref$1(state).categories.length && !_unref$1(state).error)
             ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_2$1, " 暂无任务数据。 "))
             : _createCommentVNode$1("", true),
-          (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(_unref$1(state).categories, (category) => {
+          (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(_unref$1(state).categories, (category) => {
             return (_openBlock$1(), _createElementBlock$1("div", {
               key: category.name,
               class: "ec-group"
             }, [
-              _createElementVNode$1("div", _hoisted_3$1, _toDisplayString$1(category.name) + "（" + _toDisplayString$1(category.count) + "）", 1),
-              (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(category.tasks, (task) => {
+              _createElementVNode$1("div", _hoisted_3, _toDisplayString$1(category.name) + "（" + _toDisplayString$1(category.count) + "）", 1),
+              (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(category.tasks, (task) => {
                 return (_openBlock$1(), _createElementBlock$1("div", {
                   key: task.id,
                   class: "ec-task"
                 }, [
-                  _createElementVNode$1("div", _hoisted_4$1, [
+                  _createElementVNode$1("div", _hoisted_4, [
                     _createElementVNode$1("div", _hoisted_5, _toDisplayString$1(task.name), 1),
                     _createElementVNode$1("div", _hoisted_6, [
                       _createTextVNode$1(_toDisplayString$1(task.trigger_summary) + " ", 1),
@@ -492,7 +493,7 @@ return (_ctx, _cache) => {
                         height: "2"
                       }))
                     : _createCommentVNode$1("", true),
-                  (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(_unref$1(dialog).triggers, (draft, index) => {
+                  (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(_unref$1(dialog).triggers, (draft, index) => {
                     return (_openBlock$1(), _createElementBlock$1("div", {
                       key: index,
                       class: "ec-trigger-row"
@@ -626,23 +627,19 @@ return (_ctx, _cache) => {
 };
 const EmbyTasksPanel = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-9e46884c"]]);
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,unref:_unref,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,unref:_unref,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
-const _hoisted_1 = { class: "ec-row" };
-const _hoisted_2 = { class: "ec-row" };
-const _hoisted_3 = { class: "ec-row" };
-const _hoisted_4 = {
-  key: 0,
-  class: "text-caption text-medium-emphasis"
-};
+const _hoisted_1 = { class: "ec-status" };
+const _hoisted_2 = { class: "ec-chips" };
 
 const {computed,onMounted,ref} = await importShared('vue');
 
 /**
  * 插件详情页 / 侧栏整页内容。
  *
- * 展示插件与媒体服务器状态，并提供连通性测试与设置入口。
+ * 主区分成两个可切换的 Tab：「封面设计」与「Emby 任务中心」；顶部工具条保留
+ * 刷新 / 连通测试 / 设置入口，配置弹窗仍复用 Config.vue。
  */
 
 const _sfc_main = {
@@ -658,8 +655,10 @@ const _sfc_main = {
 const props = __props;
 const emit = __emit;
 
+const tab = ref('cover');
 const loading = ref(false);
 const status = ref({});
+const config = ref(null);
 const loadError = ref('');
 const actionMessage = ref('');
 const actionOk = ref(true);
@@ -669,6 +668,7 @@ const versionMismatched = computed(
   () => !!backendVersion.value && backendVersion.value !== FRONTEND_VERSION,
 );
 const servers = computed(() => (Array.isArray(status.value.servers) ? status.value.servers : []));
+const activeCount = computed(() => servers.value.filter(server => server.active).length);
 
 async function load() {
   if (loading.value) return
@@ -680,6 +680,12 @@ async function load() {
     loadError.value = error?.message || '状态读取失败';
   } finally {
     loading.value = false;
+  }
+  // 封面设计从已保存配置起步（取不到就用内置默认，不影响使用）。
+  try {
+    config.value = (await getPluginConfig(props.api, props.pluginId)) || {};
+  } catch (error) {
+    config.value = {};
   }
 }
 
@@ -710,9 +716,12 @@ return (_ctx, _cache) => {
   const _component_VToolbar = _resolveComponent("VToolbar");
   const _component_VDivider = _resolveComponent("VDivider");
   const _component_VProgressLinear = _resolveComponent("VProgressLinear");
+  const _component_VChip = _resolveComponent("VChip");
   const _component_VAlert = _resolveComponent("VAlert");
-  const _component_VCardTitle = _resolveComponent("VCardTitle");
-  const _component_VCardItem = _resolveComponent("VCardItem");
+  const _component_VTab = _resolveComponent("VTab");
+  const _component_VTabs = _resolveComponent("VTabs");
+  const _component_VWindowItem = _resolveComponent("VWindowItem");
+  const _component_VWindow = _resolveComponent("VWindow");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VCard = _resolveComponent("VCard");
 
@@ -738,7 +747,7 @@ return (_ctx, _cache) => {
             ]),
             _: 1
           }),
-          _cache[5] || (_cache[5] = _createElementVNode("div", { class: "ec-heading" }, [
+          _cache[7] || (_cache[7] = _createElementVNode("div", { class: "ec-heading" }, [
             _createElementVNode("div", { class: "text-h6" }, "胖虎封面中心"),
             _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "Emby 媒体库封面生成与任务中心")
           ], -1)),
@@ -754,7 +763,7 @@ return (_ctx, _cache) => {
                 icon: "mdi-refresh",
                 size: "18"
               }),
-              _cache[2] || (_cache[2] = _createElementVNode("span", { class: "ec-label" }, "刷新", -1))
+              _cache[4] || (_cache[4] = _createElementVNode("span", { class: "ec-label" }, "刷新", -1))
             ]),
             _: 1
           }, 8, ["loading"]),
@@ -768,7 +777,7 @@ return (_ctx, _cache) => {
                 icon: "mdi-lan-connect",
                 size: "18"
               }),
-              _cache[3] || (_cache[3] = _createElementVNode("span", { class: "ec-label" }, "连通测试", -1))
+              _cache[5] || (_cache[5] = _createElementVNode("span", { class: "ec-label" }, "连通测试", -1))
             ]),
             _: 1
           }),
@@ -782,7 +791,7 @@ return (_ctx, _cache) => {
                 icon: "mdi-cog-outline",
                 size: "18"
               }),
-              _cache[4] || (_cache[4] = _createElementVNode("span", { class: "ec-label" }, "设置", -1))
+              _cache[6] || (_cache[6] = _createElementVNode("span", { class: "ec-label" }, "设置", -1))
             ]),
             _: 1
           }),
@@ -815,133 +824,160 @@ return (_ctx, _cache) => {
             height: "2"
           }))
         : _createCommentVNode("", true),
-      _createVNode(_component_VCardText, { class: "ec-flow" }, {
+      _createElementVNode("div", _hoisted_1, [
+        _createElementVNode("div", _hoisted_2, [
+          _createVNode(_component_VChip, {
+            color: status.value.enabled ? 'success' : 'grey',
+            variant: "tonal",
+            size: "small",
+            label: ""
+          }, {
+            default: _withCtx(() => [
+              _createTextVNode(_toDisplayString(status.value.enabled ? '已启用' : '已停用'), 1)
+            ]),
+            _: 1
+          }, 8, ["color"]),
+          _createVNode(_component_VChip, {
+            color: "primary",
+            variant: "tonal",
+            size: "small",
+            label: ""
+          }, {
+            default: _withCtx(() => [
+              _createTextVNode("v" + _toDisplayString(backendVersion.value || '—'), 1)
+            ]),
+            _: 1
+          }),
+          _createVNode(_component_VChip, {
+            color: "info",
+            variant: "tonal",
+            size: "small",
+            label: ""
+          }, {
+            default: _withCtx(() => [
+              _createTextVNode(" 服务器 " + _toDisplayString(activeCount.value) + "/" + _toDisplayString(servers.value.length), 1)
+            ]),
+            _: 1
+          })
+        ]),
+        (loadError.value)
+          ? (_openBlock(), _createBlock(_component_VAlert, {
+              key: 0,
+              type: "warning",
+              variant: "tonal",
+              density: "compact",
+              class: "ec-full"
+            }, {
+              default: _withCtx(() => [
+                _createTextVNode(_toDisplayString(loadError.value) + " ", 1),
+                _createVNode(_component_VBtn, {
+                  size: "x-small",
+                  variant: "text",
+                  class: "text-none",
+                  onClick: load
+                }, {
+                  default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
+                    _createTextVNode("重试", -1)
+                  ]))]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }))
+          : _createCommentVNode("", true),
+        (versionMismatched.value)
+          ? (_openBlock(), _createBlock(_component_VAlert, {
+              key: 1,
+              type: "info",
+              variant: "tonal",
+              density: "compact",
+              class: "ec-full"
+            }, {
+              default: _withCtx(() => [
+                _createTextVNode(" 前端组件 v" + _toDisplayString(_unref(FRONTEND_VERSION)) + " ≠ 后端 v" + _toDisplayString(backendVersion.value) + "：浏览器仍在使用旧联邦组件， 请按 Ctrl + Shift + R 硬刷新；若仍不一致，说明插件未真正更新。 ", 1)
+              ]),
+              _: 1
+            }))
+          : _createCommentVNode("", true),
+        (actionMessage.value)
+          ? (_openBlock(), _createElementBlock("div", {
+              key: 2,
+              class: _normalizeClass(["ec-full", actionOk.value ? 'text-success' : 'text-error'])
+            }, _toDisplayString(actionMessage.value), 3))
+          : _createCommentVNode("", true)
+      ]),
+      _createVNode(_component_VTabs, {
+        modelValue: tab.value,
+        "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((tab).value = $event)),
+        density: "comfortable",
+        color: "primary",
+        class: "ec-tabs"
+      }, {
         default: _withCtx(() => [
-          (loadError.value)
-            ? (_openBlock(), _createBlock(_component_VAlert, {
-                key: 0,
-                type: "warning",
-                variant: "tonal",
-                density: "compact",
-                class: "ec-span"
-              }, {
-                default: _withCtx(() => [
-                  _createTextVNode(_toDisplayString(loadError.value) + " ", 1),
-                  _createVNode(_component_VBtn, {
-                    size: "x-small",
-                    variant: "text",
-                    class: "text-none",
-                    onClick: load
-                  }, {
-                    default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
-                      _createTextVNode("重试", -1)
-                    ]))]),
-                    _: 1
-                  })
-                ]),
-                _: 1
-              }))
-            : _createCommentVNode("", true),
-          (versionMismatched.value)
-            ? (_openBlock(), _createBlock(_component_VAlert, {
-                key: 1,
-                type: "info",
-                variant: "tonal",
-                density: "compact",
-                class: "ec-span"
-              }, {
-                default: _withCtx(() => [
-                  _createTextVNode(" 前端组件 v" + _toDisplayString(_unref(FRONTEND_VERSION)) + " ≠ 后端 v" + _toDisplayString(backendVersion.value) + "：浏览器仍在使用旧联邦组件， 请按 Ctrl + Shift + R 硬刷新；若仍不一致，说明插件未真正更新。 ", 1)
-                ]),
-                _: 1
-              }))
-            : _createCommentVNode("", true),
-          (actionMessage.value)
-            ? (_openBlock(), _createElementBlock("div", {
-                key: 2,
-                class: _normalizeClass(["ec-span", actionOk.value ? 'text-success' : 'text-error'])
-              }, _toDisplayString(actionMessage.value), 3))
-            : _createCommentVNode("", true),
-          _createVNode(_component_VCard, {
-            variant: "tonal",
-            class: "ec-card"
+          _createVNode(_component_VTab, {
+            value: "cover",
+            "prepend-icon": "mdi-image-edit-outline"
+          }, {
+            default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+              _createTextVNode("封面设计", -1)
+            ]))]),
+            _: 1
+          }),
+          _createVNode(_component_VTab, {
+            value: "tasks",
+            "prepend-icon": "mdi-calendar-clock-outline"
+          }, {
+            default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+              _createTextVNode("Emby 任务中心", -1)
+            ]))]),
+            _: 1
+          })
+        ]),
+        _: 1
+      }, 8, ["modelValue"]),
+      _createVNode(_component_VDivider),
+      _createVNode(_component_VCardText, { class: "ec-body" }, {
+        default: _withCtx(() => [
+          _createVNode(_component_VWindow, {
+            modelValue: tab.value,
+            "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((tab).value = $event)),
+            touch: false
           }, {
             default: _withCtx(() => [
-              _createVNode(_component_VCardItem, null, {
+              _createVNode(_component_VWindowItem, {
+                value: "cover",
+                class: "ec-pane"
+              }, {
                 default: _withCtx(() => [
-                  _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                    default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
-                      _createTextVNode("运行状态", -1)
-                    ]))]),
-                    _: 1
-                  })
+                  (config.value)
+                    ? (_openBlock(), _createBlock(CoverDesignPane, {
+                        key: 0,
+                        api: props.api,
+                        "plugin-id": props.pluginId,
+                        "initial-config": config.value,
+                        servers: servers.value
+                      }, null, 8, ["api", "plugin-id", "initial-config", "servers"]))
+                    : _createCommentVNode("", true)
                 ]),
                 _: 1
               }),
-              _createVNode(_component_VCardText, { class: "ec-kv" }, {
+              _createVNode(_component_VWindowItem, {
+                value: "tasks",
+                class: "ec-pane"
+              }, {
                 default: _withCtx(() => [
-                  _createElementVNode("div", _hoisted_1, [
-                    _cache[8] || (_cache[8] = _createElementVNode("span", null, "插件版本", -1)),
-                    _createElementVNode("b", null, "v" + _toDisplayString(backendVersion.value || '—'), 1)
-                  ]),
-                  _createElementVNode("div", _hoisted_2, [
-                    _cache[9] || (_cache[9] = _createElementVNode("span", null, "启用状态", -1)),
-                    _createElementVNode("b", null, _toDisplayString(status.value.enabled ? '已启用' : '已停用'), 1)
-                  ]),
-                  _createElementVNode("div", _hoisted_3, [
-                    _cache[10] || (_cache[10] = _createElementVNode("span", null, "媒体服务器", -1)),
-                    _createElementVNode("b", null, _toDisplayString(servers.value.length), 1)
-                  ])
+                  _createVNode(EmbyTasksPanel, {
+                    api: props.api,
+                    "plugin-id": props.pluginId,
+                    servers: servers.value,
+                    onNotify: onNotify
+                  }, null, 8, ["api", "plugin-id", "servers"])
                 ]),
                 _: 1
               })
             ]),
             _: 1
-          }),
-          _createVNode(_component_VCard, {
-            variant: "tonal",
-            class: "ec-card"
-          }, {
-            default: _withCtx(() => [
-              _createVNode(_component_VCardItem, null, {
-                default: _withCtx(() => [
-                  _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                    default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
-                      _createTextVNode("媒体服务器", -1)
-                    ]))]),
-                    _: 1
-                  })
-                ]),
-                _: 1
-              }),
-              _createVNode(_component_VCardText, null, {
-                default: _withCtx(() => [
-                  (!servers.value.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_4, " 未发现已启用的媒体服务器，请在 MoviePilot「设置 · 媒体服务器」中配置 Emby / Jellyfin。 "))
-                    : _createCommentVNode("", true),
-                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(servers.value, (server) => {
-                    return (_openBlock(), _createElementBlock("div", {
-                      key: server.name,
-                      class: "ec-row"
-                    }, [
-                      _createElementVNode("span", null, _toDisplayString(server.name), 1),
-                      _createElementVNode("b", {
-                        class: _normalizeClass(server.active ? 'text-success' : 'text-warning')
-                      }, _toDisplayString(server.type || '—') + " · " + _toDisplayString(server.active ? '已连接' : '未连接'), 3)
-                    ]))
-                  }), 128))
-                ]),
-                _: 1
-              })
-            ]),
-            _: 1
-          }),
-          _createVNode(EmbyTasksPanel, {
-            api: props.api,
-            "plugin-id": props.pluginId,
-            servers: servers.value,
-            onNotify: onNotify
-          }, null, 8, ["api", "plugin-id", "servers"])
+          }, 8, ["modelValue"])
         ]),
         _: 1
       })
@@ -952,6 +988,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-efc183ba"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae6e5a3a"]]);
 
 export { Page as default };

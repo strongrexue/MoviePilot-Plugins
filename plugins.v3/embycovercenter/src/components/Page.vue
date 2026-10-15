@@ -1,13 +1,15 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import CoverDesignPane from './cover/CoverDesignPane.vue'
 import EmbyTasksPanel from './emby/EmbyTasksPanel.vue'
-import { getPluginApi, unwrap } from './api'
+import { getPluginApi, getPluginConfig, unwrap } from './api'
 import { FRONTEND_VERSION } from './version'
 
 /**
  * 插件详情页 / 侧栏整页内容。
  *
- * 展示插件与媒体服务器状态，并提供连通性测试与设置入口。
+ * 主区分成两个可切换的 Tab：「封面设计」与「Emby 任务中心」；顶部工具条保留
+ * 刷新 / 连通测试 / 设置入口，配置弹窗仍复用 Config.vue。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -16,8 +18,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['switch', 'close'])
 
+const tab = ref('cover')
 const loading = ref(false)
 const status = ref({})
+const config = ref(null)
 const loadError = ref('')
 const actionMessage = ref('')
 const actionOk = ref(true)
@@ -27,6 +31,7 @@ const versionMismatched = computed(
   () => !!backendVersion.value && backendVersion.value !== FRONTEND_VERSION,
 )
 const servers = computed(() => (Array.isArray(status.value.servers) ? status.value.servers : []))
+const activeCount = computed(() => servers.value.filter(server => server.active).length)
 
 async function load() {
   if (loading.value) return
@@ -38,6 +43,12 @@ async function load() {
     loadError.value = error?.message || '状态读取失败'
   } finally {
     loading.value = false
+  }
+  // 封面设计从已保存配置起步（取不到就用内置默认，不影响使用）。
+  try {
+    config.value = (await getPluginConfig(props.api, props.pluginId)) || {}
+  } catch (error) {
+    config.value = {}
   }
 }
 
@@ -87,59 +98,57 @@ onMounted(load)
     </VToolbar>
     <VDivider />
     <VProgressLinear v-if="loading" indeterminate color="primary" height="2" />
-    <VCardText class="ec-flow">
-      <VAlert v-if="loadError" type="warning" variant="tonal" density="compact" class="ec-span">
+
+    <div class="ec-status">
+      <div class="ec-chips">
+        <VChip :color="status.enabled ? 'success' : 'grey'" variant="tonal" size="small" label>
+          {{ status.enabled ? '已启用' : '已停用' }}
+        </VChip>
+        <VChip color="primary" variant="tonal" size="small" label>v{{ backendVersion || '—' }}</VChip>
+        <VChip color="info" variant="tonal" size="small" label>
+          服务器 {{ activeCount }}/{{ servers.length }}
+        </VChip>
+      </div>
+      <VAlert v-if="loadError" type="warning" variant="tonal" density="compact" class="ec-full">
         {{ loadError }}
         <VBtn size="x-small" variant="text" class="text-none" @click="load">重试</VBtn>
       </VAlert>
-      <VAlert
-        v-if="versionMismatched"
-        type="info"
-        variant="tonal"
-        density="compact"
-        class="ec-span"
-      >
+      <VAlert v-if="versionMismatched" type="info" variant="tonal" density="compact" class="ec-full">
         前端组件 v{{ FRONTEND_VERSION }} ≠ 后端 v{{ backendVersion }}：浏览器仍在使用旧联邦组件，
         请按 Ctrl + Shift + R 硬刷新；若仍不一致，说明插件未真正更新。
       </VAlert>
-      <div v-if="actionMessage" class="ec-span" :class="actionOk ? 'text-success' : 'text-error'">
+      <div v-if="actionMessage" class="ec-full" :class="actionOk ? 'text-success' : 'text-error'">
         {{ actionMessage }}
       </div>
+    </div>
 
-      <VCard variant="tonal" class="ec-card">
-        <VCardItem>
-          <VCardTitle class="text-subtitle-1">运行状态</VCardTitle>
-        </VCardItem>
-        <VCardText class="ec-kv">
-          <div class="ec-row"><span>插件版本</span><b>v{{ backendVersion || '—' }}</b></div>
-          <div class="ec-row"><span>启用状态</span><b>{{ status.enabled ? '已启用' : '已停用' }}</b></div>
-          <div class="ec-row"><span>媒体服务器</span><b>{{ servers.length }}</b></div>
-        </VCardText>
-      </VCard>
+    <VTabs v-model="tab" density="comfortable" color="primary" class="ec-tabs">
+      <VTab value="cover" prepend-icon="mdi-image-edit-outline">封面设计</VTab>
+      <VTab value="tasks" prepend-icon="mdi-calendar-clock-outline">Emby 任务中心</VTab>
+    </VTabs>
+    <VDivider />
 
-      <VCard variant="tonal" class="ec-card">
-        <VCardItem>
-          <VCardTitle class="text-subtitle-1">媒体服务器</VCardTitle>
-        </VCardItem>
-        <VCardText>
-          <div v-if="!servers.length" class="text-caption text-medium-emphasis">
-            未发现已启用的媒体服务器，请在 MoviePilot「设置 · 媒体服务器」中配置 Emby / Jellyfin。
-          </div>
-          <div v-for="server in servers" :key="server.name" class="ec-row">
-            <span>{{ server.name }}</span>
-            <b :class="server.active ? 'text-success' : 'text-warning'">
-              {{ server.type || '—' }} · {{ server.active ? '已连接' : '未连接' }}
-            </b>
-          </div>
-        </VCardText>
-      </VCard>
-
-      <EmbyTasksPanel
-        :api="props.api"
-        :plugin-id="props.pluginId"
-        :servers="servers"
-        @notify="onNotify"
-      />
+    <VCardText class="ec-body">
+      <VWindow v-model="tab" :touch="false">
+        <VWindowItem value="cover" class="ec-pane">
+          <!-- 等配置取回后再挂载：封面设计会用已保存配置初始化表单 -->
+          <CoverDesignPane
+            v-if="config"
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :initial-config="config"
+            :servers="servers"
+          />
+        </VWindowItem>
+        <VWindowItem value="tasks" class="ec-pane">
+          <EmbyTasksPanel
+            :api="props.api"
+            :plugin-id="props.pluginId"
+            :servers="servers"
+            @notify="onNotify"
+          />
+        </VWindowItem>
+      </VWindow>
     </VCardText>
   </VCard>
 </template>
@@ -164,35 +173,35 @@ onMounted(load)
 .ec-label {
   white-space: nowrap;
 }
-.ec-flow {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.ec-span {
-  grid-column: 1 / -1;
-}
-.ec-card {
-  min-width: 0;
-}
-.ec-kv {
+.ec-status {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 8px 16px 4px;
+}
+.ec-chips {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
-.ec-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
+.ec-full {
+  grid-column: 1 / -1;
+}
+.ec-tabs {
+  padding: 0 8px;
+}
+.ec-body {
+  padding: 10px 14px 16px;
+}
+.ec-pane {
+  padding: 0;
 }
 @media (max-width: 760px) {
-  .ec-flow {
-    grid-template-columns: 1fr;
-  }
   .ec-label {
     display: none;
+  }
+  .ec-body {
+    padding: 8px 8px 14px;
   }
 }
 </style>

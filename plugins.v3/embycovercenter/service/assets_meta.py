@@ -69,6 +69,28 @@ def seed_default_templates(plugin) -> int:
     return copied
 
 
+def seed_default_fonts(plugin) -> int:
+    """把随插件分发的默认字体包（ChillPoster 同款）拷进数据目录（只补缺失，不覆盖用户字体）。"""
+    source = PACKAGE_DEFAULTS_DIR / "fonts"
+    if not source.exists():
+        return 0
+    ensure_dirs(plugin)
+    target = fonts_dir(plugin)
+    copied = 0
+    for item in sorted(source.iterdir()):
+        if not item.is_file() or item.suffix.lower() not in FONT_EXTENSIONS:
+            continue
+        destination = target / item.name
+        if destination.exists():
+            continue
+        try:
+            destination.write_bytes(item.read_bytes())
+            copied += 1
+        except Exception as error:
+            logger.warning(f"[EmbyCoverCenter] 拷贝默认字体失败 {item.name}: {error}")
+    return copied
+
+
 def _safe_name(raw: Any, extensions: tuple) -> str:
     """校验文件名：只允许裸文件名且扩展名在白名单内。"""
     name = str(raw or "").strip()

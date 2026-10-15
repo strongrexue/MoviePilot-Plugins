@@ -1,5 +1,4 @@
 from PIL import Image, ImageDraw, ImageFilter, ImageEnhance, ImageOps, ImageFont, ImageColor
-import numpy as np
 import math
 import os
 import traceback
@@ -24,17 +23,35 @@ def get_real_asset(assets, filename):
 # 2. 核心算法 (透视与遮罩)
 # =============================================================================
 
+def _solve_linear(matrix, vector):
+    """高斯消元解 8 元线性方程组（纯 Python，避免引入 numpy 依赖）；无解返回 None。"""
+    size = len(matrix)
+    rows = [list(row) + [float(vector[index])] for index, row in enumerate(matrix)]
+    for column in range(size):
+        pivot = max(range(column, size), key=lambda row: abs(rows[row][column]))
+        if abs(rows[pivot][column]) < 1e-9:
+            return None
+        rows[column], rows[pivot] = rows[pivot], rows[column]
+        pivot_value = rows[column][column]
+        rows[column] = [value / pivot_value for value in rows[column]]
+        for row in range(size):
+            if row == column:
+                continue
+            factor = rows[row][column]
+            if factor:
+                rows[row] = [value - factor * base for value, base in zip(rows[row], rows[column])]
+    return [rows[index][size] for index in range(size)]
+
+
 def find_coeffs(pa, pb):
     matrix = []
     for p1, p2 in zip(pa, pb):
         matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0]*p1[0], -p2[0]*p1[1]])
         matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1]*p1[0], -p2[1]*p1[1]])
-    A = np.array(matrix, dtype=np.float32)
-    B = np.array(pb, dtype=np.float32).reshape(8)
     try:
-        res = np.linalg.solve(A, B)
-        return res.reshape(8)
-    except: return None
+        return _solve_linear(matrix, [value for point in pb for value in point])
+    except Exception:
+        return None
 
 def warp_image_to_quad(img, quad):
     w, h = img.size
@@ -61,22 +78,24 @@ def create_radial_mask(size, radius_scale=1.0, intensity=1.0):
     w, h = size
     cx, cy = w // 2, h // 2
     max_dist = math.sqrt(cx**2 + cy**2) * radius_scale
-    
+
     try:
-        y, x = np.ogrid[:h, :w]
-        dist = np.sqrt((x - cx)**2 + (y - cy)**2)
-        norm_dist = dist / max_dist
-        norm_dist = np.clip(norm_dist, 0, 1)
-        norm_dist = norm_dist * norm_dist * (3 - 2 * norm_dist)
-        
-        alpha = (norm_dist * 255 * intensity).astype(np.uint8)
-        mask = Image.fromarray(alpha, mode='L')
-        
+        # 纯 PIL 实现：由外向内绘制同心圆，平滑步进逼近原 numpy 距离场（中心透明、边缘压暗）。
+        mask = Image.new('L', size, 0)
+        draw = ImageDraw.Draw(mask)
+        steps = 64
+        for index in range(steps, 0, -1):
+            norm = min(1.0, index / float(steps))
+            smooth = norm * norm * (3 - 2 * norm)
+            alpha = int(smooth * 255 * intensity)
+            radius = int(norm * max_dist)
+            draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=alpha)
+
         vignette = Image.new('RGBA', size, (0, 0, 0, 0))
         black = Image.new('RGBA', size, (0, 0, 0, 255))
         vignette.paste(black, (0, 0), mask=mask)
         return vignette
-    except:
+    except Exception:
         return Image.new('RGBA', size, (0,0,0, int(100*intensity)))
 
 # =============================================================================

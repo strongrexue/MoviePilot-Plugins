@@ -399,26 +399,26 @@ const _hoisted_11 = {
   key: 0,
   class: "text-caption text-medium-emphasis"
 };
-const _hoisted_12 = { class: "ec-templates" };
+const _hoisted_12 = { class: "ec-preview-side" };
 const _hoisted_13 = ["src"];
 const _hoisted_14 = {
-  key: 1,
-  class: "ec-template-noimg"
-};
-const _hoisted_15 = { class: "ec-template-name" };
-const _hoisted_16 = { class: "ec-template-ops" };
-const _hoisted_17 = { class: "ec-row-wrap mt-2" };
-const _hoisted_18 = { class: "ec-preview-side" };
-const _hoisted_19 = ["src"];
-const _hoisted_20 = {
   key: 2,
   class: "ec-placeholder"
 };
-const _hoisted_21 = {
+const _hoisted_15 = {
   key: 3,
   class: "text-caption"
 };
-const _hoisted_22 = { key: 0 };
+const _hoisted_16 = { key: 0 };
+const _hoisted_17 = { class: "ec-templates" };
+const _hoisted_18 = ["src"];
+const _hoisted_19 = {
+  key: 1,
+  class: "ec-template-noimg"
+};
+const _hoisted_20 = { class: "ec-template-name" };
+const _hoisted_21 = { class: "ec-template-ops" };
+const _hoisted_22 = { class: "ec-row-wrap mt-2" };
 
 const {computed: computed$1,onMounted: onMounted$1,ref: ref$1} = await importShared('vue');
 
@@ -879,10 +879,74 @@ return (_ctx, _cache) => {
             })
           ]),
           _: 1
+        })
+      ]),
+      _createElementVNode$1("div", _hoisted_12, [
+        _createVNode$1(_component_VCard, {
+          variant: "tonal",
+          class: "ec-preview-card"
+        }, {
+          default: _withCtx$1(() => [
+            _createVNode$1(_component_VCardItem, { class: "py-2" }, {
+              append: _withCtx$1(() => [
+                _createVNode$1(_component_VBtn, {
+                  size: "small",
+                  variant: "text",
+                  "prepend-icon": "mdi-image-refresh",
+                  loading: _unref(designer).previewing.value,
+                  onClick: _unref(designer).previewCover
+                }, {
+                  default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
+                    _createTextVNode$1(" 生成 ", -1)
+                  ]))]),
+                  _: 1
+                }, 8, ["loading", "onClick"])
+              ]),
+              default: _withCtx$1(() => [
+                _createVNode$1(_component_VCardTitle, { class: "text-subtitle-1" }, {
+                  default: _withCtx$1(() => [...(_cache[18] || (_cache[18] = [
+                    _createTextVNode$1("预览", -1)
+                  ]))]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }),
+            _createVNode$1(_component_VCardText, { class: "ec-preview-body" }, {
+              default: _withCtx$1(() => [
+                (_unref(designer).previewing.value)
+                  ? (_openBlock$1(), _createBlock$1(_component_VProgressLinear, {
+                      key: 0,
+                      indeterminate: "",
+                      color: "primary",
+                      height: "2"
+                    }))
+                  : _createCommentVNode$1("", true),
+                (_unref(previewImage))
+                  ? (_openBlock$1(), _createElementBlock("img", {
+                      key: 1,
+                      src: _unref(previewImage),
+                      class: "ec-preview",
+                      alt: "封面预览"
+                    }, null, 8, _hoisted_13))
+                  : (_openBlock$1(), _createElementBlock("div", _hoisted_14, "点击「生成」查看封面效果")),
+                (_unref(previewInfo).title)
+                  ? (_openBlock$1(), _createElementBlock("div", _hoisted_15, [
+                      _createTextVNode$1(_toDisplayString$1(_unref(previewInfo).title), 1),
+                      (_unref(previewInfo).count)
+                        ? (_openBlock$1(), _createElementBlock("span", _hoisted_16, " · " + _toDisplayString$1(_unref(previewInfo).count) + " 部", 1))
+                        : _createCommentVNode$1("", true)
+                    ]))
+                  : _createCommentVNode$1("", true)
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
         }),
         _createVNode$1(_component_VCard, {
           variant: "tonal",
-          class: "ec-block"
+          class: "ec-block mt-2"
         }, {
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardItem, { class: "py-2" }, {
@@ -893,7 +957,7 @@ return (_ctx, _cache) => {
                   "prepend-icon": "mdi-upload",
                   onClick: _cache[6] || (_cache[6] = $event => (pick(templateInput.value)))
                 }, {
-                  default: _withCtx$1(() => [...(_cache[18] || (_cache[18] = [
+                  default: _withCtx$1(() => [...(_cache[20] || (_cache[20] = [
                     _createTextVNode$1("上传", -1)
                   ]))]),
                   _: 1
@@ -911,7 +975,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode$1(_component_VCardText, null, {
               default: _withCtx$1(() => [
-                _createElementVNode$1("div", _hoisted_12, [
+                _createElementVNode$1("div", _hoisted_17, [
                   (_openBlock$1(true), _createElementBlock(_Fragment, null, _renderList(_unref(designer).templates.value, (template) => {
                     return (_openBlock$1(), _createElementBlock("div", {
                       key: template.filename,
@@ -923,16 +987,16 @@ return (_ctx, _cache) => {
                             src: _unref(designer).templatePreviewUrl(template),
                             class: "ec-template-thumb",
                             alt: ""
-                          }, null, 8, _hoisted_13))
-                        : (_openBlock$1(), _createElementBlock("div", _hoisted_14, _toDisplayString$1(template.layout), 1)),
-                      _createElementVNode$1("div", _hoisted_15, _toDisplayString$1(template.name || template.filename), 1),
-                      _createElementVNode$1("div", _hoisted_16, [
+                          }, null, 8, _hoisted_18))
+                        : (_openBlock$1(), _createElementBlock("div", _hoisted_19, _toDisplayString$1(template.layout), 1)),
+                      _createElementVNode$1("div", _hoisted_20, _toDisplayString$1(template.name || template.filename), 1),
+                      _createElementVNode$1("div", _hoisted_21, [
                         _createVNode$1(_component_VBtn, {
                           size: "x-small",
                           variant: "text",
                           onClick: $event => (_unref(designer).loadTemplate(template))
                         }, {
-                          default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
+                          default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
                             _createTextVNode$1("载入", -1)
                           ]))]),
                           _: 1
@@ -942,7 +1006,7 @@ return (_ctx, _cache) => {
                           variant: "text",
                           onClick: $event => (_unref(designer).deleteTemplate(template.filename))
                         }, {
-                          default: _withCtx$1(() => [...(_cache[20] || (_cache[20] = [
+                          default: _withCtx$1(() => [...(_cache[22] || (_cache[22] = [
                             _createTextVNode$1("删除", -1)
                           ]))]),
                           _: 1
@@ -951,7 +1015,7 @@ return (_ctx, _cache) => {
                     ], 2))
                   }), 128))
                 ]),
-                _createElementVNode$1("div", _hoisted_17, [
+                _createElementVNode$1("div", _hoisted_22, [
                   _createVNode$1(_component_VTextField, {
                     modelValue: templateName.value,
                     "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((templateName).value = $event)),
@@ -968,51 +1032,12 @@ return (_ctx, _cache) => {
                     disabled: !templateName.value,
                     onClick: _cache[8] || (_cache[8] = $event => (_unref(designer).saveTemplate(templateName.value)))
                   }, {
-                    default: _withCtx$1(() => [...(_cache[21] || (_cache[21] = [
+                    default: _withCtx$1(() => [...(_cache[23] || (_cache[23] = [
                       _createTextVNode$1(" 保存当前 ", -1)
                     ]))]),
                     _: 1
                   }, 8, ["disabled"])
                 ])
-              ]),
-              _: 1
-            })
-          ]),
-          _: 1
-        })
-      ]),
-      _createElementVNode$1("div", _hoisted_18, [
-        _createVNode$1(_component_VCard, {
-          variant: "tonal",
-          class: "ec-preview-card"
-        }, {
-          default: _withCtx$1(() => [
-            _createVNode$1(_component_VCardText, { class: "ec-preview-body" }, {
-              default: _withCtx$1(() => [
-                (_unref(designer).previewing.value)
-                  ? (_openBlock$1(), _createBlock$1(_component_VProgressLinear, {
-                      key: 0,
-                      indeterminate: "",
-                      color: "primary",
-                      height: "2"
-                    }))
-                  : _createCommentVNode$1("", true),
-                (_unref(previewImage))
-                  ? (_openBlock$1(), _createElementBlock("img", {
-                      key: 1,
-                      src: _unref(previewImage),
-                      class: "ec-preview",
-                      alt: "封面预览"
-                    }, null, 8, _hoisted_19))
-                  : (_openBlock$1(), _createElementBlock("div", _hoisted_20, "点击右上「生成预览」查看效果")),
-                (_unref(previewInfo).title)
-                  ? (_openBlock$1(), _createElementBlock("div", _hoisted_21, [
-                      _createTextVNode$1(_toDisplayString$1(_unref(previewInfo).title), 1),
-                      (_unref(previewInfo).count)
-                        ? (_openBlock$1(), _createElementBlock("span", _hoisted_22, " · " + _toDisplayString$1(_unref(previewInfo).count) + " 部", 1))
-                        : _createCommentVNode$1("", true)
-                    ]))
-                  : _createCommentVNode$1("", true)
               ]),
               _: 1
             })
@@ -1050,7 +1075,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-5f7b3368"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cb17a494"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode} = await importShared('vue');
 

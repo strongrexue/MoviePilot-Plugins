@@ -18,8 +18,9 @@ MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / Jellyfin，提供：
 - **宿主透传不提供 DELETE**：任务中心的「停止任务」用 `RequestUtils.delete_res` 补齐；
   服务器地址与密钥仍取自宿主 `MediaServerHelper.get_configs()`，不另存凭据。
 - **路径前缀按类型区分**：Emby 用 `emby/…`，Jellyfin 用根路径（宿主模块同款约定）。
-- **额外依赖 `pillow` + `numpy`**（numpy 供「荣耀视界」的透视变换使用）；配置、数据、资源目录
-  均走基类能力，通知与媒体服务复用宿主。
+- **不声明额外依赖（无 `pyproject.toml`）**：只使用宿主环境自带的 `Pillow`；这样在**离线/无外网**
+  的 MoviePilot 主机上更新插件时不会被"安装依赖"环节卡住（若声明依赖，MP 会尝试联网安装，
+  失败会清理插件目录导致更新失败）。荣耀视界的透视变换已用纯 Python 高斯消元实现，不依赖 numpy。
 - **渲染在宿主同进程**：布局脚本按需加载（不在模块导入期执行），避免导入副作用与分身污染；
   引擎缓存挂在实例上，不放进进程级单例。
 - **字体不随插件分发**：中文字体请自行上传（配置页「封面设计 → 字体」），未上传时回退到
@@ -28,6 +29,8 @@ MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / Jellyfin，提供：
   海报墙 / 经典堆叠 / 经典平铺 / 经典平铺(动态) / 聚焦C佬 / 荣耀视界，配套素材随包分发；
   每个布局导出 `get_schema()`（分组 + 字段：range 滑块 / select / color / font / boolean / text）
   与 `render()`，配置页参数表单**完全按 schema 自动生成**，新增布局无需改前端。
+- **默认模板带预览缩略图**：11 个内置模板预设（`.json`）+ 对应 `.jpg` 缩略图随包分发，
+  首次初始化只补缺失地拷入数据目录。
 - **设计素材端点放行匿名读取**：`/asset/font/{name}` 与 `/asset/template/{filename}` 用于浏览器
   `<img>` 直接加载（无法携带 Authorization 头）；二者只是设计素材，不含敏感信息。
 

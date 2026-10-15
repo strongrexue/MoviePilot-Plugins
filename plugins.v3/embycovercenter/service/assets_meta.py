@@ -48,14 +48,16 @@ def ensure_dirs(plugin) -> None:
 
 
 def seed_default_templates(plugin) -> int:
-    """把随插件分发的默认模板预设拷进数据目录（只补缺失，不覆盖用户文件）。"""
+    """把随插件分发的默认模板（含预览缩略图）拷进数据目录（只补缺失，不覆盖用户文件）。"""
     source = PACKAGE_DEFAULTS_DIR / "templates"
     if not source.exists():
         return 0
     ensure_dirs(plugin)
     target = templates_dir(plugin)
     copied = 0
-    for item in sorted(source.glob(f"*{TEMPLATE_EXTENSION}")):
+    for item in sorted(source.iterdir()):
+        if not item.is_file() or item.name.lower() not in (TEMPLATE_EXTENSION, PREVIEW_EXTENSION):
+            continue
         destination = target / item.name
         if destination.exists():
             continue

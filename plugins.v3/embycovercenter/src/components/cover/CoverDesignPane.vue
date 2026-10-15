@@ -303,7 +303,36 @@ defineExpose({ snapshot })
           </VCardText>
         </VCard>
 
-        <VCard variant="tonal" class="ec-block">
+      </div>
+
+      <!-- 右：预览 + 模板预设（都偏视觉，放右侧填满空间） -->
+      <div class="ec-preview-side">
+        <VCard variant="tonal" class="ec-preview-card">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">预览</VCardTitle>
+            <template #append>
+              <VBtn
+                size="small"
+                variant="text"
+                prepend-icon="mdi-image-refresh"
+                :loading="designer.previewing.value"
+                @click="designer.previewCover"
+              >
+                生成
+              </VBtn>
+            </template>
+          </VCardItem>
+          <VCardText class="ec-preview-body">
+            <VProgressLinear v-if="designer.previewing.value" indeterminate color="primary" height="2" />
+            <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
+            <div v-else class="ec-placeholder">点击「生成」查看封面效果</div>
+            <div v-if="previewInfo.title" class="text-caption">
+              {{ previewInfo.title }}<span v-if="previewInfo.count"> · {{ previewInfo.count }} 部</span>
+            </div>
+          </VCardText>
+        </VCard>
+
+        <VCard variant="tonal" class="ec-block mt-2">
           <VCardItem class="py-2">
             <VCardTitle class="text-subtitle-1">模板预设（{{ designer.templates.value.length }}）</VCardTitle>
             <template #append>
@@ -345,20 +374,6 @@ defineExpose({ snapshot })
               <VBtn size="small" variant="tonal" :disabled="!templateName" @click="designer.saveTemplate(templateName)">
                 保存当前
               </VBtn>
-            </div>
-          </VCardText>
-        </VCard>
-      </div>
-
-      <!-- 右：预览 -->
-      <div class="ec-preview-side">
-        <VCard variant="tonal" class="ec-preview-card">
-          <VCardText class="ec-preview-body">
-            <VProgressLinear v-if="designer.previewing.value" indeterminate color="primary" height="2" />
-            <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
-            <div v-else class="ec-placeholder">点击右上「生成预览」查看效果</div>
-            <div v-if="previewInfo.title" class="text-caption">
-              {{ previewInfo.title }}<span v-if="previewInfo.count"> · {{ previewInfo.count }} 部</span>
             </div>
           </VCardText>
         </VCard>
@@ -465,9 +480,12 @@ defineExpose({ snapshot })
 .ec-preview-side {
   position: sticky;
   top: 8px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .ec-preview-card {
-  min-height: 240px;
+  min-height: 220px;
   border-radius: 10px;
 }
 .ec-preview-body {
@@ -478,7 +496,7 @@ defineExpose({ snapshot })
 }
 .ec-preview {
   width: 100%;
-  max-height: 46vh;
+  max-height: 42vh;
   object-fit: contain;
   border-radius: 8px;
 }
@@ -486,7 +504,7 @@ defineExpose({ snapshot })
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 200px;
+  min-height: 180px;
   font-size: 13px;
   opacity: 0.6;
 }
@@ -496,14 +514,11 @@ defineExpose({ snapshot })
   gap: 6px;
 }
 .ec-templates {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
   gap: 8px;
-  max-height: 230px;
-  overflow-y: auto;
 }
 .ec-template {
-  width: 128px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   overflow: hidden;
@@ -513,12 +528,12 @@ defineExpose({ snapshot })
 }
 .ec-template-thumb {
   width: 100%;
-  height: 72px;
+  height: 78px;
   object-fit: cover;
   display: block;
 }
 .ec-template-noimg {
-  height: 72px;
+  height: 78px;
   display: flex;
   align-items: center;
   justify-content: center;

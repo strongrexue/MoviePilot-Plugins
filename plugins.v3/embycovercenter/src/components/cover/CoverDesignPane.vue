@@ -498,8 +498,8 @@ onMounted(designer.loadAll)
 }
 .ec-preview {
   width: 100%;
-  /* 首屏刚好露出分组标题行：图高上限约六成视口，再往下滚看分组 */
-  max-height: 58vh;
+  /* 首屏完整露出「预览 + 模板预设缩略图行」，分组内容下滚查看 */
+  max-height: 52vh;
   object-fit: contain;
   border-radius: 8px;
 }

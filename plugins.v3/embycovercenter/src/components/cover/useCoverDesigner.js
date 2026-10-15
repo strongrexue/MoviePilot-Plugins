@@ -18,6 +18,9 @@ function readFileAsDataUrl(file) {
   })
 }
 
+/** 内容字段：跟随「目标对象」（媒体库 / 用户输入），不随风格模板改动。 */
+const CONTENT_KEYS = ['title', 'subtitle']
+
 export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   const loading = ref(false)
   const previewing = ref(false)
@@ -58,15 +61,25 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     return current && Array.isArray(current.groups) ? current.groups : []
   })
 
-  /** 引擎通用分组 + 当前布局分组（顺序：布局参数在前，引擎通用在后）。 */
-  const allGroups = computed(() => {
-    const groups = layoutGroups.value.map(group => ({
+  /** 风格参数分组（不含内容字段）；「引擎通用」单独一块，便于放到右列。 */
+  const styleGroups = computed(() =>
+    layoutGroups.value.map(group => ({
       group: group.group || '参数',
-      items: Array.isArray(group.items) ? group.items : [],
-    }))
-    if (commonFields.value.length) {
-      groups.push({ group: commonGroup.value || '引擎通用', items: commonFields.value })
-    }
+      items: (Array.isArray(group.items) ? group.items : []).filter(
+        item => item && !CONTENT_KEYS.includes(item.key),
+      ),
+    })),
+  )
+
+  const engineGroup = computed(() =>
+    commonFields.value.length
+      ? { group: commonGroup.value || '引擎通用', items: commonFields.value }
+      : null,
+  )
+
+  const allGroups = computed(() => {
+    const groups = [...styleGroups.value]
+    if (engineGroup.value) groups.push(engineGroup.value)
     return groups
   })
 
@@ -81,11 +94,12 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     ...fonts.value.map(name => ({ title: name, value: name })),
   ])
 
-  /** 用 schema 默认值补齐缺失参数（force=true 时重置为默认）。 */
+  /** 用 schema 默认值补齐缺失参数（force=true 时重置为默认）。
+   *  内容字段（标题 / 副标题）跳过：它们由「目标对象」与用户输入决定。 */
   function applyDefaults(groups, force = false) {
     for (const group of groups || []) {
       for (const item of group.items || []) {
-        if (!item || !item.key) continue
+        if (!item || !item.key || CONTENT_KEYS.includes(item.key)) continue
         if (item.default === undefined || item.default === null) continue
         if (force || form.config[item.key] === undefined) {
           form.config[item.key] = item.default
@@ -94,10 +108,10 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 选中媒体库时用库名兜底主标题，避免空白标题。 */
+  /** 主标题跟随所选媒体库（副标题保留用户自定义）。 */
   function syncTitleFromLibrary() {
     const target = libraries.value.find(item => item.id === form.library_id)
-    if (target && !form.config.title) {
+    if (target) {
       form.config.title = target.name || target.id
     }
   }
@@ -315,11 +329,19 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
+  /** 载入模板：**只套用风格参数**，主/副标题属于「目标对象」，不随模板改动。 */
   function loadTemplate(template) {
+    const incoming = { ...(template.config || {}) }
+    for (const key of CONTENT_KEYS) delete incoming[key]
     form.layout = template.layout || form.layout
-    form.config = { ...(template.config || {}) }
+    form.config = {
+      ...incoming,
+      title: form.config.title,
+      subtitle: form.config.subtitle,
+    }
     applyDefaults(allGroups.value)
-    report(`已载入模板：${template.name || template.filename}`)
+    syncTitleFromLibrary()
+    report(`已载入模板：${template.name || template.filename}（仅套用风格参数）`)
   }
 
   /** 模板预览图地址（原生资源端点，浏览器可直接 <img> 加载）。 */
@@ -351,6 +373,8 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     commonGroup,
     commonFields,
     layoutGroups,
+    styleGroups,
+    engineGroup,
     allGroups,
     libraryItems,
     layoutItems,

@@ -1,12 +1,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import CoverField from './CoverField.vue'
 import { useCoverDesigner } from './useCoverDesigner'
 
 /**
- * 封面设计面板：目标对象 / 布局参数（schema 驱动，支持滑块）/ 封面上传 / 字体与模板。
+ * 封面设计面板。
  *
- * 参数表单完全由后端布局 schema 生成：分组 → 逐项按 type 渲染控件
- * （range 滑块、select、color、font、boolean、text、number）。
+ * 结构：
+ * - 左列（目标对象 + 风格参数）：选服务器/媒体库/风格，以及该风格的 schema 驱动参数；
+ * - 右列（预览 + 模板 + 引擎通用 + 封面上传 + 字体）：视觉与资源相关的都放右侧，列更宽。
+ *
+ * 主/副标题属于「目标对象」（跟随媒体库 / 用户输入），载入模板只套用风格参数。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -20,7 +24,7 @@ const designer = useCoverDesigner({
   pluginId: () => props.pluginId,
   initialConfig: props.initialConfig,
 })
-const { form, previewImage, previewInfo, message, messageOk } = designer
+const { form, previewImage, previewInfo, message, messageOk, styleGroups, engineGroup } = designer
 
 const serverItems = computed(() =>
   props.servers.map(server => ({
@@ -38,18 +42,6 @@ const fontInput = ref(null)
 const templateInput = ref(null)
 const localImageInput = ref(null)
 const templateName = ref('')
-
-/** select 的 options 统一成 {title, value}，避免 Vuetify 渲染成 [object Object]。 */
-function toSelectItems(item) {
-  return (item.options || []).map(option => ({
-    title: option.label !== undefined ? option.label : option.title,
-    value: option.value,
-  }))
-}
-
-function fieldValue(item) {
-  return form.config[item.key]
-}
 
 function pick(reference) {
   const element = reference.value
@@ -126,13 +118,14 @@ defineExpose({ snapshot })
     </VAlert>
 
     <div class="ec-cols">
-      <!-- 左：控件区 -->
+      <!-- 左：目标对象 + 风格参数 -->
       <div class="ec-controls">
         <VCard variant="tonal" class="ec-block">
           <VCardItem class="py-2">
             <VCardTitle class="text-subtitle-1">目标对象</VCardTitle>
+            <VCardSubtitle class="text-caption">主/副标题跟随所选媒体库，载入模板不会改它们</VCardSubtitle>
           </VCardItem>
-          <VCardText class="ec-grid">
+          <VCardText class="ec-fields">
             <VSelect
               v-model="form.server"
               :items="serverItems"
@@ -168,144 +161,40 @@ defineExpose({ snapshot })
               variant="outlined"
               hide-details
             />
+            <VTextField
+              v-model="form.config.title"
+              label="主标题内容"
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
+            <VTextField
+              v-model="form.config.subtitle"
+              label="副标题内容"
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
           </VCardText>
         </VCard>
 
-        <VCard v-for="(group, groupIndex) in designer.allGroups.value" :key="groupIndex" variant="tonal" class="ec-block">
+        <VCard v-for="(group, index) in styleGroups.value" :key="index" variant="tonal" class="ec-block">
           <VCardItem class="py-2">
             <VCardTitle class="text-subtitle-1">{{ group.group }}</VCardTitle>
           </VCardItem>
           <VCardText class="ec-fields">
-            <template v-for="item in group.items" :key="item.key">
-              <!-- 滑块 -->
-              <div v-if="item.type === 'range'" class="ec-slider">
-                <div class="ec-slider-head">
-                  <span>{{ item.label }}</span>
-                  <b>{{ fieldValue(item) }}</b>
-                </div>
-                <VSlider
-                  v-model="form.config[item.key]"
-                  :min="item.min !== undefined && item.min !== null ? item.min : 0"
-                  :max="item.max !== undefined && item.max !== null ? item.max : 100"
-                  :step="item.step || 1"
-                  density="compact"
-                  hide-details
-                  color="primary"
-                  thumb-label
-                />
-              </div>
-              <!-- 下拉 -->
-              <VSelect
-                v-else-if="item.type === 'select'"
-                v-model="form.config[item.key]"
-                :items="toSelectItems(item)"
-                :label="item.label"
-                density="compact"
-                variant="outlined"
-                hide-details
-              />
-              <!-- 字体 -->
-              <VSelect
-                v-else-if="item.type === 'font'"
-                v-model="form.config[item.key]"
-                :items="designer.fontItems.value"
-                :label="item.label"
-                density="compact"
-                variant="outlined"
-                hide-details
-              />
-              <!-- 开关 -->
-              <VSwitch
-                v-else-if="item.type === 'boolean'"
-                v-model="form.config[item.key]"
-                :label="item.label"
-                color="primary"
-                hide-details
-                inset
-                density="compact"
-              />
-              <!-- 颜色：色块 + 文本框 -->
-              <div v-else-if="item.type === 'color'" class="ec-color">
-                <label class="ec-color-swatch" :style="{ background: fieldValue(item) || '#000000' }">
-                  <input
-                    type="color"
-                    class="ec-color-input"
-                    :value="fieldValue(item) || '#000000'"
-                    @input="form.config[item.key] = $event.target.value"
-                  />
-                </label>
-                <VTextField
-                  v-model="form.config[item.key]"
-                  :label="item.label"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-              </div>
-              <!-- 数字 / 文本 -->
-              <VTextField
-                v-else
-                v-model="form.config[item.key]"
-                :label="item.label"
-                :type="item.type === 'number' ? 'number' : 'text'"
-                density="compact"
-                variant="outlined"
-                hide-details
-              />
-            </template>
+            <CoverField
+              v-for="item in group.items"
+              :key="item.key"
+              :item="item"
+              :config="form.config"
+              :fonts="designer.fontItems.value"
+            />
           </VCardText>
         </VCard>
-
-        <VCard variant="tonal" class="ec-block">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">封面上传</VCardTitle>
-          </VCardItem>
-          <VCardText class="ec-row-wrap">
-            <VBtn size="small" variant="tonal" prepend-icon="mdi-image" :loading="designer.applying.value" @click="pick(localImageInput)">
-              选择本地封面（直接替换）
-            </VBtn>
-            <VBtn
-              size="small"
-              variant="tonal"
-              prepend-icon="mdi-content-save-check"
-              :disabled="!previewImage"
-              :loading="designer.applying.value"
-              @click="designer.applyPreviewImage"
-            >
-              应用当前预览图
-            </VBtn>
-          </VCardText>
-        </VCard>
-
-        <VCard variant="tonal" class="ec-block">
-          <VCardItem class="py-2">
-            <VCardTitle class="text-subtitle-1">字体（{{ designer.fonts.value.length }}）</VCardTitle>
-            <template #append>
-              <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(fontInput)">上传</VBtn>
-            </template>
-          </VCardItem>
-          <VCardText>
-            <div class="ec-chips">
-              <VChip
-                v-for="name in designer.fonts.value"
-                :key="name"
-                size="small"
-                variant="tonal"
-                closable
-                @click:close="designer.deleteFont(name)"
-              >
-                {{ name }}
-              </VChip>
-              <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
-                未上传字体（中文会回退为方块），请先上传 .ttf/.otf
-              </span>
-            </div>
-          </VCardText>
-        </VCard>
-
       </div>
 
-      <!-- 右：预览 + 模板预设（都偏视觉，放右侧填满空间） -->
+      <!-- 右：预览 + 模板预设 + 引擎通用 + 封面上传 + 字体 -->
       <div class="ec-preview-side">
         <VCard variant="tonal" class="ec-preview-card">
           <VCardItem class="py-2">
@@ -335,6 +224,7 @@ defineExpose({ snapshot })
         <VCard variant="tonal" class="ec-block mt-2">
           <VCardItem class="py-2">
             <VCardTitle class="text-subtitle-1">模板预设（{{ designer.templates.value.length }}）</VCardTitle>
+            <VCardSubtitle class="text-caption">仅展示效果；「载入」只套用风格参数</VCardSubtitle>
             <template #append>
               <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(templateInput)">上传</VBtn>
             </template>
@@ -374,6 +264,68 @@ defineExpose({ snapshot })
               <VBtn size="small" variant="tonal" :disabled="!templateName" @click="designer.saveTemplate(templateName)">
                 保存当前
               </VBtn>
+            </div>
+          </VCardText>
+        </VCard>
+
+        <VCard v-if="engineGroup.value" variant="tonal" class="ec-block mt-2">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">{{ engineGroup.value.group }}</VCardTitle>
+          </VCardItem>
+          <VCardText class="ec-fields">
+            <CoverField
+              v-for="item in engineGroup.value.items"
+              :key="item.key"
+              :item="item"
+              :config="form.config"
+              :fonts="designer.fontItems.value"
+            />
+          </VCardText>
+        </VCard>
+
+        <VCard variant="tonal" class="ec-block mt-2">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">封面上传</VCardTitle>
+          </VCardItem>
+          <VCardText class="ec-row-wrap">
+            <VBtn size="small" variant="tonal" prepend-icon="mdi-image" :loading="designer.applying.value" @click="pick(localImageInput)">
+              选择本地封面（直接替换）
+            </VBtn>
+            <VBtn
+              size="small"
+              variant="tonal"
+              prepend-icon="mdi-content-save-check"
+              :disabled="!previewImage"
+              :loading="designer.applying.value"
+              @click="designer.applyPreviewImage"
+            >
+              应用当前预览图
+            </VBtn>
+          </VCardText>
+        </VCard>
+
+        <VCard variant="tonal" class="ec-block mt-2">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">字体（{{ designer.fonts.value.length }}）</VCardTitle>
+            <template #append>
+              <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(fontInput)">上传</VBtn>
+            </template>
+          </VCardItem>
+          <VCardText>
+            <div class="ec-chips">
+              <VChip
+                v-for="name in designer.fonts.value"
+                :key="name"
+                size="small"
+                variant="tonal"
+                closable
+                @click:close="designer.deleteFont(name)"
+              >
+                {{ name }}
+              </VChip>
+              <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
+                未上传字体（中文会回退为方块），请先上传 .ttf/.otf
+              </span>
             </div>
           </VCardText>
         </VCard>
@@ -428,48 +380,10 @@ defineExpose({ snapshot })
 .ec-block {
   border-radius: 10px;
 }
-.ec-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
 .ec-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 12px;
-}
-.ec-slider {
-  grid-column: 1 / -1;
-}
-.ec-slider-head {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  margin-bottom: 2px;
-  opacity: 0.85;
-}
-.ec-color {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-}
-.ec-color-swatch {
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  overflow: hidden;
-  cursor: pointer;
-  display: block;
-}
-.ec-color-input {
-  width: 100%;
-  height: 100%;
-  border: none;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
 }
 .ec-row-wrap {
   display: flex;
@@ -478,8 +392,6 @@ defineExpose({ snapshot })
   gap: 8px;
 }
 .ec-preview-side {
-  position: sticky;
-  top: 8px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -496,7 +408,7 @@ defineExpose({ snapshot })
 }
 .ec-preview {
   width: 100%;
-  max-height: 42vh;
+  max-height: 40vh;
   object-fit: contain;
   border-radius: 8px;
 }
@@ -563,12 +475,8 @@ defineExpose({ snapshot })
   .ec-cols {
     grid-template-columns: 1fr;
   }
-  .ec-preview-side {
-    position: static;
-  }
 }
 @media (max-width: 760px) {
-  .ec-grid,
   .ec-fields {
     grid-template-columns: 1fr;
   }

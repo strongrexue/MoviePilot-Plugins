@@ -33,6 +33,8 @@ MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / Jellyfin，提供：
   首次初始化只补缺失地拷入数据目录。
 - **设计素材端点放行匿名读取**：`/asset/font/{name}` 与 `/asset/template/{filename}` 用于浏览器
   `<img>` 直接加载（无法携带 Authorization 头）；二者只是设计素材，不含敏感信息。
+- **备份版本可视化**：备份管理里每个版本显示封面缩略图（`/cover_backup/thumb` 生成 120 高
+  JPEG data URI），恢复确认弹窗同步展示待恢复封面。
 
 ## 界面
 

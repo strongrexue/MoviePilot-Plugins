@@ -29,39 +29,28 @@ ANIM_TARGET_WIDTH = 320
 ANIM_MAX_FRAMES = 300
 IMG_CACHE_MAX = 32
 
-DEFAULT_ENGINE = "classic"
+# 默认布局（与内置布局模块名一致）。
+DEFAULT_ENGINE = "经典平铺"
 
-# 内置布局的中文展示名（前端布局下拉用）。
-LAYOUT_LABELS = {
-    "classic": "经典平铺",
-    "wall": "海报墙",
-    "minimal": "极简",
-}
-
+# 引擎通用参数（各布局 schema 之外的部分：画布/输出/动态/角标）。
 COMMON_SCHEMA_FIELDS: List[Dict[str, Any]] = [
-    {"key": "title", "label": "主标题", "type": "text", "default": ""},
-    {"key": "subtitle", "label": "副标题", "type": "text", "default": ""},
     {"key": "canvas_width", "label": "画布宽", "type": "number", "default": 1920},
     {"key": "canvas_height", "label": "画布高", "type": "number", "default": 1080},
-    {"key": "blur_radius", "label": "背景模糊", "type": "number", "default": 4},
-    {"key": "brightness", "label": "背景亮度", "type": "number", "default": 0.7, "step": 0.05},
-    {"key": "font_title", "label": "标题字体", "type": "font", "default": ""},
-    {"key": "font_subtitle", "label": "副标题字体", "type": "font", "default": ""},
-    {"key": "title_size", "label": "标题字号", "type": "number", "default": 160},
-    {"key": "subtitle_size", "label": "副标题字号", "type": "number", "default": 80},
     {"key": "output_width", "label": "输出宽（0=原始）", "type": "number", "default": 0},
     {"key": "output_height", "label": "输出高（0=原始）", "type": "number", "default": 0},
     {"key": "enable_animation", "label": "动态封面（APNG）", "type": "boolean", "default": False},
     {"key": "anim_frames", "label": "动画帧数", "type": "number", "default": 30},
     {"key": "anim_duration", "label": "帧间隔(ms)", "type": "number", "default": 100},
     {"key": "badge_style", "label": "角标样式", "type": "select", "default": "none",
-     "options": [{"value": "none", "label": "无"}, {"value": "box", "label": "方框"},
-                 {"value": "ribbon", "label": "角带"}]},
+     "options": [{"label": "无", "value": "none"}, {"label": "方框", "value": "box"},
+                 {"label": "角带", "value": "ribbon"}]},
     {"key": "badge_size", "label": "角标字号", "type": "number", "default": 40},
     {"key": "badge_bg_color", "label": "角标底色", "type": "color", "default": "#0f172a"},
     {"key": "badge_text_color", "label": "角标字色", "type": "color", "default": "#ffffff"},
     {"key": "badge_font", "label": "角标字体", "type": "font", "default": ""},
 ]
+
+COMMON_GROUP_NAME = "引擎通用（画布 / 输出 / 动态 / 角标）"
 
 
 class PosterEngine:
@@ -112,18 +101,24 @@ class PosterEngine:
         return self._layouts
 
     def layout_schemas(self) -> List[Dict[str, Any]]:
-        """返回每个布局的展示名与参数字段（前端据此生成表单）。"""
+        """返回每个布局的展示名与分组参数字段（前端据此生成表单）。
+
+        兼容两种 schema 写法：布局直接返回**分组列表**（ChillPoster 风格，
+        ``[{"group": ..., "items": [...]}]``），或返回 ``{"fields": [...]}`` 时
+        自动包裹成单个分组。
+        """
         result: List[Dict[str, Any]] = []
         for name, module in self.layout_modules.items():
             schema = module.get_schema() if hasattr(module, "get_schema") else None
-            fields = schema.get("fields") if isinstance(schema, dict) else None
-            result.append(
-                {
-                    "name": name,
-                    "label": LAYOUT_LABELS.get(name, name),
-                    "fields": fields if isinstance(fields, list) else [],
-                }
-            )
+            groups: List[Dict[str, Any]] = []
+            if isinstance(schema, list):
+                groups = [item for item in schema if isinstance(item, dict)]
+            elif isinstance(schema, dict):
+                if isinstance(schema.get("groups"), list):
+                    groups = [item for item in schema["groups"] if isinstance(item, dict)]
+                elif isinstance(schema.get("fields"), list):
+                    groups = [{"group": "参数", "items": schema["fields"]}]
+            result.append({"name": name, "label": name, "groups": groups})
         return sorted(result, key=lambda item: item["name"])
 
     # -------------------------------------------------------------- 素材与字体
@@ -254,6 +249,40 @@ class PosterEngine:
             draw_y += line_height
         return draw_y
 
+    def create_smart_mask(
+        self,
+        width: int,
+        height: int,
+        opacity: int,
+        coverage_percent: int,
+        direction: str = "horizontal",
+    ) -> Image.Image:
+        """生成渐变遮罩（水平：左黑右透；垂直：上黑下透），供布局叠加压暗层。"""
+        mask = Image.new("L", (width, height), 0)
+        draw = ImageDraw.Draw(mask)
+        if direction == "horizontal":
+            end_x = int(width * (coverage_percent / 100))
+            if end_x <= 0:
+                return mask
+            for x in range(width):
+                if x <= end_x:
+                    alpha = int(opacity * (1 - x / end_x))
+                else:
+                    alpha = 0
+                draw.line([(x, 0), (x, height)], fill=alpha)
+        else:
+            start_y = int(height * (1 - coverage_percent / 100))
+            if start_y >= height:
+                return mask
+            span = max(1, height - start_y)
+            for y in range(height):
+                if y >= start_y:
+                    alpha = int(opacity * ((y - start_y) / span))
+                else:
+                    alpha = 0
+                draw.line([(0, y), (width, y)], fill=alpha)
+        return mask
+
     def _draw_badge(self, img: Image.Image, config: Dict[str, Any], count: Any) -> Image.Image:
         """绘制数量角标（none / box / ribbon）。"""
         style = str(config.get("badge_style") or "none")
@@ -361,11 +390,19 @@ class PosterEngine:
         """渲染封面并返回 base64（静态 JPEG 或动态 APNG）。"""
         config = dict(config or {})
         assets = dict(assets or {})
-        fonts = {
-            "main": self.load_font(config.get("font_title"), int(config.get("title_size") or 160)),
-            "sub": self.load_font(config.get("font_subtitle"), int(config.get("subtitle_size") or 80)),
-            "count": self.load_font(config.get("badge_font"), int(config.get("count_size") or 40)),
-        }
+        title_font = self.load_font(config.get("font_title"), int(config.get("title_size") or 160))
+        subtitle_font = self.load_font(config.get("font_subtitle"), int(config.get("subtitle_size") or 80))
+        badge_font = self.load_font(config.get("badge_font"), int(config.get("count_size") or 40))
+        fonts: Dict[str, Any] = {"main": title_font, "sub": subtitle_font, "count": badge_font}
+        # 兼容按**字体文件名**取字体（部分布局用 fonts.get("剑豪体.ttf") 之类的写法）。
+        for key, font in (
+            (config.get("font_title"), title_font),
+            (config.get("font_subtitle"), subtitle_font),
+            (config.get("badge_font"), badge_font),
+            (config.get("font_count"), badge_font),
+        ):
+            if key:
+                fonts.setdefault(str(key), font)
         output = BytesIO()
 
         if config.get("enable_animation"):

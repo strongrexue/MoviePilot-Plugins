@@ -9,6 +9,8 @@ from typing import Any, Dict
 
 # 自动封面任务默认 cron（每天 04:00）。
 DEFAULT_COVER_CRON = "0 4 * * *"
+# 默认布局（与内置布局模块名一致）。
+DEFAULT_COVER_LAYOUT = "经典平铺"
 
 
 def default_config() -> Dict[str, Any]:
@@ -21,7 +23,7 @@ def default_config() -> Dict[str, Any]:
         # 参与封面的媒体服务器名称；空 = 全部已启用服务器
         "selected_servers": [],
         # 封面：默认布局与布局参数（cover_config 由前端按布局 schema 填充）
-        "cover_layout": "classic",
+        "cover_layout": DEFAULT_COVER_LAYOUT,
         "cover_config": {},
         "assets_mode": "random",
         "poster_count": 6,

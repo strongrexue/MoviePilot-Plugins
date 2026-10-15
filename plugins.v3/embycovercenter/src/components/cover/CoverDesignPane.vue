@@ -3,10 +3,10 @@ import { computed, onMounted, ref } from 'vue'
 import { useCoverDesigner } from './useCoverDesigner'
 
 /**
- * 封面设计面板：目标对象 / 素材选择 / 详细参数 / 封面上传 / 字体与模板管理。
+ * 封面设计面板：目标对象 / 布局参数（schema 驱动，支持滑块）/ 封面上传 / 字体与模板。
  *
- * 参数表单由后端布局 schema 驱动（common_fields + layout.fields），
- * 新增布局或字段不需要改本组件。
+ * 参数表单完全由后端布局 schema 生成：分组 → 逐项按 type 渲染控件
+ * （range 滑块、select、color、font、boolean、text、number）。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -20,7 +20,7 @@ const designer = useCoverDesigner({
   pluginId: () => props.pluginId,
   initialConfig: props.initialConfig,
 })
-const { form, previewImage, previewInfo, message, messageOk, layoutFields, commonFields } = designer
+const { form, previewImage, previewInfo, message, messageOk } = designer
 
 const serverItems = computed(() =>
   props.servers.map(server => ({
@@ -34,12 +34,22 @@ const modeItems = [
   { title: '最新入库', value: 'latest' },
 ]
 
-const allFields = computed(() => [...commonFields.value, ...layoutFields.value])
-
 const fontInput = ref(null)
 const templateInput = ref(null)
 const localImageInput = ref(null)
 const templateName = ref('')
+
+/** select 的 options 统一成 {title, value}，避免 Vuetify 渲染成 [object Object]。 */
+function toSelectItems(item) {
+  return (item.options || []).map(option => ({
+    title: option.label !== undefined ? option.label : option.title,
+    value: option.value,
+  }))
+}
+
+function fieldValue(item) {
+  return form.config[item.key]
+}
 
 function pick(reference) {
   const element = reference.value
@@ -81,283 +91,384 @@ defineExpose({ snapshot })
 </script>
 
 <template>
-  <VCard variant="tonal" class="ec-cover">
-    <VCardItem>
-      <VCardTitle class="text-subtitle-1">封面设计</VCardTitle>
-      <VCardSubtitle class="text-caption">
-        生成后可「应用」到媒体库封面；也可直接上传成品图替换。
-      </VCardSubtitle>
-      <template #append>
-        <VBtn size="small" variant="text" :loading="designer.loading.value" @click="designer.loadAll">
-          刷新
-        </VBtn>
-      </template>
-    </VCardItem>
-    <VDivider />
-    <VCardText class="ec-cover-body">
-      <div v-if="message" :class="messageOk ? 'text-success' : 'text-error'" class="ec-msg">
-        {{ message }}
+  <div class="ec-cover">
+    <div class="ec-toolbar">
+      <div class="ec-toolbar-head">
+        <div class="ec-h">封面设计</div>
+        <div class="ec-sub">选媒体库 → 调风格 → 生成预览 → 应用到媒体库封面</div>
       </div>
+      <div class="ec-toolbar-actions">
+        <VBtn size="small" variant="text" :loading="designer.loading.value" @click="designer.loadAll">刷新</VBtn>
+        <VBtn
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-image-refresh"
+          :loading="designer.previewing.value"
+          @click="designer.previewCover"
+        >
+          生成预览
+        </VBtn>
+        <VBtn
+          color="primary"
+          size="small"
+          variant="flat"
+          prepend-icon="mdi-check"
+          :loading="designer.applying.value"
+          @click="designer.applyCover"
+        >
+          渲染并应用
+        </VBtn>
+      </div>
+    </div>
 
-      <VRow dense>
-        <VCol cols="12" md="7">
-          <VCard variant="text" class="ec-section">
-            <VCardText>
-              <div class="ec-grid">
-                <VSelect
-                  v-model="form.server"
-                  :items="serverItems"
-                  label="媒体服务器"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  @update:model-value="designer.onServerChange"
-                />
-                <VSelect
-                  v-model="form.library_id"
-                  :items="designer.libraryItems.value"
-                  label="媒体库"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  @update:model-value="designer.syncTitleFromLibrary"
-                />
-                <VSelect
-                  v-model="form.layout"
-                  :items="designer.layoutItems.value"
-                  label="布局"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  @update:model-value="designer.onLayoutChange"
-                />
-                <VSelect
-                  v-model="form.mode"
-                  :items="modeItems"
-                  label="素材模式"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-                <VTextField
-                  v-model="form.poster_count"
-                  type="number"
-                  label="海报数量"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-                <VTextField
-                  v-model="form.backdrop_count"
-                  type="number"
-                  label="背景数量"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-              </div>
+    <VAlert v-if="message" :type="messageOk ? 'success' : 'error'" variant="tonal" density="compact" class="mb-2">
+      {{ message }}
+    </VAlert>
 
-              <div class="ec-subtitle">参数</div>
-              <div class="ec-grid">
-                <template v-for="field in allFields" :key="field.key">
-                  <VSwitch
-                    v-if="field.type === 'boolean'"
-                    v-model="form.config[field.key]"
-                    :label="field.label"
-                    color="primary"
-                    hide-details
-                    inset
-                  />
-                  <VSelect
-                    v-else-if="field.type === 'select'"
-                    v-model="form.config[field.key]"
-                    :items="field.options || []"
-                    :label="field.label"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                  />
-                  <VSelect
-                    v-else-if="field.type === 'font'"
-                    v-model="form.config[field.key]"
-                    :items="designer.fontItems.value"
-                    :label="field.label"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                  />
-                  <VTextField
-                    v-else
-                    v-model="form.config[field.key]"
-                    :label="field.label"
-                    :type="field.type === 'number' ? 'number' : (field.type === 'color' ? 'color' : 'text')"
-                    :step="field.step || undefined"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                  />
-                </template>
-              </div>
-
-              <div class="ec-subtitle">封面上传</div>
-              <div class="ec-actions">
-                <VBtn size="small" variant="tonal" :loading="designer.applying.value" @click="pick(localImageInput)">
-                  选择本地封面（直接替换）
-                </VBtn>
-                <VBtn
-                  size="small"
-                  variant="tonal"
-                  :disabled="!previewImage"
-                  :loading="designer.applying.value"
-                  @click="designer.applyPreviewImage"
-                >
-                  应用当前预览图
-                </VBtn>
-              </div>
-            </VCardText>
-          </VCard>
-        </VCol>
-
-        <VCol cols="12" md="5">
-          <VCard variant="text" class="ec-section ec-preview-card">
-            <VCardText class="ec-preview-body">
-              <VProgressLinear v-if="designer.previewing.value" indeterminate color="primary" height="2" />
-              <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
-              <div v-else class="ec-placeholder">
-                点击「生成预览」查看封面效果
-              </div>
-              <div v-if="previewInfo.title" class="text-caption">
-                {{ previewInfo.title }}<span v-if="previewInfo.count"> · {{ previewInfo.count }} 部</span>
-              </div>
-            </VCardText>
-          </VCard>
-          <div class="ec-actions mt-2">
-            <VBtn
-              color="primary"
-              size="small"
-              variant="flat"
-              prepend-icon="mdi-image-refresh"
-              :loading="designer.previewing.value"
-              @click="designer.previewCover"
-            >
-              生成预览
-            </VBtn>
-            <VBtn
-              size="small"
-              variant="tonal"
-              prepend-icon="mdi-check"
-              :loading="designer.applying.value"
-              @click="designer.applyCover"
-            >
-              渲染并应用
-            </VBtn>
-          </div>
-        </VCol>
-      </VRow>
-
-      <VRow dense class="mt-1">
-        <VCol cols="12" md="6">
-          <div class="ec-subtitle">字体（{{ designer.fonts.value.length }}）</div>
-          <div class="ec-chips">
-            <VChip
-              v-for="name in designer.fonts.value"
-              :key="name"
-              size="small"
-              variant="tonal"
-              closable
-              @click:close="designer.deleteFont(name)"
-            >
-              {{ name }}
-            </VChip>
-            <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
-              未上传字体（将回退到默认字体）
-            </span>
-          </div>
-          <VBtn size="small" variant="text" prepend-icon="mdi-upload" class="mt-1" @click="pick(fontInput)">
-            上传字体（.ttf/.otf）
-          </VBtn>
-        </VCol>
-
-        <VCol cols="12" md="6">
-          <div class="ec-subtitle">模板预设（{{ designer.templates.value.length }}）</div>
-          <div class="ec-templates">
-            <div v-for="template in designer.templates.value" :key="template.filename" class="ec-template">
-              <img
-                v-if="template.has_preview"
-                :src="designer.templatePreviewUrl(template)"
-                class="ec-template-thumb"
-                alt="模板预览"
-              />
-              <div class="ec-template-name">{{ template.name || template.filename }}</div>
-              <div class="ec-template-ops">
-                <VBtn size="x-small" variant="text" @click="designer.loadTemplate(template)">载入</VBtn>
-                <VBtn size="x-small" variant="text" @click="designer.deleteTemplate(template.filename)">删除</VBtn>
-              </div>
-            </div>
-            <span v-if="!designer.templates.value.length" class="text-caption text-medium-emphasis">
-              暂无模板
-            </span>
-          </div>
-          <div class="ec-actions mt-1">
-            <VTextField
-              v-model="templateName"
-              label="模板文件名"
-              placeholder="如 my-preset.json"
+    <div class="ec-cols">
+      <!-- 左：控件区 -->
+      <div class="ec-controls">
+        <VCard variant="tonal" class="ec-block">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">目标对象</VCardTitle>
+          </VCardItem>
+          <VCardText class="ec-grid">
+            <VSelect
+              v-model="form.server"
+              :items="serverItems"
+              label="媒体服务器"
               density="compact"
               variant="outlined"
               hide-details
-              class="ec-template-input"
+              @update:model-value="designer.onServerChange"
             />
-            <VBtn size="small" variant="text" :disabled="!templateName" @click="designer.saveTemplate(templateName)">
-              保存当前
-            </VBtn>
-            <VBtn size="small" variant="text" @click="pick(templateInput)">上传模板</VBtn>
-          </div>
-        </VCol>
-      </VRow>
+            <VSelect
+              v-model="form.library_id"
+              :items="designer.libraryItems.value"
+              label="媒体库"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="designer.syncTitleFromLibrary"
+            />
+            <VSelect
+              v-model="form.layout"
+              :items="designer.layoutItems.value"
+              label="风格（布局）"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="designer.onLayoutChange"
+            />
+            <VSelect
+              v-model="form.mode"
+              :items="modeItems"
+              label="素材模式"
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
+          </VCardText>
+        </VCard>
 
-      <input ref="fontInput" type="file" accept=".ttf,.otf,.ttc" class="ec-hidden" @change="onFontPicked" />
-      <input ref="templateInput" type="file" accept=".json" class="ec-hidden" @change="onTemplatePicked" />
-      <input ref="localImageInput" type="file" accept="image/*" class="ec-hidden" @change="onLocalImagePicked" />
-    </VCardText>
-  </VCard>
+        <VCard v-for="(group, groupIndex) in designer.allGroups.value" :key="groupIndex" variant="tonal" class="ec-block">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">{{ group.group }}</VCardTitle>
+          </VCardItem>
+          <VCardText class="ec-fields">
+            <template v-for="item in group.items" :key="item.key">
+              <!-- 滑块 -->
+              <div v-if="item.type === 'range'" class="ec-slider">
+                <div class="ec-slider-head">
+                  <span>{{ item.label }}</span>
+                  <b>{{ fieldValue(item) }}</b>
+                </div>
+                <VSlider
+                  v-model="form.config[item.key]"
+                  :min="item.min !== undefined && item.min !== null ? item.min : 0"
+                  :max="item.max !== undefined && item.max !== null ? item.max : 100"
+                  :step="item.step || 1"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                  thumb-label
+                />
+              </div>
+              <!-- 下拉 -->
+              <VSelect
+                v-else-if="item.type === 'select'"
+                v-model="form.config[item.key]"
+                :items="toSelectItems(item)"
+                :label="item.label"
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+              <!-- 字体 -->
+              <VSelect
+                v-else-if="item.type === 'font'"
+                v-model="form.config[item.key]"
+                :items="designer.fontItems.value"
+                :label="item.label"
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+              <!-- 开关 -->
+              <VSwitch
+                v-else-if="item.type === 'boolean'"
+                v-model="form.config[item.key]"
+                :label="item.label"
+                color="primary"
+                hide-details
+                inset
+                density="compact"
+              />
+              <!-- 颜色：色块 + 文本框 -->
+              <div v-else-if="item.type === 'color'" class="ec-color">
+                <label class="ec-color-swatch" :style="{ background: fieldValue(item) || '#000000' }">
+                  <input
+                    type="color"
+                    class="ec-color-input"
+                    :value="fieldValue(item) || '#000000'"
+                    @input="form.config[item.key] = $event.target.value"
+                  />
+                </label>
+                <VTextField
+                  v-model="form.config[item.key]"
+                  :label="item.label"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                />
+              </div>
+              <!-- 数字 / 文本 -->
+              <VTextField
+                v-else
+                v-model="form.config[item.key]"
+                :label="item.label"
+                :type="item.type === 'number' ? 'number' : 'text'"
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+            </template>
+          </VCardText>
+        </VCard>
+
+        <VCard variant="tonal" class="ec-block">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">封面上传</VCardTitle>
+          </VCardItem>
+          <VCardText class="ec-row-wrap">
+            <VBtn size="small" variant="tonal" prepend-icon="mdi-image" :loading="designer.applying.value" @click="pick(localImageInput)">
+              选择本地封面（直接替换）
+            </VBtn>
+            <VBtn
+              size="small"
+              variant="tonal"
+              prepend-icon="mdi-content-save-check"
+              :disabled="!previewImage"
+              :loading="designer.applying.value"
+              @click="designer.applyPreviewImage"
+            >
+              应用当前预览图
+            </VBtn>
+          </VCardText>
+        </VCard>
+
+        <VCard variant="tonal" class="ec-block">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">字体（{{ designer.fonts.value.length }}）</VCardTitle>
+            <template #append>
+              <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(fontInput)">上传</VBtn>
+            </template>
+          </VCardItem>
+          <VCardText>
+            <div class="ec-chips">
+              <VChip
+                v-for="name in designer.fonts.value"
+                :key="name"
+                size="small"
+                variant="tonal"
+                closable
+                @click:close="designer.deleteFont(name)"
+              >
+                {{ name }}
+              </VChip>
+              <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
+                未上传字体（中文会回退为方块），请先上传 .ttf/.otf
+              </span>
+            </div>
+          </VCardText>
+        </VCard>
+
+        <VCard variant="tonal" class="ec-block">
+          <VCardItem class="py-2">
+            <VCardTitle class="text-subtitle-1">模板预设（{{ designer.templates.value.length }}）</VCardTitle>
+            <template #append>
+              <VBtn size="small" variant="text" prepend-icon="mdi-upload" @click="pick(templateInput)">上传</VBtn>
+            </template>
+          </VCardItem>
+          <VCardText>
+            <div class="ec-templates">
+              <div
+                v-for="template in designer.templates.value"
+                :key="template.filename"
+                class="ec-template"
+                :class="{ 'ec-template--active': template.layout === form.layout }"
+              >
+                <img
+                  v-if="template.has_preview"
+                  :src="designer.templatePreviewUrl(template)"
+                  class="ec-template-thumb"
+                  alt=""
+                />
+                <div v-else class="ec-template-noimg">{{ template.layout }}</div>
+                <div class="ec-template-name">{{ template.name || template.filename }}</div>
+                <div class="ec-template-ops">
+                  <VBtn size="x-small" variant="text" @click="designer.loadTemplate(template)">载入</VBtn>
+                  <VBtn size="x-small" variant="text" @click="designer.deleteTemplate(template.filename)">删除</VBtn>
+                </div>
+              </div>
+            </div>
+            <div class="ec-row-wrap mt-2">
+              <VTextField
+                v-model="templateName"
+                label="模板文件名"
+                placeholder="如 我的封面.json"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="ec-template-input"
+              />
+              <VBtn size="small" variant="tonal" :disabled="!templateName" @click="designer.saveTemplate(templateName)">
+                保存当前
+              </VBtn>
+            </div>
+          </VCardText>
+        </VCard>
+      </div>
+
+      <!-- 右：预览 -->
+      <div class="ec-preview-side">
+        <VCard variant="tonal" class="ec-preview-card">
+          <VCardText class="ec-preview-body">
+            <VProgressLinear v-if="designer.previewing.value" indeterminate color="primary" height="2" />
+            <img v-if="previewImage" :src="previewImage" class="ec-preview" alt="封面预览" />
+            <div v-else class="ec-placeholder">点击右上「生成预览」查看效果</div>
+            <div v-if="previewInfo.title" class="text-caption">
+              {{ previewInfo.title }}<span v-if="previewInfo.count"> · {{ previewInfo.count }} 部</span>
+            </div>
+          </VCardText>
+        </VCard>
+      </div>
+    </div>
+
+    <input ref="fontInput" type="file" accept=".ttf,.otf,.ttc" class="ec-hidden" @change="onFontPicked" />
+    <input ref="templateInput" type="file" accept=".json" class="ec-hidden" @change="onTemplatePicked" />
+    <input ref="localImageInput" type="file" accept="image/*" class="ec-hidden" @change="onLocalImagePicked" />
+  </div>
 </template>
 
 <style scoped>
 .ec-cover {
-  grid-column: 1 / -1;
-  min-width: 0;
-}
-.ec-cover-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
-.ec-msg {
+.ec-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ec-h {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ec-sub {
   font-size: 12px;
+  opacity: 0.65;
 }
-.ec-section {
-  height: 100%;
+.ec-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ec-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.ec-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ec-block {
+  border-radius: 10px;
 }
 .ec-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ec-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.ec-slider {
+  grid-column: 1 / -1;
+}
+.ec-slider-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 2px;
+  opacity: 0.85;
+}
+.ec-color {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
   gap: 8px;
+  align-items: center;
 }
-.ec-subtitle {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 10px 0 6px;
-  opacity: 0.8;
+.ec-color-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  overflow: hidden;
+  cursor: pointer;
+  display: block;
 }
-.ec-actions {
+.ec-color-input {
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.ec-row-wrap {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
+.ec-preview-side {
+  position: sticky;
+  top: 8px;
+}
 .ec-preview-card {
-  min-height: 220px;
+  min-height: 240px;
+  border-radius: 10px;
 }
 .ec-preview-body {
   display: flex;
@@ -367,7 +478,7 @@ defineExpose({ snapshot })
 }
 .ec-preview {
   width: 100%;
-  max-height: 320px;
+  max-height: 46vh;
   object-fit: contain;
   border-radius: 8px;
 }
@@ -388,17 +499,32 @@ defineExpose({ snapshot })
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  max-height: 230px;
+  overflow-y: auto;
 }
 .ec-template {
-  width: 132px;
+  width: 128px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   overflow: hidden;
 }
+.ec-template--active {
+  border-color: rgb(var(--v-theme-primary));
+}
 .ec-template-thumb {
   width: 100%;
-  height: 74px;
+  height: 72px;
   object-fit: cover;
+  display: block;
+}
+.ec-template-noimg {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  opacity: 0.55;
+  background: rgba(var(--v-theme-on-surface), 0.04);
 }
 .ec-template-name {
   padding: 4px 6px 0;
@@ -418,8 +544,17 @@ defineExpose({ snapshot })
 .ec-hidden {
   display: none;
 }
+@media (max-width: 1100px) {
+  .ec-cols {
+    grid-template-columns: 1fr;
+  }
+  .ec-preview-side {
+    position: static;
+  }
+}
 @media (max-width: 760px) {
-  .ec-grid {
+  .ec-grid,
+  .ec-fields {
     grid-template-columns: 1fr;
   }
 }

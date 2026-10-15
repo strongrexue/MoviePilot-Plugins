@@ -20,7 +20,7 @@ from ..service import emby_assets
 from ..service import emby_gateway
 from ..service import emby_tasks as tasks_service
 from ..service.emby_gateway import GatewayError
-from ..service.render_engine import COMMON_SCHEMA_FIELDS, PosterEngine
+from ..service.render_engine import COMMON_GROUP_NAME, COMMON_SCHEMA_FIELDS, PosterEngine
 from . import schemas as api_schemas
 
 # 原生响应：字体文件与模板预览图（二进制流，不走 envelope）。
@@ -238,14 +238,21 @@ def _prepare_config(request, ref) -> Dict[str, Any]:
     return config
 
 
-def _fetch_assets(request, ref) -> Dict[str, Any]:
-    """按请求参数读取媒体库素材。"""
+def _fetch_assets(request, ref, config) -> Dict[str, Any]:
+    """读取素材：数量优先取布局 schema 里的 ``poster_count`` / ``backdrop_count``。"""
+
+    def _count(key: str, fallback: int) -> int:
+        try:
+            return int(config.get(key) or fallback or 0)
+        except (TypeError, ValueError):
+            return int(fallback or 0)
+
     return emby_assets.fetch_assets(
         ref,
         request.library_id,
         mode=request.mode,
-        poster_count=request.poster_count,
-        backdrop_count=request.backdrop_count,
+        poster_count=_count("poster_count", request.poster_count),
+        backdrop_count=_count("backdrop_count", request.backdrop_count),
     )
 
 
@@ -258,10 +265,14 @@ def api_libraries(plugin, server: str = ""):
 
 
 def api_layouts(plugin):
-    """返回布局清单与其参数字段（含引擎通用字段）。"""
+    """返回布局清单与其分组参数字段（含引擎通用字段）。"""
     engine: PosterEngine = plugin.cover_engine()
     return _to_response(
-        {"common_fields": COMMON_SCHEMA_FIELDS, "layouts": engine.layout_schemas()},
+        {
+            "common_group": COMMON_GROUP_NAME,
+            "common_fields": COMMON_SCHEMA_FIELDS,
+            "layouts": engine.layout_schemas(),
+        },
         api_schemas.LayoutListData,
     )
 
@@ -324,7 +335,7 @@ def api_preview(plugin, request: api_schemas.CoverPreviewRequest):
         ref = emby_gateway.resolve(request.server)
         engine: PosterEngine = plugin.cover_engine()
         config = _prepare_config(request, ref)
-        assets = _fetch_assets(request, ref)
+        assets = _fetch_assets(request, ref, config)
         image = engine.draw(config, assets)
         return {
             "image": f"data:{PosterEngine.base64_mime(image)};base64,{image}",
@@ -346,7 +357,7 @@ def api_apply(plugin, request: api_schemas.CoverApplyRequest):
         image = str(request.image_data or "").split(",", 1)[-1]
         if not image:
             engine: PosterEngine = plugin.cover_engine()
-            image = engine.draw(config, _fetch_assets(request, ref))
+            image = engine.draw(config, _fetch_assets(request, ref, config))
         emby_gateway.post_raw(
             ref,
             f"Items/{request.library_id}/Images/Primary",

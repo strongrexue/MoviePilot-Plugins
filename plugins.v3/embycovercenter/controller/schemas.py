@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -137,29 +137,39 @@ class LibraryListData(BaseModel):
     libraries: List[LibraryInfo] = Field(default_factory=list)
 
 
-class LayoutField(BaseModel):
-    """布局参数字段（前端据此生成表单）。"""
+class LayoutItem(BaseModel):
+    """布局参数字段（前端据此生成控件：range 滑块 / select / color / font / text）。"""
 
     key: str = ""
     label: str = ""
     type: str = "text"
     default: Any = None
-    step: float = 0
+    min: Optional[float] = None
+    max: Optional[float] = None
+    step: Optional[float] = None
     options: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class LayoutGroup(BaseModel):
+    """布局参数分组。"""
+
+    group: str = ""
+    items: List[LayoutItem] = Field(default_factory=list)
+
+
 class LayoutInfo(BaseModel):
-    """一个布局及其专属参数。"""
+    """一个布局（模板风格）及其分组参数。"""
 
     name: str = ""
     label: str = ""
-    fields: List[LayoutField] = Field(default_factory=list)
+    groups: List[LayoutGroup] = Field(default_factory=list)
 
 
 class LayoutListData(BaseModel):
     """布局清单（含引擎通用字段）。"""
 
-    common_fields: List[LayoutField] = Field(default_factory=list)
+    common_group: str = ""
+    common_fields: List[LayoutItem] = Field(default_factory=list)
     layouts: List[LayoutInfo] = Field(default_factory=list)
 
 

@@ -24,6 +24,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   const applying = ref(false)
   const libraries = ref([])
   const layouts = ref([])
+  const commonGroup = ref('引擎通用')
   const commonFields = ref([])
   const fonts = ref([])
   const templates = ref([])
@@ -52,9 +53,21 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     if (typeof notify === 'function') notify(text, ok)
   }
 
-  const layoutFields = computed(() => {
+  const layoutGroups = computed(() => {
     const current = layouts.value.find(item => item.name === form.layout)
-    return current && Array.isArray(current.fields) ? current.fields : []
+    return current && Array.isArray(current.groups) ? current.groups : []
+  })
+
+  /** 引擎通用分组 + 当前布局分组（顺序：布局参数在前，引擎通用在后）。 */
+  const allGroups = computed(() => {
+    const groups = layoutGroups.value.map(group => ({
+      group: group.group || '参数',
+      items: Array.isArray(group.items) ? group.items : [],
+    }))
+    if (commonFields.value.length) {
+      groups.push({ group: commonGroup.value || '引擎通用', items: commonFields.value })
+    }
+    return groups
   })
 
   const libraryItems = computed(() =>
@@ -69,11 +82,14 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   ])
 
   /** 用 schema 默认值补齐缺失参数（force=true 时重置为默认）。 */
-  function applyDefaults(fields, force = false) {
-    for (const field of fields || []) {
-      if (field.default === undefined || field.default === null) continue
-      if (force || form.config[field.key] === undefined) {
-        form.config[field.key] = field.default
+  function applyDefaults(groups, force = false) {
+    for (const group of groups || []) {
+      for (const item of group.items || []) {
+        if (!item || !item.key) continue
+        if (item.default === undefined || item.default === null) continue
+        if (force || form.config[item.key] === undefined) {
+          form.config[item.key] = item.default
+        }
       }
     }
   }
@@ -89,10 +105,13 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   async function loadLayouts() {
     try {
       const data = unwrap(await getPluginApi(api(), pluginId(), 'layouts')) || {}
+      commonGroup.value = String(data.common_group || '引擎通用')
       commonFields.value = Array.isArray(data.common_fields) ? data.common_fields : []
       layouts.value = Array.isArray(data.layouts) ? data.layouts : []
-      applyDefaults(commonFields.value)
-      applyDefaults(layoutFields.value)
+      if (!layouts.value.some(item => item.name === form.layout)) {
+        form.layout = layouts.value.length ? layouts.value[0].name : form.layout
+      }
+      applyDefaults(allGroups.value)
     } catch (error) {
       report(error?.message || '布局读取失败', false)
     }
@@ -140,7 +159,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   }
 
   function onLayoutChange() {
-    applyDefaults(layoutFields.value, true)
+    applyDefaults(layoutGroups.value, true)
   }
 
   function requestBody() {
@@ -297,10 +316,9 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   }
 
   function loadTemplate(template) {
-    form.layout = template.layout || 'classic'
+    form.layout = template.layout || form.layout
     form.config = { ...(template.config || {}) }
-    applyDefaults(commonFields.value)
-    applyDefaults(layoutFields.value)
+    applyDefaults(allGroups.value)
     report(`已载入模板：${template.name || template.filename}`)
   }
 
@@ -330,7 +348,10 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     previewInfo,
     message,
     messageOk,
-    layoutFields,
+    commonGroup,
+    commonFields,
+    layoutGroups,
+    allGroups,
     libraryItems,
     layoutItems,
     fontItems,

@@ -755,3 +755,44 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
   `useRequestScope`（请求归属管理）。
 - 引入官方版本门禁、联邦 CSS 门禁与 Release 工作流；`.gitattributes` 统一 LF。
 - 验收：两道官方面禁通过、`vite build` 成功、MP 加载验证通过。
+
+---
+
+# 胖虎封面中心（EmbyCoverCenter）
+
+> 本插件与「胖虎媒体中心」同仓库共存：阶段 tag 使用 `ec-stage-mN` 命名（区别于 `stage-pN`），
+> 发布 tag 由 CI 生成 `EmbyCoverCenter_v<版本>`。版本四处同步规则与仓库其它插件一致。
+
+## 阶段进度
+
+| 阶段 | 内容 | 版本 | tag | 状态 |
+|---|---|---|---|---|
+| M1 | 插件骨架：仓库结构、市场元数据、联邦构建链（四个入口）、插件 API `/ping` `/status`、媒体服务器发现、配置读写 | `1.0.0` | 并入 `ec-stage-m2` | ✅ 已完成 |
+| M2 | Emby 任务中心：任务列表（分类分组 / 运行中置顶 / 隐藏兜底）、触发器编辑、立即运行、停止 | `1.1.0` | `ec-stage-m2` | 🚧 代码完成，待真机验证 |
+
+> M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
+
+## v1.1.0（M2 Emby 任务中心）
+
+- 新增 `service/emby_gateway.py`：复用宿主媒体服务器模块透传（`get_data` / `post_data`），
+  `resolve()` 按名称定位服务器并校验 emby/jellyfin；路径前缀按类型区分（Emby `emby/…`、Jellyfin 根路径）。
+  宿主透传不提供 DELETE，「停止任务」用 `RequestUtils.delete_res` 补齐，地址与密钥取自
+  `MediaServerHelper.get_configs()`，不另存凭据。
+- 新增 `service/emby_tasks.py`：移植 ChillPoster 归一化层（中文标签、`ticks ↔ 时/分/小时`换算、
+  触发器摘要、状态与进度、分类分组排序），`fetch_tasks()` 对隐藏 / 禁用任务做多参数兜底并去重。
+- 新增接口：`GET /emby_tasks`、`GET /emby_tasks/{task_id}`、`POST /emby_tasks/{task_id}/triggers`、
+  `POST /emby_tasks/{task_id}/run`、`POST /emby_tasks/{task_id}/stop`（全部 `schemas.Response[T]` +
+  显式 `response_model`；配置类错误 400、请求失败 502）。
+- 前端：新增 `src/components/emby/useEmbyTasks.js` 与 `EmbyTasksPanel.vue`（分类分组、运行中置顶与进度、
+  状态徽章、触发器编辑弹窗），内嵌于 `Page.vue`；多服务器时提供选择器。
+- 验收：`compileall` 通过；`check_plugin_versions.py` 与 `check_federation_css.py` 两道门禁通过；
+  `vite build`（clean + 联邦产物）成功。
+
+## v1.0.0（M1 骨架）
+
+- 建立 `plugins.v3/embycovercenter/`：主类 `EmbyCoverCenter`，生命周期、四个渲染入口
+  （`./Config`、`./Page`、`./Dashboard`、`./AppPage`）、默认配置与 API 层。
+- 前端构建链：Vite 5 + `@originjs/vite-plugin-federation`（含 PostCSS 全局样式过滤与 `closeBundle` 产物清理）。
+- 通过 `app.sdk.services.MediaServerHelper` 发现已启用媒体服务器；配置读写走宿主 `plugin/<id>` 接口。
+- 索引条目 `EmbyCoverCenter`（`release: true`，完整图标 URL）；图标两份；`tests/v3/embycovercenter/`。
+- 验收：两道门禁通过、`vite build` 成功、版本四处一致（`1.0.0`）。

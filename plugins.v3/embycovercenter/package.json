@@ -1,0 +1,20 @@
+{
+  "name": "moviepilot-embycovercenter-plugin",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "clean": "node -e \"const fs=require('fs');const dir='dist/assets';if(fs.existsSync(dir)){for(const f of fs.readdirSync(dir)){if(f!=='.gitkeep')fs.unlinkSync(dir+'/'+f);}}\"",
+    "dev": "vite build --watch",
+    "build": "npm run clean && vite build"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "vuetify": "3.7.3"
+  },
+  "devDependencies": {
+    "@originjs/vite-plugin-federation": "^1.4.1",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "vite": "^5.4.11"
+  }
+}

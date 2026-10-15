@@ -1,0 +1,14 @@
+
+.ec-app-page[data-v-cf51611b] {
+  width: 100%;
+  min-width: 0;
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 16px;
+  background: transparent;
+}
+@media (max-width: 600px) {
+.ec-app-page[data-v-cf51611b] {
+    padding: 8px;
+}
+}

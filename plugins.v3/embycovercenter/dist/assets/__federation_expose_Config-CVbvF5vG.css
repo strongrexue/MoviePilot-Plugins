@@ -1,0 +1,22 @@
+
+.ec-config[data-v-c18ad0e7] {
+  width: min(1120px, calc(100vw - 48px));
+  max-width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.ec-header[data-v-c18ad0e7] {
+  padding: 14px 18px;
+}
+.ec-body[data-v-c18ad0e7] {
+  max-height: min(70vh, 720px);
+  overflow-y: auto;
+}
+.ec-pane[data-v-c18ad0e7] {
+  height: 100%;
+}
+@media (max-width: 760px) {
+.ec-config[data-v-c18ad0e7] {
+    width: min(100%, calc(100vw - 16px));
+}
+}

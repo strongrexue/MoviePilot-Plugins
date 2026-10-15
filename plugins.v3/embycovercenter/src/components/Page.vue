@@ -160,8 +160,15 @@ onMounted(load)
   overflow: hidden;
 }
 .ec-page--app {
-  min-height: calc(100dvh - 104px);
+  /* 整页锁定视口高度：工具条/状态/Tab 固定，正文区内部滚动（窄屏同理） */
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 104px);
   border-radius: 14px;
+}
+/* flex 子项默认可收缩，正文以外的行都要保持自身高度 */
+.ec-page--app > :not(.ec-body) {
+  flex-shrink: 0;
 }
 .ec-toolbar {
   background: transparent;
@@ -193,12 +200,18 @@ onMounted(load)
 .ec-body {
   padding: 10px 14px 16px;
 }
+/* AppPage 整页模式：正文区占满剩余高度、内部滚动 */
+.ec-page--app .ec-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 .ec-pane {
   padding: 0;
-  /* 内容限宽居中（对齐胖虎媒体中心的观感）：超宽屏不整行拉伸，
-     窄屏仍占满 */
+  /* 内容限宽居中（与媒体中心 / 豆瓣中心 AppPage 同为 1800px 上限），
+     常规屏幕基本贴边，超宽屏才居中收窄 */
   width: 100%;
-  max-width: 1500px;
+  max-width: 1800px;
   margin: 0 auto;
 }
 @media (max-width: 760px) {

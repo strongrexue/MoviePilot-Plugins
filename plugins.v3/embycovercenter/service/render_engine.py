@@ -14,6 +14,8 @@ from __future__ import annotations
 import base64
 import importlib.util
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,7 +29,7 @@ from . import assets_meta
 # 动态封面的输出尺寸（网页端可播放）与帧数上限。
 ANIM_TARGET_WIDTH = 320
 ANIM_MAX_FRAMES = 300
-IMG_CACHE_MAX = 32
+IMG_CACHE_MAX = 128
 
 # 默认布局（与内置布局模块名一致）。
 DEFAULT_ENGINE = "经典平铺"
@@ -62,6 +64,8 @@ class PosterEngine:
         self.layouts_dir = assets_meta.layouts_dir(plugin)
         self._layouts: Optional[Dict[str, Any]] = None
         self._img_cache: Dict[str, Image.Image] = {}
+        self._lock = threading.Lock()
+        self._executor = ThreadPoolExecutor(max_workers=8)
 
     # -------------------------------------------------------------- 布局
 
@@ -142,10 +146,11 @@ class PosterEngine:
         return ImageFont.load_default()
 
     def download_img(self, url: Optional[str]) -> Optional[Image.Image]:
-        """下载素材图片（带小型内存缓存）；失败返回 None。"""
+        """下载素材图片（带小型内存缓存，线程安全）；失败返回 None。"""
         if not url:
             return None
-        cached = self._img_cache.get(url)
+        with self._lock:
+            cached = self._img_cache.get(url)
         if cached is not None:
             return cached.copy()
         try:
@@ -162,10 +167,33 @@ class PosterEngine:
         except Exception as error:
             logger.warning(f"[EmbyCoverCenter] 下载素材失败 {str(url)[:80]}: {error}")
             return None
-        if len(self._img_cache) >= IMG_CACHE_MAX:
-            self._img_cache.pop(next(iter(self._img_cache)), None)
-        self._img_cache[url] = img.copy()
+        with self._lock:
+            if len(self._img_cache) >= IMG_CACHE_MAX:
+                self._img_cache.pop(next(iter(self._img_cache)), None)
+            self._img_cache[url] = img.copy()
         return img
+
+    def prefetch(self, urls: Optional[List[str]]) -> None:
+        """并行预热素材图片缓存。
+
+        封面预览的主要耗时是**串行下载素材**（海报墙预设一次要 40 张），
+        串行太慢会撞上反向代理读超时（表现为 502），这里改成并行。
+        """
+        targets = [url for url in dict.fromkeys(urls or []) if url and url not in self._img_cache]
+        if not targets:
+            return
+        try:
+            list(self._executor.map(self.download_img, targets))
+        except Exception as error:  # pragma: no cover - 预热失败不影响渲染
+            logger.warning(f"[EmbyCoverCenter] 素材预取失败: {error}")
+
+    def close(self) -> None:
+        """释放线程池与图片缓存（stop_service 调用）。"""
+        try:
+            self._executor.shutdown(wait=False)
+        except Exception:
+            pass
+        self._img_cache.clear()
 
     @staticmethod
     def _rounded_mask(size: tuple, radius: int) -> Image.Image:
@@ -404,6 +432,13 @@ class PosterEngine:
             if key:
                 fonts.setdefault(str(key), font)
         output = BytesIO()
+
+        # 并行预取本轮要用的素材，避免串行下载拖到网关读超时。
+        self.prefetch(
+            [assets.get("bg_url")]
+            + list(assets.get("backdrops") or [])
+            + list(assets.get("posters") or [])
+        )
 
         if config.get("enable_animation"):
             total_frames = max(2, min(int(config.get("anim_frames") or 30), ANIM_MAX_FRAMES))

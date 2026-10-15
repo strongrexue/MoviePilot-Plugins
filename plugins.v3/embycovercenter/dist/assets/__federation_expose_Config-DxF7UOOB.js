@@ -157,6 +157,30 @@ function readFileAsDataUrl(file) {
 /** 内容字段：跟随「目标对象」（媒体库 / 用户输入），不随风格模板改动。 */
 const CONTENT_KEYS = ['title', 'subtitle'];
 
+/** 按 schema 字段类型归一化配置值。
+ *
+ * ChillPoster 的模板预设把不少数字存成了字符串（如 `"fan_radius": "850"`），
+ * 直接塞给滑块会渲染异常，这里按 `type` 统一转成数值 / 布尔 / 字符串。 */
+function coerceValues(groups, raw) {
+  const result = { ...(raw || {}) };
+  for (const group of groups || []) {
+    for (const item of group.items || []) {
+      const key = item && item.key;
+      if (!key || result[key] === undefined || result[key] === null) continue
+      const value = result[key];
+      if (item.type === 'range' || item.type === 'number') {
+        const num = Number(value);
+        result[key] = Number.isFinite(num) ? num : (item.default !== undefined ? item.default : 0);
+      } else if (item.type === 'boolean') {
+        result[key] = value === true || value === 'true' || value === 1 || value === '1';
+      } else if (['text', 'color', 'select', 'font'].includes(item.type)) {
+        result[key] = String(value);
+      }
+    }
+  }
+  return result
+}
+
 function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   const loading = ref$2(false);
   const previewing = ref$2(false);
@@ -261,6 +285,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       if (!layouts.value.some(item => item.name === form.layout)) {
         form.layout = layouts.value.length ? layouts.value[0].name : form.layout;
       }
+      form.config = coerceValues(allGroups.value, form.config);
       applyDefaults(allGroups.value);
     } catch (error) {
       report(error?.message || '布局读取失败', false);
@@ -470,11 +495,11 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     const incoming = { ...(template.config || {}) };
     for (const key of CONTENT_KEYS) delete incoming[key];
     form.layout = template.layout || form.layout;
-    form.config = {
+    form.config = coerceValues(allGroups.value, {
       ...incoming,
       title: form.config.title,
       subtitle: form.config.subtitle,
-    };
+    });
     applyDefaults(allGroups.value);
     syncTitleFromLibrary();
     report(`已载入模板：${template.name || template.filename}（仅套用风格参数）`);

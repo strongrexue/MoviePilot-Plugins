@@ -25,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.3.4"
+    plugin_version = "1.3.5"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -36,6 +36,7 @@ class EmbyCoverCenter(_PluginBase):
         """建立当前插件实例独享的配置快照。"""
         super().__init__(*args, **kwargs)
         self._config: Dict[str, Any] = {}
+        self._cover_engine = None
 
     # ------------------------------------------------------------------ 配置快照
 
@@ -79,8 +80,14 @@ class EmbyCoverCenter(_PluginBase):
         return bool(self._config.get("enabled"))
 
     def stop_service(self) -> None:
-        """释放后台资源；M1 暂无后台服务，占位以便后续里程碑扩展。"""
-        return None
+        """释放后台资源（引擎线程池与图片缓存）。"""
+        engine = getattr(self, "_cover_engine", None)
+        if engine is not None:
+            try:
+                engine.close()
+            except Exception as error:  # pragma: no cover - 释放失败不阻塞卸载
+                logger.warning(f"[EmbyCoverCenter] 释放渲染引擎失败: {error}")
+            self._cover_engine = None
 
     # ------------------------------------------------------------------ 宿主扩展点
 
@@ -177,8 +184,12 @@ class EmbyCoverCenter(_PluginBase):
         return mediaserver.list_servers()
 
     def cover_engine(self) -> PosterEngine:
-        """返回封面渲染引擎；每次调用新建实例，避免跨实例共享图片与布局缓存。"""
-        return PosterEngine(self)
+        """返回封面渲染引擎；**同一实例复用**，避免每次预览都重新加载布局与清空图片缓存。"""
+        engine = getattr(self, "_cover_engine", None)
+        if engine is None:
+            engine = PosterEngine(self)
+            self._cover_engine = engine
+        return engine
 
     # ------------------------------------------------------------------ 封面 API 转发
 

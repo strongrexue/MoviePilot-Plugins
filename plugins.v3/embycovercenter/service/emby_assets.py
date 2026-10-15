@@ -12,9 +12,16 @@ from app.sdk.logging import logger
 
 from . import emby_gateway
 
+# 素材图尺寸：封面画布通常 1920x1080，过大的原图只会拖慢下载。
 POSTER_MAX_HEIGHT = 600
-BACKDROP_MAX_HEIGHT = 2160
+BACKDROP_MAX_HEIGHT = 1260
 LIBRARY_COVER_MAX_HEIGHT = 300
+# 单次素材数量上限：预设里可能出现很大的数字（如海报墙 poster_count=40），
+# 不设上限会让一次预览下载几十张图，直接拖到反向代理读超时。
+MAX_POSTER_COUNT = 60
+MAX_BACKDROP_COUNT = 6
+# 素材/用户 ID 的短缓存，避免每次预览都重复请求。
+_ADMIN_USER_CACHE: Dict[str, str] = {}
 
 
 def image_url(ref: emby_gateway.ServerRef, path: str, query: Optional[dict] = None) -> str:
@@ -23,7 +30,10 @@ def image_url(ref: emby_gateway.ServerRef, path: str, query: Optional[dict] = No
 
 
 def admin_user_id(ref: emby_gateway.ServerRef) -> Optional[str]:
-    """返回管理员用户 ID（Emby 的部分查询需要用户上下文）。"""
+    """返回管理员用户 ID（Emby 的部分查询需要用户上下文）；按服务器缓存。"""
+    cached = _ADMIN_USER_CACHE.get(ref.name)
+    if cached:
+        return cached
     try:
         users = emby_gateway.get_json(ref, "Users")
     except emby_gateway.GatewayError as error:
@@ -31,10 +41,17 @@ def admin_user_id(ref: emby_gateway.ServerRef) -> Optional[str]:
         return None
     if not isinstance(users, list) or not users:
         return None
+    resolved = None
     for user in users:
         if isinstance(user, dict) and (user.get("Policy") or {}).get("IsAdministrator"):
-            return user.get("Id")
-    return users[0].get("Id") if isinstance(users[0], dict) else None
+            resolved = user.get("Id")
+            break
+    if not resolved and isinstance(users[0], dict):
+        resolved = users[0].get("Id")
+    if resolved:
+        _ADMIN_USER_CACHE[ref.name] = str(resolved)
+        return str(resolved)
+    return None
 
 
 def list_libraries(ref: emby_gateway.ServerRef) -> List[Dict[str, Any]]:
@@ -114,6 +131,8 @@ def fetch_assets(
     """读取媒体库素材：背景 + 剧照 + 海报 + 数量。"""
     if not library_id:
         raise emby_gateway.GatewayError("缺少媒体库 ID")
+    poster_count = max(0, min(int(poster_count or 0), MAX_POSTER_COUNT))
+    backdrop_count = max(0, min(int(backdrop_count or 0), MAX_BACKDROP_COUNT))
     endpoint = _items_endpoint(ref)
     sort = {"SortBy": "Random"} if mode != "latest" else {"SortBy": "DateCreated", "SortOrder": "Descending"}
 

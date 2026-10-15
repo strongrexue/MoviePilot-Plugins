@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, List
 
 from app import schemas
@@ -98,9 +99,16 @@ def get_api(plugin) -> List[Dict[str, Any]]:
     return routes
 
 
+# 素材列表短缓存：同一媒体库连续预览/应用时不必重复查询 Emby。
+_ASSETS_CACHE: Dict[str, Any] = {}
+_ASSETS_CACHE_TTL = 120
+_ASSETS_CACHE_MAX = 16
+
+
 def _raise_gateway_http(error: GatewayError) -> None:
-    """把网关错误映射为合适的 HTTP 状态码（配置类问题 400，其余 502）。"""
+    """把网关错误映射为合适的 HTTP 状态码（配置类问题 400，其余 502），并写入日志。"""
     text = str(error)
+    logger.error(f"[EmbyCoverCenter] 媒体服务器访问失败：{text}")
     if any(token in text for token in ("未配置", "未找到", "不支持", "缺失", "缺少")):
         raise HTTPException(status_code=400, detail=text)
     raise HTTPException(status_code=502, detail=text)
@@ -247,13 +255,24 @@ def _fetch_assets(request, ref, config) -> Dict[str, Any]:
         except (TypeError, ValueError):
             return int(fallback or 0)
 
-    return emby_assets.fetch_assets(
+    poster_count = _count("poster_count", request.poster_count)
+    backdrop_count = _count("backdrop_count", request.backdrop_count)
+    cache_key = f"{ref.name}|{request.library_id}|{request.mode}|{poster_count}|{backdrop_count}"
+    cached = _ASSETS_CACHE.get(cache_key)
+    if cached and time.time() - cached[0] < _ASSETS_CACHE_TTL:
+        return cached[1]
+
+    assets = emby_assets.fetch_assets(
         ref,
         request.library_id,
         mode=request.mode,
-        poster_count=_count("poster_count", request.poster_count),
-        backdrop_count=_count("backdrop_count", request.backdrop_count),
+        poster_count=poster_count,
+        backdrop_count=backdrop_count,
     )
+    if len(_ASSETS_CACHE) >= _ASSETS_CACHE_MAX:
+        _ASSETS_CACHE.pop(next(iter(_ASSETS_CACHE)), None)
+    _ASSETS_CACHE[cache_key] = (time.time(), assets)
+    return assets
 
 
 def api_libraries(plugin, server: str = ""):

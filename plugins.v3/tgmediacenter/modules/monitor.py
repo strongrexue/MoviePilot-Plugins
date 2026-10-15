@@ -94,6 +94,9 @@ class MonitorModule:
                 "custom_keywords": [
                     str(kw).strip()[:64] for kw in (item.get("custom_keywords") or []) if str(kw).strip()
                 ],
+                "exclude_keywords": [
+                    str(kw).strip()[:64] for kw in (item.get("exclude_keywords") or []) if str(kw).strip()
+                ],
                 "rule_type": rule_type,
                 "web_channel_usernames": [
                     str(u).strip().lstrip("@")[:64]

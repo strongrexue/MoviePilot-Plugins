@@ -211,6 +211,7 @@ const DECISION_LABELS = {
   skipped_not_subscribed: '未订阅',
   skipped_unrecognized: '无法识别',
   skipped_keyword: '关键词未命中',
+  skipped_excluded: '命中排除词',
   skipped_no_link: '无可推链接',
   skipped_unknown: '无法判断',
   skipped_extension: '扩展名未命中',

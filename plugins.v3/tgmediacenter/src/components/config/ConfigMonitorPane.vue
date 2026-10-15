@@ -293,6 +293,21 @@
                   hide-details
                   class="mon-keywords"
                 />
+                <VCombobox
+                  v-model="rule.exclude_keywords"
+                  multiple
+                  chips
+                  closable-chips
+                  label="排除关键词（任一命中即不推送，优先于上方关键词）"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  class="mon-keywords"
+                />
+                <div class="mon-hint">
+                  排除词对整条消息做子串匹配（标题、题材、分类行都算），如「加更」「花絮」「预告」；
+                  即使自定义关键词命中，只要含排除词就不推送。
+                </div>
               </div>
             </div>
           </VCardText>
@@ -602,6 +617,7 @@ function blankRule() {
     match_only_if_missing: true,
     match_custom_keywords: false,
     custom_keywords: [],
+    exclude_keywords: [],
     rule_type: 'client',
     web_channel_usernames: [],
     enabled: true,
@@ -633,6 +649,7 @@ async function loadRules() {
       match_only_if_missing: rule.match_only_if_missing !== false,
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
+      exclude_keywords: Array.isArray(rule.exclude_keywords) ? rule.exclude_keywords : [],
       rule_type: rule.rule_type || 'client',
       web_channel_usernames: Array.isArray(rule.web_channel_usernames) ? rule.web_channel_usernames : [],
       enabled: rule.enabled !== false,
@@ -759,6 +776,7 @@ async function saveRules() {
       match_only_if_missing: Boolean(rule.match_only_if_missing),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: (rule.custom_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
+      exclude_keywords: (rule.exclude_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
       rule_type: rule.rule_type || 'client',
       web_channel_usernames: rule.web_channel_usernames || [],
       enabled: rule.enabled !== false,

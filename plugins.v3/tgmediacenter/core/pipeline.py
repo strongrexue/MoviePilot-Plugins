@@ -58,6 +58,7 @@ from ..model.push_task import (
 from ..model.hit_log import (
     DECISION_FAILED,
     DECISION_HIT,
+    DECISION_SKIPPED_EXCLUDED,
     DECISION_SKIPPED_KEYWORD,
     DECISION_SKIPPED_NOT_MISSING,
     DECISION_SKIPPED_NOT_SUBSCRIBED,
@@ -541,6 +542,15 @@ class MessagePipeline:
             logger.debug(
                 f"[{self._plugin_id()}] 重复消息跳过（rule={rule_id}, chat={chat_id}, msg={message_id}）"
             )
+            return
+
+        # 逻辑零：排除关键词（黑名单，优先于一切命中逻辑——命中自定义关键词
+        # 也拦，如综艺正片/加更混发时按「加更」排除）。与转发共用 forward 引擎
+        # 的 helper，保证两处口径逐字一致。
+        excluded = forward_engine.excluded_keyword(rule, text=cleaned)
+        if excluded:
+            self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_EXCLUDED,
+                         f"命中排除关键词「{excluded}」", destination, links)
             return
 
         # 逻辑一：自定义关键词（OR）
@@ -1446,6 +1456,13 @@ class MessagePipeline:
                 "destination": str(rule.get("destination") or "smart"),
                 "enabled": bool(rule.get("enabled", True)),
             }
+            # 逻辑零（测试预览）：排除关键词，与真实处理同款判定
+            excluded = forward_engine.excluded_keyword(rule, text=cleaned)
+            if excluded:
+                trace.update(decision=DECISION_SKIPPED_EXCLUDED,
+                             reason=f"命中排除关键词「{excluded}」")
+                traces.append(trace)
+                continue
             if rule.get("match_custom_keywords"):
                 keywords = [str(kw) for kw in (rule.get("custom_keywords") or []) if str(kw).strip()]
                 if keywords and not any(keyword in cleaned for keyword in keywords):

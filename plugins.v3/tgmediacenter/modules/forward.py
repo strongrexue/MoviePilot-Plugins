@@ -76,6 +76,7 @@ class ForwardModule:
                 "target_id": _normalize_id(item.get("target_id")),
                 "match_custom_keywords": bool(item.get("match_custom_keywords", False)),
                 "custom_keywords": _normalize_keywords(item.get("custom_keywords")),
+                "exclude_keywords": _normalize_keywords(item.get("exclude_keywords")),
                 "pin_links_enabled": bool(item.get("pin_links_enabled", False)),
                 "pin_link_keywords": _normalize_keywords(item.get("pin_link_keywords")),
                 "match_file_extensions": bool(item.get("match_file_extensions", False)),

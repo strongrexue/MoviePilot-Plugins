@@ -28,6 +28,7 @@ DECISION_SKIPPED_NOT_MISSING = "skipped_not_missing"    # 识别成功但媒体�
 DECISION_SKIPPED_NOT_SUBSCRIBED = "skipped_not_subscribed"  # 仅缺失开启且未订阅（方案 A 门禁）
 DECISION_SKIPPED_UNRECOGNIZED = "skipped_unrecognized"  # 标题无法识别
 DECISION_SKIPPED_KEYWORD = "skipped_keyword"            # 自定义关键词未命中
+DECISION_SKIPPED_EXCLUDED = "skipped_excluded"          # 命中排除关键词（黑名单，优先于一切命中）
 DECISION_SKIPPED_NO_LINK = "skipped_no_link"            # 没有可推送的链接
 DECISION_SKIPPED_UNKNOWN = "skipped_unknown"            # 无法判断缺失（无媒体服务器/订阅）
 DECISION_SKIPPED_EXTENSION = "skipped_extension"        # ⑥ 转发：文件扩展名未命中
@@ -46,6 +47,7 @@ DECISIONS = (
     DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_UNRECOGNIZED,
     DECISION_SKIPPED_KEYWORD,
+    DECISION_SKIPPED_EXCLUDED,
     DECISION_SKIPPED_NO_LINK,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_EXTENSION,
@@ -63,6 +65,7 @@ DECISION_LABELS = {
     DECISION_SKIPPED_NOT_SUBSCRIBED: "未订阅",
     DECISION_SKIPPED_UNRECOGNIZED: "无法识别",
     DECISION_SKIPPED_KEYWORD: "关键词未命中",
+    DECISION_SKIPPED_EXCLUDED: "命中排除词",
     DECISION_SKIPPED_NO_LINK: "无可推链接",
     DECISION_SKIPPED_UNKNOWN: "无法判断",
     DECISION_SKIPPED_EXTENSION: "扩展名未命中",

@@ -26,6 +26,7 @@ import uuid
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..model.hit_log import (
+    DECISION_SKIPPED_EXCLUDED,
     DECISION_SKIPPED_EXTENSION,
     DECISION_SKIPPED_KEYWORD,
 )
@@ -68,6 +69,21 @@ def match_extensions(text: str, extensions: Iterable[str]) -> List[str]:
 # ---------------------------------------------------------------------- 逻辑一：两级匹配
 
 
+def excluded_keyword(rule: Dict[str, Any], *, text: str) -> str:
+    """规则级排除关键词（黑名单）：命中返回该词，未命中返回空串。
+
+    优先级高于一切命中逻辑——即使自定义关键词命中，只要消息里出现任一
+    排除词（如综艺的「加更」「花絮」），该规则就不处理这条消息。
+    监控与转发共用（core.pipeline 直接调本函数），保证两处口径逐字一致。
+    """
+    haystack = str(text or "")
+    for kw in (rule.get("exclude_keywords") or []):
+        word = str(kw).strip()
+        if word and word in haystack:
+            return word
+    return ""
+
+
 def match_rule(
     rule: Dict[str, Any],
     *,
@@ -84,6 +100,16 @@ def match_rule(
     """
     haystack = str(cleaned or text or "")
     detail: Dict[str, Any] = {}
+
+    # ---- 逻辑零：排除关键词（黑名单，优先于一切命中逻辑）
+    excluded = excluded_keyword(rule, text=haystack)
+    if excluded:
+        return {
+            "matched": False,
+            "reason": f"命中排除关键词「{excluded}」",
+            "stage": "excluded",
+            "detail": {"excluded": excluded},
+        }
 
     # ---- 逻辑一：自定义关键词
     if rule.get("match_custom_keywords"):
@@ -200,6 +226,8 @@ def should_pin(rule: Dict[str, Any], *, text: str, links: Optional[List[str]] = 
 
 def skip_decision(verdict: Dict[str, Any]) -> str:
     """把未命中的匹配结果归一为流水决策常量（转发面板与流水线共用同一口径）。"""
+    if verdict.get("stage") == "excluded":
+        return DECISION_SKIPPED_EXCLUDED
     if verdict.get("stage") == "logic_two":
         return DECISION_SKIPPED_EXTENSION
     return DECISION_SKIPPED_KEYWORD

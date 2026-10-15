@@ -162,6 +162,18 @@
                     class="fwd-keywords"
                   />
                   <div v-else class="fwd-hint">启用后只有命中关键词的消息才转发；不启用 = 该级不设限。</div>
+                  <VCombobox
+                    v-model="rule.exclude_keywords"
+                    multiple
+                    chips
+                    closable-chips
+                    label="排除关键词（任一命中即不转发，优先于上面两级）"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="fwd-keywords"
+                  />
+                  <div class="fwd-hint">对整条消息做子串匹配，如「加更」「花絮」「预告」；即使命中关键词，含排除词也不转发。</div>
                 </div>
               </div>
             </div>
@@ -531,6 +543,7 @@ function blankRule() {
     target_id: '',
     match_custom_keywords: false,
     custom_keywords: [],
+    exclude_keywords: [],
     pin_links_enabled: false,
     pin_link_keywords: [],
     match_file_extensions: false,
@@ -570,6 +583,7 @@ async function loadRules() {
       target_id: toChatId(rule.target_id),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
+      exclude_keywords: Array.isArray(rule.exclude_keywords) ? rule.exclude_keywords : [],
       pin_links_enabled: Boolean(rule.pin_links_enabled),
       pin_link_keywords: Array.isArray(rule.pin_link_keywords) ? rule.pin_link_keywords : [],
       match_file_extensions: Boolean(rule.match_file_extensions),
@@ -729,6 +743,7 @@ async function saveRules() {
       target_id: Number(rule.target_id),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: (rule.custom_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
+      exclude_keywords: (rule.exclude_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
       pin_links_enabled: Boolean(rule.pin_links_enabled),
       pin_link_keywords: (rule.pin_link_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
       match_file_extensions: Boolean(rule.match_file_extensions),
@@ -746,6 +761,7 @@ async function saveRules() {
         source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(Number) : [],
         target_id: rule.target_id ? String(rule.target_id) : '',
         custom_keywords: rule.custom_keywords || [],
+        exclude_keywords: rule.exclude_keywords || [],
         pin_link_keywords: rule.pin_link_keywords || [],
         file_extensions_to_match: rule.file_extensions_to_match || [],
         transform_rules: rule.transform_rules || [],

@@ -39,6 +39,9 @@
 .ec-cat-icon[data-v-e3e2ef09] {
   color: rgb(var(--v-theme-primary));
 }
+.ec-cat-head .v-chip[data-v-e3e2ef09] {
+  margin-left: 2px;
+}
 .ec-task-list[data-v-e3e2ef09] {
   display: flex;
   flex-direction: column;

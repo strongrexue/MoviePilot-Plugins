@@ -773,6 +773,25 @@ Telegram 主动断开后，我们仍把请求发给这个已断开的客户端�
 
 > M1 与 M2 合并为一次提交发布，阶段 tag `ec-stage-m2` 覆盖两者；后续每个阶段各一个 tag。
 
+## v1.4.6（修复：分组卡片样式从未生效）
+
+用户反馈三次调整（1.4.2/1.4.4/1.4.5）均"没效果"——排查产物 CSS 逐步定位：
+
+- **真因**：[vite.config.js](file:///d:/projects/MoviePilot-Plugins/plugins.v3/embycovercenter/vite.config.js)
+  的 `vuetify-filter` PostCSS 插件**无差别删除选择器含 `.v-` 的规则**——本意是拦 Vuetify/MDI
+  全局样式，但没区分"Vuetify 自己的样式文件"与"插件代码针对 Vuetify 组件内部的合法样式"，
+  `:deep(.v-expansion-panel)` 编译产物及一切 `.v-` 规则全被静默吃掉，三轮调整从未出厂；
+  任务中心能正常区分，恰因 1.4.3 重写时用的是普通类名；
+- 修复：过滤限定在 node_modules 的 vuetify/@mdi 源文件内，插件自身样式放行（与联邦 CSS
+  门禁"只拦以 `.v-` 开头的全局选择器"的判定原则对齐）；
+- [CoverDesignPane.vue](file:///d:/projects/MoviePilot-Plugins/plugins.v3/embycovercenter/src/components/cover/CoverDesignPane.vue)
+  6 条分组面板规则移入非 scoped 样式块、`.ec-acc` 命名空间隔离；数值与 1.4.5 定稿一致
+  （tonal 同配方底色 12%、展开 15% + 品牌色描边、组间距 10px、标题行 44px）——
+  先出深色主题复刻对比图，用户确认后才改码。
+
+- 验收：`npm run build` 后脚本确认产物 CSS 真实包含 `.ec-acc .v-expansion-panel` 规则；
+  联邦 CSS 门禁 + 插件版本门禁通过；四处版本同步（1.4.6）。
+
 ## v1.4.5（分组底色与模板预设完全对齐）
 
 - 查明「模板预设」tonal 卡片的底色配方：VCard `variant="tonal"` = 文字色（on-surface）@

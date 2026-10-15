@@ -74,6 +74,10 @@ export default defineConfig({
         },
         {
           // 联邦插件不得把 Vuetify / MDI 的全局样式打进产物。
+          // ⚠️ 过滤必须限定在 node_modules 的 vuetify/@mdi 源文件内：
+          //    无差别删除含 .v-/.mdi- 选择器的规则，会连带吃掉插件代码里
+          //    针对 Vuetify 组件内部的合法样式（v1.4.2~v1.4.5 封面分组卡片
+          //    样式从未生效的根因）。
           postcssPlugin: 'vuetify-filter',
           Root(root) {
             const sourcePath = root.source?.input?.file?.replaceAll('\\', '/') || ''
@@ -82,12 +86,14 @@ export default defineConfig({
               root.nodes = []
               return
             }
-            root.walkRules(rule => {
-              if (rule.selector &&
-                  (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
-                rule.remove()
-              }
-            })
+            if (sourcePath.includes('/node_modules/')) {
+              root.walkRules(rule => {
+                if (rule.selector &&
+                    (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
+                  rule.remove()
+                }
+              })
+            }
           },
         },
       ],

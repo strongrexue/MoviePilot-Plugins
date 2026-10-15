@@ -518,33 +518,9 @@ defineExpose({ snapshot })
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 每个分组独立成卡片，底色与「预览 / 模板预设」tonal 卡片完全一致
-   （VCard variant=tonal = currentColor @ --v-activated-opacity 0.12 铺在页面背景上）；
-   组间距对齐 .ec-cover 的 10px gap；展开态底色略深 + 品牌色描边作层级区分 */
-:deep(.v-expansion-panel) {
-  border-radius: 12px;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  background: rgba(var(--v-theme-on-surface), 0.12);
-  overflow: hidden;
-  isolation: isolate;
-  transition: background 0.15s, border-color 0.15s;
-}
-:deep(.v-expansion-panel + .v-expansion-panel) {
-  margin-top: 10px;
-}
-:deep(.v-expansion-panel:not(.v-expansion-panel--active):hover) {
-  border-color: rgba(var(--v-theme-primary), 0.45);
-}
-:deep(.v-expansion-panel--active) {
-  background: rgba(var(--v-theme-on-surface), 0.15);
-  border-color: rgba(var(--v-theme-primary), 0.35);
-}
-:deep(.v-expansion-panel-title) {
-  min-height: 44px;
-}
-:deep(.v-expansion-panel-title--active) {
-  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-}
+/* 分组面板的卡片化样式见文件末尾的非 scoped 样式块：
+   裸 :deep() 规则会被构建静默丢弃（v1.4.2~v1.4.5 分组样式未出厂的根因），
+   故移出 :deep 并以 .ec-acc 命名空间隔离 */
 .ec-acc-icon {
   color: rgb(var(--v-theme-primary));
 }
@@ -630,5 +606,36 @@ defineExpose({ snapshot })
   .ec-fields {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+</style>
+
+<style>
+/* 非 scoped：分组面板卡片化样式（数值与 v1.4.5 定稿一致）。
+   裸 :deep() 会被构建丢弃，改用 .ec-acc 命名空间隔离，仅作用于封面设计分组；
+   底色与「预览 / 模板预设」tonal 卡片同配方（on-surface @ 12%，展开 15%），
+   组间距对齐 .ec-cover 的 10px gap，标题行 44px 不加高 */
+.ec-acc .v-expansion-panel {
+  border-radius: 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgba(var(--v-theme-on-surface), 0.12);
+  overflow: hidden;
+  isolation: isolate;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ec-acc .v-expansion-panel + .v-expansion-panel {
+  margin-top: 10px;
+}
+.ec-acc .v-expansion-panel:not(.v-expansion-panel--active):hover {
+  border-color: rgba(var(--v-theme-primary), 0.45);
+}
+.ec-acc .v-expansion-panel--active {
+  background: rgba(var(--v-theme-on-surface), 0.15);
+  border-color: rgba(var(--v-theme-primary), 0.35);
+}
+.ec-acc .v-expansion-panel-title {
+  min-height: 44px;
+}
+.ec-acc .v-expansion-panel-title--active {
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 </style>

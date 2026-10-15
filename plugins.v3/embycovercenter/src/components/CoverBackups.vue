@@ -19,9 +19,27 @@ const error = ref('')
 const message = ref('')
 const messageOk = ref(false)
 const restoring = ref('')
+/** 待确认的恢复动作：{ item, timestamp, label }，点「恢复」前先弹确认。 */
+const pending = ref(null)
 
 function close() {
   emit('update:modelValue', false)
+}
+
+/** 恢复入口：先弹确认，防止误点把媒体库封面覆盖掉。 */
+function openRestore(item, timestamp) {
+  if (restoring.value) return
+  pending.value = {
+    item,
+    timestamp: timestamp || '',
+    label: formatStamp(timestamp || (item.versions.length ? item.versions[0].timestamp : '')),
+  }
+}
+
+function confirmRestore() {
+  const target = pending.value
+  pending.value = null
+  if (target) restore(target.item, target.timestamp)
 }
 
 async function load() {
@@ -113,7 +131,7 @@ onMounted(load)
               color="primary"
               class="ma-1"
               :disabled="!!restoring"
-              @click="restore(item, version.timestamp)"
+              @click="openRestore(item, version.timestamp)"
             >
               <VProgressCircular v-if="restoring === `${item.server}/${item.library_id}/${version.timestamp}`" size="12" width="2" indeterminate class="mr-1" />
               {{ formatStamp(version.timestamp) }} · {{ formatSize(version.size) }}
@@ -124,7 +142,7 @@ onMounted(load)
               variant="outlined"
               class="ma-1"
               :disabled="!!restoring"
-              @click="restore(item, item.versions[0].timestamp)"
+              @click="openRestore(item, item.versions[0].timestamp)"
             >
               恢复最新
             </VChip>
@@ -132,6 +150,28 @@ onMounted(load)
         </div>
       </VCardText>
     </VCard>
+
+    <VDialog
+      :model-value="!!pending"
+      max-width="400"
+      persistent
+      @update:model-value="value => { if (!value) pending = null }"
+    >
+      <VCard v-if="pending">
+        <VCardItem class="py-3">
+          <VCardTitle class="text-subtitle-1">恢复封面</VCardTitle>
+        </VCardItem>
+        <VCardText class="text-body-2">
+          将把「{{ pending.item.server }} · {{ pending.item.library_name }}」的封面恢复为
+          {{ pending.label }} 的备份，会覆盖 Emby 里的当前封面。确定恢复吗？
+        </VCardText>
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="!!restoring" @click="pending = null">取消</VBtn>
+          <VBtn color="primary" variant="flat" :loading="!!restoring" @click="confirmRestore">恢复</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </VDialog>
 </template>
 

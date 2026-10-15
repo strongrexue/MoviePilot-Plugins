@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import CoverField from './CoverField.vue'
 import { useCoverDesigner } from './useCoverDesigner'
 
@@ -28,6 +28,33 @@ const designer = useCoverDesigner({
   initialConfig: props.initialConfig,
 })
 const { form, previewImage, previewInfo, message, messageOk, styleGroups, engineGroup } = designer
+
+/** 删除确认弹窗：模板 / 字体的删除入口太容易误点，统一先确认再执行。 */
+const confirm = reactive({ show: false, title: '', text: '', action: null })
+function askDelete(title, text, action) {
+  confirm.title = title
+  confirm.text = text
+  confirm.action = action
+  confirm.show = true
+}
+const askDeleteTemplate = template =>
+  askDelete(
+    '删除模板预设',
+    `确定删除「${template.name || template.filename}」吗？内置模板重启插件后会自动补回，自行上传的不会。`,
+    () => designer.deleteTemplate(template.filename),
+  )
+const askDeleteFont = name =>
+  askDelete(
+    '删除字体',
+    `确定删除字体「${name}」吗？正在使用该字体的封面会回退为内置字体。`,
+    () => designer.deleteFont(name),
+  )
+function confirmOk() {
+  const action = confirm.action
+  confirm.show = false
+  confirm.action = null
+  if (action) action()
+}
 
 const serverItems = computed(() =>
   props.servers.map(server => ({
@@ -263,7 +290,7 @@ onMounted(designer.loadAll)
               icon
               variant="text"
               title="删除模板"
-              @click.stop="designer.deleteTemplate(template.filename)"
+              @click.stop="askDeleteTemplate(template)"
             >
               <VIcon icon="mdi-close" size="14" />
             </VBtn>
@@ -395,7 +422,7 @@ onMounted(designer.loadAll)
               size="small"
               variant="tonal"
               closable
-              @click:close="designer.deleteFont(name)"
+              @click:close="askDeleteFont(name)"
             >
               {{ name }}
             </VChip>
@@ -413,6 +440,20 @@ onMounted(designer.loadAll)
     <input id="ec-upload-font" type="file" accept=".ttf,.otf,.ttc" class="ec-file-input" @change="onFontPicked" />
     <input id="ec-upload-template" type="file" accept=".json" class="ec-file-input" @change="onTemplatePicked" />
     <input id="ec-upload-local-image" type="file" accept="image/*" class="ec-file-input" @change="onLocalImagePicked" />
+
+    <VDialog v-model="confirm.show" max-width="400">
+      <VCard>
+        <VCardItem class="py-3">
+          <VCardTitle class="text-subtitle-1">{{ confirm.title }}</VCardTitle>
+        </VCardItem>
+        <VCardText class="text-body-2">{{ confirm.text }}</VCardText>
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" @click="confirm.show = false">取消</VBtn>
+          <VBtn color="error" variant="flat" @click="confirmOk">删除</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 

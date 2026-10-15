@@ -276,9 +276,27 @@ const error = ref$1('');
 const message = ref$1('');
 const messageOk = ref$1(false);
 const restoring = ref$1('');
+/** 待确认的恢复动作：{ item, timestamp, label }，点「恢复」前先弹确认。 */
+const pending = ref$1(null);
 
 function close() {
   emit('update:modelValue', false);
+}
+
+/** 恢复入口：先弹确认，防止误点把媒体库封面覆盖掉。 */
+function openRestore(item, timestamp) {
+  if (restoring.value) return
+  pending.value = {
+    item,
+    timestamp: timestamp || '',
+    label: formatStamp(timestamp || (item.versions.length ? item.versions[0].timestamp : '')),
+  };
+}
+
+function confirmRestore() {
+  const target = pending.value;
+  pending.value = null;
+  if (target) restore(target.item, target.timestamp);
 }
 
 async function load() {
@@ -342,13 +360,15 @@ return (_ctx, _cache) => {
   const _component_VChip = _resolveComponent$1("VChip");
   const _component_VCardText = _resolveComponent$1("VCardText");
   const _component_VCard = _resolveComponent$1("VCard");
+  const _component_VSpacer = _resolveComponent$1("VSpacer");
+  const _component_VCardActions = _resolveComponent$1("VCardActions");
   const _component_VDialog = _resolveComponent$1("VDialog");
 
   return (_openBlock$1(), _createBlock$1(_component_VDialog, {
     "model-value": props.modelValue,
     "max-width": "640",
     scrollable: "",
-    "onUpdate:modelValue": _cache[0] || (_cache[0] = value => emit('update:modelValue', value))
+    "onUpdate:modelValue": _cache[2] || (_cache[2] = value => emit('update:modelValue', value))
   }, {
     default: _withCtx$1(() => [
       _createVNode$1(_component_VCard, { class: "ec-bk" }, {
@@ -371,13 +391,13 @@ return (_ctx, _cache) => {
             ]),
             default: _withCtx$1(() => [
               _createVNode$1(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                default: _withCtx$1(() => [...(_cache[1] || (_cache[1] = [
+                default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
                   _createTextVNode$1("封面备份管理", -1)
                 ]))]),
                 _: 1
               }),
               _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-                default: _withCtx$1(() => [...(_cache[2] || (_cache[2] = [
+                default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
                   _createTextVNode$1("自动封面覆盖上传前自动保存原版封面，每库保留最近 3 版", -1)
                 ]))]),
                 _: 1
@@ -441,7 +461,7 @@ return (_ctx, _cache) => {
                         color: "primary",
                         class: "ma-1",
                         disabled: !!restoring.value,
-                        onClick: $event => (restore(item, version.timestamp))
+                        onClick: $event => (openRestore(item, version.timestamp))
                       }, {
                         default: _withCtx$1(() => [
                           (restoring.value === `${item.server}/${item.library_id}/${version.timestamp}`)
@@ -465,9 +485,9 @@ return (_ctx, _cache) => {
                           variant: "outlined",
                           class: "ma-1",
                           disabled: !!restoring.value,
-                          onClick: $event => (restore(item, item.versions[0].timestamp))
+                          onClick: $event => (openRestore(item, item.versions[0].timestamp))
                         }, {
-                          default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
+                          default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
                             _createTextVNode$1(" 恢复最新 ", -1)
                           ]))]),
                           _: 1
@@ -481,7 +501,68 @@ return (_ctx, _cache) => {
           })
         ]),
         _: 1
-      })
+      }),
+      _createVNode$1(_component_VDialog, {
+        "model-value": !!pending.value,
+        "max-width": "400",
+        persistent: "",
+        "onUpdate:modelValue": _cache[1] || (_cache[1] = value => { if (!value) pending.value = null; })
+      }, {
+        default: _withCtx$1(() => [
+          (pending.value)
+            ? (_openBlock$1(), _createBlock$1(_component_VCard, { key: 0 }, {
+                default: _withCtx$1(() => [
+                  _createVNode$1(_component_VCardItem, { class: "py-3" }, {
+                    default: _withCtx$1(() => [
+                      _createVNode$1(_component_VCardTitle, { class: "text-subtitle-1" }, {
+                        default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
+                          _createTextVNode$1("恢复封面", -1)
+                        ]))]),
+                        _: 1
+                      })
+                    ]),
+                    _: 1
+                  }),
+                  _createVNode$1(_component_VCardText, { class: "text-body-2" }, {
+                    default: _withCtx$1(() => [
+                      _createTextVNode$1(" 将把「" + _toDisplayString$1(pending.value.item.server) + " · " + _toDisplayString$1(pending.value.item.library_name) + "」的封面恢复为 " + _toDisplayString$1(pending.value.label) + " 的备份，会覆盖 Emby 里的当前封面。确定恢复吗？ ", 1)
+                    ]),
+                    _: 1
+                  }),
+                  _createVNode$1(_component_VCardActions, null, {
+                    default: _withCtx$1(() => [
+                      _createVNode$1(_component_VSpacer),
+                      _createVNode$1(_component_VBtn, {
+                        variant: "text",
+                        disabled: !!restoring.value,
+                        onClick: _cache[0] || (_cache[0] = $event => (pending.value = null))
+                      }, {
+                        default: _withCtx$1(() => [...(_cache[7] || (_cache[7] = [
+                          _createTextVNode$1("取消", -1)
+                        ]))]),
+                        _: 1
+                      }, 8, ["disabled"]),
+                      _createVNode$1(_component_VBtn, {
+                        color: "primary",
+                        variant: "flat",
+                        loading: !!restoring.value,
+                        onClick: confirmRestore
+                      }, {
+                        default: _withCtx$1(() => [...(_cache[8] || (_cache[8] = [
+                          _createTextVNode$1("恢复", -1)
+                        ]))]),
+                        _: 1
+                      }, 8, ["loading"])
+                    ]),
+                    _: 1
+                  })
+                ]),
+                _: 1
+              }))
+            : _createCommentVNode$1("", true)
+        ]),
+        _: 1
+      }, 8, ["model-value"])
     ]),
     _: 1
   }, 8, ["model-value"]))

@@ -647,6 +647,14 @@ onMounted(designer.loadAll)
    裸 :deep() 会被构建丢弃，改用 .ec-acc 命名空间隔离，仅作用于封面设计分组；
    底色与「预览 / 模板预设」tonal 卡片同配方（on-surface @ 12%，展开 15%），
    组间距对齐 .ec-cover 的 10px gap，标题行 44px 不加高 */
+/* 分组宽屏左右两列（align-items:start 让每个面板保持自身高度），
+   组间距由 grid gap 接管；窄屏回单列 */
+.ec-acc {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+}
 .ec-acc .v-expansion-panel {
   border-radius: 12px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
@@ -654,9 +662,6 @@ onMounted(designer.loadAll)
   overflow: hidden;
   isolation: isolate;
   transition: background 0.15s, border-color 0.15s;
-}
-.ec-acc .v-expansion-panel + .v-expansion-panel {
-  margin-top: 10px;
 }
 .ec-acc .v-expansion-panel:not(.v-expansion-panel--active):hover {
   border-color: rgba(var(--v-theme-primary), 0.45);
@@ -670,5 +675,10 @@ onMounted(designer.loadAll)
 }
 .ec-acc .v-expansion-panel-title--active {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+@media (max-width: 1000px) {
+  .ec-acc {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

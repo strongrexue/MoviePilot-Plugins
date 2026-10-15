@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-CyWflp_A.js';
+import { F as FRONTEND_VERSION } from './version-BKnzi9Mg.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
@@ -1386,7 +1386,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-9ed6f99e"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-3d4f81bb"]]);
 
 /**
  * Emby 计划任务中心的前端状态与动作。
@@ -2442,6 +2442,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae6e5a3a"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9b6b7271"]]);
 
 export { Page as default };

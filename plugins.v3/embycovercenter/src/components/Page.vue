@@ -195,6 +195,11 @@ onMounted(load)
 }
 .ec-pane {
   padding: 0;
+  /* 内容限宽居中（对齐胖虎媒体中心的观感）：超宽屏不整行拉伸，
+     窄屏仍占满 */
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
 }
 @media (max-width: 760px) {
   .ec-label {

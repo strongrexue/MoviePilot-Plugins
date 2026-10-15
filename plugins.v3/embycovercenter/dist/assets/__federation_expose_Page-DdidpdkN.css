@@ -34,36 +34,36 @@
   cursor: pointer;
 }
 
-.ec-cover[data-v-9ed6f99e] {
+.ec-cover[data-v-3d4f81bb] {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
 }
-.ec-toolbar[data-v-9ed6f99e] {
+.ec-toolbar[data-v-3d4f81bb] {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
 }
-.ec-h[data-v-9ed6f99e] {
+.ec-h[data-v-3d4f81bb] {
   font-size: 15px;
   font-weight: 600;
 }
-.ec-sub[data-v-9ed6f99e] {
+.ec-sub[data-v-3d4f81bb] {
   font-size: 12px;
   opacity: 0.65;
 }
-.ec-toolbar-actions[data-v-9ed6f99e] {
+.ec-toolbar-actions[data-v-3d4f81bb] {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.ec-band[data-v-9ed6f99e] {
+.ec-band[data-v-3d4f81bb] {
   border-radius: 10px;
 }
-.ec-preview-stage[data-v-9ed6f99e] {
+.ec-preview-stage[data-v-3d4f81bb] {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -72,25 +72,25 @@
   background: rgba(var(--v-theme-on-surface), 0.04);
   overflow: hidden;
 }
-.ec-preview[data-v-9ed6f99e] {
+.ec-preview[data-v-3d4f81bb] {
   width: 100%;
   max-height: 46vh;
   object-fit: contain;
   border-radius: 8px;
 }
-.ec-placeholder[data-v-9ed6f99e] {
+.ec-placeholder[data-v-3d4f81bb] {
   padding: 24px;
   font-size: 13px;
   opacity: 0.6;
   text-align: center;
 }
-.ec-meta[data-v-9ed6f99e] {
+.ec-meta[data-v-3d4f81bb] {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
 }
-.ec-meta span[data-v-9ed6f99e] {
+.ec-meta span[data-v-3d4f81bb] {
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -101,16 +101,16 @@
   white-space: nowrap;
   max-width: 100%;
 }
-.ec-acc[data-v-9ed6f99e] {
+.ec-acc[data-v-3d4f81bb] {
   background: transparent;
 }
-.ec-acc-title[data-v-9ed6f99e] {
+.ec-acc-title[data-v-3d4f81bb] {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ec-acc-sum[data-v-9ed6f99e] {
+.ec-acc-sum[data-v-3d4f81bb] {
   max-width: 46%;
   font-size: 12px;
   opacity: 0.6;
@@ -121,35 +121,35 @@
 /* 分组面板的卡片化样式见文件末尾的非 scoped 样式块：
    裸 :deep() 规则会被构建静默丢弃（v1.4.2~v1.4.5 分组样式未出厂的根因），
    故移出 :deep 并以 .ec-acc 命名空间隔离 */
-.ec-acc-icon[data-v-9ed6f99e] {
+.ec-acc-icon[data-v-3d4f81bb] {
   color: rgb(var(--v-theme-primary));
 }
-.ec-fields[data-v-9ed6f99e] {
+.ec-fields[data-v-3d4f81bb] {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 12px;
 }
-.ec-span[data-v-9ed6f99e] {
+.ec-span[data-v-3d4f81bb] {
   grid-column: 1 / -1;
 }
-.ec-row-wrap[data-v-9ed6f99e] {
+.ec-row-wrap[data-v-3d4f81bb] {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
-.ec-chips[data-v-9ed6f99e] {
+.ec-chips[data-v-3d4f81bb] {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
-.ec-templates[data-v-9ed6f99e] {
+.ec-templates[data-v-3d4f81bb] {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
   gap: 8px;
 }
-.ec-template[data-v-9ed6f99e] {
+.ec-template[data-v-3d4f81bb] {
   position: relative;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
@@ -157,30 +157,30 @@
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s;
 }
-.ec-template[data-v-9ed6f99e]:hover {
+.ec-template[data-v-3d4f81bb]:hover {
   border-color: rgba(var(--v-theme-primary), 0.6);
   transform: translateY(-1px);
 }
-.ec-template--active[data-v-9ed6f99e] {
+.ec-template--active[data-v-3d4f81bb] {
   border-color: rgb(var(--v-theme-primary));
   box-shadow: 0 0 0 1px rgba(var(--v-theme-primary), 0.35);
 }
-.ec-template-del[data-v-9ed6f99e] {
+.ec-template-del[data-v-3d4f81bb] {
   position: absolute;
   top: 2px;
   right: 2px;
   opacity: 0.55;
 }
-.ec-template-del[data-v-9ed6f99e]:hover {
+.ec-template-del[data-v-3d4f81bb]:hover {
   opacity: 1;
 }
-.ec-template-thumb[data-v-9ed6f99e] {
+.ec-template-thumb[data-v-3d4f81bb] {
   width: 100%;
   height: 78px;
   object-fit: cover;
   display: block;
 }
-.ec-template-noimg[data-v-9ed6f99e] {
+.ec-template-noimg[data-v-3d4f81bb] {
   height: 78px;
   display: flex;
   align-items: center;
@@ -189,20 +189,20 @@
   opacity: 0.55;
   background: rgba(var(--v-theme-on-surface), 0.04);
 }
-.ec-template-name[data-v-9ed6f99e] {
+.ec-template-name[data-v-3d4f81bb] {
   padding: 4px 6px 6px;
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ec-template-input[data-v-9ed6f99e] {
+.ec-template-input[data-v-3d4f81bb] {
   max-width: 220px;
 }
 /* 文件选择框：视觉隐藏但**不可用 display:none**——宿主环境下对 display:none
    的 input 程序化 click() 不弹窗（三处上传按钮失灵的根因），现改由
    <VBtn tag="label" for=...> 原生激活，输入框只需视觉隐藏（clip 技法）。 */
-.ec-file-input[data-v-9ed6f99e] {
+.ec-file-input[data-v-3d4f81bb] {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -212,7 +212,7 @@
   pointer-events: none;
 }
 @media (max-width: 760px) {
-.ec-fields[data-v-9ed6f99e] {
+.ec-fields[data-v-3d4f81bb] {
     grid-template-columns: minmax(0, 1fr);
 }
 }
@@ -221,6 +221,14 @@
    裸 :deep() 会被构建丢弃，改用 .ec-acc 命名空间隔离，仅作用于封面设计分组；
    底色与「预览 / 模板预设」tonal 卡片同配方（on-surface @ 12%，展开 15%），
    组间距对齐 .ec-cover 的 10px gap，标题行 44px 不加高 */
+/* 分组宽屏左右两列（align-items:start 让每个面板保持自身高度），
+   组间距由 grid gap 接管；窄屏回单列 */
+.ec-acc {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+}
 .ec-acc .v-expansion-panel {
   border-radius: 12px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
@@ -228,9 +236,6 @@
   overflow: hidden;
   isolation: isolate;
   transition: background 0.15s, border-color 0.15s;
-}
-.ec-acc .v-expansion-panel + .v-expansion-panel {
-  margin-top: 10px;
 }
 .ec-acc .v-expansion-panel:not(.v-expansion-panel--active):hover {
   border-color: rgba(var(--v-theme-primary), 0.45);
@@ -244,6 +249,11 @@
 }
 .ec-acc .v-expansion-panel-title--active {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+@media (max-width: 1000px) {
+.ec-acc {
+    grid-template-columns: 1fr;
+}
 }
 
 .ec-tasks[data-v-18525921] {
@@ -378,53 +388,58 @@
 }
 }
 
-.ec-page[data-v-ae6e5a3a] {
+.ec-page[data-v-9b6b7271] {
   width: 100%;
   border-radius: 16px;
   overflow: hidden;
 }
-.ec-page--app[data-v-ae6e5a3a] {
+.ec-page--app[data-v-9b6b7271] {
   min-height: calc(100dvh - 104px);
   border-radius: 14px;
 }
-.ec-toolbar[data-v-ae6e5a3a] {
+.ec-toolbar[data-v-9b6b7271] {
   background: transparent;
   padding-right: 8px;
 }
-.ec-heading[data-v-ae6e5a3a] {
+.ec-heading[data-v-9b6b7271] {
   min-width: 0;
 }
-.ec-label[data-v-ae6e5a3a] {
+.ec-label[data-v-9b6b7271] {
   white-space: nowrap;
 }
-.ec-status[data-v-ae6e5a3a] {
+.ec-status[data-v-9b6b7271] {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 8px 16px 4px;
 }
-.ec-chips[data-v-ae6e5a3a] {
+.ec-chips[data-v-9b6b7271] {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.ec-full[data-v-ae6e5a3a] {
+.ec-full[data-v-9b6b7271] {
   grid-column: 1 / -1;
 }
-.ec-tabs[data-v-ae6e5a3a] {
+.ec-tabs[data-v-9b6b7271] {
   padding: 0 8px;
 }
-.ec-body[data-v-ae6e5a3a] {
+.ec-body[data-v-9b6b7271] {
   padding: 10px 14px 16px;
 }
-.ec-pane[data-v-ae6e5a3a] {
+.ec-pane[data-v-9b6b7271] {
   padding: 0;
+  /* 内容限宽居中（对齐胖虎媒体中心的观感）：超宽屏不整行拉伸，
+     窄屏仍占满 */
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
 }
 @media (max-width: 760px) {
-.ec-label[data-v-ae6e5a3a] {
+.ec-label[data-v-9b6b7271] {
     display: none;
 }
-.ec-body[data-v-ae6e5a3a] {
+.ec-body[data-v-9b6b7271] {
     padding: 8px 8px 14px;
 }
 }

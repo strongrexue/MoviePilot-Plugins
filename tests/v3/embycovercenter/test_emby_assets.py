@@ -52,6 +52,23 @@ def test_include_types_gateway_error_fallback(monkeypatch):
     assert emby_assets._include_types(_Ref(), "lib1") == "Movie,Series,MusicAlbum"
 
 
+def test_library_count_music_counts_albums_only(monkeypatch):
+    """音乐库角标只数专辑：素材查询含艺术家兜底，计数不含（避免显示翻倍）。"""
+    calls = []
+
+    def fake_get_json(ref, path, params=None):
+        if path == "Library/MediaFolders":
+            return {"Items": [{"Id": "m1", "CollectionType": "music"}]}
+        if path == "Items":
+            calls.append(dict(params or {}))
+            return {"TotalRecordCount": 11}
+        return {}
+
+    monkeypatch.setattr(emby_assets.emby_gateway, "get_json", fake_get_json)
+    assert emby_assets.library_count(_Ref(), "m1") == 11
+    assert calls and calls[0]["IncludeItemTypes"] == "MusicAlbum"
+
+
 def test_fetch_assets_music_uses_album_posters(monkeypatch):
     """音乐库整链路：fetch_assets 的海报查询应带 MusicAlbum,MusicArtist 类型。"""
     captured = []

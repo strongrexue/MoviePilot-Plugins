@@ -95,7 +95,14 @@ def list_libraries(ref: emby_gateway.ServerRef) -> List[Dict[str, Any]]:
 
 
 def library_count(ref: emby_gateway.ServerRef, library_id: str) -> int:
-    """返回媒体库内影片 / 剧集数量（用于角标）。"""
+    """返回媒体库内条目数量（用于角标）。
+
+    音乐库只数专辑（MusicAlbum）——素材查询虽含艺术家兜底，但角标应反映
+    用户认知里的库内容数，专辑 + 艺术家相加会显示翻倍。
+    """
+    types = _include_types(ref, library_id)
+    if library_type(ref, library_id) == "music":
+        types = "MusicAlbum"
     try:
         data = emby_gateway.get_json(
             ref,
@@ -103,7 +110,7 @@ def library_count(ref: emby_gateway.ServerRef, library_id: str) -> int:
             {
                 "ParentId": library_id,
                 "Recursive": "true",
-                "IncludeItemTypes": _include_types(ref, library_id),
+                "IncludeItemTypes": types,
                 "Limit": 0,
                 "EnableTotalRecordCount": "true",
             },

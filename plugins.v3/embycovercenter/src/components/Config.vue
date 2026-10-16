@@ -119,7 +119,7 @@ async function runAutoCover() {
   }
 }
 
-function submit() {
+function submit(keepOpen = false) {
   if (props.busy) return
   emit('save', {
     enabled: form.enabled,
@@ -132,7 +132,7 @@ function submit() {
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
-  })
+  }, keepOpen)
 }
 
 onMounted(() => {
@@ -325,6 +325,24 @@ onMounted(() => {
               </VCard>
             </VCol>
           </VRow>
+
+          <VCard variant="tonal" class="ec-block mt-2">
+            <VCardText class="d-flex flex-wrap align-center ga-3 py-3">
+              <VBtn
+                color="primary"
+                variant="flat"
+                prepend-icon="mdi-content-save"
+                :loading="props.busy"
+                :disabled="props.busy"
+                @click="submit(true)"
+              >
+                保存设置（即时生效）
+              </VBtn>
+              <span class="text-caption text-medium-emphasis">
+                把所有改动立即写进配置并生效，弹窗保持打开，便于继续调整目标媒体库后随时刷新。
+              </span>
+            </VCardText>
+          </VCard>
     </div>
 
     <VDivider />

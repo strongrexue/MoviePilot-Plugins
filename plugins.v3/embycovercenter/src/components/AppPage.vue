@@ -37,15 +37,20 @@ async function openSettings() {
   }
 }
 
-async function saveSettings(config) {
+async function saveSettings(config, keepOpen = false) {
   if (savingSettings.value) return
   savingSettings.value = true
   try {
     await savePluginConfig(props.api, props.pluginId, config)
     settingsConfig.value = { ...(config || {}) }
-    settingsDialog.value = false
-    pageKey.value += 1
-    snackbar.value = { show: true, message: '设置已保存', color: 'success' }
+    if (keepOpen) {
+      // 「即时生效」：只保存不关弹窗，方便继续调整媒体库等选项。
+      snackbar.value = { show: true, message: '设置已保存并生效', color: 'success' }
+    } else {
+      settingsDialog.value = false
+      pageKey.value += 1
+      snackbar.value = { show: true, message: '设置已保存', color: 'success' }
+    }
   } catch (error) {
     snackbar.value = { show: true, message: error?.message || '设置保存失败', color: 'error' }
   } finally {

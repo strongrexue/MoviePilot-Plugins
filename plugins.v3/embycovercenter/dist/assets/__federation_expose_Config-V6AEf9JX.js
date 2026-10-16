@@ -753,7 +753,7 @@ async function runAutoCover() {
   }
 }
 
-function submit() {
+function submit(keepOpen = false) {
   if (props.busy) return
   emit('save', {
     enabled: form.enabled,
@@ -766,7 +766,7 @@ function submit() {
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
-  });
+  }, keepOpen);
 }
 
 onMounted(() => {
@@ -827,13 +827,13 @@ return (_ctx, _cache) => {
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-            default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+            default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
               _createTextVNode("胖虎封面中心", -1)
             ]))]),
             _: 1
           }),
           _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
-            default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+            default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
               _createTextVNode("Emby 媒体库封面生成与任务中心", -1)
             ]))]),
             _: 1
@@ -858,7 +858,7 @@ return (_ctx, _cache) => {
                     _createVNode(_component_VCardItem, { class: "py-2" }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                          default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+                          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
                             _createTextVNode("基础", -1)
                           ]))]),
                           _: 1
@@ -921,7 +921,7 @@ return (_ctx, _cache) => {
                           loading: loadingServers.value,
                           onClick: loadServers
                         }, {
-                          default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+                          default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
                             _createTextVNode("刷新", -1)
                           ]))]),
                           _: 1
@@ -929,7 +929,7 @@ return (_ctx, _cache) => {
                       ]),
                       default: _withCtx(() => [
                         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+                          default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
                             _createTextVNode("媒体服务器", -1)
                           ]))]),
                           _: 1
@@ -965,7 +965,7 @@ return (_ctx, _cache) => {
                           variant: "outlined",
                           disabled: !servers.value.length
                         }, null, 8, ["modelValue", "items", "disabled"]),
-                        _cache[18] || (_cache[18] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-1" }, " 留空表示使用全部已启用的媒体服务器。 ", -1))
+                        _cache[19] || (_cache[19] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-1" }, " 留空表示使用全部已启用的媒体服务器。 ", -1))
                       ]),
                       _: 1
                     })
@@ -990,7 +990,7 @@ return (_ctx, _cache) => {
                           "prepend-icon": "mdi-backup-restore",
                           onClick: _cache[5] || (_cache[5] = $event => (showBackups.value = true))
                         }, {
-                          default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                          default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
                             _createTextVNode(" 备份管理 ", -1)
                           ]))]),
                           _: 1
@@ -1003,7 +1003,7 @@ return (_ctx, _cache) => {
                           disabled: !form.enabled,
                           onClick: runAutoCover
                         }, {
-                          default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
+                          default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
                             _createTextVNode(" 立即运行 ", -1)
                           ]))]),
                           _: 1
@@ -1011,13 +1011,13 @@ return (_ctx, _cache) => {
                       ]),
                       default: _withCtx(() => [
                         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                          default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+                          default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
                             _createTextVNode("自动封面任务", -1)
                           ]))]),
                           _: 1
                         }),
                         _createVNode(_component_VCardSubtitle, { class: "text-caption" }, {
-                          default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+                          default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
                             _createTextVNode(" 定时 / Emby 入库时，为选中媒体库自动生成并应用封面 ", -1)
                           ]))]),
                           _: 1
@@ -1141,7 +1141,7 @@ return (_ctx, _cache) => {
                               _: 1
                             }),
                             _createVNode(_component_VCol, { cols: "12" }, {
-                              default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                              default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
                                 _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, " 「跟随封面设计」使用封面设计页最近一次应用的布局与参数（在插件页「封面设计」里 应用封面后自动保存）；执行时只处理所选媒体库与「参与封面的服务器」的交集。 Emby 入库自动刷新由上方开关控制，同样只刷新这里勾选的媒体库。 ", -1)
                               ]))]),
                               _: 1
@@ -1160,6 +1160,33 @@ return (_ctx, _cache) => {
             })
           ]),
           _: 1
+        }),
+        _createVNode(_component_VCard, {
+          variant: "tonal",
+          class: "ec-block mt-2"
+        }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VCardText, { class: "d-flex flex-wrap align-center ga-3 py-3" }, {
+              default: _withCtx(() => [
+                _createVNode(_component_VBtn, {
+                  color: "primary",
+                  variant: "flat",
+                  "prepend-icon": "mdi-content-save",
+                  loading: props.busy,
+                  disabled: props.busy,
+                  onClick: _cache[11] || (_cache[11] = $event => (submit(true)))
+                }, {
+                  default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
+                    _createTextVNode(" 保存设置（即时生效） ", -1)
+                  ]))]),
+                  _: 1
+                }, 8, ["loading", "disabled"]),
+                _cache[26] || (_cache[26] = _createElementVNode("span", { class: "text-caption text-medium-emphasis" }, " 把所有改动立即写进配置并生效，弹窗保持打开，便于继续调整目标媒体库后随时刷新。 ", -1))
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
         })
       ]),
       _createVNode(_component_VDivider),
@@ -1169,9 +1196,9 @@ return (_ctx, _cache) => {
           _createVNode(_component_VBtn, {
             variant: "text",
             disabled: props.busy,
-            onClick: _cache[11] || (_cache[11] = $event => (emit('close')))
+            onClick: _cache[12] || (_cache[12] = $event => (emit('close')))
           }, {
-            default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
+            default: _withCtx(() => [...(_cache[27] || (_cache[27] = [
               _createTextVNode("取消", -1)
             ]))]),
             _: 1
@@ -1184,7 +1211,7 @@ return (_ctx, _cache) => {
             disabled: props.busy,
             onClick: submit
           }, {
-            default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
+            default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
               _createTextVNode(" 保存配置 ", -1)
             ]))]),
             _: 1
@@ -1194,7 +1221,7 @@ return (_ctx, _cache) => {
       }),
       _createVNode(_sfc_main$1, {
         modelValue: showBackups.value,
-        "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((showBackups).value = $event)),
+        "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((showBackups).value = $event)),
         api: props.api,
         "plugin-id": props.pluginId
       }, null, 8, ["modelValue", "api", "plugin-id"])
@@ -1205,6 +1232,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-12688718"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-13014e7a"]]);
 
 export { Config as default };

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 前端构建版本。
  *
  * 用途：与后端 `/status` 返回的 `plugin_version` 比对。
@@ -8,4 +8,4 @@
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/embycovercenter）。
  */
-export const FRONTEND_VERSION = '1.6.13'
+export const FRONTEND_VERSION = '1.6.14'

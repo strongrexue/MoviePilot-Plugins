@@ -97,6 +97,9 @@ def list_libraries(ref: emby_gateway.ServerRef) -> List[Dict[str, Any]]:
 def library_count(ref: emby_gateway.ServerRef, library_id: str) -> int:
     """返回媒体库内条目数量（用于角标）。
 
+    计数端点与素材查询、Emby 网页端保持一致（Users/{uid}/Items，管理员视图）——
+    裸 /Items 无用户上下文，对隐藏/特殊条目的可见性不同，角标会与界面显示差一两数。
+
     音乐库只数专辑（MusicAlbum）——素材查询虽含艺术家兜底，但角标应反映
     用户认知里的库内容数，专辑 + 艺术家相加会显示翻倍。
     """
@@ -106,7 +109,7 @@ def library_count(ref: emby_gateway.ServerRef, library_id: str) -> int:
     try:
         data = emby_gateway.get_json(
             ref,
-            "Items",
+            _items_endpoint(ref),
             {
                 "ParentId": library_id,
                 "Recursive": "true",

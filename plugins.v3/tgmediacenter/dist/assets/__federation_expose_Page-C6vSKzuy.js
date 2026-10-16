@@ -117,8 +117,22 @@ function syncCache() {
   runAction('cache', 'cache/sync', {}, '缓存同步已触发');
 }
 
-function checkSubscriptions() {
-  runAction('subs', 'cache/check_subscriptions', {}, '订阅回搜已执行');
+async function startBackfill() {
+  if (busy.value) return
+  busy.value = 'backfill';
+  setMessage('正在启动增量补扫…');
+  try {
+    const response = unwrap(await postPluginApi(
+      props.api, props.pluginId, 'cache/backfill/start', { full: false },
+      { timeoutMs: 30000 },
+    ));
+    setMessage(response?.message || (response?.started ? '补扫已启动' : '补扫未启动'), Boolean(response?.started));
+    await loadOverview();
+  } catch (error) {
+    setMessage(error?.message || '启动补扫失败', false);
+  } finally {
+    busy.value = '';
+  }
 }
 
 // ------------------------------------------------------------------ 展示辅助
@@ -756,15 +770,16 @@ return (_ctx, _cache) => {
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "tonal",
-              loading: busy.value === 'subs',
-              "prepend-icon": "mdi-magnify-scan",
-              onClick: checkSubscriptions
+              loading: busy.value === 'backfill',
+              disabled: Boolean(cache.value?.backfill?.running),
+              "prepend-icon": "mdi-refresh-circle",
+              onClick: startBackfill
             }, {
               default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
-                _createTextVNode(" 检查新增订阅 ", -1)
+                _createTextVNode(" 立即增量补扫 ", -1)
               ]))]),
               _: 1
-            }, 8, ["loading"])
+            }, 8, ["loading", "disabled"])
           ]),
           _createVNode(_component_VCard, {
             flat: "",
@@ -942,6 +957,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d3d02447"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d7fb2648"]]);
 
 export { Page as default };

@@ -90,8 +90,22 @@ function syncCache() {
   runAction('cache', 'cache/sync', {}, '缓存同步已触发')
 }
 
-function checkSubscriptions() {
-  runAction('subs', 'cache/check_subscriptions', {}, '订阅回搜已执行')
+async function startBackfill() {
+  if (busy.value) return
+  busy.value = 'backfill'
+  setMessage('正在启动增量补扫…')
+  try {
+    const response = unwrap(await postPluginApi(
+      props.api, props.pluginId, 'cache/backfill/start', { full: false },
+      { timeoutMs: 30000 },
+    ))
+    setMessage(response?.message || (response?.started ? '补扫已启动' : '补扫未启动'), Boolean(response?.started))
+    await loadOverview()
+  } catch (error) {
+    setMessage(error?.message || '启动补扫失败', false)
+  } finally {
+    busy.value = ''
+  }
 }
 
 // ------------------------------------------------------------------ 展示辅助
@@ -427,8 +441,15 @@ onUnmounted(() => {
         <VBtn size="small" variant="tonal" :loading="busy === 'cache'" prepend-icon="mdi-sync" @click="syncCache">
           同步缓存
         </VBtn>
-        <VBtn size="small" variant="tonal" :loading="busy === 'subs'" prepend-icon="mdi-magnify-scan" @click="checkSubscriptions">
-          检查新增订阅
+        <VBtn
+          size="small"
+          variant="tonal"
+          :loading="busy === 'backfill'"
+          :disabled="Boolean(cache?.backfill?.running)"
+          prepend-icon="mdi-refresh-circle"
+          @click="startBackfill"
+        >
+          立即增量补扫
         </VBtn>
       </div>
 

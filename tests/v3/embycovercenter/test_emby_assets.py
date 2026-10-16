@@ -53,24 +53,25 @@ def test_include_types_gateway_error_fallback(monkeypatch):
 
 
 def test_library_count_music_counts_albums_only(monkeypatch):
-    """音乐库角标只数专辑：素材查询含艺术家兜底，计数不含（避免显示翻倍）。"""
+    """音乐库角标只数专辑；计数端点与素材查询一致（Users/{uid}/Items）。"""
     calls = []
 
     def fake_get_json(ref, path, params=None):
         if path == "Library/MediaFolders":
             return {"Items": [{"Id": "m1", "CollectionType": "music"}]}
-        if path == "Items":
+        if path.endswith("/Items"):
             calls.append(dict(params or {}))
             return {"TotalRecordCount": 11}
         return {}
 
     monkeypatch.setattr(emby_assets.emby_gateway, "get_json", fake_get_json)
+    monkeypatch.setattr(emby_assets, "admin_user_id", lambda ref: "uid")
     assert emby_assets.library_count(_Ref(), "m1") == 11
     assert calls and calls[0]["IncludeItemTypes"] == "MusicAlbum"
 
 
 def test_fetch_assets_music_uses_album_posters(monkeypatch):
-    """音乐库整链路：fetch_assets 的海报查询应带 MusicAlbum,MusicArtist 类型。"""
+    """音乐库整链路：素材（背景/海报）查询带 MusicAlbum,MusicArtist；计数查询只数 MusicAlbum。"""
     captured = []
 
     def fake_get_json(ref, path, params=None):
@@ -86,5 +87,9 @@ def test_fetch_assets_music_uses_album_posters(monkeypatch):
     ref = ServerRef(name="Emby", type="emby", instance=object())
     assets = emby_assets.fetch_assets(ref, "m1", mode="latest", poster_count=6, backdrop_count=1)
     assert captured, "应发起 Items 查询"
-    assert all(p["IncludeItemTypes"] == "MusicAlbum,MusicArtist" for p in captured)
+    asset_queries = [p for p in captured if p.get("ImageTypes")]
+    count_queries = [p for p in captured if not p.get("ImageTypes")]
+    assert asset_queries, "应发起素材查询"
+    assert all(p["IncludeItemTypes"] == "MusicAlbum,MusicArtist" for p in asset_queries)
+    assert count_queries and all(p["IncludeItemTypes"] == "MusicAlbum" for p in count_queries)
     assert assets["posters"] == [] and assets["count"] == 0

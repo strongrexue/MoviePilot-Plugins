@@ -103,7 +103,7 @@ def library_count(ref: emby_gateway.ServerRef, library_id: str) -> int:
             {
                 "ParentId": library_id,
                 "Recursive": "true",
-                "IncludeItemTypes": "Movie,Series",
+                "IncludeItemTypes": _include_types(ref, library_id),
                 "Limit": 0,
                 "EnableTotalRecordCount": "true",
             },
@@ -114,6 +114,31 @@ def library_count(ref: emby_gateway.ServerRef, library_id: str) -> int:
     if not isinstance(data, dict):
         return 0
     return int(data.get("TotalRecordCount") or 0)
+
+
+def library_type(ref: emby_gateway.ServerRef, library_id: str) -> str:
+    """返回媒体库的 CollectionType（movies / tvshows / music…），未知时为空串。"""
+    try:
+        data = emby_gateway.get_json(ref, "Library/MediaFolders")
+        for item in (data or {}).get("Items", []) if isinstance(data, dict) else []:
+            if str(item.get("Id") or "") == str(library_id):
+                return str(item.get("CollectionType") or "")
+    except emby_gateway.GatewayError as error:
+        logger.warning(f"[EmbyCoverCenter] 读取媒体库类型失败: {error}")
+    return ""
+
+
+def _include_types(ref: emby_gateway.ServerRef, library_id: str) -> str:
+    """按库类型决定素材查询的 IncludeItemTypes：音乐库取专辑封面，
+    电影/剧集库照旧，混合或未知库全类型兜底。"""
+    kind = library_type(ref, library_id)
+    if kind == "music":
+        return "MusicAlbum"
+    if kind == "movies":
+        return "Movie"
+    if kind == "tvshows":
+        return "Series"
+    return "Movie,Series,MusicAlbum"
 
 
 def _items_endpoint(ref: emby_gateway.ServerRef) -> str:
@@ -149,7 +174,7 @@ def fetch_assets(
                 {
                     "ParentId": library_id,
                     "Recursive": "true",
-                    "IncludeItemTypes": "Movie,Series",
+                    "IncludeItemTypes": _include_types(ref, library_id),
                     "ImageTypes": "Backdrop",
                     "Fields": "ImageTags,BackdropImageTags",
                     "Limit": max(20, backdrop_count + 5),
@@ -186,7 +211,7 @@ def fetch_assets(
                 {
                     "ParentId": library_id,
                     "Recursive": "true",
-                    "IncludeItemTypes": "Movie,Series",
+                    "IncludeItemTypes": _include_types(ref, library_id),
                     "ImageTypes": "Primary",
                     "Fields": "ImageTags",
                     "Limit": max(30, poster_count + 10),

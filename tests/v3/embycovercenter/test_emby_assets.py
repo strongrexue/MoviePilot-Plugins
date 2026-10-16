@@ -17,12 +17,12 @@ def _patch_media_folders(monkeypatch, folders):
 
 
 def test_include_types_music_library(monkeypatch):
-    """音乐库拉 MusicAlbum（专辑封面）。"""
+    """音乐库拉 MusicAlbum + MusicArtist（只刮了艺术家的库用艺术家图兜底）。"""
     _patch_media_folders(
         monkeypatch,
         [{"Id": "lib1", "CollectionType": "music"}, {"Id": "lib2", "CollectionType": "movies"}],
     )
-    assert emby_assets._include_types(_Ref(), "lib1") == "MusicAlbum"
+    assert emby_assets._include_types(_Ref(), "lib1") == "MusicAlbum,MusicArtist"
 
 
 def test_include_types_movie_and_tv(monkeypatch):
@@ -53,7 +53,7 @@ def test_include_types_gateway_error_fallback(monkeypatch):
 
 
 def test_fetch_assets_music_uses_album_posters(monkeypatch):
-    """音乐库整链路：fetch_assets 的海报查询应带 MusicAlbum 类型。"""
+    """音乐库整链路：fetch_assets 的海报查询应带 MusicAlbum,MusicArtist 类型。"""
     captured = []
 
     def fake_get_json(ref, path, params=None):
@@ -69,5 +69,5 @@ def test_fetch_assets_music_uses_album_posters(monkeypatch):
     ref = ServerRef(name="Emby", type="emby", instance=object())
     assets = emby_assets.fetch_assets(ref, "m1", mode="latest", poster_count=6, backdrop_count=1)
     assert captured, "应发起 Items 查询"
-    assert all(p["IncludeItemTypes"] == "MusicAlbum" for p in captured)
+    assert all(p["IncludeItemTypes"] == "MusicAlbum,MusicArtist" for p in captured)
     assert assets["posters"] == [] and assets["count"] == 0

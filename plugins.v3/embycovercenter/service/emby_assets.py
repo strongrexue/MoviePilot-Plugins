@@ -129,11 +129,12 @@ def library_type(ref: emby_gateway.ServerRef, library_id: str) -> str:
 
 
 def _include_types(ref: emby_gateway.ServerRef, library_id: str) -> str:
-    """按库类型决定素材查询的 IncludeItemTypes：音乐库取专辑封面，
-    电影/剧集库照旧，混合或未知库全类型兜底。"""
+    """按库类型决定素材查询的 IncludeItemTypes：音乐库取专辑封面 + 艺术家图
+    （只刮削了艺术家的库专辑无 Primary，艺术家图兜底），电影/剧集库照旧，
+    混合或未知库全类型兜底。"""
     kind = library_type(ref, library_id)
     if kind == "music":
-        return "MusicAlbum"
+        return "MusicAlbum,MusicArtist"
     if kind == "movies":
         return "Movie"
     if kind == "tvshows":

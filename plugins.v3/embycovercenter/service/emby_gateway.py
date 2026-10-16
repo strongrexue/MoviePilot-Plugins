@@ -41,7 +41,11 @@ def _helper():
 
 
 def list_servers() -> List[Dict[str, Any]]:
-    """返回已启用媒体服务器摘要（名称 / 类型 / 是否连接）。"""
+    """返回已启用且受支持的媒体服务器摘要（名称 / 类型 / 是否连接）。
+
+    飞牛影视（trimemedia）等未适配类型直接不展示，避免前端选择器扫到后
+    resolve 失败弹无意义警告。
+    """
     try:
         services = _helper().get_services()
     except Exception as error:  # pragma: no cover - 宿主不可用时降级
@@ -49,6 +53,8 @@ def list_servers() -> List[Dict[str, Any]]:
         return []
     result: List[Dict[str, Any]] = []
     for name, service in (services or {}).items():
+        if str(getattr(service, "type", "") or "") not in SUPPORTED_TYPES:
+            continue
         instance = getattr(service, "instance", None)
         active = True
         if instance is not None:

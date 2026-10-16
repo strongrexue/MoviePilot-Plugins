@@ -152,6 +152,9 @@ class _StubPlugin:
     def api_pan115_qr_cancel(self):
         ...
 
+    def api_pan115_cookie_reveal(self):
+        ...
+
     # P4 资源监控
     def api_monitor_rules(self):
         ...
@@ -254,6 +257,7 @@ def test_api_routes_contract():
         "/pan115/qr_start",
         "/pan115/qr_poll",
         "/pan115/qr_cancel",
+        "/pan115/cookie_reveal",
         # P4 资源监控（rules 同时注册 GET 与 PUT）
         "/monitor/rules",
         "/monitor/hits",

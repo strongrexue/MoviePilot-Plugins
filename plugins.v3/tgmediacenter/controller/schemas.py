@@ -150,6 +150,14 @@ class Pan115QrStartRequest(BaseModel):
     app: str = Field(default="alipaymini", description="扫码绑定的设备标识，如 alipaymini / 115ios")
 
 
+class Pan115CookieData(BaseModel):
+    """当前登录 Cookie（前端遮罩长条按需获取）。"""
+
+    cookie: str
+    login_device: str = ""
+    message: str = ""
+
+
 class Pan115QrData(BaseModel):
     """扫码登录状态。"""
 
@@ -764,6 +772,7 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/pan115/qr_start": Pan115QrData,
     "/pan115/qr_poll": Pan115QrData,
     "/pan115/qr_cancel": Pan115QrData,
+    "/pan115/cookie_reveal": Pan115CookieData,
     "/monitor/rules": MonitorRulesData,
     "/monitor/hits": MonitorHitsData,
     "/monitor/hits/clear": MonitorHitsClearData,

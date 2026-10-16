@@ -7,7 +7,8 @@ import { getPluginApi, postPluginApi, unwrap } from '../api'
  *
  * 结构对齐 MA 的「115 网盘」设置：账号与授权 / 任务设置。
  * 登录方式只保留**扫码登录**（App 通道，不触发安全密钥）；
- * Cookie 由扫码换取后保存在插件数据内部，界面上不展示、不可粘贴。
+ * Cookie 由扫码换取后保存在插件数据内部；界面用遮罩长条按需展示
+ * （默认遮罩，点眼睛/复制时才向后端拉取明文），不会被「保存配置」清空。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -77,6 +78,7 @@ async function clearCookie() {
   try {
     const info = unwrap(await postPluginApi(props.api, props.pluginId, 'pan115/logout', {}, { timeoutMs: 20000 }))
     status.value = info
+    ckReset()
     setMessage('已清除 115 登录态')
   } catch (err) {
     setMessage(err?.message || '清除失败', false)
@@ -156,6 +158,7 @@ async function qrPollOnce() {
     if (state === 'success') {
       qrStopPolling()
       if (data?.status_data) status.value = data.status_data
+      ckReset()
       setMessage(data?.message || '扫码登录成功')
       await loadStatus()
     } else if (state === 'expired' || state === 'canceled') {
@@ -191,6 +194,58 @@ async function qrCancel() {
   }
   qr.value = null
   setMessage('已取消扫码登录')
+}
+
+// ------------------------------------------------------------------ Cookie 遮罩长条
+const CK_MASKED = 'UID=••••••••; CID=••••••••; SEID=•••••••• …'
+const ckRevealed = ref(false)
+const ckBusy = ref(false)
+const ckValue = ref('')
+const ckToast = ref('')
+let ckToastTimer = null
+
+const ckText = computed(() => (ckRevealed.value ? ckValue.value || CK_MASKED : CK_MASKED))
+
+function ckReset() {
+  ckRevealed.value = false
+  ckValue.value = ''
+}
+
+async function ckEnsure() {
+  // 明文只在首次点眼睛/复制时向后端拉取，之后仅驻留内存
+  if (ckValue.value) return ckValue.value
+  ckBusy.value = true
+  try {
+    const data = unwrap(await postPluginApi(props.api, props.pluginId, 'pan115/cookie_reveal', {}, { timeoutMs: 15000 }))
+    ckValue.value = String(data?.cookie || '')
+    return ckValue.value
+  } catch (err) {
+    setMessage(err?.message || '获取 Cookie 失败', false)
+    return ''
+  } finally {
+    ckBusy.value = false
+  }
+}
+
+async function ckToggle() {
+  if (!ckRevealed.value) {
+    const value = await ckEnsure()
+    if (!value) return
+  }
+  ckRevealed.value = !ckRevealed.value
+}
+
+async function ckCopy() {
+  const value = await ckEnsure()
+  if (!value) return
+  try {
+    await navigator.clipboard.writeText(value)
+    ckToast.value = '已复制完整 Cookie'
+  } catch {
+    ckToast.value = '复制失败：浏览器不允许访问剪贴板'
+  }
+  if (ckToastTimer) window.clearTimeout(ckToastTimer)
+  ckToastTimer = window.setTimeout(() => { ckToast.value = '' }, 1800)
 }
 
 onMounted(async () => {
@@ -243,6 +298,35 @@ onUnmounted(qrStopPolling)
           <span class="p115-sep">|</span>
           <span>{{ spaceLine }}</span>
           <span v-if="status?.last_check" class="p115-updated">检测于 {{ status.last_check }}</span>
+        </div>
+
+        <!-- 当前登录 Cookie：默认遮罩，点眼睛/复制时才向后端拉取明文 -->
+        <div v-if="status?.cookie_configured" class="p115-ck" :class="{ 'p115-ck--open': ckRevealed }">
+          <VIcon size="16" class="p115-ck-ico">mdi-key-variant</VIcon>
+          <span v-if="status?.login_device" class="p115-ck-chip">{{ status.login_device }}</span>
+          <span class="p115-ck-val" :title="ckRevealed ? '已显示完整 Cookie' : '默认遮罩，点右侧眼睛查看'">{{ ckText }}</span>
+          <VBtn
+            variant="text"
+            density="comfortable"
+            size="small"
+            :icon="ckRevealed ? 'mdi-eye-off' : 'mdi-eye'"
+            :aria-pressed="ckRevealed"
+            :title="ckRevealed ? '隐藏 Cookie' : '显示 Cookie'"
+            :loading="ckBusy"
+            class="p115-ck-eye"
+            @click="ckToggle"
+          />
+          <VBtn
+            variant="text"
+            density="comfortable"
+            size="small"
+            icon="mdi-content-copy"
+            title="复制完整 Cookie"
+            @click="ckCopy"
+          />
+          <Transition name="p115-ck-fade">
+            <span v-if="ckToast" class="p115-ck-toast">{{ ckToast }}</span>
+          </Transition>
         </div>
 
         <!-- 扫码登录（推荐）：App 通道不会触发 115 的「安全密钥」二次验证 -->
@@ -302,13 +386,6 @@ onUnmounted(qrStopPolling)
           <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="loading" @click="loadStatus">
             刷新状态
           </VBtn>
-        </div>
-
-        <div class="p115-hint">
-          登录只用<strong>扫码</strong>（App 通道）：115 对网页 Cookie 有设备风控，文件接口会要求「安全密钥」验证，
-          扫码绑定的 App 设备不会触发该验证，所以设备列表只保留 App 端。
-          扫码成功后 Cookie 自动保存在插件内部（不显示在界面上），也不会被「保存配置」清空；
-          Cookie 失效时重新扫码即可。
         </div>
       </VCardText>
     </VCard>
@@ -481,4 +558,58 @@ onUnmounted(qrStopPolling)
 }
 .p115-result-name { font-size: 13px; }
 .p115-result-msg { font-size: 12px; opacity: 0.75; }
+/* 当前登录 Cookie 遮罩长条：默认遮罩，明文态主题色描边提示 */
+.p115-ck {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 5px 5px 5px 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 10px;
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  transition: border-color 0.15s ease;
+}
+.p115-ck--open { border-color: rgba(var(--v-theme-primary), 0.55); }
+.p115-ck-ico { flex: none; color: rgba(var(--v-theme-on-surface), 0.55); }
+.p115-ck-chip {
+  flex: none;
+  padding: 1px 10px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 999px;
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  white-space: nowrap;
+}
+.p115-ck-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
+}
+.p115-ck .v-btn { flex: none; }
+.p115-ck--open .p115-ck-eye { color: rgb(var(--v-theme-primary)); }
+.p115-ck-toast {
+  position: absolute;
+  right: 6px;
+  bottom: calc(100% + 4px);
+  padding: 2px 10px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 999px;
+  background: rgba(var(--v-theme-surface), 0.96);
+  font-size: 12px;
+  color: rgb(var(--v-theme-primary));
+  white-space: nowrap;
+  z-index: 2;
+}
+.p115-ck-fade-enter-active, .p115-ck-fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.p115-ck-fade-enter-from, .p115-ck-fade-leave-to { opacity: 0; transform: translateY(4px); }
+@media (max-width: 560px) {
+  .p115-ck-chip { display: none; }
+}
 </style>

@@ -180,6 +180,24 @@ class Pan115Module:
             "qr_pending": self._qr_pending_view(),
         }
 
+    def cookie_reveal(self) -> dict:
+        """按需返回当前登录会话的完整 Cookie（仅供前端遮罩长条展示/复制，不落日志）。"""
+        cookie = str(self._effective_cookie() or "").strip()
+        if not cookie:
+            raise Pan115Error("未登录 115：没有可展示的 Cookie")
+        qr_app = str(self._state().get("qr_app") or "")
+        device_label = ""
+        if qr_app:
+            device_label = next(
+                (option["title"] for option in app_options() if option["value"] == qr_app),
+                qr_app,
+            )
+        return {
+            "cookie": cookie,
+            "login_device": device_label,
+            "message": "已获取当前登录 Cookie",
+        }
+
     # ------------------------------------------------------------------ 扫码登录
 
     def _qr_login(self, timeout: int = 20) -> Pan115QrLogin:

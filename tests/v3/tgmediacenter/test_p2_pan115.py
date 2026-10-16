@@ -244,6 +244,20 @@ def test_status_reports_login_device():
     assert "支付宝" in status["login_device"]
 
 
+def test_cookie_reveal_returns_full_cookie():
+    """1.13.3 遮罩长条按需接口：返回完整 Cookie 与登录设备标签；未登录报错不泄露。"""
+    plugin = _StubPlugin(
+        config={"pan115_cookie": "UID=1; CID=2; SEID=3"},
+        data={"pan115_state": {"qr_app": "alipaymini"}},
+    )
+    data = Pan115Module(plugin).cookie_reveal()
+    assert data["cookie"] == "UID=1; CID=2; SEID=3"
+    assert "支付宝" in data["login_device"]
+
+    with pytest.raises(Pan115Error):
+        Pan115Module(_StubPlugin()).cookie_reveal()
+
+
 def test_error_text_covers_error_msg():
     """云下载通道的错误字段是 error_msg，要能解析。"""
     from app.plugins.tgmediacenter.core.pan115_client import Pan115Client

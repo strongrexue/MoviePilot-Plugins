@@ -48,6 +48,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/pan115/qr_start", plugin.api_pan115_qr_start, ["POST"], "获取 115 扫码登录二维码"),
         ("/pan115/qr_poll", plugin.api_pan115_qr_poll, ["POST"], "查询 115 扫码登录状态"),
         ("/pan115/qr_cancel", plugin.api_pan115_qr_cancel, ["POST"], "取消 115 扫码登录"),
+        ("/pan115/cookie_reveal", plugin.api_pan115_cookie_reveal, ["POST"], "按需获取当前登录 Cookie"),
         ("/monitor/rules", plugin.api_monitor_rules, ["GET"], "获取 TG 资源监控规则"),
         ("/monitor/rules", plugin.api_monitor_rules_save, ["PUT", "POST"], "保存 TG 资源监控规则"),
         ("/monitor/hits", plugin.api_monitor_hits, ["GET"], "查询监控命中流水"),
@@ -352,6 +353,13 @@ def api_pan115_qr_cancel(plugin):
     module = _pan115(plugin)
     data = _invoke(module.qr_cancel)
     return _envelope(api_schemas.Pan115QrData.model_validate(data), message=data.get("message", ""))
+
+
+def api_pan115_cookie_reveal(plugin):
+    """按需返回当前登录 Cookie（前端遮罩长条展示/复制用）。"""
+    module = _pan115(plugin)
+    data = _invoke(module.cookie_reveal)
+    return _envelope(api_schemas.Pan115CookieData.model_validate(data), message=data.get("message", ""))
 
 
 # ---------------------------------------------------------------------- ④ TG 资源监控

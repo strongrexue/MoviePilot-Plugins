@@ -73,21 +73,17 @@ export default defineConfig({
           },
         },
         {
-          // 联邦插件不得把 Vuetify / MDI 的全局样式打进产物。
+          // 联邦插件不得把 Vuetify / MDI 的全局样式打进产物；
+          // 只过滤 node_modules 的 vuetify/@mdi 源文件。插件源码对
+          // Vuetify 组件内部的定制样式（含 .v- 选择器）必须保留，
+          // 否则会被静默丢弃（如 .p115-ck .v-btn 的 flex 修正）。
           postcssPlugin: 'vuetify-filter',
           Root(root) {
             const sourcePath = root.source?.input?.file?.replaceAll('\\', '/') || ''
             if (sourcePath.includes('/node_modules/vuetify/') ||
                 sourcePath.includes('/node_modules/@mdi/')) {
               root.nodes = []
-              return
             }
-            root.walkRules(rule => {
-              if (rule.selector &&
-                  (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
-                rule.remove()
-              }
-            })
           },
         },
       ],

@@ -42,7 +42,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.2"
+    plugin_version = "1.13.3"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -359,6 +359,10 @@ class TgMediaCenter(_PluginBase):
     def api_pan115_qr_cancel(self):
         """取消 115 扫码登录。"""
         return api_controller.api_pan115_qr_cancel(self)
+
+    def api_pan115_cookie_reveal(self):
+        """按需获取当前登录 Cookie（遮罩长条展示/复制用）。"""
+        return api_controller.api_pan115_cookie_reveal(self)
 
     def api_telegram_refresh_dialogs(self):
         """刷新并返回对话列表。"""

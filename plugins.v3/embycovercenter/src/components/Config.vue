@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import AutoCoverLibraries from './AutoCoverLibraries.vue'
 import CoverBackups from './CoverBackups.vue'
-import { getPluginApi, postPluginApi, unwrap } from './api'
+import { getPluginApi, postPluginApi, savePluginConfig, unwrap } from './api'
 
 /**
  * 插件配置面板：顶部总开关 + 基础设置。
@@ -119,9 +119,8 @@ async function runAutoCover() {
   }
 }
 
-function submit(keepOpen = false) {
-  if (props.busy) return
-  emit('save', {
+function savePayload() {
+  return {
     enabled: form.enabled,
     discovery_page_enabled: form.discovery_page_enabled,
     selected_servers: [...form.selected_servers],
@@ -132,7 +131,33 @@ function submit(keepOpen = false) {
     auto_refresh_on_webhook: form.auto_refresh_on_webhook,
     cover_cron: form.cover_cron,
     notify_on_task_finish: form.notify_on_task_finish,
-  }, keepOpen)
+  }
+}
+
+function submit() {
+  if (props.busy) return
+  // 保存后由父级决定关闭弹窗（AppPage / MP 宿主各自的挂载方式行为不同）。
+  emit('save', savePayload())
+}
+
+// 「即时生效」：组件内部直接保存，不走 save 事件——本组件同时被 AppPage 与
+// MP 插件详情弹窗挂载，宿主的保存处理无法感知 keepOpen 意图，自持才能保证
+// 保存后弹窗必然保持打开。
+const savingNow = ref(false)
+const savedTip = ref({ show: false, ok: true, text: '' })
+
+async function saveNow() {
+  if (savingNow.value || props.busy) return
+  savingNow.value = true
+  savedTip.value = { show: false, ok: true, text: '' }
+  try {
+    await savePluginConfig(props.api, props.pluginId, savePayload())
+    savedTip.value = { show: true, ok: true, text: '设置已保存并生效' }
+  } catch (error) {
+    savedTip.value = { show: true, ok: false, text: error?.message || '保存失败' }
+  } finally {
+    savingNow.value = false
+  }
 }
 
 onMounted(() => {
@@ -240,6 +265,17 @@ onMounted(() => {
                     <VBtn
                       size="small"
                       variant="tonal"
+                      color="primary"
+                      prepend-icon="mdi-content-save"
+                      :loading="savingNow"
+                      :disabled="props.busy"
+                      @click="saveNow"
+                    >
+                      即时保存
+                    </VBtn>
+                    <VBtn
+                      size="small"
+                      variant="tonal"
                       prepend-icon="mdi-play"
                       :loading="runningCover"
                       :disabled="!form.enabled"
@@ -325,24 +361,6 @@ onMounted(() => {
               </VCard>
             </VCol>
           </VRow>
-
-          <VCard variant="tonal" class="ec-block mt-2">
-            <VCardText class="d-flex flex-wrap align-center ga-3 py-3">
-              <VBtn
-                color="primary"
-                variant="flat"
-                prepend-icon="mdi-content-save"
-                :loading="props.busy"
-                :disabled="props.busy"
-                @click="submit(true)"
-              >
-                保存设置（即时生效）
-              </VBtn>
-              <span class="text-caption text-medium-emphasis">
-                把所有改动立即写进配置并生效，弹窗保持打开，便于继续调整目标媒体库后随时刷新。
-              </span>
-            </VCardText>
-          </VCard>
     </div>
 
     <VDivider />
@@ -355,11 +373,15 @@ onMounted(() => {
         prepend-icon="mdi-content-save-outline"
         :loading="props.busy"
         :disabled="props.busy"
-        @click="submit"
+        @click="submit()"
       >
         保存配置
       </VBtn>
     </VCardActions>
+
+    <VSnackbar v-model="savedTip.show" :color="savedTip.ok ? 'success' : 'error'" location="top" :timeout="2500">
+      {{ savedTip.text }}
+    </VSnackbar>
 
     <CoverBackups v-model="showBackups" :api="props.api" :plugin-id="props.pluginId" />
   </VCard>

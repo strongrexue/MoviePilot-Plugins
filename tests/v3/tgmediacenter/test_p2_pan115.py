@@ -201,9 +201,39 @@ def test_client_endpoints_by_session_type():
 
     app_client = Pan115Client("UID=1; CID=2", app="alipaymini")
     assert app_client.app_session
-    assert app_client.files_url == "https://proapi.115.com/alipaymini/2.0/ufile/files"
-    assert app_client.share_snap_url == "https://proapi.115.com/alipaymini/2.0/share/snap"
-    assert app_client.share_receive_url == "https://proapi.115.com/alipaymini/2.0/share/receive"
+    # 登录设备不进 URL：alipaymini 作为 URL 路径"偶尔可用"，社区统一回退 android
+    assert app_client.files_url == "https://proapi.115.com/android/2.0/ufile/files"
+    assert app_client.share_snap_url == "https://proapi.115.com/android/2.0/share/snap"
+    assert app_client.share_receive_url == "https://proapi.115.com/android/2.0/share/receive"
+
+
+def test_url_app_mapping():
+    """回归锁（1.13.2 真机事故：支付宝扫码成功但校验目录失败）：
+    proapi URL 路径设备名按 p115client complete_url 规则映射，
+    115android/115ios/115ipad/harmony 原样可用，其余（mini 程序、tv 系、
+    windows/mac/linux）一律回退 android，qios/qipad 按族映射。"""
+    from app.plugins.tgmediacenter.core.pan115_client import Pan115Client
+
+    cases = {
+        "alipaymini": "android",
+        "wechatmini": "android",
+        "tv": "android",
+        "apple_tv": "android",
+        "qandroid": "android",
+        "windows": "android",
+        "mac": "android",
+        "linux": "android",
+        "android": "android",
+        "115android": "115android",
+        "ios": "ios",
+        "115ios": "115ios",
+        "qios": "ios",
+        "115ipad": "115ipad",
+        "qipad": "115ipad",
+        "harmony": "harmony",
+    }
+    for login_app, url_app in cases.items():
+        assert Pan115Client("UID=1; CID=2", app=login_app)._url_app == url_app
 
 
 def test_status_reports_login_device():
@@ -417,11 +447,16 @@ def test_batch_size_override_and_guard():
 
 
 def test_qr_app_options_available():
-    """设备清单要能供前端下拉使用。"""
+    """设备清单要能供前端下拉使用（对齐 ChillPoster 全集、网页版除外）。"""
     options = pan115_login.app_options()
     values = {item["value"] for item in options}
     assert "alipaymini" in values
     assert "115ios" in values and "115android" in values
+    # 1.13.2 起对齐 ChillPoster 设备全集（17 项），并继续排除网页版
+    assert len(values) == 17
+    assert "web" not in values
+    for extra in ("windows", "mac", "linux", "apple_tv", "qios", "qipad", "ipad"):
+        assert extra in values
     assert all(item["title"] for item in options)
     assert pan115_login.DEFAULT_APP in values
 

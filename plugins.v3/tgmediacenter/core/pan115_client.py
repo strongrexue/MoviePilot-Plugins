@@ -7,6 +7,11 @@
 - **App 会话**（扫码绑定设备后换取的 Cookie）：必须走 **App 通道端点**
   ``proapi.115.com/{app}/2.0/...``——App 会话 + Web 端点会被 115 判为异常，
   照样要求安全密钥。这是 1.2.3 及之前"扫码成功但校验目录仍报安全密钥"的根因。
+- **URL 路径里的设备名与登录设备是两回事**：115 只认有限的 URL 设备名
+  （p115client ``complete_url`` 的规则：ios/115ios/115ipad/android/115android/harmony
+  可直接用；alipaymini/wechatmini 偶尔可用；tv/qandroid/ipad 往往不可用），
+  其余一律回退 ``android``。这是"支付宝扫码成功但校验目录失败"的根因
+  （1.13.2 修复）——ChillPoster 等生产实现也统一传 ``app="android"``。
 
 只覆盖 v1 需要的能力：
 
@@ -129,24 +134,43 @@ class Pan115Client:
     # ------------------------------------------------------------------ 端点选择
 
     @property
+    def _url_app(self) -> str:
+        """proapi URL 路径里使用的设备名（与登录设备解耦）。
+
+        登录设备（``self._app``）只决定 Cookie 绑定到哪个端；文件类接口 URL
+        路径里的设备名另有白名单：``ios/115ios/115ipad/android/115android/harmony``
+        可直接用，``alipaymini/wechatmini`` 偶尔可用，``tv/qandroid/ipad`` 往往
+        不可用——其余一律回退 ``android``（p115client ``complete_url`` 的规则，
+        ChillPoster 生产实现也统一传 ``app="android"``）。
+        """
+        app = self._app
+        if app in ("ios", "115ios", "115ipad", "android", "115android", "harmony"):
+            return app
+        if app.endswith("ios"):
+            return "ios"
+        if app.endswith("ipad"):
+            return "115ipad"
+        return "android"
+
+    @property
     def files_url(self) -> str:
         """目录列举端点。"""
         if self.app_session:
-            return f"https://proapi.115.com/{self._app}/2.0/ufile/files"
+            return f"https://proapi.115.com/{self._url_app}/2.0/ufile/files"
         return _FILES_URL
 
     @property
     def share_snap_url(self) -> str:
         """分享快照端点。"""
         if self.app_session:
-            return f"https://proapi.115.com/{self._app}/2.0/share/snap"
+            return f"https://proapi.115.com/{self._url_app}/2.0/share/snap"
         return _SHARE_SNAP_URL
 
     @property
     def share_receive_url(self) -> str:
         """分享转存端点。"""
         if self.app_session:
-            return f"https://proapi.115.com/{self._app}/2.0/share/receive"
+            return f"https://proapi.115.com/{self._url_app}/2.0/share/receive"
         return _SHARE_RECEIVE_URL
 
     # ------------------------------------------------------------------ 基础请求

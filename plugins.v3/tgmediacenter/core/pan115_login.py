@@ -43,16 +43,26 @@ _BROWSER_HEADERS = {
 
 # 扫码绑定的设备标识（115 侧支持列表）→ 界面展示名
 QRCODE_APPS: dict[str, str] = {
-    "alipaymini": "支付宝小程序（推荐）",
-    "wechatmini": "微信小程序",
-    "115android": "115 Android 端",
-    "115ios": "115 iOS 端",
-    "115ipad": "115 iPad 端",
-    "harmony": "115 鸿蒙端",
-    "qandroid": "115 Android 端（Q）",
-    "android": "Android 通用",
-    "ios": "iOS 通用",
-    "tv": "115 TV 端",
+    # 与 ChillPoster 生产实现同款全集（115 官方端表，p115client 设备表核对），
+    # 网页版除外——Web 会话打文件接口必要求安全密钥（1.2.3 真机事故根因）。
+    # 标签按 115 官方命名：裸名=115生活系，115xxx=115网盘系，qxxx=115管理系。
+    "alipaymini": "115生活（支付宝小程序）",
+    "wechatmini": "115生活（微信小程序）",
+    "android": "115生活（Android端）",
+    "ios": "115生活（iOS端）",
+    "ipad": "115生活（iPad端）",
+    "115android": "115网盘（Android端）",
+    "115ios": "115网盘（iOS端）",
+    "115ipad": "115网盘（iPad端）",
+    "harmony": "115网盘（鸿蒙端）",
+    "tv": "115生活（Android电视端）",
+    "apple_tv": "115生活（Apple TV端）",
+    "windows": "115生活（Windows端）",
+    "mac": "115生活（macOS端）",
+    "linux": "115生活（Linux端）",
+    "qandroid": "115管理（Android端）",
+    "qios": "115管理（iOS端）",
+    "qipad": "115管理（iPad端）",
 }
 DEFAULT_APP = "alipaymini"
 

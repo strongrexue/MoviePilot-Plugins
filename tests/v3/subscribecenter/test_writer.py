@@ -159,7 +159,10 @@ async def test_skips_when_subscription_history_exists():
     （开发文档 §7.6）。
     """
     backend = FakeBackend(exists=False, history=True)
-    writer = SubscriptionWriter(backend, daily_limit=30)
+    # 只有显式关掉「重新订阅已完成」时，历史才用于拦截
+    writer = SubscriptionWriter(
+        backend, daily_limit=30, resubscribe_completed=False
+    )
     report = await writer.write([item()], dry_run=False)
 
     assert backend.add_calls == []
@@ -385,3 +388,31 @@ def test_write_report_summary_shape():
     summary = WriteReport().to_summary()
     for key in ("total", "added", "skipped", "pending_review", "limit_hit", "dry_run"):
         assert key in summary
+
+
+@pytest.mark.asyncio
+async def test_resubscribes_completed_by_default():
+    """**默认允许重新订阅已完成过的条目**。
+
+    真机诉求：宿主把订阅标成完成会移入 subscribehistory，但用户可能已经从
+    媒体库删掉文件、想重新下。默认因此忽略历史。
+
+    安全性：真正「已经播完」的剧会先被 finished 判定拦住（TMDB 无未播集），
+    所以不会每轮都重复建订阅。
+    """
+    backend = FakeBackend(exists=False, history=True)
+    writer = SubscriptionWriter(backend, daily_limit=30)  # 默认 resubscribe_completed=True
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 1, "默认应该重新订阅"
+
+
+@pytest.mark.asyncio
+async def test_history_still_blocks_when_resubscribe_disabled():
+    """关掉「重新订阅」后，历史仍然用于拦截。"""
+    backend = FakeBackend(exists=False, history=True)
+    writer = SubscriptionWriter(backend, daily_limit=30, resubscribe_completed=False)
+    report = await writer.write([item()], dry_run=False)
+
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_ALREADY_COMPLETED

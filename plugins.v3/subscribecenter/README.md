@@ -180,6 +180,26 @@ DiscoveredItem.writable 是「能不能写」的唯一判定，它同时校验
 
 配置项 prefer_episode_group（默认开）。关掉则按整季订阅。
 
+### 重新订阅已完成过的条目（0.8.5）
+
+宿主把订阅标成「完成」时会移入 subscribehistory。用户诉求：从媒体库删掉
+文件后希望能重新订阅，所以**默认不再按订阅历史拦截**（
+esubscribe_completed
+默认开）。真正「已经播完」的剧不会因此重复订阅 —— 它们会先被
+「TMDB 已无未播内容」拦住。
+
+### 结构哨兵（0.8.5）
+
+	ests/v3/subscribecenter/test_host_structure.py 只做结构断言：HostTmdbResolver
+必须提供 search / search_raw / convert_to_tmdb / 
+esolve_target_season
+等方法，HostSubscribeBackend.add 必须接受 episode_group。
+
+写这个文件的原因：0.8.4 修 bug 时用「切片替换」改代码，把夹在中间的
+
+esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全绿
+（测试用的是假 resolver），真机表现却是「黑帮领地本该订第 2 季却订了第 1 季」。
+
 ## 工作方式
 
 1. **首次运行强制 dry-run。** 不管配置怎么设，第一次跑只记录不写入，并在流水里

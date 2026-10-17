@@ -170,9 +170,17 @@ class SubscriptionWriter:
     :param daily_limit: 每日写入上限（<=0 表示不限制）
     """
 
-    def __init__(self, backend: SubscribeBackend, *, daily_limit: int = 30) -> None:
+    def __init__(
+        self,
+        backend: SubscribeBackend,
+        *,
+        daily_limit: int = 30,
+        resubscribe_completed: bool = True,
+    ) -> None:
         self._backend = backend
         self._daily_limit = daily_limit
+        #: 是否允许重新订阅「已完成过」的条目（忽略 subscribehistory）
+        self._resubscribe_completed = resubscribe_completed
 
     # ------------------------------------------------------------------ 主入口
 
@@ -296,7 +304,11 @@ class SubscriptionWriter:
                     decision=DECISION_SKIPPED_ALREADY_SUBSCRIBED,
                     reason="宿主已有该订阅",
                 )
-            if await self._backend.history_exists(
+            if self._resubscribe_completed:
+                # 用户允许重新订阅：跳过历史检查。
+                # 真正「已播完」的剧会先被 finished 判定拦住，不会每轮重复。
+                pass
+            elif await self._backend.history_exists(
                 identity.media_source, identity.media_id, item.season
             ):
                 return WriteOutcome(

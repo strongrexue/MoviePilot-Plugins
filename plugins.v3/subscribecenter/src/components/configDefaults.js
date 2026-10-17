@@ -34,6 +34,7 @@ export const configDefaults = {
   douban_min_want: 0,
   resolve_concurrency: 8,
   prefer_episode_group: true,
+  resubscribe_completed: true,
   // ---------------- Simkl
   simkl_client_id: '',
   // ---------------- 写入

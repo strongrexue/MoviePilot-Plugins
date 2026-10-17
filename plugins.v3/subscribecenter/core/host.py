@@ -19,9 +19,9 @@
 """
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ..core.constants import MEDIA_TYPE_MOVIE
+from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV
 from ..core.identity import HOST_SOURCE_TMDB
-from ..core.window import parse_date
+from ..core.window import parse_date, today
 
 #: 单次查询的分页大小（宿主无参查询只返回第一页，必须显式翻页）
 QUERY_PAGE_SIZE = 200
@@ -128,6 +128,207 @@ class HostTmdbResolver:
     ) -> Sequence[Dict[str, Any]]:
         """按给定关键词做不带年份的 TMDB 搜索（不再做任何名称加工）。"""
         return await self._search_without_year(term, media_type, normalize=False)
+
+    async def convert_to_tmdb(
+        self,
+        media_source: str,
+        media_id: str,
+        media_type: str,
+    ) -> Optional[Dict[str, Any]]:
+        """跨源换算为 TMDB（Bangumi/豆瓣 → TMDB）。
+
+        返回 ``{"tmdb_id", "year", "title", "season"}``。
+
+        .. danger::
+           同样是**必须存在**的方法。0.8.4 的一次切片替换把它连同
+           ``resolve_target_season`` 一起删掉了，真机后果是 Bangumi / 豆瓣
+           条目的跨源换算静默失效，只能退回标题搜索（待确认数量上升）。
+
+        .. important::
+           宿主这条换算内部是**标题+年份匹配**（``_build_bangumi_tmdb_match``），
+           不是 ID 直映。因此返回结构里带上年份，供调用方做二次硬校验。
+        """
+        from app.chain.media import MediaChain
+
+        source_enum = media_source_enum(media_source)
+        if source_enum is None:
+            return None
+        payload = await MediaChain().async_convert_media_identity(
+            target_source=media_source_enum(HOST_SOURCE_TMDB),
+            media_source=source_enum,
+            media_id=str(media_id),
+            mtype=media_type_enum(media_type),
+        )
+        if not payload:
+            return None
+
+        if isinstance(payload, dict):
+            tmdb_id = payload.get("id")
+            date = payload.get("release_date") or payload.get("first_air_date")
+            title = payload.get("title") or payload.get("name")
+            season = payload.get("season")
+        else:
+            tmdb_id = getattr(payload, "id", None)
+            date = getattr(payload, "release_date", None) or getattr(payload, "first_air_date", None)
+            title = getattr(payload, "title", None) or getattr(payload, "name", None)
+            season = getattr(payload, "season", None)
+        if not tmdb_id:
+            return None
+        try:
+            season_number = int(season) if season not in (None, "") else None
+        except (TypeError, ValueError):
+            season_number = None
+        return {
+            "tmdb_id": str(tmdb_id),
+            "year": str(date)[:4] if date else None,
+            "title": title,
+            #: 宿主从来源标题解析出的季号；续作靠它才不会订错季
+            "season": season_number,
+        }
+
+    async def resolve_target_season(
+        self,
+        tmdb_id: str,
+        media_type: str,
+        season_hint: Optional[int] = None,
+        tz_name: Optional[str] = None,
+        *,
+        prefer_episode_group: bool = True,
+    ) -> Tuple[bool, Optional[int], Optional[str]]:
+        """确定该订阅**哪一季**（以及是否要用 episode group）。
+
+        返回 ``(可订, 季号, episode_group_id)``。
+
+        .. danger::
+           这是**必须存在**的方法：缺失时 `IdentityResolver` 会 fail-open
+           成「可订 + 默认季」，导致所有剧集都被按第 1 季订阅。
+           0.8.4 修 bug 时一次切片替换把它连带删掉了，真机上表现为
+           「黑帮领地本该订第 2 季却订了第 1 季」——
+           `tests/v3/subscribecenter/test_host_structure.py` 会守住它。
+
+        为什么需要 episode group（真机：《药屋少女的呢喃》）：
+
+        - TMDB 把它压成 **1 季 60 集**连续编号（第 49~60 集才是第 3 季）。
+        - 只按 season=1 订阅，宿主要去补前 48 集旧番。
+        - 但 TMDB 的 ``episode_group``（type=6「Seasons」）里 **Season 3 = 12 集**，
+          带 group + season=3 订阅后宿主只追这 12 集。
+
+        判定顺序：
+
+        1. 列出常规季（排除第 0 季），找**有未播集**的季；
+        2. 一个都没有 -> 不可订；
+        3. 提示季正好有未播集 -> 用它，不用 group；
+        4. 多个季都有未播集且没有提示 -> 取**季号最大**的那个
+           （回归系列的最新一季才是正在更新的那季；取默认季会把
+           已经播完的第 1 季再订一遍）；
+        5. 剧集被压成单季且提示季更大 -> 去 episode group 找同序号的季。
+
+        **失败时 fail-open**（可订 + 默认季 + 无 group）。
+        """
+        if media_type != MEDIA_TYPE_TV:
+            return (True, None, None)
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+            from app.schemas.types import MediaType
+
+            api = TmdbApi()
+            info = await api.async_get_info(mtype=MediaType.TV, tmdbid=int(tmdb_id)) or {}
+            numbers = sorted(
+                {
+                    int(season.get("season_number") or 0)
+                    for season in (info.get("seasons") or [])
+                    if isinstance(season, dict) and int(season.get("season_number") or 0) > 0
+                },
+                reverse=True,
+            )
+            if not numbers:
+                return (True, None, None)
+
+            start = today(tz_name)
+            upcoming: List[int] = []
+            for number in numbers[:6]:
+                if await self._season_has_upcoming(api, int(tmdb_id), number, start):
+                    upcoming.append(number)
+                if season_hint is not None and season_hint in upcoming:
+                    break
+
+            if not upcoming:
+                return (False, None, None)
+            if season_hint is not None and season_hint in upcoming:
+                return (True, season_hint, None)
+
+            # 被压成单季的番剧：去 episode group 里找真实季
+            if prefer_episode_group and season_hint and len(numbers) == 1:
+                group_id = await self._find_season_group(int(tmdb_id), season_hint, start)
+                if group_id:
+                    return (True, season_hint, group_id)
+
+            # 多个季都有未播集：取季号最大的（最新一季才在更新）
+            return (True, max(upcoming), None)
+        except Exception:  # noqa: BLE001 - 校验失败 fail-open
+            return (True, None, None)
+
+    @staticmethod
+    async def _season_has_upcoming(api: Any, tmdb_id: int, season: int, start: Any) -> bool:
+        """该季是否还有未播集。"""
+        detail = await api.async_get_tv_season_detail(tmdb_id, season) or {}
+        for episode in detail.get("episodes") or []:
+            if not isinstance(episode, dict):
+                continue
+            air = parse_date(episode.get("air_date"))
+            if air and air >= start:
+                return True
+        return False
+
+    async def _find_season_group(
+        self, tmdb_id: int, season_hint: int, start: Any
+    ) -> Optional[str]:
+        """在被压成单季的剧里找出「第 N 季」的 episode group id。
+
+        只在**该分组确实有未播集**时返回，避免为了一个已经播完的季去建订阅。
+        """
+        groups = await self._tmdb_get(f"/tv/{tmdb_id}/episode_groups")
+        group_id = None
+        for entry in (groups or {}).get("results") or []:
+            # type 6 = 「Seasons」分组（实测：药屋少女的呢喃）
+            if str(entry.get("type")) == "6" and int(entry.get("group_count") or 0) > 1:
+                group_id = entry.get("id")
+                break
+        if not group_id:
+            return None
+
+        payload = await self._tmdb_get(f"/tv/episode_group/{group_id}")
+        for group in (payload or {}).get("groups") or []:
+            order = int(group.get("order") or 0)
+            name = str(group.get("name") or "")
+            if order != season_hint and name != f"Season {season_hint}":
+                continue
+            for episode in group.get("episodes") or []:
+                air = parse_date(episode.get("air_date"))
+                if air and air >= start:
+                    return str(group_id)
+            return None
+        return None
+
+    @staticmethod
+    async def _tmdb_get(path: str) -> Dict[str, Any]:
+        """直连 TMDB 原始接口（宿主的 TmdbApi 未暴露 episode_groups 列表）。"""
+        from app.runtime.settings import get_runtime_setting
+        from app.sdk.network import AsyncRequestUtils
+
+        domain = get_runtime_setting("TMDB_API_DOMAIN") or "api.themoviedb.org"
+        key = get_runtime_setting("TMDB_API_KEY") or ""
+        url = f"https://{domain}/3{path}"
+        utils = AsyncRequestUtils(
+            proxies=get_runtime_setting("PROXY") or None,
+            timeout=20,
+        )
+        response = await utils.get_res(
+            url, params={"api_key": key, "language": "zh-CN"}, raise_exception=True
+        )
+        if not response:
+            return {}
+        return response.json() or {}
 
     async def _search_without_year(
         self, title: str, media_type: str, *, normalize: bool = True

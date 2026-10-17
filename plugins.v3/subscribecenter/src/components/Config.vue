@@ -495,6 +495,19 @@ onMounted(() => {
         </div>
 
         <VSwitch
+          v-model="form.resubscribe_completed"
+          label="已完成过的订阅允许重新订阅（忽略订阅历史）"
+          density="compact"
+          hide-details
+          class="mt-2"
+        />
+        <div class="sc-hint mb-3">
+          <b>默认开启。</b>宿主把订阅标成「完成」时会移入订阅历史；如果你之后从媒体库
+          删掉了文件、想重新下，就需要这一项。真正<b>已经播完</b>的剧不会因此重复订阅 ——
+          它们会先被「TMDB 已无未播内容」拦住。
+        </div>
+
+        <VSwitch
           v-model="form.prefer_episode_group"
           label="用 TMDB 分组精确订阅被压成单季的番剧"
           density="compact"

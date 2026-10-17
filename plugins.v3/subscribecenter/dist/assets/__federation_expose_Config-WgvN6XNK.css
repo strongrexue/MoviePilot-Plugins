@@ -1,19 +1,19 @@
 
-.sc-root[data-v-fb358fdf] {
+.sc-root[data-v-a04b638d] {
   padding: 4px;
 }
-.sc-hint[data-v-fb358fdf] {
+.sc-hint[data-v-a04b638d] {
   font-size: 12px;
   line-height: 1.5;
   opacity: 0.7;
 }
-.sc-preview-row[data-v-fb358fdf] {
+.sc-preview-row[data-v-a04b638d] {
   padding: 5px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
-.sc-preview-row[data-v-fb358fdf]:last-child {
+.sc-preview-row[data-v-a04b638d]:last-child {
   border-bottom: none;
 }
-.sc-warn[data-v-fb358fdf] {
+.sc-warn[data-v-a04b638d] {
   color: rgb(var(--v-theme-warning));
 }

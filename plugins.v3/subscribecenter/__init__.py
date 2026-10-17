@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.8.4"
+    plugin_version = "0.8.5"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -127,7 +127,13 @@ class SubscribeCenter(_PluginBase):
             prefer_episode_group=bool(self._config.get("prefer_episode_group", True)),
         )
         daily_limit = self._int_config("daily_limit", C.DEFAULT_DAILY_LIMIT)
-        self._writer = SubscriptionWriter(HostSubscribeBackend(), daily_limit=daily_limit)
+        self._writer = SubscriptionWriter(
+            HostSubscribeBackend(),
+            daily_limit=daily_limit,
+            resubscribe_completed=bool(
+                self._config.get("resubscribe_completed", True)
+            ),
+        )
         self._last_run = self._state().get("last_run")
 
     def _migrate_config(self) -> None:

@@ -81,6 +81,13 @@ class HostTmdbResolver:
     def __init__(self) -> None:
         """初始化按标题的豆瓣别名缓存（同一进程内复用，避免重复请求）。"""
         self._alias_cache: Dict[str, List[str]] = {}
+        #: tmdb_id -> poster_path。**零额外请求**：resolve_target_season 里
+        #: 为裁决季号本来就会拉 TMDB 详情，那份 JSON 就带 poster_path。
+        self._poster_index: Dict[str, str] = {}
+
+    def poster_path(self, tmdb_id: str) -> Optional[str]:
+        """返回已抓到的海报路径（没有则为 None，不发起请求）。"""
+        return self._poster_index.get(str(tmdb_id))
 
     async def search(
         self,
@@ -127,6 +134,7 @@ class HostTmdbResolver:
                     "year": getattr(mediainfo, "year", None),
                     "release_date": getattr(mediainfo, "release_date", None),
                     "media_type": media_type,
+                    "poster_path": getattr(mediainfo, "poster_path", None),
                     "via": source,
                 }
             )
@@ -459,6 +467,9 @@ class HostTmdbResolver:
 
             api = TmdbApi()
             info = await api.async_get_info(mtype=MediaType.TV, tmdbid=int(tmdb_id)) or {}
+            poster = info.get("poster_path")
+            if poster:
+                self._poster_index[str(tmdb_id)] = str(poster)
             numbers = sorted(
                 {
                     int(season.get("season_number") or 0)
@@ -512,6 +523,27 @@ class HostTmdbResolver:
             return False
 
     @staticmethod
+    async def async_poster_path(
+        self, tmdb_id: str, media_type: str
+    ) -> Optional[str]:
+        """获取海报路径：先查已抓到的，没有再查一次 TMDB 详情。
+
+        只有电影会走到「再查一次」—— 剧集的详情在季号裁决里已经拉过。
+        """
+        cached = self._poster_index.get(str(tmdb_id))
+        if cached:
+            return cached
+        try:
+            path = f"/3/{'movie' if media_type == MEDIA_TYPE_MOVIE else 'tv'}/{tmdb_id}"
+            payload = await self._tmdb_get(path)
+            poster = (payload or {}).get("poster_path")
+            if poster:
+                self._poster_index[str(tmdb_id)] = str(poster)
+                return str(poster)
+        except Exception:  # noqa: BLE001 - 海报只是展示用，失败不影响订阅
+            return None
+        return None
+
     async def _season_has_upcoming(api: Any, tmdb_id: int, season: int, start: Any) -> bool:
         """该季是否还有未播集。"""
         detail = await api.async_get_tv_season_detail(tmdb_id, season) or {}

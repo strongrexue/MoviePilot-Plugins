@@ -187,6 +187,9 @@ class DiscoveredItem:
             "season": self.season,
             "rating": self.rating,
             "confidence": self.confidence,
+            # 海报路径（TMDB 的 /abc.jpg）。前端据此拼出封面图，
+            # 让流水一眼能认出来是哪部作品。
+            "poster": (self.raw or {}).get("poster"),
         }
         if self.resolved:
             data.update(self.resolved.to_dict())

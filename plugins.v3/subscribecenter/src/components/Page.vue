@@ -54,6 +54,16 @@ const DECISION_LABELS = {
   skipped_source_disabled: '源未启用',
 }
 
+const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w185'
+
+/** 拼封面地址；没有海报路径时返回空串（前端显示占位图标）。 */
+function posterUrl(item) {
+  const path = item?.poster
+  if (!path) return ''
+  if (String(path).startsWith('http')) return String(path)
+  return TMDB_IMAGE_BASE + String(path)
+}
+
 function decisionLabel(value) {
   return DECISION_LABELS[value] || value || '—'
 }
@@ -302,28 +312,34 @@ onUnmounted(() => {
 
       <div v-else class="sc-table">
         <div class="sc-tr sc-tr-head">
-          <span>时间</span>
-          <span>来源</span>
-          <span>媒体</span>
-          <span>身份</span>
-          <span>决策</span>
-          <span>说明</span>
+          <span></span>
+          <span>作品</span>
+          <span>决策 / 时间</span>
         </div>
         <div v-for="(item, index) in history.items" :key="index" class="sc-tr">
-          <span class="sc-mono">{{ String(item.run_at || '').slice(5, 16) }}</span>
-          <span class="sc-dim">{{ item.source }}</span>
-          <span class="sc-media">
-            <b>{{ item.title }}</b>
-            <span v-if="item.year" class="sc-dim">({{ item.year }})</span>
-            <span v-if="item.media_type" class="sc-dim">{{ item.media_type }}</span>
+          <span class="sc-poster">
+            <img v-if="posterUrl(item)" :src="posterUrl(item)" :alt="item.title" loading="lazy" />
+            <VIcon v-else icon="mdi-filmstrip-box-multiple" size="18" class="sc-poster-ph" />
           </span>
-          <span class="sc-dim">{{ item.confidence || '—' }}</span>
-          <span>
+          <span class="sc-media">
+            <div class="sc-media-title">
+              <b>{{ item.title }}</b>
+              <span v-if="item.year" class="sc-dim">({{ item.year }})</span>
+            </div>
+            <div class="sc-media-tags">
+              <VChip v-if="item.media_type" size="x-small" variant="tonal">{{ item.media_type }}</VChip>
+              <VChip size="x-small" variant="text" class="sc-dim">{{ item.source }}</VChip>
+              <span v-if="item.confidence" class="sc-dim">身份 {{ item.confidence }}</span>
+              <span v-if="item.release_date" class="sc-dim">放送 {{ item.release_date }}</span>
+            </div>
+            <div v-if="item.reason" class="sc-media-reason sc-dim">{{ item.reason }}</div>
+          </span>
+          <span class="sc-decision">
             <VChip size="x-small" variant="flat" :color="decisionColor(item.decision)">
               {{ decisionLabel(item.decision) }}
             </VChip>
+            <span class="sc-mono sc-dim">{{ String(item.run_at || '').slice(5, 16) }}</span>
           </span>
-          <span class="sc-dim sc-reason">{{ item.reason || '—' }}</span>
         </div>
       </div>
 
@@ -504,7 +520,7 @@ onUnmounted(() => {
 }
 .sc-tr {
   display: grid;
-  grid-template-columns: 92px 82px minmax(180px, 1.6fr) 56px 96px minmax(160px, 2fr);
+  grid-template-columns: 44px minmax(0, 1fr) 130px;
   gap: 10px;
   align-items: center;
   padding: 7px 4px;
@@ -530,6 +546,48 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sc-poster {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+}
+.sc-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sc-poster-ph {
+  opacity: 0.45;
+}
+.sc-media-title {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.sc-media-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.sc-media-reason {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.sc-decision {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 .sc-pager {
   display: flex;

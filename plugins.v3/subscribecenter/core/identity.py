@@ -562,6 +562,9 @@ class IdentityResolver:
         self._use_converted_season = use_converted_season
         #: 是否用 TMDB episode group 精确订阅被压成单季的番剧
         self._prefer_episode_group = prefer_episode_group
+        #: tmdb_id -> poster_path。流水页要显示封面，但海报只在候选里出现过；
+        #: 这里顺手记下来，成功解析后回填到 item.raw["poster"]。
+        self._poster_index: Dict[str, str] = {}
 
     async def resolve(self, item: DiscoveredItem) -> DiscoveredItem:
         """就地解析条目身份并写回 ``resolved`` / ``review_score``。
@@ -772,6 +775,7 @@ class IdentityResolver:
                 continue
             if not extra:
                 continue
+            self._index_posters(extra)
             hit = match_candidate_year(
                 extra,
                 item,
@@ -889,13 +893,53 @@ class IdentityResolver:
     async def _search(self, item: DiscoveredItem) -> Sequence[dict]:
         """调用 TMDB 搜索；失败返回空序列（不抛）。"""
         try:
-            return await self._tmdb.search(
+            candidates = await self._tmdb.search(
                 item.title,
                 _year_of(item.year or item.release_date),
                 item.media_type,
             )
         except Exception:  # noqa: BLE001 - 搜索失败等同「无候选」
             return ()
+        self._index_posters(candidates)
+        return candidates
+
+    def _index_posters(self, candidates) -> None:
+        """记住候选的 tmdb_id -> poster_path，供解析成功后回填封面。"""
+        for candidate in candidates or ():
+            if not isinstance(candidate, dict):
+                continue
+            tmdb_id = candidate.get("tmdb_id")
+            poster = candidate.get("poster_path")
+            if tmdb_id and poster:
+                self._poster_index[str(tmdb_id)] = str(poster)
+
+    async def _attach_poster(self, item: DiscoveredItem) -> None:
+        """回填海报路径（流水页显示封面用）。
+
+        两条来源：① 候选里带回来的 poster_path；② 宿主适配器记下的
+        （``resolve_target_season`` 拉详情时顺带存的，零额外请求）。
+        电影走第三条：让宿主补查一次详情。
+        """
+        if not item.resolved or (item.raw or {}).get("poster"):
+            return
+        media_id = str(item.resolved.media_id)
+        poster = self._poster_index.get(media_id)
+        if not poster:
+            getter = getattr(self._tmdb, "poster_path", None)
+            if getter is not None:
+                try:
+                    poster = getter(media_id)
+                except Exception:  # noqa: BLE001 - 海报只是展示用
+                    poster = None
+        if not poster:
+            fetcher = getattr(self._tmdb, "async_poster_path", None)
+            if fetcher is not None:
+                try:
+                    poster = await fetcher(media_id, item.media_type)
+                except Exception:  # noqa: BLE001
+                    poster = None
+        if poster:
+            item.raw["poster"] = poster
 
     async def _resolve_target_season(self, item: DiscoveredItem) -> None:
         """确定该订阅哪一季，并判断是否还有未播内容。
@@ -909,6 +953,7 @@ class IdentityResolver:
 
         `TmdbResolver` 未实现该能力时跳过（向后兼容）。
         """
+        await self._attach_poster(item)
         if not item.resolved or not item.is_tv:
             return
         resolver = getattr(self._tmdb, "resolve_target_season", None)

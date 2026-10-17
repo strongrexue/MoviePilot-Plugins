@@ -266,3 +266,47 @@ def test_donghua_channel_skipped_when_switch_off():
     )
     assert items == []
     assert client.donghua_calls == 0
+
+# --------------------------------------------------------------------- 海报
+
+@pytest.mark.asyncio
+async def test_poster_is_attached_from_host_index():
+    """解析成功后要把海报路径回填到条目（流水页显示封面）。
+
+    两条来源：候选候选里的 poster_path，以及宿主 resolve_target_season
+    拉 TMDB 详情时顺带记下的路径（零额外请求）。
+    """
+    from subscribecenter.core.identity import IdentityResolver
+
+    class Resolver:
+        def __init__(self):
+            self._posters = {"693134": "/dune2.jpg"}
+
+        async def search(self, title, year, media_type, *, limit=5):
+            return [
+                {
+                    "tmdb_id": "693134",
+                    "title": title,
+                    "year": year or "2026",
+                    "media_type": media_type,
+                    "poster_path": "/dune2.jpg",
+                }
+            ]
+
+        async def resolve_target_season(self, tmdb_id, media_type, season_hint=None, tz_name=None, **kw):
+            return (True, 1, None)
+
+    from subscribecenter.core.model import DiscoveredItem
+
+    entity = DiscoveredItem(
+        source=C.SOURCE_TMDB,
+        source_id="1",
+        title="沙丘2",
+        media_type=C.MEDIA_TYPE_MOVIE,
+        year="2026",
+        release_date="2026-11-01",
+    )
+    resolver = IdentityResolver(Resolver())
+    await resolver.resolve(entity)
+    assert entity.resolved is not None
+    assert entity.raw.get("poster") == "/dune2.jpg"

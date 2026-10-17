@@ -1058,13 +1058,45 @@ class IdentityResolver:
         """L2：命中已确认映射即复用。"""
         if self._cache is None:
             return None
+        # ① **手动修正优先**：用户明确指定的条目永远压过自动匹配结果。
+        # 真机：修正映射写入了 v2:t:tv:2026:凡人修仙传 -> 106449(manual_fix)，
+        # 但旧的自动结果（243224）以 source_id 为键仍在缓存里，
+        # 先查 source_id 就让手动修正永远不生效。
+        manual = self._lookup_title_cache(item, manual_only=True)
+        if manual is not None:
+            return manual
         cached = self._cache.get_by_source_id(item.source, item.source_id)
         if cached is None:
-            cached = self._cache.get_by_title(
+            # 标题键要**多试几种写法**：手动修正映射时写入的是「去掉季号」的
+            # 基础名（诛仙 最终季 -> 诛仙），而这里以前只查原始标题，
+            # 于是「修正映射」写进去了却永远查不到（真机：改了 ID 重跑还是旧条目）。
+            year = _year_of(item.year or item.release_date)
+            title_variants = [
                 normalize_title(item.title),
-                _year_of(item.year or item.release_date),
-                item.media_type,
-            )
+                normalize_title(strip_season_suffix(item.title)),
+                normalize_title(strip_trailing_year(item.title)),
+                normalize_title(item.original_title),
+                normalize_title(strip_season_suffix(item.original_title)),
+            ]
+            for value in title_variants:
+                if not value:
+                    continue
+                cached = self._cache.get_by_title(value, year, item.media_type)
+                if cached is not None:
+                    break
+                # 年份写法不一致时也要能命中（同一部剧在两个源年份可能差一年）
+                for delta in (-1, 1):
+                    if not year:
+                        break
+                    try:
+                        alt_year = str(int(year) + delta)
+                    except (TypeError, ValueError):
+                        break
+                    cached = self._cache.get_by_title(value, alt_year, item.media_type)
+                    if cached is not None:
+                        break
+                if cached is not None:
+                    break
         if cached is None:
             return None
         # 缓存只应保存可写入的确定性身份；L4 不落缓存
@@ -1076,6 +1108,51 @@ class IdentityResolver:
             confidence=CONFIDENCE_L2,
             reason="cache",
         )
+
+    def _lookup_title_cache(
+        self, item: DiscoveredItem, *, manual_only: bool = False
+    ) -> Optional[ResolvedIdentity]:
+        """按标题查映射缓存（多种写法 + 年份 ±1）。
+
+        ``manual_only=True`` 时只认「手动修正」写入的条目 —— 让人工指定
+        永远压过自动匹配。
+        """
+        if self._cache is None:
+            return None
+        year = _year_of(item.year or item.release_date)
+        variants = [
+            normalize_title(item.title),
+            normalize_title(strip_season_suffix(item.title)),
+            normalize_title(strip_trailing_year(item.title)),
+            normalize_title(item.original_title),
+            normalize_title(strip_season_suffix(item.original_title)),
+        ]
+        seen = set()
+        for value in variants:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            years = [year]
+            try:
+                if year:
+                    years.extend([str(int(year) - 1), str(int(year) + 1)])
+            except (TypeError, ValueError):
+                pass
+            for alt_year in years:
+                cached = self._cache.get_by_title(value, alt_year, item.media_type)
+                if cached is None:
+                    continue
+                if manual_only and str(getattr(cached, "reason", "")) != "manual_fix":
+                    continue
+                if not cached.writable:
+                    continue
+                return ResolvedIdentity(
+                    media_source=cached.media_source,
+                    media_id=cached.media_id,
+                    confidence=CONFIDENCE_L2,
+                    reason=str(getattr(cached, "reason", "cache") or "cache"),
+                )
+        return None
 
     async def _search(self, item: DiscoveredItem) -> Sequence[dict]:
         """调用 TMDB 搜索；失败返回空序列（不抛）。"""

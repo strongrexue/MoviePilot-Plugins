@@ -442,3 +442,44 @@ def test_subtitle_is_dropped_from_variants():
     assert "逆天邪神" in search_variants("逆天邪神 年番")
     assert "师兄啊师兄" in search_variants("师兄啊师兄 年番2")
     assert "武神主宰" in search_variants("武神主宰 大威篇")
+
+
+# ------------------------------------------- 手动修正优先（1.3.2 真机）
+
+def test_manual_fix_beats_auto_cache():
+    """手动修正的映射必须压过自动匹配结果。
+
+    真机：修正映射写入了 `v2:t:tv:2026:凡人修仙传 -> 106449(manual_fix)`，
+    但旧的自动结果 243224 以 source_id 为键仍在缓存里，
+    解析先查 source_id，手动修正永远不生效。
+    """
+    from subscribecenter.core.identity import IdentityResolver
+    from subscribecenter.core.model import DiscoveredItem
+
+    class _Row:
+        def __init__(self, media_id, reason="cache"):
+            self.media_source = "themoviedb"
+            self.media_id = media_id
+            self.reason = reason
+            self.writable = True
+
+    class _Cache:
+        def __init__(self):
+            self.manual = _Row("106449", "manual_fix")
+            self.auto = _Row("243224", "search:title_exact")
+
+        def get_by_source_id(self, source, source_id):
+            return self.auto
+
+        def get_by_title(self, title, year, media_type):
+            return self.manual if "凡人修仙传" in str(title) else None
+
+    item = DiscoveredItem(
+        source="anilist", source_id="999", title="凡人修仙传 第五季",
+        media_type="tv", year="2026", release_date="2026-10-01", raw={"country": "CN"},
+    )
+    resolver = IdentityResolver(tmdb=None, cache=_Cache())
+    resolved = resolver._resolve_from_cache(item)
+    assert resolved is not None
+    assert resolved.media_id == "106449", "手动修正应压过自动匹配"
+    assert resolved.reason == "manual_fix"

@@ -157,6 +157,58 @@ def normalize_title(title: Optional[str]) -> str:
     return text.casefold()
 
 
+#: 标题尾部的季号标记（第 2 期 / 第2季 / Season 2 / 末尾空格+数字）
+_SEASON_SUFFIX = re.compile(
+    r"[\s:：·\-]*(?:第\s*)?([0-9]{1,2}|[一二三四五六七八九十]{1,2})\s*[期季部]?\s*$"
+)
+
+
+def strip_season_suffix(title: Optional[str]) -> str:
+    """去掉标题尾部的季号，得到「基础剧名」。
+
+    动机（真机确认）：国产动画在 TMDB 常被建模成单季多集，Bangumi 的
+    「牧神记5」对应的是 TMDB《牧神记》更靠后的集数，**不是第 5 季**。
+    因此搜索 TMDB 时必须用基础名「牧神记」，用「牧神记5」搜不到。
+
+    安全约束（避免把正常片名削坏）：
+
+    - 数字前面一个字符**不能是数字或 ASCII 字母** —— 否则「1917」会被削成「19」；
+    - 削完剩下的基础名至少 2 个字符；
+    - 季号必须在 2~30 之间（1 通常不是「续作」语义，且容易误伤）。
+
+    :return: 基础名；不满足上述约束时原样返回
+    """
+    text = str(title or "").strip()
+    if not text:
+        return text
+    match = _SEASON_SUFFIX.search(text)
+    if not match:
+        return text
+    start = match.start()
+    # 数字前的边界校验：有明确分隔符（空格 / 冒号 / 间隔号 / 连字符）视为季号，
+    # 否则要求前一个字符不是数字或字母（避免把 "1917" 削成 "19"）。
+    matched_text = match.group(0)
+    has_separator = bool(matched_text) and matched_text[0] in " \t:：·-"
+    if not has_separator and start > 0:
+        prev = text[start - 1]
+        if prev.isdigit() or (prev.isascii() and prev.isalpha()):
+            return text
+    base = text[:start].strip(" :：·-")
+    if len(base) < 2:
+        return text
+    # 基础名不能是纯数字（否则 "12 12 12" 会被削成 "12 12"）
+    if base.replace(" ", "").replace("-", "").isdigit():
+        return text
+    raw = match.group(1)
+    try:
+        number = int(raw)
+    except ValueError:
+        return text
+    if not 2 <= number <= 30:
+        return text
+    return base
+
+
 def title_similarity(left: str, right: str) -> float:
     """返回两个标题的相似度（0~1），输入会先标准化。"""
     a = normalize_title(left)
@@ -211,6 +263,8 @@ def resolve_from_native_ids(item: DiscoveredItem) -> Optional[ResolvedIdentity]:
 def match_candidate_year(
     candidates: Iterable[dict],
     item: DiscoveredItem,
+    *,
+    strict_year: bool = True,
 ) -> Optional[Tuple[dict, str]]:
     """L3：在候选中按「标题精确 + 年份硬校验」选出唯一目标。
 
@@ -250,8 +304,13 @@ def match_candidate_year(
             continue
 
         candidate_year = _year_of(candidate.get("year") or candidate.get("release_date"))
-        if wanted_year and candidate_year != wanted_year:
-            # 年份不符或缺年份 —— 不做任何「放宽」，直接不算命中
+        if strict_year:
+            if wanted_year and candidate_year != wanted_year:
+                # 年份不符或缺年份 —— 电影不做任何「放宽」，直接不算命中
+                continue
+        elif not exact:
+            # 剧集不校验年份，但**必须标题精确相等**才认 ——
+            # 否则「包含」匹配 + 无年份约束会把同名前传之类错误配对放进来。
             continue
 
         reason = "search:title_exact" if exact else "search:title_contained"
@@ -345,7 +404,9 @@ class IdentityResolver:
         # ---- L3 精确搜索 + 年份硬校验
         candidates = await self._search(item)
         if candidates:
-            hit = match_candidate_year(candidates, item)
+            hit = match_candidate_year(
+                candidates, item, strict_year=item.media_type == MEDIA_TYPE_MOVIE
+            )
             if hit:
                 candidate, reason = hit
                 identity = ResolvedIdentity(

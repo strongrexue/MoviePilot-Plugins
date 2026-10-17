@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "0.6.2",
+        "version": "0.6.3",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v0.6.3": "修复 Bangumi 续作永远匹配不上 TMDB（真机确认根因）：宿主的 Bangumi→TMDB 换算按「标题+年份」匹配，而续作的年份与 TMDB 剧集首播年必然不同（牧神记5=2026 而 TMDB《牧神记》=2024-10-27；边缘行者2=2026 而《Cyberpunk: Edgerunners》=2022-09-13），所以必然失败；我之前加的兜底搜索也带年份，同样失败。修法两条：[1] 新增 strip_season_suffix —— 剥离标题尾部季号得到「基础剧名」（牧神记5→牧神记、边缘行者 2→赛博朋克：边缘行者、ゲルぴよ 第2期→ゲルぴよ），并做三重保护避免削坏正常片名（数字前不能是字母数字、基础名至少 2 字符、基础名不能是纯数字，故 1917 / 12 12 12 / 第5季 均原样保留）；[2] 宿主识别失败时走不带年份的原始 TMDB 搜索（TmdbApi.async_search_tvs/movies + 基础名），剧集放宽为「标题精确相等即可、不校验年份」，且仍拒绝包含匹配与歧义（多条同名仍拒绝），电影保持年份严格校验。真机验证：完整名搜 0 条，基础名搜精确命中 236534 / 105248。新增 14 项回归测试。",
             "v0.6.2": "修复 Bangumi 续作「按季订阅」订错的问题（真机确认）：国产动画在 TMDB 通常被建模成「单季多集」——《牧神记》= TMDB 236534、第 1 季 110 集，且第 105 集 = 2026-10-18 正好对应 Bangumi「牧神记5」的开播日。也就是说 Bangumi 的「第 N 期」往往**不是** TMDB 的第 N 季；传 season=N 会让宿主去找一个不存在的季，结果什么都订不到。0.6.1 从换算结果里接出季号传给了订阅，这个改动是错的。现改为**默认不采用**换算季号（按 TMDB 默认季订阅，靠宿主按集追踪才是正确行为），季号仍写进流水的 reason 里供排查；新增配置 bangumi_split_season（默认关）供确实需要严格按季拆分的媒体库打开。新增 2 项回归测试（按季拆分默认关 / 界面可改）。",
             "v0.6.1": "修三个真机确认的缺陷：[1] 剧集续作的身份换算被年份校验误杀——TMDB 剧集年份是「首季首播年」，Bangumi 续作条目的年份是「该季年」，两者必然不等（真机：《赛博朋克：边缘行者 2》2026 换算到 TMDB《Cyberpunk: Edgerunners》2022 被拒，条目退化成「待确认」永远订不上）。年份硬校验改为**仅对电影**生效，剧集改用宿主带回的季号把关。[2] 阈值与窗口改为**按源独立**——此前 Bangumi 条目被 TMDB 的 min_rating_tmdb 管着，且 bangumi_future_days 在界面不可见（实际靠默认值）。现在 pipeline 支持 future_days_by_source / min_rating_by_source，主类按配置构造各源映射；配置页新增「Bangumi 发现窗口」与「Bangumi 最低评分」两个独立控件，并说明两边评分量纲不同不可共用。[3] 前端「已实现」列表过期（只有 tmdb）——启用 Bangumi 后仍显示「当前版本已启用也不会运行」，现同步为后端 IMPLEMENTED_SOURCES。新增 8 项回归测试（按源评分/窗口/回落、TV 年份不匹配接受、电影年份不匹配仍拒绝、前端列表与后端同步、Bangumi 控件存在）。",
             "v0.6.0": "新增 Bangumi 数据源（当季番剧）：发现未来 N 天开播的日本动画，补 TMDB 对日番覆盖的短板（缺中文名、季番数据弱）。真机实测确认的三个结论：[1] 只有 https://api.bgm.tv 可用（api.bangumi.tv 与 bgm.tv 均失败）；[2] /v0/subjects?air_date 的过滤被服务端忽略（传 >= 今天仍返回全库、从 2029 倒序），因此只能用 /calendar + 本地按 air_date 过滤；[3] 条目不带 popularity，故不参与最低关注度门槛（当季番列表本身是策展的，用 TMDB 关注度量纲去卡它没意义）。真机端到端已验证：3 天窗口拉到 3 部（Dreamland / 牧神记5 / 赛博朋克：边缘行者 2）。同时修正两个身份语义问题：[4] 宿主 Bangumi→TMDB 换算内部是标题匹配，不是 ID 直映，因此置信度从 L1 降为 L2 并加年份硬校验（不匹配则拒绝确认）；[5] 换算是按标题解析季号的，把它接出来传给订阅，否则牧神记5/边缘行者2 这类续作会被按第 1 季订阅。HTTP 改用宿主 AsyncRequestUtils（直接 new httpx2.AsyncClient 在 httpx 0.28+ 会因 proxies 改名失败，真机踩过）。新增 17 项回归测试。",

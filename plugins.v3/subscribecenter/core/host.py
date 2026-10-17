@@ -17,7 +17,7 @@
 枚举                          ``app.schemas.types.MediaType`` / ``MediaSource``
 ============================  ==================================================
 """
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.constants import MEDIA_TYPE_MOVIE
 from ..core.identity import HOST_SOURCE_TMDB
@@ -90,10 +90,12 @@ class HostTmdbResolver:
             return ()
 
         if not mediainfo:
-            return ()
+            # 宿主识别带年份约束，**续作必然失败**（Bangumi 写 2026，
+            # TMDB 剧集是首季的 2022/2024）。兜底走不带年份的原始搜索。
+            return await self._search_without_year(title, media_type)
         tmdb_id = getattr(mediainfo, "tmdb_id", None)
         if not tmdb_id:
-            return ()
+            return await self._search_without_year(title, media_type)
         return (
             {
                 "tmdb_id": tmdb_id,
@@ -156,6 +158,62 @@ class HostTmdbResolver:
             #: 宿主从 Bangumi 标题解析出的季号；续作靠它才不会订错季
             "season": season_number,
         }
+
+
+    async def _search_without_year(
+        self, title: str, media_type: str
+    ) -> Sequence[Dict[str, Any]]:
+        """不带年份的 TMDB 搜索（续作兜底）。
+
+        用「基础剧名」搜（去掉尾部季号）：Bangumi 的「牧神记5」对应 TMDB
+        《牧神记》更靠后的集数，用「牧神记5」永远搜不到。
+
+        .. note::
+           这里**不传年份**是有意的：TMDB 剧集年份是首季首播年，
+           续作条目年份必然不同，带年份会把正确结果滤掉。
+           年份把关改由调用方的 `match_candidate_year`（剧集不做年份硬校验）
+           与标题精确匹配共同承担。
+        """
+        from app.modules.themoviedb.tmdbapi import TmdbApi
+
+        from .identity import strip_season_suffix
+
+        base = strip_season_suffix(title) or title
+        try:
+            api = TmdbApi()
+            if media_type == MEDIA_TYPE_MOVIE:
+                records = await api.async_search_movies(base, "") or []
+            else:
+                records = await api.async_search_tvs(base, "") or []
+        except Exception:  # noqa: BLE001 - 兜底失败等同无候选
+            return ()
+
+        candidates: List[Dict[str, Any]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            tmdb_id = record.get("id")
+            if not tmdb_id:
+                continue
+            title_field = record.get("title") if media_type == MEDIA_TYPE_MOVIE else record.get("name")
+            date_field = (
+                record.get("release_date") if media_type == MEDIA_TYPE_MOVIE
+                else record.get("first_air_date")
+            )
+            candidates.append(
+                {
+                    "tmdb_id": tmdb_id,
+                    "title": title_field or title,
+                    "original_title": (
+                        record.get("original_title") if media_type == MEDIA_TYPE_MOVIE
+                        else record.get("original_name")
+                    ),
+                    "year": str(date_field)[:4] if date_field else None,
+                    "release_date": date_field,
+                    "media_type": media_type,
+                }
+            )
+        return tuple(candidates)
 
 
 def _build_metainfo(title: str, year: Optional[str], media_type: str) -> Any:

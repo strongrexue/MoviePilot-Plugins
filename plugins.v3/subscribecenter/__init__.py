@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.9.9"
+    plugin_version = "1.0.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -430,6 +430,7 @@ class SubscribeCenter(_PluginBase):
                 # 共用一个值会把窗口更窄的源错误放行（真机踩过）。
                 future_days_by_source=self._future_days_by_source(),
                 min_rating_by_source=self._min_rating_by_source(),
+                min_popularity_by_source=self._min_popularity_by_source(),
                 dry_run=bool(self._config.get("dry_run")) or force_dry_run,
                 first_run=first_run,
                 already_written_today=self._written_today(),
@@ -441,10 +442,25 @@ class SubscribeCenter(_PluginBase):
         default_days = self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS)
         return {
             C.SOURCE_TMDB: default_days,
-            C.SOURCE_BANGUMI: self._int_config("bangumi_future_days", C.DEFAULT_FUTURE_DAYS),
+            C.SOURCE_ANILIST: self._int_config("anilist_future_days", C.DEFAULT_FUTURE_DAYS),
             C.SOURCE_DOUBAN_RSS: self._int_config("douban_future_days", C.DEFAULT_FUTURE_DAYS),
             C.SOURCE_SIMKL: default_days,
             C.SOURCE_JUSTWATCH: default_days,
+        }
+
+    def _min_popularity_by_source(self) -> Dict[str, float]:
+        """返回各数据源的最低关注度门槛。
+
+        **必须按源区分**：TMDB 的 popularity 中位数只有 3（>=15 才算热门），
+        而 AniList 的 popularity 冷门番也有上千 —— 共用一个 15 等于对
+        AniList 完全不过滤，会把一堆冷门番订进来。
+        """
+        default_popularity = self._float_config("min_popularity", C.DEFAULT_MIN_POPULARITY)
+        return {
+            C.SOURCE_TMDB: default_popularity,
+            C.SOURCE_ANILIST: self._float_config(
+                "anilist_min_popularity", 1000.0
+            ),
         }
 
     def _min_rating_by_source(self) -> Dict[str, float]:
@@ -456,7 +472,7 @@ class SubscribeCenter(_PluginBase):
         default_rating = self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING)
         return {
             C.SOURCE_TMDB: default_rating,
-            C.SOURCE_BANGUMI: self._float_config("min_rating_bangumi", C.DEFAULT_MIN_RATING),
+            C.SOURCE_ANILIST: self._float_config("min_rating_anilist", C.DEFAULT_MIN_RATING),
             C.SOURCE_DOUBAN_RSS: self._float_config("min_rating_douban", C.DEFAULT_MIN_RATING),
             C.SOURCE_SIMKL: self._float_config("min_rating_simkl", C.DEFAULT_MIN_RATING),
             C.SOURCE_JUSTWATCH: default_rating,
@@ -479,11 +495,11 @@ class SubscribeCenter(_PluginBase):
             logger.warning(f"[SubscribeCenter] TMDB 源不可用：{err}")
 
         try:
-            from .sources.bangumi import BangumiSource
+            from .sources.anilist import AniListSource
 
-            sources.append(BangumiSource())
+            sources.append(AniListSource())
         except Exception as err:  # noqa: BLE001 - 单源构造失败不阻塞其他源
-            logger.warning(f"[SubscribeCenter] Bangumi 源不可用：{err}")
+            logger.warning(f"[SubscribeCenter] AniList 源不可用：{err}")
 
         try:
             from .sources.douban_rss import DoubanRssSource
@@ -497,7 +513,7 @@ class SubscribeCenter(_PluginBase):
         """返回配置中已启用**且已实现**的源标识。"""
         mapping = {
             C.SOURCE_TMDB: "enable_tmdb",
-            C.SOURCE_BANGUMI: "enable_bangumi",
+            C.SOURCE_ANILIST: "enable_anilist",
             C.SOURCE_DOUBAN_RSS: "enable_douban_rss",
             C.SOURCE_SIMKL: "enable_simkl",
             C.SOURCE_JUSTWATCH: "enable_justwatch",
@@ -670,6 +686,7 @@ class SubscribeCenter(_PluginBase):
             )
             for source, key in (
                 (C.SOURCE_TMDB, "enable_tmdb"),
+                (C.SOURCE_ANILIST, "enable_anilist"),
                 (C.SOURCE_BANGUMI, "enable_bangumi"),
                 (C.SOURCE_DOUBAN_RSS, "enable_douban_rss"),
                 (C.SOURCE_SIMKL, "enable_simkl"),

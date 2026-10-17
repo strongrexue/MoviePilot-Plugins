@@ -70,7 +70,7 @@ const versionMismatch = computed(() => {
 })
 
 /** 已实现的数据源（其余源在当前版本会在日志里明确跳过）。 */
-const IMPLEMENTED = ['tmdb', 'bangumi', 'douban_rss']
+const IMPLEMENTED = ['tmdb', 'anilist', 'douban_rss']
 
 /** 豆瓣 RSS 地址：后端存字符串数组，界面用多行文本编辑。 */
 const doubanSourcesText = computed({
@@ -88,7 +88,11 @@ const doubanSourcesText = computed({
 
 const sourceRows = [
   { key: 'enable_tmdb', label: 'TMDB', hint: '全球电影/剧集，自带 TMDB ID（身份最可靠）' },
-  { key: 'enable_bangumi', label: 'Bangumi', hint: '当季番剧，自带 subject ID，经宿主换算成 TMDB' },
+  {
+    key: 'enable_anilist',
+    label: 'AniList',
+    hint: '番剧 + 国漫；官方 GraphQL，自带开播日、在播状态与热度',
+  },
   { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '经 RSSHub；上映日期与豆瓣 ID 均可解析' },
   { key: 'enable_simkl', label: 'Simkl Calendar', hint: '未来 33 天 TV + 动画 + 电影（尚未实现）' },
   { key: 'enable_justwatch', label: 'JustWatch', hint: '流媒体上线发现，只记日志（尚未实现）' },
@@ -578,12 +582,12 @@ onMounted(() => {
 
           <div class="sc-card">
             <div class="sc-card-title">
-              <VIcon icon="mdi-animation-outline" size="16" /> Bangumi
+              <VIcon icon="mdi-animation-outline" size="16" /> AniList
             </div>
             <VRow dense>
-              <VCol cols="12" sm="6">
+              <VCol cols="12" sm="4">
                 <VTextField
-                  v-model.number="form.bangumi_future_days"
+                  v-model.number="form.anilist_future_days"
                   label="发现窗口（天）"
                   type="number"
                   min="1"
@@ -594,34 +598,36 @@ onMounted(() => {
                   class="mb-2"
                 />
               </VCol>
-              <VCol cols="12" sm="6">
+              <VCol cols="12" sm="4">
                 <VTextField
-                  v-model.number="form.min_rating_bangumi"
-                  label="最低评分"
+                  v-model.number="form.anilist_min_popularity"
+                  label="最低热度"
                   type="number"
-                  step="0.1"
                   min="0"
-                  max="10"
+                  step="100"
                   density="compact"
                   hide-details
                   variant="outlined"
                   class="mb-2"
                 />
               </VCol>
+              <VCol cols="12" sm="4" class="d-flex align-center">
+                <VSwitch
+                  v-model="form.anilist_include_donghua"
+                  label="包含国漫"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                />
+              </VCol>
             </VRow>
-            <VSwitch
-              v-model="form.bangumi_split_season"
-              label="按季拆分订阅"
-              density="compact"
-              hide-details
-              color="primary"
-              class="mt-1"
-            />
-            <div class="sc-hint mt-1">
-              <b>建议关闭。</b>国产动画在 TMDB 常被建模成「单季多集」
-              （《牧神记》= 第 1 季 110 集，第 105 集对应 Bangumi「牧神记5」开播日），
-              此时 Bangumi 的「第 N 期」并不是 TMDB 的第 N 季 —— 按季订会去找不存在的季。
-              评分量纲也与 TMDB 不同，所以两边分开设。
+            <div class="sc-hint">
+              <b>番剧与国漫的最佳源。</b>两条发现通道缺一不可：<br />
+              • <b>新番</b>：按「开播日」落窗口，覆盖当季 + 下季已定档；<br />
+              • <b>连载中</b>：按「下一集播出时间」落窗口 —— <b>国漫只能靠这条</b>
+              （《遮天》2023 年开播、208 集，开播日永远在窗口外）。<br />
+              热度量纲与 TMDB 不同（冷门番上千、主流番 2~5 万），所以单独设门槛。
+              国漫默认包含，只想订日番就关掉。
             </div>
           </div>
 

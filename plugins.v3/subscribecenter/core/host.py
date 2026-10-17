@@ -53,6 +53,9 @@ def media_source_enum(value: Any) -> Any:
 
 # --------------------------------------------------------------------- TMDB 解析
 
+#: Bangumi 搜索接口的 UA（Bangumi 会拒绝默认 UA）
+BANGUMI_SEARCH_USER_AGENT = "SubscribeCenter/1.0.0 (MoviePilot plugin; +https://github.com/strongrexue)"
+
 #: 豆瓣 API 的并发上限（真机：不限制会被限流，别名大量返回空）
 _DOUBAN_SEMAPHORE: Optional[Any] = None
 
@@ -275,6 +278,55 @@ class HostTmdbResolver:
             #: 宿主从来源标题解析出的季号；续作靠它才不会订错季
             "season": season_number,
         }
+
+    async def bangumi_aliases(self, title: str, media_type: str = "tv") -> List[str]:
+        """用 Bangumi 搜索把**日文原名翻译成中文名**。
+
+        为什么需要这一层：AniList 的日番条目给的是日文原名
+        （`ジョジョの奇妙な冒険...`），而 TMDB 对日文标题的搜索命中率很差
+        （真机实测：`ライフトレード` / `虚ろな十字架` 都是 0 条结果）。
+        Bangumi 同一部番的 `name_cn` 就是主流中文译名，拿它再搜 TMDB 就能命中。
+
+        于是 Bangumi 从「数据源」降级为「标题翻译层」——它不再负责发现，
+        只负责在识别卡住时把日文名换成中文名。成本是每次一条额外请求，
+        结果按标题缓存。
+        """
+        cache_key = f"{media_type}:{title}"
+        if cache_key in self._alias_cache:
+            return list(self._alias_cache[cache_key])
+
+        names: List[str] = []
+        try:
+            payload = await self._bgm_search(title)
+            names = _bangumi_names(payload, title)
+        except Exception:  # noqa: BLE001 - 翻译失败只是少一条兜底
+            names = []
+        self._alias_cache[cache_key] = list(names)
+        return names
+
+    async def _bgm_search(self, keyword: str) -> Any:
+        """调用 Bangumi 搜索接口（经宿主网络通道，容器内可直连 api.bgm.tv）。"""
+        from urllib.parse import quote
+
+        from app.runtime.settings import get_runtime_setting
+        from app.sdk.network import AsyncRequestUtils
+
+        url = (
+            "https://api.bgm.tv/search/subject/"
+            f"{quote(keyword)}?type=2&responseGroup=small&max_results=3"
+        )
+        utils = AsyncRequestUtils(
+            ua=BANGUMI_SEARCH_USER_AGENT,
+            proxies=get_runtime_setting("PROXY") or None,
+            timeout=15,
+        )
+        response = await utils.get_res(url, raise_exception=True)
+        if not response:
+            return None
+        try:
+            return response.json()
+        except Exception:  # noqa: BLE001 - 非 JSON 视为无结果
+            return None
 
     async def douban_aliases(
         self,
@@ -763,3 +815,44 @@ __all__ = [
     "media_source_enum",
     "media_type_enum",
 ]
+
+
+
+def _bangumi_names(payload: Any, keyword: str) -> List[str]:
+    """从 Bangumi 搜索结果里挑出「和关键字同一部作品」的中文名。
+
+    Bangumi 是老站，搜索经常返回一堆无关条目（尤其用日文长标题搜时），
+    因此这里要求结果与关键字的**归一化后相似度**足够高才采用，
+    否则宁可返回空 —— 错译比不译更糟（会把 A 番订成 B 番）。
+    """
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("list")
+    if not isinstance(rows, list):
+        return []
+
+    from .identity import normalize_title
+
+    target = normalize_title(keyword)
+    names: List[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        candidates = [row.get("name_cn"), row.get("name")]
+        for value in candidates:
+            text = str(value or "").strip()
+            if not text or text in names:
+                continue
+            normalized = normalize_title(text)
+            # 至少有一半字符重合才算同一部作品
+            if _overlap_ratio(target, normalized) >= 0.5:
+                names.append(text)
+    return names
+
+
+def _overlap_ratio(left: str, right: str) -> float:
+    """两个字串的字符集合重合度（0~1）。"""
+    if not left or not right:
+        return 0.0
+    common = set(left) & set(right)
+    return len(common) / max(len(set(left)), 1)

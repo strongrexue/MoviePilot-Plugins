@@ -183,21 +183,27 @@ def test_bangumi_split_season_defaults_off():
     assert C.default_config()["bangumi_split_season"] is False
 
 
-def test_bangumi_split_season_exposed_in_ui():
-    """按季拆分开关必须能在界面上改（有人确实需要严格按季）。"""
+def test_anilist_controls_exposed_in_ui():
+    """AniList 的窗口 / 热度 / 国漫开关必须有独立控件。
+
+    真机教训：0.9.0 重做版面时把开关循环写成只渲染第一项，三个开关
+    在界面上凭空消失。这里逐项锁定。
+    """
     source = (
         Path(__file__).resolve().parents[3]
         / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Config.vue"
     )
     if not source.exists():
         pytest.skip("前端尚未构建")
-    assert "bangumi_split_season" in source.read_text(encoding="utf-8")
+    text = source.read_text(encoding="utf-8")
+    for key in ("anilist_future_days", "anilist_min_popularity", "anilist_include_donghua"):
+        assert key in text, f"界面上缺少 {key} 控件"
 
 
-def test_frontend_implemented_list_contains_bangumi():
-    """前端「已实现」列表必须与后端 ``IMPLEMENTED_SOURCES`` 同步。
+def test_frontend_implemented_list_matches_backend():
+    """前端「已实现」列表必须与后端 `IMPLEMENTED_SOURCES` 同步。
 
-    不同步的直接后果：启用 Bangumi 后界面仍显示「当前版本已启用也不会运行」，
+    不同步的直接后果：启用某个源后界面仍显示「当前版本已启用也不会运行」，
     用户会以为它没生效（真机踩过）。
     """
     source = (
@@ -211,8 +217,8 @@ def test_frontend_implemented_list_contains_bangumi():
         assert f"'{name}'" in text, f"前端 IMPLEMENTED 列表缺少 {name}"
 
 
-def test_bangumi_window_and_rating_exposed_in_ui():
-    """Bangumi 的窗口与评分必须有独立的界面控件。"""
+def test_frontend_has_no_bangumi_source_switch():
+    """Bangumi 已降级为标题翻译层，界面上不应再有它的数据源开关。"""
     source = (
         Path(__file__).resolve().parents[3]
         / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Config.vue"
@@ -220,5 +226,4 @@ def test_bangumi_window_and_rating_exposed_in_ui():
     if not source.exists():
         pytest.skip("前端尚未构建")
     text = source.read_text(encoding="utf-8")
-    assert "bangumi_future_days" in text
-    assert "min_rating_bangumi" in text
+    assert "enable_bangumi" not in text

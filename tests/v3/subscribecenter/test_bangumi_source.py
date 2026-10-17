@@ -267,9 +267,18 @@ async def test_uses_calendar_endpoint():
 
 # --------------------------------------------------------------------- 接线
 
-def test_bangumi_is_implemented_source():
-    """Bangumi 必须登记为已实现源，否则配置里打开也会被跳过。"""
-    assert C.SOURCE_BANGUMI in C.IMPLEMENTED_SOURCES
+def test_anilist_replaced_bangumi_as_discovery_source():
+    """AniList 取代 Bangumi 成为番剧发现源；Bangumi 降级为标题翻译层。
+
+    真机依据：Bangumi `/calendar` 当季 108 部里，6 个知名国漫只出现 1 个
+    （牧神记5），凡人修仙传/斗破苍穹/遮天/吞噬星空/完美世界全都不在；
+    AniList 全部覆盖，且国漫 `title.native` 就是中文原名。
+
+    因此 Bangumi **不再**是已实现源，但它的 `name_cn` 仍被
+    `HostTmdbResolver.bangumi_aliases` 用来把日文原名翻成中文名。
+    """
+    assert C.SOURCE_ANILIST in C.IMPLEMENTED_SOURCES
+    assert C.SOURCE_BANGUMI not in C.IMPLEMENTED_SOURCES
 
 
 def test_bangumi_window_default_is_3_days():

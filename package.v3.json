@@ -92,9 +92,9 @@
     },
     "SubscribeCenter": {
         "name": "胖虎订阅中心",
-        "description": "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。",
+        "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "0.9.9",
+        "version": "1.0.0",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.0.0": "新增 AniList 源，Bangumi 降级为标题翻译层（1.0.0）。这是一次破坏性变更：数据源集合从 TMDB/Bangumi/豆瓣 改为 TMDB/AniList/豆瓣。[1] AniList 源（sources/anilist.py）：官方 GraphQL，实测必须用 POST + 浏览器 UA（默认 UA 403）。两条发现通道缺一不可 —— 新番按 startDate 落窗口（当季 + 下季已定档），连载中按 nextAiringEpisode.airingAt 落窗口。第二条是国漫的唯一入口：国漫多为长篇连载（遮天 2023 年开播 208 集），开播日永远在窗口外，用「开播日+窗口」永远抓不到，这不是识别问题而是窗口语义问题。国漫 countryOfOrigin=CN 且 title.native 就是中文原名，直接作为首选标题。[2] 为什么用 AniList 替代 Bangumi：实测 api.bgm.tv/calendar 当季 108 部里，6 个知名国漫只出现 1 个（牧神记5），凡人修仙传/斗破苍穹/遮天/吞噬星空/完美世界全不在；AniList 全部覆盖。但 Bangumi 的中文名对日番识别仍是最高质量兜底，因此不删除而是降级。[3] Bangumi 翻译层：HostTmdbResolver.bangumi_aliases 用 bgm.tv 搜索接口取 name_cn，接入 IdentityResolver 的重试链（日文原名 -> Bangumi 中文名 -> TMDB），带相似度校验防止错译把 A 番订成 B 番。[4] 按源热度门槛：新增 min_popularity_by_source —— TMDB 的 popularity 中位数约 3（15 算热门），AniList 冷门番也有上千，共用 15 等于对 AniList 完全不过滤。AniList 默认 1000。[5] 配置：新增 enable_anilist(默认开)/anilist_future_days(3)/anilist_min_popularity(1000)/anilist_include_donghua(默认开，用户要求)，CONFIG_VERSION 3->4 并登记迁移。[6] 前端：数据源列表换成 AniList，Bangumi 卡片替换为 AniList 卡片（窗口/热度/包含国漫三个控件），IMPLEMENTED 改为 tmdb/anilist/douban_rss。测试 404 项通过，含新增 8 项 AniList 源测试（双通道/中文标题/国漫开关/失败必抛/电影映射/季度换算）。",
             "v0.9.9": "详情页顶栏 + 提示条瘦身 + 通知分模式（0.9.9）。[1] 详情页：把操作按钮行（立即运行一次/刷新/设置）移到顶部标题栏右侧，对齐本仓库其他插件的版式；去掉「关闭」按钮（弹窗自带关闭）；顶栏含图标、名称、版本号与一句话简介。[2] 设置页提示条：给 VAlert 加 sc-tip 类并强制 flex:0 0 auto / min-height:0 / 字号 12px —— 因为根容器改为固定高度 flex 列后，提示条被拉成一大块（真机截图里占了近 200px 高），现在恢复成一行。[3] 通知按模式区分：dry-run/预览给全量明细（会订/拉取/源内去重/跳过/待确认），真跑只报「新增 N 条」；标题统一为「胖虎订阅中心」，不再带「· 预览完成 / · 发现完成」。",
             "v0.9.8": "设置页横向溢出 + 豆瓣地址框自动增高 + 详情页重做（0.9.8）。[1] 设置页：0.9.7 用了 width:min(1120px,100vw-48px)，但宿主把配置页渲染在约 780px 宽的容器里，1120px 直接横向溢出、必须左右滑。改为 width:100% / max-width:100%，高度 min(820px,100dvh-48px) —— 尺寸沿用宿主给的空间，不再溢出。[2] 豆瓣 RSS 地址输入框加 auto-grow，随行数自动增高（之前固定 3 行，多条目看不全）。[3] 详情页按仓库内其他插件（胖虎媒体中心 / 胖虎封面中心 / 豆瓣中心）的版式重做：顶部改为四张统计卡（今日写入 / 数据源 / 上次新增 / 最近运行），数据源从长列表改成网格卡片，发现流水从纯文本列表改成六列表格（时间 / 来源 / 媒体 / 身份 / 决策 / 说明），窄屏自动降级为两列。[4] 顺带修一个我自己引入的破坏：上一轮把 lastSummary 的 computed 插进了 nextPage() 函数体内部，会让详情页运行时报错，已移回顶层并补上 statCards 计算属性。",
             "v0.9.7": "设置页放大 + 通知精简 + 流水按作品去重 + 运行详情补上次摘要（0.9.7）。[1] 设置页太小：参考本仓库 tgmediacenter 与 embycovercenter 的成熟写法，根容器改为 width:min(1120px,100vw-48px) / height:min(860px,100dvh-48px)，主体 flex:1 + min-height:0、右内容与左导航各自 overflow-y:auto、吸底栏 flex:0 0 auto（不再 sticky）—— 既占满视口又在内部滚动，切分区不跳动。[2] 通知精简：只保留一行结论（真跑报「新增 N 条」、dry-run/预览报「会订 N 条（未写入）」），去掉拉取/源内去重/跳过/待确认；失败源与触达上限仍会追加。[3] 流水去重：_append_history 改为按 media_source:media_id（无身份时 source:标题:年份）就地替换，同一部作品只保留最新状态 —— 真机反馈「每次运行都重复记一遍，好多重复条目」。[4] 运行详情：状态卡新增「上次运行」摘要行（拉取/新增/跳过/待确认/源内去重），流水数量文案从「条」改为「部作品」并注明每部只显示最新状态。",

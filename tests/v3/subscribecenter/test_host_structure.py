@@ -35,6 +35,9 @@ from subscribecenter.core.host import (  # noqa: E402
         "search",
         "search_raw",
         "convert_to_tmdb",
+        # 别名/翻译层（Bangumi 降级为标题翻译层后的唯一职责）
+        "bangumi_aliases",
+        "douban_aliases",
         # 季号裁决（0.8.4 被误删的那一组）
         "resolve_target_season",
         "_season_has_upcoming",

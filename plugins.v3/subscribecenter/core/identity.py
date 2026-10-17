@@ -736,6 +736,21 @@ class IdentityResolver:
             terms.append((variants[0], f"raw:{variants[0]}"))
         terms.extend((variant, f"variant:{variant}") for variant in variants[1:])
 
+        # Bangumi 翻译层：AniList 的日番条目给的是日文原名，TMDB 搜日文命中率
+        # 很差（实测 ライフトレード / 虚ろな十字架 都是 0 条），而 Bangumi 的
+        # name_cn 就是主流中文译名。这是 Bangumi 降级为「翻译层」后的唯一职责。
+        translator = getattr(self._tmdb, "bangumi_aliases", None)
+        if translator is not None:
+            try:
+                names = await translator(item.title, item.media_type)
+            except Exception:  # noqa: BLE001 - 翻译失败不影响其余策略
+                names = []
+            seen = {item.title, *(term for term, _ in terms)}
+            for name in names or ():
+                if name and name not in seen:
+                    seen.add(name)
+                    terms.append((name, f"bgm:{name}"))
+
         aliases = getattr(self._tmdb, "douban_aliases", None)
         if aliases is not None:
             try:

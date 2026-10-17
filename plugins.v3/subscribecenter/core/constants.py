@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.9.9"
+PLUGIN_VERSION = "1.0.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -87,6 +87,7 @@ MEDIA_TYPE_TV = "tv"
 
 #: 数据源标识
 SOURCE_TMDB = "tmdb"
+SOURCE_ANILIST = "anilist"
 SOURCE_BANGUMI = "bangumi"
 SOURCE_DOUBAN_RSS = "douban_rss"
 SOURCE_SIMKL = "simkl"
@@ -94,6 +95,7 @@ SOURCE_JUSTWATCH = "justwatch"
 
 ALL_SOURCES = (
     SOURCE_TMDB,
+    SOURCE_ANILIST,
     SOURCE_BANGUMI,
     SOURCE_DOUBAN_RSS,
     SOURCE_SIMKL,
@@ -101,13 +103,13 @@ ALL_SOURCES = (
 )
 
 #: 已实现的数据源（其余源在配置页可开，但运行时会记录「未实现」并跳过）
-IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB, SOURCE_BANGUMI, SOURCE_DOUBAN_RSS})
+IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB, SOURCE_ANILIST, SOURCE_DOUBAN_RSS})
 
 
 # --------------------------------------------------------------------- 配置
 
 #: 当前配置结构版本。每次改了默认值且希望老用户跟着变，就 +1 并在 config_migrations 登记。
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 
 
 def default_config() -> Dict[str, Any]:
@@ -123,6 +125,7 @@ def default_config() -> Dict[str, Any]:
         "enabled": False,
         # ---------------- 数据源开关
         "enable_tmdb": True,
+        "enable_anilist": True,
         "enable_bangumi": False,
         "enable_douban_rss": False,
         "enable_simkl": False,
@@ -135,6 +138,15 @@ def default_config() -> Dict[str, Any]:
         "min_rating_douban": DEFAULT_MIN_RATING,
         "min_rating_simkl": DEFAULT_MIN_RATING,
         "min_popularity": DEFAULT_MIN_POPULARITY,
+        # ---------------- AniList（番剧 / 国漫）
+        #: 番剧发现窗口（天）。番剧定档密集，窗口不必太长。
+        "anilist_future_days": DEFAULT_FUTURE_DAYS,
+        #: 最低热度（AniList 的 popularity 量纲与 TMDB 完全不同：
+        #: 冷门番约 500~2000，主流番 2 万~5 万，所以不能复用 TMDB 的 15）。
+        "anilist_min_popularity": 1000.0,
+        #: 是否包含国产动画（countryOfOrigin=CN）。
+        #: **默认开** —— 国漫只有 AniList 能覆盖（Bangumi 的日历实测漏掉大半）。
+        "anilist_include_donghua": True,
         #: Bangumi 是否「按季拆分」订阅。
         #:
         #: **默认关**。国产动画在 TMDB 通常被建模成「单季多集」
@@ -234,6 +246,15 @@ def config_migrations() -> Dict[int, Dict[str, Any]]:
         # 3 天窗口 = 上映前 3 天进窗口，共 4 次运行机会（进窗口当天 + 上映日及前后），
         # 足以吸收单次运行失败；真机实测一周实际新增约 4 条，部分天为 0。
         3: {"tmdb_future_days": DEFAULT_FUTURE_DAYS},
+        # v3 -> v4：启用 AniList 源（番剧 + 国漫），Bangumi 降级为标题翻译层。
+        # 这是**新增**源，不是改用户既有选择：老用户库里没有这三个键，
+        # merge 默认值后就是这里写的值，因此只登记「窗口」与「国漫开关」
+        # 这类会随版本演进调整的项；两个开关（enable_anilist）不覆盖，
+        # 避免把用户手动关掉的源又打开。
+        4: {
+            "anilist_future_days": DEFAULT_FUTURE_DAYS,
+            "anilist_include_donghua": True,
+        },
     }
 
 

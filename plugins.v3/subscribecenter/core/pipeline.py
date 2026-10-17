@@ -312,6 +312,7 @@ def select_items(
     now: Any = None,
     future_days_by_source: Optional[Dict[str, int]] = None,
     min_rating_by_source: Optional[Dict[str, float]] = None,
+    min_popularity_by_source: Optional[Dict[str, float]] = None,
 ) -> Tuple[List[DiscoveredItem], List[WriteOutcome]]:
     """对（已解析身份的）条目做过滤，返回 ``(通过, 被拦下的带原因结果)``。
 
@@ -340,10 +341,14 @@ def select_items(
     passed: List[DiscoveredItem] = []
     window_map = future_days_by_source or {}
     rating_map = min_rating_by_source or {}
+    popularity_map = min_popularity_by_source or {}
     for item in kept:
         # 按源取各自的评分门槛与窗口天数（TMDB / Bangumi 的配置是分开的）
         rating_threshold = rating_map.get(item.source, min_rating)
         window_days = window_map.get(item.source, future_days)
+        # 热度门槛也必须按源区分：TMDB popularity 中位数约 3（>=15 算热门），
+        # 而 AniList popularity 冷门番也有上千，共用 15 等于完全不过滤。
+        popularity_threshold = popularity_map.get(item.source, min_popularity)
 
         if not filter_by_rating(item, rating_threshold):
             rejected.append(
@@ -369,12 +374,15 @@ def select_items(
                 )
                 continue
 
-        if min_popularity > 0 and not filter_by_popularity(item, min_popularity):
+        if popularity_threshold > 0 and not filter_by_popularity(item, popularity_threshold):
             rejected.append(
                 WriteOutcome(
                     item=item,
                     decision=DECISION_SKIPPED_POPULARITY,
-                    reason=f"关注度 {item.popularity} < {min_popularity}（冷门条目，避免占用写入额度）",
+                    reason=(
+                        f"关注度 {item.popularity} < {popularity_threshold}"
+                        "（冷门条目，避免占用写入额度）"
+                    ),
                 )
             )
             continue
@@ -458,6 +466,7 @@ async def run_pipeline(
     tz_name: Optional[str] = None,
     future_days_by_source: Optional[Dict[str, int]] = None,
     min_rating_by_source: Optional[Dict[str, float]] = None,
+    min_popularity_by_source: Optional[Dict[str, float]] = None,
 ) -> RunSummary:
     """执行一次完整发现流水线。
 
@@ -513,6 +522,7 @@ async def run_pipeline(
         min_want=min_want,
         future_days_by_source=future_days_by_source,
         min_rating_by_source=min_rating_by_source,
+        min_popularity_by_source=min_popularity_by_source,
         tz_name=tz_name,
         now=now,
     )

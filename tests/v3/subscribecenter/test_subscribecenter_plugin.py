@@ -282,15 +282,16 @@ def test_enabled_sources_skips_unimplemented(plugin):
     plugin._config.update(
         {
             "enable_tmdb": True,
-            "enable_bangumi": True,
+            "enable_anilist": True,
             "enable_douban_rss": True,
             "enable_simkl": True,
         }
     )
-    # TMDB / Bangumi / 豆瓣 RSS 已实现；Simkl / JustWatch 尚未实现会被跳过
+    # TMDB / AniList / 豆瓣 RSS 已实现；Simkl / JustWatch 尚未实现会被跳过
+    # （Bangumi 已降级为标题翻译层，不再作为发现源）
     assert plugin._enabled_sources() == [
         C.SOURCE_TMDB,
-        C.SOURCE_BANGUMI,
+        C.SOURCE_ANILIST,
         C.SOURCE_DOUBAN_RSS,
     ]
 
@@ -298,6 +299,9 @@ def test_enabled_sources_skips_unimplemented(plugin):
 def test_enabled_sources_respects_switches(plugin):
     """开关关闭的源不进入运行。"""
     plugin._config["enable_tmdb"] = False
+    # AniList 现在默认开（番剧+国漫），要一起关掉才是「全关」语义
+    plugin._config["enable_anilist"] = False
+    plugin._config["enable_douban_rss"] = False
     assert plugin._enabled_sources() == []
 
 
@@ -309,7 +313,7 @@ def test_history_page_filters_and_paginates(plugin):
         "run_history",
         [
             {"decision": C.DECISION_ADDED, "source": "tmdb", "title": "沙丘", "reason": ""},
-            {"decision": C.DECISION_PENDING_REVIEW, "source": "bangumi", "title": "巨人",
+            {"decision": C.DECISION_PENDING_REVIEW, "source": "anilist", "title": "巨人",
              "reason": "无确定性身份"},
             {"decision": C.DECISION_PENDING_REVIEW, "source": "tmdb", "title": "沙丘2",
              "reason": "无确定性身份"},

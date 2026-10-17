@@ -10,6 +10,7 @@ export const configDefaults = {
   enabled: false,
   // ---------------- 数据源开关
   enable_tmdb: true,
+  enable_anilist: true,
   enable_bangumi: false,
   enable_douban_rss: false,
   enable_simkl: false,
@@ -22,6 +23,12 @@ export const configDefaults = {
   min_rating_douban: 6.0,
   min_rating_simkl: 6.0,
   min_popularity: 15.0,
+  // ---------------- AniList（番剧 / 国漫）
+  anilist_future_days: 3,
+  //: AniList 的 popularity 量纲与 TMDB 完全不同（冷门番上千、主流番 2~5 万）
+  anilist_min_popularity: 1000.0,
+  //: 是否包含国产动画（countryOfOrigin=CN），默认开
+  anilist_include_donghua: true,
   //: Bangumi 是否按季拆分订阅（默认关：国产动画多为单季多集）
   bangumi_split_season: false,
   //: 是否只保留指定原始语言的条目
@@ -50,7 +57,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 3,
+  config_version: 4,
   // ---------------- 一次性执行
   onlyonce: false,
 }

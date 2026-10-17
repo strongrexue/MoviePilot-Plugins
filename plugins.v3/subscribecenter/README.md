@@ -28,10 +28,24 @@ MoviePilot V3 插件。**只做三件事：发现 → 去重 → 写订阅。**
 | 源 | 状态 | 说明 |
 |---|---|---|
 | **TMDB** | ✅ 已实现 | 全球电影/剧集，自带 TMDB id（身份最可靠） |
-| **Bangumi** | ✅ 已实现 | 当季番剧；条目自带 subject id，经宿主换算成 TMDB |
+| **AniList** | ✅ 已实现 | 番剧 + 国漫；官方 GraphQL，自带开播日、在播状态、集数与热度 |
 | **豆瓣 RSS** | ✅ 已实现 | 经 RSSHub 的豆瓣路线；上映日期与豆瓣 ID 均可解析 |
 | Simkl | ⬜ 未实现 | 需要 Simkl client_id |
 | JustWatch | ⬜ 未实现 | 可选，只记日志 |
+
+### 为什么是 AniList，而不是 Bangumi（1.0.0 的取舍）
+
+实测（2026-10）三条硬数据：
+
+1. `api.bgm.tv/calendar` 当季 **108 部**，拿 6 个知名国漫去对，**只有牧神记5 出现**
+   —— 凡人修仙传 / 斗破苍穹 / 遮天 / 吞噬星空 / 完美世界全都不在；
+2. AniList 全部覆盖，且 `countryOfOrigin: CN` 条目的 `title.native` **就是中文原名**；
+3. AniList 的连载通道能按 `nextAiringEpisode`（下一集播出时间）判断窗口。
+
+**Bangumi 因此降级为内部「标题翻译层」**：日番在 AniList 里是日文原名，而 TMDB
+搜日文命中率为 0（实测 `ライフトレード` / `虚ろな十字架` 都是 0 条），
+`HostTmdbResolver.bangumi_aliases` 会用 Bangumi 的 `name_cn` 换成中文名再搜。
+它不再出现在数据源开关里。
 
 ### 豆瓣 RSS 的实机结论（0.7.0 / 0.8.0）
 
@@ -74,8 +88,9 @@ TMDB 查询变多，首次运行会明显变慢（之后走映射缓存会快）
 3. **条目不带 popularity**，因此不参与「最低关注度」门槛 —— 这是有意的：
    当季番列表本身是策展的，用 TMDB 的关注度量纲去卡它没有意义。
 
-**已实现的数据源只有 TMDB。** 在配置里打开 Bangumi / 豆瓣 / Simkl 不会报错，
-但会在日志中明确记录「已启用但当前版本尚未实现，本次跳过」——不会静默无输出。
+**已实现的数据源：TMDB / AniList / 豆瓣 RSS。** 在配置里打开 Simkl / JustWatch
+不会报错，但会在日志中明确记录「已启用但当前版本尚未实现，本次跳过」——
+不会静默无输出。Bangumi 不再是数据源（见上文「为什么是 AniList」）。
 
 ---
 
@@ -223,7 +238,11 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 |---|---|---|
 | `enabled` | `false` | 插件总开关 |
 | `enable_tmdb` | `true` | 启用 TMDB |
-| `enable_bangumi` | `false` | 启用 Bangumi（0.1.0 未实现） |
+| `enable_anilist` | `true` | 启用 AniList（番剧 + 国漫） |
+| `anilist_future_days` | `3` | AniList 发现窗口（天） |
+| `anilist_min_popularity` | `1000` | AniList 最低热度（量纲与 TMDB 不同） |
+| `anilist_include_donghua` | `true` | 包含国产动画（countryOfOrigin=CN） |
+| `enable_bangumi` | `false` | 已废弃：Bangumi 降级为标题翻译层，不再作为源 |
 | `enable_douban_rss` | `false` | 启用豆瓣 RSS（0.1.0 未实现） |
 | `enable_simkl` | `false` | 启用 Simkl（0.1.0 未实现） |
 | `enable_justwatch` | `false` | 启用 JustWatch（0.1.0 未实现） |

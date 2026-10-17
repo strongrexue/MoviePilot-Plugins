@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-Di38gPn5.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-BBFVYQzA.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -13,6 +13,7 @@ const configDefaults = {
   enabled: false,
   // ---------------- 数据源开关
   enable_tmdb: true,
+  enable_anilist: true,
   enable_bangumi: false,
   enable_douban_rss: false,
   enable_simkl: false,
@@ -25,6 +26,12 @@ const configDefaults = {
   min_rating_douban: 6.0,
   min_rating_simkl: 6.0,
   min_popularity: 15.0,
+  // ---------------- AniList（番剧 / 国漫）
+  anilist_future_days: 3,
+  //: AniList 的 popularity 量纲与 TMDB 完全不同（冷门番上千、主流番 2~5 万）
+  anilist_min_popularity: 1000.0,
+  //: 是否包含国产动画（countryOfOrigin=CN），默认开
+  anilist_include_donghua: true,
   //: Bangumi 是否按季拆分订阅（默认关：国产动画多为单季多集）
   bangumi_split_season: false,
   //: 是否只保留指定原始语言的条目
@@ -53,7 +60,7 @@ const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 3,
+  config_version: 4,
   // ---------------- 一次性执行
   onlyonce: false,
 };
@@ -209,7 +216,7 @@ const versionMismatch = computed(() => {
 });
 
 /** 已实现的数据源（其余源在当前版本会在日志里明确跳过）。 */
-const IMPLEMENTED = ['tmdb', 'bangumi', 'douban_rss'];
+const IMPLEMENTED = ['tmdb', 'anilist', 'douban_rss'];
 
 /** 豆瓣 RSS 地址：后端存字符串数组，界面用多行文本编辑。 */
 const doubanSourcesText = computed({
@@ -227,7 +234,11 @@ const doubanSourcesText = computed({
 
 const sourceRows = [
   { key: 'enable_tmdb', label: 'TMDB', hint: '全球电影/剧集，自带 TMDB ID（身份最可靠）' },
-  { key: 'enable_bangumi', label: 'Bangumi', hint: '当季番剧，自带 subject ID，经宿主换算成 TMDB' },
+  {
+    key: 'enable_anilist',
+    label: 'AniList',
+    hint: '番剧 + 国漫；官方 GraphQL，自带开播日、在播状态与热度',
+  },
   { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '经 RSSHub；上映日期与豆瓣 ID 均可解析' },
   { key: 'enable_simkl', label: 'Simkl Calendar', hint: '未来 33 天 TV + 动画 + 电影（尚未实现）' },
   { key: 'enable_justwatch', label: 'JustWatch', hint: '流媒体上线发现，只记日志（尚未实现）' },
@@ -697,7 +708,7 @@ return (_ctx, _cache) => {
                   disabled: !form.value.enable_douban_rss,
                   placeholder: "http://<RSSHub>:1200/douban/movie/coming"
                 }, null, 8, ["modelValue", "disabled"]),
-                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-3a2459da><b data-v-3a2459da>电影上映类</b>（<code data-v-3a2459da>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-3a2459da><b data-v-3a2459da>剧集类</b>（<code data-v-3a2459da>/douban/tv/coming</code>、<code data-v-3a2459da>/douban/list/tv_*</code>、 <code data-v-3a2459da>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-3a2459da><b data-v-3a2459da>电影榜单类</b>没有日期，会被跳过。<code data-v-3a2459da>ustop250</code> 与 <code data-v-3a2459da>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-f6754cd4><b data-v-f6754cd4>电影上映类</b>（<code data-v-f6754cd4>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-f6754cd4><b data-v-f6754cd4>剧集类</b>（<code data-v-f6754cd4>/douban/tv/coming</code>、<code data-v-f6754cd4>/douban/list/tv_*</code>、 <code data-v-f6754cd4>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-f6754cd4><b data-v-f6754cd4>电影榜单类</b>没有日期，会被跳过。<code data-v-f6754cd4>ustop250</code> 与 <code data-v-f6754cd4>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
               ])
             ], 64))
           : _createCommentVNode("", true),
@@ -813,18 +824,18 @@ return (_ctx, _cache) => {
                     icon: "mdi-animation-outline",
                     size: "16"
                   }),
-                  _cache[42] || (_cache[42] = _createTextVNode(" Bangumi ", -1))
+                  _cache[42] || (_cache[42] = _createTextVNode(" AniList ", -1))
                 ]),
                 _createVNode(_component_VRow, { dense: "" }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      sm: "6"
+                      sm: "4"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: form.value.bangumi_future_days,
-                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.value.bangumi_future_days) = $event)),
+                          modelValue: form.value.anilist_future_days,
+                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.value.anilist_future_days) = $event)),
                           modelModifiers: { number: true },
                           label: "发现窗口（天）",
                           type: "number",
@@ -840,18 +851,17 @@ return (_ctx, _cache) => {
                     }),
                     _createVNode(_component_VCol, {
                       cols: "12",
-                      sm: "6"
+                      sm: "4"
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: form.value.min_rating_bangumi,
-                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.value.min_rating_bangumi) = $event)),
+                          modelValue: form.value.anilist_min_popularity,
+                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.value.anilist_min_popularity) = $event)),
                           modelModifiers: { number: true },
-                          label: "最低评分",
+                          label: "最低热度",
                           type: "number",
-                          step: "0.1",
                           min: "0",
-                          max: "10",
+                          step: "100",
                           density: "compact",
                           "hide-details": "",
                           variant: "outlined",
@@ -859,22 +869,42 @@ return (_ctx, _cache) => {
                         }, null, 8, ["modelValue"])
                       ]),
                       _: 1
+                    }),
+                    _createVNode(_component_VCol, {
+                      cols: "12",
+                      sm: "4",
+                      class: "d-flex align-center"
+                    }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_VSwitch, {
+                          modelValue: form.value.anilist_include_donghua,
+                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.value.anilist_include_donghua) = $event)),
+                          label: "包含国漫",
+                          density: "compact",
+                          "hide-details": "",
+                          color: "primary"
+                        }, null, 8, ["modelValue"])
+                      ]),
+                      _: 1
                     })
                   ]),
                   _: 1
                 }),
-                _createVNode(_component_VSwitch, {
-                  modelValue: form.value.bangumi_split_season,
-                  "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.value.bangumi_split_season) = $event)),
-                  label: "按季拆分订阅",
-                  density: "compact",
-                  "hide-details": "",
-                  color: "primary",
-                  class: "mt-1"
-                }, null, 8, ["modelValue"]),
-                _cache[43] || (_cache[43] = _createElementVNode("div", { class: "sc-hint mt-1" }, [
-                  _createElementVNode("b", null, "建议关闭。"),
-                  _createTextVNode("国产动画在 TMDB 常被建模成「单季多集」 （《牧神记》= 第 1 季 110 集，第 105 集对应 Bangumi「牧神记5」开播日）， 此时 Bangumi 的「第 N 期」并不是 TMDB 的第 N 季 —— 按季订会去找不存在的季。 评分量纲也与 TMDB 不同，所以两边分开设。 ")
+                _cache[43] || (_cache[43] = _createElementVNode("div", { class: "sc-hint" }, [
+                  _createElementVNode("b", null, "番剧与国漫的最佳源。"),
+                  _createTextVNode("两条发现通道缺一不可："),
+                  _createElementVNode("br"),
+                  _createTextVNode(" • "),
+                  _createElementVNode("b", null, "新番"),
+                  _createTextVNode("：按「开播日」落窗口，覆盖当季 + 下季已定档；"),
+                  _createElementVNode("br"),
+                  _createTextVNode(" • "),
+                  _createElementVNode("b", null, "连载中"),
+                  _createTextVNode("：按「下一集播出时间」落窗口 —— "),
+                  _createElementVNode("b", null, "国漫只能靠这条"),
+                  _createTextVNode(" （《遮天》2023 年开播、208 集，开播日永远在窗口外）。"),
+                  _createElementVNode("br"),
+                  _createTextVNode(" 热度量纲与 TMDB 不同（冷门番上千、主流番 2~5 万），所以单独设门槛。 国漫默认包含，只想订日番就关掉。 ")
                 ], -1))
               ]),
               _createElementVNode("div", _hoisted_29, [
@@ -1291,6 +1321,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3a2459da"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f6754cd4"]]);
 
 export { Config as default };

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-CYAeWIpf.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-DANASlTi.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,normalizeStyle:_normalizeStyle,vModelText:_vModelText,withKeys:_withKeys,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -312,7 +312,7 @@ async function toggleOverview() {
   overviewOpen.value = !overviewOpen.value;
   if (!overviewOpen.value || overviewLoaded.value) return
   try {
-    const data = unwrap(await fetchPluginApi(props.api, props.pluginId, 'subscriptions'));
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'subscriptions'));
     overview.value = data || { total: 0, counts: {}, items: [] };
     overviewLoaded.value = true;
   } catch (error) {
@@ -867,6 +867,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0adbfdae"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a683db27"]]);
 
 export { Page as default };

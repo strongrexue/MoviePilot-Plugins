@@ -538,3 +538,30 @@ def test_history_keyword_searches_title_and_reason(plugin):
     assert plugin.history_page(keyword="凡人").total == 1
     assert plugin.history_page(keyword="搜不到").total == 1
     assert plugin.history_page(keyword="不存在").total == 0
+
+
+def test_sfc_api_calls_use_imported_helpers():
+    """SFC 里调用的 *PluginApi 必须是 api.js 真实导出且已 import 的。
+
+    真机：1.5.0 在 Page.vue 里写了 `fetchPluginApi(...)`，但 api.js 只导出
+    getPluginApi / postPluginApi / putPluginApi —— 构建照样通过，
+    直到用户点开「订阅总览」才报 `fetchPluginApi is not defined`。
+    """
+    import io
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[3] / "plugins.v3" / "subscribecenter" / "src"
+    api_js = io.open(root / "components" / "api.js", encoding="utf-8").read()
+    exported = set(re.findall(r"export\s+(?:async\s+)?function\s+(\w+Api)", api_js))
+    assert exported, "api.js 未导出任何 *Api 函数"
+
+    for name in ("Page.vue", "Config.vue"):
+        text = io.open(root / "components" / name, encoding="utf-8").read()
+        imported = set(re.findall(r"import\s*\{([^}]*)\}\s*from\s*'\./api'", text))
+        imported_names = set()
+        for group in imported:
+            imported_names.update(part.strip() for part in group.split(",") if part.strip())
+        for used in set(re.findall(r"\b(\w+PluginApi)\s*\(", text)):
+            assert used in exported, f"{name} 调用了不存在的 {used}"
+            assert used in imported_names, f"{name} 调用 {used} 但没有 import"

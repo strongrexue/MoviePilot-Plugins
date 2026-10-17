@@ -226,7 +226,7 @@ async function toggleOverview() {
   overviewOpen.value = !overviewOpen.value
   if (!overviewOpen.value || overviewLoaded.value) return
   try {
-    const data = unwrap(await fetchPluginApi(props.api, props.pluginId, 'subscriptions'))
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'subscriptions'))
     overview.value = data || { total: 0, counts: {}, items: [] }
     overviewLoaded.value = true
   } catch (error) {

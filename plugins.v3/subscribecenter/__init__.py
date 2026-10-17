@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.2.5"
+    plugin_version = "1.2.6"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -794,6 +794,17 @@ class SubscribeCenter(_PluginBase):
         """
         records = self._history()
 
+        def _work_key(record: Dict[str, Any]) -> str:
+            """作品级键：标题 + 年份（用于合并「待确认」与「已订阅」两条记录）。
+
+            同一条目在未解析出身份时只有标题，解析成功后才有 media_id ——
+            只按 media_id 去重会留下两条记录，界面上就出现「既待确认又已订阅」。
+            """
+            return "w:{}:{}".format(
+                str(record.get("title") or ""),
+                str(record.get("year") or ""),
+            )
+
         def _key(record: Dict[str, Any]) -> str:
             media_source = str(record.get("media_source") or "")
             media_id = str(record.get("media_id") or "")
@@ -813,7 +824,23 @@ class SubscribeCenter(_PluginBase):
             record = outcome.to_dict()
             record["run_at"] = run_at
             key = _key(record)
+            work_key = _work_key(record)
             existing = index.get(key)
+            if existing is None:
+                # 同一作品另一个形态（待确认 / 已订阅）已存在 -> 就地替换掉它，
+                # 避免界面上「既待确认又已订阅」。
+                existing = next(
+                    (
+                        position
+                        for position, old in enumerate(records)
+                        if _work_key(old) == work_key
+                        and _key(old) != key
+                        and (not old.get("media_id") or not record.get("media_id"))
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    index.pop(_key(records[existing]), None)
             if existing is not None:
                 # 就地替换：保留「最新状态」，避免同一作品堆成多行
                 records[existing] = record

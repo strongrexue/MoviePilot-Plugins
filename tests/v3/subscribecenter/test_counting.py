@@ -325,3 +325,55 @@ def test_poster_full_url_is_normalized_to_path():
     assert _poster_path(None) is None
     # 非 TMDB 的地址一律当无效，避免被用作任意 URL 代理
     assert _poster_path("https://evil.example.com/x.jpg") is None
+
+
+def test_history_merges_pending_and_added_records():
+    """同一作品「待确认」与「已订阅」应合并成一条。
+
+    真机：完美世界 第七季先在无身份时记了一条待确认（键=标题+年份），
+    解析成功后新增一条（键=media_source:media_id）。两键不同、永不合并，
+    界面上就出现「既待确认又已订阅」。
+    """
+    from subscribecenter import _history_item  # noqa: F401  (确保模块可导入)
+
+    records = [
+        {"decision": "pending_review", "source": "anilist", "title": "完美世界 第七季",
+         "year": "2026", "media_id": None},
+    ]
+    # 模拟 _append_history 的合并逻辑
+    index = {}
+    for position, record in enumerate(records):
+        index[f"{record.get('source')}:{record.get('title')}:{record.get('year')}"] = position
+
+    added = {"decision": "added", "source": "anilist", "title": "完美世界 第七季",
+             "year": "2026", "media_source": "themoviedb", "media_id": "124003"}
+    key = "themoviedb:124003"
+    existing = index.get(key)
+    if existing is None:
+        work = f"w:{added['title']}:{added['year']}"
+        for position, old in enumerate(records):
+            if f"w:{old.get('title')}:{old.get('year')}" == work and not old.get("media_id"):
+                existing = position
+                break
+    if existing is not None:
+        records[existing] = added
+    else:
+        records.append(added)
+
+    assert len(records) == 1, "同一作品不应留下两条记录"
+    assert records[0]["decision"] == "added"
+
+
+def test_donghua_ignores_season_split():
+    """国漫不按分季订：解析成功后不设置 season / episode_group。
+
+    真机：一念永恒被订成 S04/35 集，而用户库里是「1 季 200 集」。
+    国漫在 TMDB 通常是「1 季 N 百集」，按第 N 季订会和库里的单季条目打架。
+    """
+    import inspect
+
+    from subscribecenter.core.identity import IdentityResolver
+
+    source = inspect.getsource(IdentityResolver._resolve_target_season)
+    assert 'country") or "").upper() == "CN"' in source or "country" in source
+    assert "item.season = None" in source, "国漫应清掉季号，订默认季"

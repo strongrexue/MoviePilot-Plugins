@@ -1134,6 +1134,14 @@ class IdentityResolver:
         if not writable:
             item.finished = True
             return
+        # **国漫不按分季订**：TMDB 里国漫通常是「1 季 N 百集 + 分季版另建条目」，
+        # 按「第 4 季」订会和用户媒体库里的单季条目打架（真机：一念永恒
+        # 被订成 S04/35 集，而库里是 1 季 200 集）。国漫统一订默认季，
+        # 由宿主按集追踪 —— 与 bangumi_split_season 关闭的结论一致。
+        if str((item.raw or {}).get("country") or "").upper() == "CN":
+            item.season = None
+            item.episode_group = None
+            return
         if season is not None and item.season is None:
             item.season = int(season)
         if episode_group and item.episode_group is None:

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, a as getPluginApi } from './_plugin-vue_export-helper-DeQ_anMI.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, a as getPluginApi } from './_plugin-vue_export-helper-CsZBdWq8.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
 

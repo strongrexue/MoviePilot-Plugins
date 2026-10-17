@@ -126,8 +126,53 @@ class HostTmdbResolver:
     async def search_raw(
         self, term: str, media_type: str
     ) -> Sequence[Dict[str, Any]]:
-        """按给定关键词做不带年份的 TMDB 搜索（不再做任何名称加工）。"""
-        return await self._search_without_year(term, media_type, normalize=False)
+        """按任意关键词做**原始** TMDB 搜索（不做任何名称过滤）。
+
+        .. important::
+           必须绕过宿主的 `TmdbApi.async_search_tvs` —— 它在结果上还加了一层
+           过滤：`if title not in item_name: continue`，也就是说 TMDB 返回的
+           条目名必须**包含**查询词才能留下。
+
+           真机后果：豆瓣译名与 TMDB 中文名不同时，TMDB 自己明明搜得到，
+           却被这层过滤丢掉了::
+
+               查询「闹鬼酒店」-> TMDB 返回「酒店有鬼」(255752) -> 被丢
+               查询「虚无的十字架」-> TMDB 返回「空洞的十字架」(326140) -> 被丢
+
+           TMDB 的原始搜索会利用 alternative_titles / 原名做跨语言匹配，
+           所以这里直接打 `/3/search/tv` 与 `/3/search/movie`。
+        """
+        if not term:
+            return ()
+        is_movie = media_type == MEDIA_TYPE_MOVIE
+        path = "/search/movie" if is_movie else "/search/tv"
+        try:
+            payload = await self._tmdb_get(path, {"query": term, "page": 1})
+        except Exception:  # noqa: BLE001 - 搜索失败等同无候选
+            return ()
+
+        candidates: List[Dict[str, Any]] = []
+        for record in (payload or {}).get("results") or []:
+            if not isinstance(record, dict):
+                continue
+            tmdb_id = record.get("id")
+            if not tmdb_id:
+                continue
+            date = record.get("release_date") if is_movie else record.get("first_air_date")
+            candidates.append(
+                {
+                    "tmdb_id": tmdb_id,
+                    "title": record.get("title") if is_movie else record.get("name"),
+                    "original_title": (
+                        record.get("original_title") if is_movie else record.get("original_name")
+                    ),
+                    "year": str(date)[:4] if date else None,
+                    "release_date": date,
+                    "media_type": media_type,
+                    "popularity": record.get("popularity"),
+                }
+            )
+        return tuple(candidates)
 
     async def convert_to_tmdb(
         self,
@@ -185,6 +230,70 @@ class HostTmdbResolver:
             #: 宿主从来源标题解析出的季号；续作靠它才不会订错季
             "season": season_number,
         }
+
+    async def douban_aliases(
+        self,
+        title: str,
+        media_type: str,
+        year: Optional[str] = None,
+    ) -> List[str]:
+        """用豆瓣 API 查该剧的「又名 / 原名」，用于 TMDB 搜索。
+
+        为什么必须这样（真机实测）：豆瓣与 TMDB 的中文译名经常不同，
+        而 TMDB 的搜索索引里**没有**豆瓣那个译名，直接搜命中率为 0：
+
+            豆瓣「闹鬼酒店」  -> TMDB 搜 0 条（TMDB 叫「酒店有鬼」）
+            豆瓣「虚无的十字架」-> TMDB 搜 0 条（TMDB 叫「空洞的十字架」）
+            豆瓣「人生交换」  -> TMDB 搜 0 条（TMDB 叫「交换人生」）
+
+        但豆瓣条目的 `aka` 与 `original_title` 里带着 TMDB 认识的名字：
+
+            闹鬼酒店 第二季 -> aka ['酒店有鬼2', 'The Undervale']
+                            original 'Haunted Hotel Season 2'
+            虚无的十字架   -> original '虚ろな十字架'
+            老公要求我去出轨 -> aka ['丈夫请求我出轨']
+            人生交换      -> original 'ライフトレード'
+
+        所以拿这些名字再搜 TMDB 就能命中。
+
+        :return: 候选名字列表（已去重、已剔除与原名相同的）；查询失败返回空列表
+        """
+        try:
+            from app.modules.douban import DoubanApi
+
+            api = DoubanApi()
+            search = (
+                api.async_movie_search if media_type == MEDIA_TYPE_MOVIE else api.async_tv_search
+            )
+            detail_call = (
+                api.async_movie_detail if media_type == MEDIA_TYPE_MOVIE else api.async_tv_detail
+            )
+
+            result = await search(title, count=5)
+            subjects = _douban_subjects(result)
+            if not subjects:
+                return []
+
+            # 优先选标题最像、年份最接近的那条
+            subject = _pick_douban_subject(subjects, title, year)
+            subject_id = subject.get("id") or subject.get("target_id")
+            if not subject_id:
+                return []
+
+            detail = await detail_call(str(subject_id)) or {}
+            names: List[str] = []
+            for value in (
+                detail.get("original_title"),
+                *(detail.get("aka") or []),
+                detail.get("title"),
+                subject.get("title"),
+            ):
+                text = str(value or "").strip()
+                if len(text) >= 2 and text not in names and text != title:
+                    names.append(text)
+            return names
+        except Exception:  # noqa: BLE001 - 豆瓣查询失败只是少一条兜底路径
+            return []
 
     async def resolve_target_season(
         self,
@@ -311,7 +420,9 @@ class HostTmdbResolver:
         return None
 
     @staticmethod
-    async def _tmdb_get(path: str) -> Dict[str, Any]:
+    async def _tmdb_get(
+        path: str, params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """直连 TMDB 原始接口（宿主的 TmdbApi 未暴露 episode_groups 列表）。"""
         from app.runtime.settings import get_runtime_setting
         from app.sdk.network import AsyncRequestUtils
@@ -323,9 +434,9 @@ class HostTmdbResolver:
             proxies=get_runtime_setting("PROXY") or None,
             timeout=20,
         )
-        response = await utils.get_res(
-            url, params={"api_key": key, "language": "zh-CN"}, raise_exception=True
-        )
+        query = {"api_key": key, "language": "zh-CN"}
+        query.update(params or {})
+        response = await utils.get_res(url, params=query, raise_exception=True)
         if not response:
             return {}
         return response.json() or {}
@@ -384,6 +495,40 @@ class HostTmdbResolver:
                 }
             )
         return tuple(candidates)
+
+
+def _douban_subjects(result: Any) -> List[Dict[str, Any]]:
+    """从豆瓣搜索响应里取出条目列表（不同接口的键不同）。"""
+    if not isinstance(result, dict):
+        return []
+    for key in ("subject_collection_items", "items", "subjects"):
+        value = result.get(key)
+        if isinstance(value, list):
+            return [entry for entry in value if isinstance(entry, dict)]
+    return []
+
+
+def _pick_douban_subject(
+    subjects: Sequence[Dict[str, Any]], title: str, year: Optional[str]
+) -> Dict[str, Any]:
+    """挑最像的那条豆瓣条目：先看标题相似度，再看年份。"""
+    from ..core.identity import normalize_title
+
+    target = normalize_title(title)
+    best = subjects[0]
+    best_score = -1.0
+    for subject in subjects:
+        name = normalize_title(subject.get("title") or subject.get("target", {}).get("title"))
+        score = 1.0 if name == target else 0.0
+        if name and target and (name in target or target in name):
+            score = max(score, 0.5)
+        subject_year = str(subject.get("year") or "")
+        if year and subject_year and subject_year == str(year):
+            score += 0.25
+        if score > best_score:
+            best_score = score
+            best = subject
+    return best
 
 
 def _build_metainfo(title: str, year: Optional[str], media_type: str) -> Any:

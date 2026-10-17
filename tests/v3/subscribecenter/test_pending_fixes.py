@@ -133,10 +133,14 @@ async def test_resolver_retries_with_variants():
 
 @pytest.mark.asyncio
 async def test_variant_retry_stops_at_first_hit():
-    """命中即停，不做多余请求。"""
+    """命中即停，不做多余请求。
+
+    顺序：先用**条目标题本身**做原始搜索（绕过宿主那层名称过滤），
+    再用「去年份」的变体。
+    """
     tmdb = VariantTmdb()
     await IdentityResolver(tmdb).resolve(show())
-    assert tmdb.raw_calls == ["妻子的浪漫旅行"]
+    assert tmdb.raw_calls == ["妻子的浪漫旅行2026", "妻子的浪漫旅行"]
 
 
 @pytest.mark.asyncio

@@ -282,6 +282,51 @@ def search_variants(title: Optional[str], tz_name: Optional[str] = None) -> List
     return variants
 
 
+def match_by_unique_year(
+    candidates: Iterable[dict],
+    item: DiscoveredItem,
+    *,
+    max_delta: int = 1,
+) -> Optional[dict]:
+    """宽松匹配：**唯一**一个同年（±1）且同类型的候选才算命中。
+
+    动机（真机）：豆瓣译名与 TMDB 中文名不同时，标题比对必然失败，
+    但 TMDB 的原始搜索能靠 alternative_titles / 原名把它们搜出来::
+
+        豆瓣「闹鬼酒店」  -> TMDB「酒店有鬼」(255752)  标题完全不像
+        豆瓣「虚无的十字架」-> TMDB「空洞的十字架」(326140)
+        豆瓣「人生交换」  -> TMDB「交换人生」(333359)
+
+    这时能用的判据只剩「年份 + 类型 + 唯一性」：
+
+    - 类型必须一致；
+    - 候选必须有年份，且与条目年份相差 ≤ `max_delta`；
+    - 满足条件的候选**必须恰好一个**，多个则视为歧义、放弃。
+
+    这三个条件同时满足时，误配概率很低（同类型、同年、且没有竞争候选）。
+    """
+    wanted = _year_of(item.year or item.release_date)
+    if not wanted:
+        return None
+    target_year = int(wanted)
+    matches: List[dict] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if not candidate.get("tmdb_id"):
+            continue
+        candidate_type = str(candidate.get("media_type") or "").strip().casefold()
+        if candidate_type and candidate_type != item.media_type:
+            continue
+        year = _year_of(candidate.get("year") or candidate.get("release_date"))
+        if not year:
+            continue
+        if abs(int(year) - target_year) > max_delta:
+            continue
+        matches.append(candidate)
+    return matches[0] if len(matches) == 1 else None
+
+
 def extract_season_hint(title: Optional[str]) -> Optional[int]:
     """从标题尾部提取季号提示（牧神记5 -> 5、第2期 -> 2）。
 
@@ -553,14 +598,48 @@ class IdentityResolver:
         return item
 
     async def _retry_with_variants(self, item: DiscoveredItem) -> bool:
-        """用「去掉尾部年份」等变体重试搜索；命中则解析成功。"""
+        """用备选名重试搜索（去尾部年份、豆瓣又名/原名）。
+
+        真机：豆瓣与 TMDB 的中文译名经常不同，TMDB 的搜索索引里没有豆瓣那个
+        译名，直接搜命中率为 0：
+
+            豆瓣「闹鬼酒店」  -> TMDB 搜 0 条（TMDB 叫「酒店有鬼」）
+            豆瓣「虚无的十字架」-> TMDB 搜 0 条（TMDB 叫「空洞的十字架」）
+            豆瓣「人生交换」  -> TMDB 搜 0 条（TMDB 叫「交换人生」）
+
+        而豆瓣条目的 ``aka`` / ``original_title`` 里带着 TMDB 认识的名字
+        （「Haunted Hotel Season 2」「虚ろな十字架」「ライフトレード」），
+        所以先向豆瓣要别名，再拿去搜 TMDB。
+        """
         search_raw = getattr(self._tmdb, "search_raw", None)
         if search_raw is None:
             return False
-        for variant in search_variants(item.title)[1:]:
+
+        # 先用**条目标题本身**做一次原始搜索：主搜索走的是宿主 API，
+        # 它在结果上还有一层「条目名必须包含查询词」的过滤，会把 TMDB 明明
+        # 搜到的跨语言结果丢掉（真机：闹鬼酒店 -> 酒店有鬼）。
+        variants = [variant for variant in search_variants(item.title) if variant]
+        terms: List[tuple] = []
+        if variants:
+            terms.append((variants[0], f"raw:{variants[0]}"))
+        terms.extend((variant, f"variant:{variant}") for variant in variants[1:])
+
+        aliases = getattr(self._tmdb, "douban_aliases", None)
+        if aliases is not None:
             try:
-                extra = await search_raw(variant, item.media_type)
-            except Exception:  # noqa: BLE001 - 变体搜索失败不影响主流程
+                names = await aliases(item.title, item.media_type, item.year)
+            except Exception:  # noqa: BLE001 - 别名查询失败不影响其余策略
+                names = []
+            seen = {item.title, *(term for term, _ in terms)}
+            for name in names or ():
+                if name and name not in seen:
+                    seen.add(name)
+                    terms.append((name, f"alias:{name}"))
+
+        for term, label in terms:
+            try:
+                extra = await search_raw(term, item.media_type)
+            except Exception:  # noqa: BLE001 - 单个备选名失败继续下一个
                 continue
             if not extra:
                 continue
@@ -568,16 +647,20 @@ class IdentityResolver:
                 extra,
                 item,
                 strict_year=item.media_type == MEDIA_TYPE_MOVIE,
-                target_title=variant,
+                target_title=term,
             )
             if not hit:
-                continue
+                # 标题比对失败时用「唯一同年候选」兜底（豆瓣/TMDB 译名差异）
+                relaxed = match_by_unique_year(extra, item)
+                if not relaxed:
+                    continue
+                hit = (relaxed, "search:relaxed_unique_year")
             candidate, reason = hit
             identity = ResolvedIdentity(
                 media_source=HOST_SOURCE_TMDB,
                 media_id=str(candidate["tmdb_id"]),
                 confidence=CONFIDENCE_L3,
-                reason=f"{reason}|variant:{variant}",
+                reason=f"{reason}|{label}",
             )
             item.resolved = identity
             self._remember(item, identity)

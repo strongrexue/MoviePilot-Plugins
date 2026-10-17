@@ -237,6 +237,43 @@ async def test_past_release_date_never_written():
     assert report.outcomes[0].decision == C.DECISION_SKIPPED_NOT_FUTURE
 
 
+@pytest.mark.asyncio
+async def test_decades_old_release_date_rejected():
+    """**兜底闸门**：几十年前的老片绝不能写入。
+
+    真机出现过 2003 年的《戴帽子的猫》被列为新增。上游已有多道窗口过滤，
+    这里再加一道 —— 这类错误最伤信任，值得冗余。
+    """
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    old = item(release_date="2003-11-21")
+    report = await writer.write([old], dry_run=False, tz_name="Asia/Shanghai")
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_NOT_FUTURE
+    assert "2003-11-21" in report.outcomes[0].reason
+
+
+@pytest.mark.asyncio
+async def test_far_future_release_date_rejected():
+    """定档日期过远（超过兜底上限）也要拒写。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    far = item(release_date=(TODAY + timedelta(days=400)).isoformat())
+    report = await writer.write([far], dry_run=False, tz_name="Asia/Shanghai")
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_OUT_OF_WINDOW
+
+
+@pytest.mark.asyncio
+async def test_within_self_check_window_is_written():
+    """兜底窗口内的正常条目不受影响。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    ok = item(release_date=(TODAY + timedelta(days=7)).isoformat())
+    report = await writer.write([ok], dry_run=False, tz_name="Asia/Shanghai")
+    assert report.added_count == 1
+
+
 # --------------------------------------------------------------------- 每日上限
 
 @pytest.mark.asyncio

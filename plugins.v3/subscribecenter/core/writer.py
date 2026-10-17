@@ -24,11 +24,17 @@ from .constants import (
     DECISION_SKIPPED_DAILY_LIMIT,
     DECISION_SKIPPED_DRY_RUN,
     DECISION_SKIPPED_NOT_FUTURE,
+    DECISION_SKIPPED_OUT_OF_WINDOW,
     WRITABLE_CONFIDENCE,
 )
 from .identity import HOST_SOURCE_TMDB
 from .model import DiscoveredItem
 from .window import parse_date, today
+
+#: 写入前的自我校验：定档日期距今天**最多**允许多少天。
+#: 这是对上游窗口过滤的冗余兜底 —— 宁可拒写，也不要把「几十年前的老片」
+#: 或「日期算错的条目」写进订阅（真机出现过 2003 年的《戴帽子的猫》被列为新增）。
+SELF_CHECK_MAX_FUTURE_DAYS = 365
 
 #: 宿主 ``async_add`` 的返回文案（用于区分新增 / 已存在）
 MESSAGE_ADDED = "新增订阅成功"
@@ -205,14 +211,29 @@ class SubscriptionWriter:
             )
         identity = item.resolved
 
-        # ---- 上游已确定性排除的条目不应走到这里；此处再兜一次「非未来」
+        # ---- 兜底：定档日期必须落在合理窗口内
+        #
+        # 上游流水线已经做过窗口过滤，这里再验一次是**故意的冗余**：
+        # 真机出现过「戴帽子的猫」被列为新增、而该片 TMDB 上是 2003 年作品的情况。
+        # 不管前面哪一步（源返回、归一、去重）出了错，这道闸门都能挡住
+        # 「订进几十年前老片」这种最伤信任的错误。
         release = parse_date(item.release_date)
-        if release is not None and release < today_value:
-            return WriteOutcome(
-                item=item,
-                decision=DECISION_SKIPPED_NOT_FUTURE,
-                reason=f"定档日期 {release.isoformat()} 已过去",
-            )
+        if release is not None:
+            if release < today_value:
+                return WriteOutcome(
+                    item=item,
+                    decision=DECISION_SKIPPED_NOT_FUTURE,
+                    reason=f"定档日期 {release.isoformat()} 已过去",
+                )
+            if (release - today_value).days > SELF_CHECK_MAX_FUTURE_DAYS:
+                return WriteOutcome(
+                    item=item,
+                    decision=DECISION_SKIPPED_OUT_OF_WINDOW,
+                    reason=(
+                        f"定档日期 {release.isoformat()} 距今天超过 "
+                        f"{SELF_CHECK_MAX_FUTURE_DAYS} 天，超出合理窗口"
+                    ),
+                )
 
         # ---- 写入前实时复查（两层：活跃订阅 + 已完成历史）
         try:

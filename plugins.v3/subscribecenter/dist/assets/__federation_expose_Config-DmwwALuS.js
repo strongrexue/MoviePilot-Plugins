@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-B74nptcZ.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-DFsL7PC_.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -24,7 +24,7 @@ const configDefaults = {
   min_rating_bangumi: 6.0,
   min_rating_douban: 6.0,
   min_rating_simkl: 6.0,
-  min_popularity: 8.0,
+  min_popularity: 15.0,
   //: 是否只保留指定原始语言的条目
   filter_original_language: true,
   tmdb_original_languages: 'zh,ja,ko,en',

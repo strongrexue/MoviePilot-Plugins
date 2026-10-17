@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_VERSION = "0.3.1"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -34,7 +34,7 @@ DEFAULT_MIN_RATING = 6.0
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
 #: 质量信号 —— 实测同日上映的冷门片 popularity 普遍在个位数（0.2.2 真实事故：
 #: 29 条写入里全是 Black Ink / Ghost Lake 这类 popularity<5 的片子）。
-DEFAULT_MIN_POPULARITY = 8.0
+DEFAULT_MIN_POPULARITY = 15.0
 
 #: 允许的原始语言（逗号分隔）。华语/日语/韩语/英语覆盖中文媒体库的主流需求；
 #: 印度、土耳其、荷兰等小语种片通常不会被下载，进订阅只会白占额度

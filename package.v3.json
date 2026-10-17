@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.2.0",
+        "version": "1.2.2",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,8 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.2.2": "修前端默认配置换行导致键丢失（1.2.2）。1.2.1 同步 14 条内置榜单时，替换数组的脚本把紧随其后的 douban_max_items_per_feed 挤到了同一行（],",
+            "v1.2.1": "榜单名真实化 + 默认域名改为公共实例 + 内置路由扩充（1.2.1）。[1] 用户反馈界面上还显示 tv_japanese / tv_korean / tv_american 这类裸英文。原因是榜单名映射表不全，且老数据在迁移时已把末段英文写进 name。修法两层：list_name_of 做四级回退（末两段完整 key -> 末段 -> 后缀推断 -> 原文），映射表补到 19 条覆盖日剧/韩剧/美剧/英剧/港剧/台剧/泰剧/纪录片/综艺/华语口碑/全球口碑/电影口碑榜等；normalize_list_entry 增加「旧数据自动改名」——name 为空或等于 URL 末段时视为没起过名，用可读名重算，所以用户不需要手工重命名。[2] 默认 rsshub_domain 从 https://rsshub.app 改为 https://rsshub.ddsrem.com（这是给别人装的插件，不能内置个人内网地址；内置榜单全部只存路由，不含任何 IP/域名）。[3] 内置榜单从 7 条扩到 14 条（新增近期热门电影、华语口碑剧集、全球口碑剧集、电影口碑榜、日剧、韩剧、美剧，后 7 条默认关闭，用户按需打开）。[4] 前端默认榜单同步为 14 条，避免保存时被前端空值覆盖。说明：设置页按源拆分 6 个分区的重构这轮尝试失败（模板结构被改坏、构建报错），已整体回退，下一轮重做。",
             "v1.2.0": "RSSHub 域名总控 + 删除 Simkl/JustWatch + 描述更新（1.2.0）。[1] 新增 rsshub_domain 全局配置（默认 https://rsshub.app），榜单里只存路由（/douban/movie/coming），实际请求 = 域名 + 路由；换 RSSHub 地址只改这一处，不用逐条改。build_feed_url 处理尾斜杠、缺前斜杠、缺协议（自动补 https）、以及完整 URL 原样返回（兼容外部 RSS）。[2] 每榜条数支持 0 = 沿用全局 douban_max_items_per_feed，预设里 max_items 改为 0，UI 标签注明。[3] 删除 Simkl 与 JustWatch：ALL_SOURCES 变为 tmdb/anilist/douban_rss 三个，default_config 移除 enable_simkl/enable_justwatch/min_rating_simkl/simkl_client_id，status 源列表、_enabled_sources、窗口/评分映射、前端 sourceRows 与 configDefaults 全部同步清理。理由：Simkl 需要 OAuth 且数据无增量，JustWatch 无官方 API、且它解决的是「哪个平台能看」而非「要不要订阅」，两者性价比都低。[4] 插件描述（PLUGIN_DESCRIPTION 与 package.v3.json description）改为只提 TMDB / AniList（番剧+国漫）/ 豆瓣 RSS，并说明豆瓣榜单支持每榜独立配置。新增 3 项测试（域名拼接 5 种边界、两个源已彻底移除、域名默认值）。",
             "v1.1.0": "豆瓣 RSS 改为每榜独立配置（1.1.0，第一步）。原形态是一个 textarea 塞 13 条裸 URL，既看不出哪条是什么榜单、也不能单独关掉或给不同参数。现改为：douban_rss_sources 从 List[str] 升级为 List[dict]，每条含 name/url/enabled/max_items/future_days/min_want。[1] 后端内置 7 条实测可用的 RSSHub 路线作为预设（电影即将上映、剧集即将播出、近期热门剧集/国产剧/综艺/动画、豆瓣推荐剧集），coming 类默认窗口 30 天、榜单类默认 3 天 —— 这两类理想参数本来就不同。[2] parse_sources 归一化并跳过 enabled=False 的条目；fetch 按每榜条数取数，并把窗口/想看写进 item.raw，流水线 select_items 支持按条目覆盖全局阈值（新增 raw.future_days / raw.min_want 覆盖逻辑）。[3] 迁移：CONFIG_VERSION 4→5，_migrate_douban_lists 把老 URL 列表转成条目（地址全保留、默认启用、名字按末两段推导如 movie_coming→电影即将上映）。[4] 前端：textarea 换成榜单卡片列表，每张含开关/名称/地址/删除，第二行每榜条数、窗口天数、最低想看；底部「添加榜单」按钮；标题显示已启用条数。[5] 名字推导按「末两段」查表（movie/coming→movie_coming），自定义路线退回末段或原文。新增 3 项测试（每榜参数保留、名字推导、迁移不丢地址）。用户明确要求第二步（地区/年份筛选）暂缓，等他考虑。",
             "v1.0.11": "评分控件全源可见 + 流水状态 tab + 弹窗内部滚动（1.0.11）。[1] 豆瓣「最低评分」控件补齐 —— 配置键 min_rating_douban 一直存在但界面没暴露，用户无法调整；现在豆瓣卡片有窗口/评分/最低想看/每榜条数/解析并发。至此三个源都有独立评分门槛：TMDB(min_rating_tmdb)、AniList(min_rating_anilist，1.0.10 新增)、豆瓣(min_rating_douban)。[2] 流水顶部状态 tab：接口 HistoryPage 新增 counts 字段（各决策条数，在应用 decision 筛选之前统计，否则点进某个 tab 后其他 tab 会变 0），前端用胶囊形 tab 替换原来的下拉框，显示「全部 N / 新增 24 / 待确认 30 / 已播完 121」等并按条数倒序，点一下即筛选。新增 1 项测试。[3] 插件管理页的详情弹窗原本整页滚动、翻页按钮被推到屏幕外：非 appPage 模式加 max-height: calc(100dvh - 160px)、overflow: hidden，最后一个卡片 flex:1 且网格内部滚动，翻页区始终可见。年份/国家筛选未做（需新增后端过滤逻辑），下一轮实现。",

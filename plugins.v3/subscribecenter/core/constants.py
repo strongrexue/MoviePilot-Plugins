@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.2.0"
+PLUGIN_VERSION = "1.2.2"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -180,6 +180,62 @@ DEFAULT_DOUBAN_LISTS = [
         "future_days": 3,
         "min_want": 0,
     },
+    {
+        "name": "近期热门电影",
+        "url": "/douban/list/movie_real_time_hotest",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "华语口碑剧集",
+        "url": "/douban/list/tv_chinese_best_weekly",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "全球口碑剧集",
+        "url": "/douban/list/tv_global_best_weekly",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "电影口碑榜",
+        "url": "/douban/list/movie_weekly_best",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "日剧",
+        "url": "/douban/list/tv_japanese",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "韩剧",
+        "url": "/douban/list/tv_korean",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "美剧",
+        "url": "/douban/list/tv_american",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
 ]
 
 
@@ -238,7 +294,7 @@ def default_config() -> Dict[str, Any]:
         #: （name / url / enabled / max_items / future_days / min_want）
         #: RSSHub 域名（总控）：榜单里只存路由（/douban/movie/coming），
         #: 拼接时用「域名 + 路由」。换 RSSHub 地址只改这一处，不用逐条改。
-        "rsshub_domain": "https://rsshub.app",
+        "rsshub_domain": "https://rsshub.ddsrem.com",
         "douban_rss_sources": copy.deepcopy(DEFAULT_DOUBAN_LISTS),
         #: 每个榜单最多取前 N 条（榜单按名次排列，取前 N 即取最热的）。
         #: 实测 /douban/list/tv_hot 有 241 条，不限量会把额度全吃掉。

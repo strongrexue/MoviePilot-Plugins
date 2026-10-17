@@ -223,18 +223,41 @@ class DoubanRssSource:
 
 #: 内置榜单名（按 URL 末段推导，用户可覆盖）
 _LIST_NAMES = {
+    # —— 即将上映（带精确日期）——
     "movie_coming": "电影即将上映",
     "tv_coming": "剧集即将播出",
+    # —— 榜单类（无日期，靠 TMDB 未播集判断）——
     "tv_real_time_hotest": "近期热门剧集",
     "tv_domestic": "近期热门国产剧",
     "tv_variety": "近期热门综艺",
     "tv_animation": "近期热门动画",
     "movie_real_time_hotest": "近期热门电影",
-    "movie_showing": "正在上映",
     "tv_chinese_best_weekly": "华语口碑剧集",
     "tv_global_best_weekly": "全球口碑剧集",
     "movie_weekly_best": "电影口碑榜",
+    "movie_top250": "豆瓣电影 Top250",
+    "movie_showing": "正在上映",
+    # —— 按语种/产地的剧集榜单 ——
+    "tv_japanese": "日剧",
+    "tv_korean": "韩剧",
+    "tv_american": "美剧",
+    "tv_british": "英剧",
+    "tv_hongkong": "港剧",
+    "tv_taiwan": "台剧",
+    "tv_thai": "泰剧",
+    "tv_documentary": "纪录片",
+    "tv_show": "综艺",
 }
+
+#: 通用后缀 -> 中文（``xxx_hot`` 之类先按词干推断，避免界面上出现裸英文）
+_NAME_SUFFIXES = (
+    ("_real_time_hotest", "近期热门"),
+    ("_chinese_best_weekly", "华语口碑"),
+    ("_global_best_weekly", "全球口碑"),
+    ("_weekly_best", "口碑榜"),
+    ("_coming", "即将上映"),
+    ("_showing", "正在上映"),
+)
 
 
 def build_feed_url(domain: Any, route: Any) -> str:
@@ -258,16 +281,28 @@ def build_feed_url(domain: Any, route: Any) -> str:
 
 
 def list_name_of(url: str) -> str:
-    """从 RSSHub 路线推导榜单名（/douban/movie/coming -> 电影即将上映）。
+    """从 RSSHub 路线推导可读榜单名。
 
-    RSSHub 的豆瓣路线 key 是「末两段」拼起来的（movie_coming / tv_domestic），
-    所以先按末两段查表，查不到再退回末段，最后退回原文 —— 保证自定义路线
-    在界面上也有个可读名字。
+    真实安装里用户可能保留老的完整 URL（``.../douban/list/tv_japanese``），
+    所以这里做多级回退，**尽量不把裸英文留给界面**：
+
+    1. 完整 key（末两段拼起来，如 ``movie_coming``）→ 表里查
+    2. 末段（如 ``tv_domestic``）→ 表里查
+    3. 末段按后缀推断（``xxx_real_time_hotest`` → 「近期热门」）
+    4. 仍然没有 → 用末段原文（自定义路线）
     """
     parts = [p for p in str(url or "").split("/") if p]
     tail = parts[-1] if parts else ""
     key = "_".join(parts[-2:]) if len(parts) >= 2 else tail
-    return _LIST_NAMES.get(key) or _LIST_NAMES.get(tail) or tail or "自定义榜单"
+    if key in _LIST_NAMES:
+        return _LIST_NAMES[key]
+    if tail in _LIST_NAMES:
+        return _LIST_NAMES[tail]
+    for suffix, label in _NAME_SUFFIXES:
+        if tail.endswith(suffix):
+            stem = tail[: -len(suffix)].replace("_", " ")
+            return f"{stem} {label}".strip() if stem else label
+    return tail or "自定义榜单"
 
 
 def normalize_list_entry(entry: Any) -> Dict[str, Any]:
@@ -281,8 +316,14 @@ def normalize_list_entry(entry: Any) -> Dict[str, Any]:
     if not isinstance(entry, dict):
         entry = {}
     url = str(entry.get("url") or "").strip()
+    stored_name = str(entry.get("name") or "").strip()
+    # 旧数据 / 迁移时写的名字可能还是裸英文（tv_japanese）—— 等于末段时视为
+    # 「没起过名」，用可读名重算，界面上就不会再看到裸英文。
+    tail = url.rstrip("/").rsplit("/", 1)[-1]
+    if not stored_name or stored_name == tail:
+        stored_name = list_name_of(url)
     return {
-        "name": str(entry.get("name") or "").strip() or list_name_of(url),
+        "name": stored_name,
         "url": url,
         "enabled": bool(entry.get("enabled", True)),
         # 0 = 跟随全局 douban_max_items_per_feed（老配置迁移过来时走这条）

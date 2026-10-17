@@ -88,7 +88,7 @@ async def api_history(
         raise HTTPException(status_code=500, detail="查询流水失败") from err
 
 
-async def api_subscriptions(plugin: _PluginBase) -> schemas.Response:
+async def api_subscriptions(plugin) -> Any:
     """订阅总览：宿主订阅按状态分组 + 明细（供「订阅总览」标签页）。"""
     data = await plugin.subscription_overview()
     return schemas.Response(success=True, data=schemas.SubscriptionOverview(**data))

@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -733,7 +733,7 @@ class SubscribeCenter(_PluginBase):
 
         try:
             page = await async_list_subscriptions(
-                None, QueryPageRequest(page=1, count=SUBSCRIBE_OVERVIEW_LIMIT)
+                None, QueryPageRequest(page=1, count=C.SUBSCRIBE_OVERVIEW_LIMIT)
             )
         except Exception as err:  # noqa: BLE001 - 查询失败不该炸整个页面
             logger.error(f"[SubscribeCenter] 读取订阅总览失败：{err}", exc_info=True)

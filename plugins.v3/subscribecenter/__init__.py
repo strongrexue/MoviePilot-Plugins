@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.6.0"
+    plugin_version = "0.6.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -399,11 +399,41 @@ class SubscribeCenter(_PluginBase):
             future_days=self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS),
             min_rating=self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING),
             min_popularity=self._float_config("min_popularity", C.DEFAULT_MIN_POPULARITY),
+            # 窗口与评分门槛**按源独立**：TMDB 与 Bangumi 的配置项不同，
+            # 共用一个值会把窗口更窄的源错误放行（真机踩过）。
+            future_days_by_source=self._future_days_by_source(),
+            min_rating_by_source=self._min_rating_by_source(),
             dry_run=bool(self._config.get("dry_run")) or force_dry_run,
             first_run=first_run,
             already_written_today=self._written_today(),
             tz_name=self._tz(),
         )
+
+    def _future_days_by_source(self) -> Dict[str, int]:
+        """返回各数据源的发现窗口天数（天）。"""
+        default_days = self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS)
+        return {
+            C.SOURCE_TMDB: default_days,
+            C.SOURCE_BANGUMI: self._int_config("bangumi_future_days", C.DEFAULT_FUTURE_DAYS),
+            C.SOURCE_DOUBAN_RSS: default_days,
+            C.SOURCE_SIMKL: default_days,
+            C.SOURCE_JUSTWATCH: default_days,
+        }
+
+    def _min_rating_by_source(self) -> Dict[str, float]:
+        """返回各数据源的最低评分门槛。
+
+        TMDB 与 Bangumi 的评分量纲不同（Bangumi 社区评分普遍偏高），
+        共用一个门槛不合理，因此按源独立配置。
+        """
+        default_rating = self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING)
+        return {
+            C.SOURCE_TMDB: default_rating,
+            C.SOURCE_BANGUMI: self._float_config("min_rating_bangumi", C.DEFAULT_MIN_RATING),
+            C.SOURCE_DOUBAN_RSS: self._float_config("min_rating_douban", C.DEFAULT_MIN_RATING),
+            C.SOURCE_SIMKL: self._float_config("min_rating_simkl", C.DEFAULT_MIN_RATING),
+            C.SOURCE_JUSTWATCH: default_rating,
+        }
 
     def _build_sources(self) -> List[SourceAdapter]:
         """构造已实现的数据源适配器列表。

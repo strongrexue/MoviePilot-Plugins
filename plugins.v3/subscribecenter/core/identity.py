@@ -24,6 +24,7 @@ from .constants import (
     CONFIDENCE_L2,
     CONFIDENCE_L3,
     CONFIDENCE_L4,
+    MEDIA_TYPE_MOVIE,
     SOURCE_BANGUMI,
     SOURCE_DOUBAN_RSS,
     SOURCE_SIMKL,
@@ -383,11 +384,17 @@ class IdentityResolver:
                 if not tmdb_id:
                     return None
 
-                # **年份硬校验**：宿主的跨源换算内部是标题匹配，不是 ID 直映，
-                # 必须用返回年份再核一次，否则可能把 A 番写成 B 番。
+                # **年份硬校验**（只对电影）：宿主的跨源换算内部是标题匹配，
+                # 不是 ID 直映，必须用返回年份再核一次，否则可能把 A 片写成 B 片。
+                #
+                # 剧集**不能**做这个校验：TMDB 的剧集年份是「第一季首播年」，
+                # 而 Bangumi 的续作条目（第 2 期 / 边缘行者 2）年份是**该季**的。
+                # 真机踩过：`赛博朋克：边缘行者 2`（2026）换算到 TMDB 剧集
+                # `Cyberpunk: Edgerunners`（first_air_date 2022）—— 年份必然不等，
+                # 被这里的校验误杀，条目退化成「待确认」而永远订不上。
                 wanted = _year_of(item.year or item.release_date)
                 got = _year_of(payload.get("year"))
-                if wanted and got and wanted != got:
+                if item.media_type == MEDIA_TYPE_MOVIE and wanted and got and wanted != got:
                     return None
 
                 # 续作（第 N 期 / Season N）必须带上季号，否则宿主会按第 1 季订阅。
@@ -398,13 +405,18 @@ class IdentityResolver:
                     except (TypeError, ValueError):
                         pass
 
+                returned_season = payload.get("season")
                 return ResolvedIdentity(
                     media_source=HOST_SOURCE_TMDB,
                     media_id=str(tmdb_id),
                     # 标 L2 而不是 L1：这是「宿主按标题匹配确认的映射」，
                     # 可信度低于源自带的确定性 ID。
                     confidence=CONFIDENCE_L2,
-                    reason=f"convert:{source}" + (f"+year_match({got})" if got else ""),
+                    reason=(
+                        f"convert:{source}"
+                        + (f"+season({returned_season})" if returned_season else "")
+                        + (f"+year_match({got})" if got and item.media_type == MEDIA_TYPE_MOVIE else "")
+                    ),
                 )
         return None
 

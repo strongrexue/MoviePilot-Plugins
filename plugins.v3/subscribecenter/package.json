@@ -1,7 +1,7 @@
 {
   "name": "moviepilot-subscribecenter-plugin",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "scripts": {
     "clean": "node -e \"const fs=require('fs');const dir='dist/assets';if(fs.existsSync(dir)){for(const f of fs.readdirSync(dir)){if(f!=='.gitkeep')fs.unlinkSync(dir+'/'+f);}}\"",

@@ -60,11 +60,11 @@ const versionMismatch = computed(() => {
 })
 
 /** 已实现的数据源（其余源在当前版本会在日志里明确跳过）。 */
-const IMPLEMENTED = ['tmdb']
+const IMPLEMENTED = ['tmdb', 'bangumi']
 
 const sourceRows = [
-  { key: 'enable_tmdb', label: 'TMDB', hint: '核心定档源，自带 TMDB ID（当前唯一已实现）' },
-  { key: 'enable_bangumi', label: 'Bangumi', hint: '日番 / 中文元数据（尚未实现）' },
+  { key: 'enable_tmdb', label: 'TMDB', hint: '全球电影/剧集，自带 TMDB ID（身份最可靠）' },
+  { key: 'enable_bangumi', label: 'Bangumi', hint: '当季番剧，自带 subject ID，经宿主换算成 TMDB' },
   { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '需自建 RSSHub（尚未实现）' },
   { key: 'enable_simkl', label: 'Simkl Calendar', hint: '未来 33 天 TV + 动画 + 电影（尚未实现）' },
   { key: 'enable_justwatch', label: 'JustWatch', hint: '溪流媒体上线发现，只记日志（尚未实现）' },
@@ -351,6 +351,38 @@ onMounted(() => {
           TMDB 只保留「今天 ~ 今天 + N 天」内的定档条目。注意宿主 discover 不支持按地区过滤，
           结果会偏欧美。
         </div>
+        <VRow dense class="mt-3">
+          <VCol cols="12" sm="6">
+            <VTextField
+              v-model.number="form.bangumi_future_days"
+              label="Bangumi 发现窗口（天）"
+              type="number"
+              min="1"
+              max="90"
+              density="compact"
+              hide-details
+              class="mb-2"
+            />
+          </VCol>
+          <VCol cols="12" sm="6">
+            <VTextField
+              v-model.number="form.min_rating_bangumi"
+              label="Bangumi 最低评分"
+              type="number"
+              step="0.1"
+              min="0"
+              max="10"
+              density="compact"
+              hide-details
+              class="mb-2"
+            />
+          </VCol>
+        </VRow>
+        <div class="sc-hint mb-3">
+          Bangumi 是<b>独立配置</b>：番剧的窗口与评分门槛跟 TMDB 分开设 ——
+          两边评分量纲不同（Bangumi 社区评分普遍偏高），共用门槛会误杀。
+        </div>
+
         <div class="sc-hint mt-1">
           <b>最低关注度</b>：新片还没人评分，popularity 是唯一可用的质量信号。
           设 0 表示不过滤，会把同日上映的冷门片也订进来（观众级大片 100+、

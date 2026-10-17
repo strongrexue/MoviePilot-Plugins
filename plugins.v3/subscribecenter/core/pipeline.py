@@ -250,6 +250,8 @@ def select_items(
     min_popularity: float = 0.0,
     tz_name: Optional[str] = None,
     now: Any = None,
+    future_days_by_source: Optional[Dict[str, int]] = None,
+    min_rating_by_source: Optional[Dict[str, float]] = None,
 ) -> Tuple[List[DiscoveredItem], List[WriteOutcome]]:
     """对（已解析身份的）条目做过滤，返回 ``(通过, 被拦下的带原因结果)``。
 
@@ -257,6 +259,11 @@ def select_items(
     被拦下的条目也返回，便于流水线写入「跳过原因」日志。
 
     :param min_popularity: 最低关注度；``<=0`` 表示不过滤
+    :param future_days_by_source: 按源覆盖窗口天数。**必须按源区分**：
+        TMDB 与 Bangumi 的窗口是各自配置的，用同一个值会把窗口更窄的源
+        的条目错误放行、或把更宽的源错误拦下。
+    :param min_rating_by_source: 按源覆盖评分门槛。TMDB 与 Bangumi 的评分
+        量纲不同（Bangumi 的评分普遍更高），共用一个门槛不合理。
     """
     within = dedupe_within_source(items)
     kept, dropped = dedupe_cross_source(within)
@@ -271,13 +278,19 @@ def select_items(
     ]
 
     passed: List[DiscoveredItem] = []
+    window_map = future_days_by_source or {}
+    rating_map = min_rating_by_source or {}
     for item in kept:
-        if not filter_by_rating(item, min_rating):
+        # 按源取各自的评分门槛与窗口天数（TMDB / Bangumi 的配置是分开的）
+        rating_threshold = rating_map.get(item.source, min_rating)
+        window_days = window_map.get(item.source, future_days)
+
+        if not filter_by_rating(item, rating_threshold):
             rejected.append(
                 WriteOutcome(
                     item=item,
                     decision=DECISION_SKIPPED_RATING,
-                    reason=f"评分 {item.rating} < {min_rating}",
+                    reason=f"评分 {item.rating} < {rating_threshold}（{item.source} 门槛）",
                 )
             )
             continue
@@ -290,7 +303,7 @@ def select_items(
                 )
             )
             continue
-        if not filter_by_window(item, future_days, tz_name=tz_name, now=now):
+        if not filter_by_window(item, window_days, tz_name=tz_name, now=now):
             release = parse_date(item.release_date, tz_name)
             if release is None:
                 reason = "无定档日期，无法判断是否即将开播"
@@ -299,7 +312,7 @@ def select_items(
                 reason = f"定档日期 {release.isoformat()} 已过去"
                 decision = DECISION_SKIPPED_NOT_FUTURE
             else:
-                reason = f"定档日期 {release.isoformat()} 超出 {future_days} 天窗口"
+                reason = f"定档日期 {release.isoformat()} 超出 {window_days} 天窗口"
                 decision = DECISION_SKIPPED_OUT_OF_WINDOW
             rejected.append(WriteOutcome(item=item, decision=decision, reason=reason))
             continue
@@ -346,6 +359,8 @@ async def run_pipeline(
     first_run: bool,
     already_written_today: int = 0,
     tz_name: Optional[str] = None,
+    future_days_by_source: Optional[Dict[str, int]] = None,
+    min_rating_by_source: Optional[Dict[str, float]] = None,
 ) -> RunSummary:
     """执行一次完整发现流水线。
 
@@ -385,6 +400,8 @@ async def run_pipeline(
         future_days=future_days,
         min_rating=min_rating,
         min_popularity=min_popularity,
+        future_days_by_source=future_days_by_source,
+        min_rating_by_source=min_rating_by_source,
         tz_name=tz_name,
         now=now,
     )

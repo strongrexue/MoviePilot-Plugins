@@ -104,3 +104,37 @@ def test_module_level_helpers_present():
 
     for name in ("media_source_enum", "media_type_enum", "_build_metainfo"):
         assert hasattr(host, name), f"host 模块缺少 {name}"
+
+
+# --------------------------------------------------- 修饰器哨兵（1.0.1 真机事故）
+
+def test_season_helpers_are_staticmethods():
+    """`_season_has_upcoming` / `season_exists` 必须是 staticmethod。
+
+    真机事故：1.0.1 的一次编辑把 `@staticmethod` 弄丢了。这两个方法签名第一个
+    参数都是 `api`，绑定成实例方法后 `self._season_has_upcoming(api, ...)`
+    会让 `self` 占掉 `api` 的位置 —— **每次调用都 TypeError**，随后被
+    `resolve_target_season` 的 fail-open 静默吞掉：季号变 None、宿主按默认
+    第 1 季订阅。表现就是「所有续作都订成 S1」，而且日志里毫无痕迹。
+    """
+    import inspect
+
+    for name in ("_season_has_upcoming", "season_exists"):
+        attr = inspect.getattr_static(HostTmdbResolver, name)
+        assert isinstance(attr, staticmethod), f"{name} 丢了 @staticmethod"
+
+
+def test_season_has_upcoming_callable_on_instance():
+    """回归锁：通过实例调用时参数个数必须对得上（这正是事故的现场）。"""
+    import asyncio
+    from datetime import date
+
+    class FakeApi:
+        async def async_get_tv_season_detail(self, tmdb_id, season):
+            return {"episodes": [{"air_date": "2099-01-01"}]}
+
+    async def run():
+        resolver = HostTmdbResolver()
+        return await resolver._season_has_upcoming(FakeApi(), 1, 1, date(2026, 1, 1))
+
+    assert asyncio.run(run()) is True

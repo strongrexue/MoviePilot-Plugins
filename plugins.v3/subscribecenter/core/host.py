@@ -24,6 +24,28 @@ from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV
 from ..core.identity import HOST_SOURCE_TMDB
 from ..core.window import parse_date, today
 
+try:  # 宿主日志（插件内其它模块都这么用；失败时退回标准库，保证可离线单测）
+    from app.sdk.logging import logger
+except Exception:  # noqa: BLE001  # pragma: no cover
+    import logging
+
+    logger = logging.getLogger("SubscribeCenter")
+
+#: 宿主 TMDB 的季详情查询并发上限。
+#:
+#: 真机教训：一次运行几百部剧、身份解析 8 路并发，每部剧还要查「最多 6 季」
+#: 的详情 —— TMDB 很容易限流/超时。一旦异常，``resolve_target_season`` 的
+#: fail-open 会把季号变成 ``None``，宿主按默认第 1 季订阅（「续作全订成 S1」）。
+_SEASON_SEMAPHORE: Optional[Any] = None
+
+
+def _season_semaphore() -> Any:
+    """懒加载季详情查询信号量（在事件循环内创建）。"""
+    global _SEASON_SEMAPHORE
+    if _SEASON_SEMAPHORE is None:
+        _SEASON_SEMAPHORE = asyncio.Semaphore(4)
+    return _SEASON_SEMAPHORE
+
 #: 单次查询的分页大小（宿主无参查询只返回第一页，必须显式翻页）
 QUERY_PAGE_SIZE = 200
 
@@ -526,12 +548,19 @@ class HostTmdbResolver:
                 return (True, None, None)
 
             start = today(tz_name)
+            # 只查「提示季 + 最新两季」：原来 numbers[:6]，每部剧最多 6 次 TMDB
+            # 请求，几百部剧 8 路并发很容易触发限流 → 异常 → fail-open → 订成 S1。
+            probed = list(numbers[:2])
+            if season_hint is not None and season_hint in numbers and season_hint not in probed:
+                probed.insert(0, season_hint)
+
             upcoming: List[int] = []
-            for number in numbers[:6]:
-                if await self._season_has_upcoming(api, int(tmdb_id), number, start):
-                    upcoming.append(number)
-                if season_hint is not None and season_hint in upcoming:
-                    break
+            async with _season_semaphore():
+                for number in probed:
+                    if await self._season_has_upcoming(api, int(tmdb_id), number, start):
+                        upcoming.append(number)
+                    if season_hint is not None and season_hint in upcoming:
+                        break
 
             if not upcoming:
                 return (False, None, None)
@@ -546,7 +575,13 @@ class HostTmdbResolver:
 
             # 多个季都有未播集：取季号最大的（最新一季才在更新）
             return (True, max(upcoming), None)
-        except Exception:  # noqa: BLE001 - 校验失败 fail-open
+        except Exception as err:  # noqa: BLE001 - 校验失败 fail-open
+            # 静默 fail-open 会让 season=None、宿主按第 1 季订阅，而日志里毫无痕迹
+            # —— 1.0.1~1.0.4 的「续作全订成 S1」就是这样藏了四个版本。
+            logger.warning(
+                f"[SubscribeCenter] 季号裁决失败，回退默认季：tmdb={tmdb_id} "
+                f"hint={season_hint} error={type(err).__name__}: {err}"
+            )
             return (True, None, None)
 
     @staticmethod
@@ -588,9 +623,35 @@ class HostTmdbResolver:
             return None
         return None
 
+    @staticmethod
     async def _season_has_upcoming(api: Any, tmdb_id: int, season: int, start: Any) -> bool:
-        """该季是否还有未播集。"""
-        detail = await api.async_get_tv_season_detail(tmdb_id, season) or {}
+        """该季是否还有未播集。
+
+        .. danger::
+           **必须带 `@staticmethod`。** 1.0.1 的一次编辑把它弄丢了，而签名第一个
+           参数是 ``api`` —— 绑定成实例方法后，``self._season_has_upcoming(api, ...)``
+           会让 ``self`` 占掉 ``api`` 的位置，**每次调用都 TypeError**，再被
+           ``resolve_target_season`` 的 fail-open 静默吞掉：季号变成 ``None``，
+           宿主按默认第 1 季订阅。真机表现就是「所有续作都订成 S1」。
+           ``test_host_structure.py`` 现在会锁住这个装饰器。
+
+        失败**重试一次**：TMDB 偶发 429/超时同样会退化成 fail-open，
+        而 fail-open 的代价是整部剧订错季。
+        """
+        detail: Any = None
+        for attempt in (1, 2):
+            try:
+                detail = await api.async_get_tv_season_detail(tmdb_id, season) or {}
+                break
+            except Exception as err:  # noqa: BLE001
+                if attempt == 2:
+                    raise
+                logger.warning(
+                    f"[SubscribeCenter] 查询季详情失败，重试一次：tmdb={tmdb_id} "
+                    f"S{season} error={type(err).__name__}"
+                )
+                await asyncio.sleep(0.4)
+        detail = detail or {}
         for episode in detail.get("episodes") or []:
             if not isinstance(episode, dict):
                 continue

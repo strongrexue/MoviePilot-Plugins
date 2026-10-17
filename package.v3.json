@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "1.0.4",
+        "version": "1.0.5",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.0.5": "修复季号裁决被静默吞掉导致全部订成 S1（1.0.5）。这是我在 1.0.1 引入的回归：编辑 host.py 时把 _season_has_upcoming 的 @staticmethod 装饰器弄丢了。该方法签名第一个参数是 api，绑定成实例方法后 self._season_has_upcoming(api, ...) 会让 self 占掉 api 的位置 —— 每次调用都 TypeError，随后被 resolve_target_season 的 fail-open 静默吞掉：季号变 None，宿主按默认第 1 季订阅。真机表现就是「所有续作都订成 S1」，而日志里毫无痕迹。已在容器内复现：直调 resolve_target_season(247718 黑帮领地, hint=2) 返回 (True, None, None)，但给该方法包一层 staticmethod 后立即返回 (True, 2, None)。修复与加固：[1] 补回 @staticmethod；[2] fail-open 分支改为 logger.warning 留痕（1.0.1~1.0.4 之所以藏了四个版本就是因为静默）；[3] 季详情查询失败重试一次；[4] 每部剧最多查「提示季 + 最新两季」而不是原来 6 季，并加 4 路信号量，避免几百部剧打爆 TMDB 限流。[5] 新增两项结构哨兵：断言两个 season 辅助方法是 staticmethod、以及通过实例调用时参数个数正确（直接锁死本次事故现场）。另：用户指出「多列」指的是卡片网格而不是表格列，发现流水已改为 grid 多列卡片（海报 + 标题 + 年份/类型/来源/身份 + 说明两行截断），窄屏自适应。",
             "v1.0.4": "续作禁止匹配旧年份条目 + 季号解析补全（1.0.4）。用户反馈「很多续作订阅到 xxx（2025）S01，而不是最新季」。分析结论：季号裁决没错，是**条目认错** —— 续作番被匹配到了上一季的 TMDB 条目，然后在该条目里只能选到 S01。根因三条：[1] TV 完全不做年份校验（strict_year 只对电影为 True），单条候选时年份被彻底忽略；[2] AniList 给的是日文原名，TMDB 搜日文命中率 0，退化到中文基础名后只返回上一季条目；[3] 备用兜底 match_by_unique_year 容差 ±1 年，正好把「2026 续作匹配到 2025 上一季」放行。修法：给 match_candidate_year 增加 min_year 闸门，续作（季号 >=2）时不接受比条目更旧的候选；同时续作跳过 ±1 年的 relaxed 兜底，避免从后门放回。另补季号解析：2nd Season / Season N / Part N / 第Nクール / 第N部 原来完全没覆盖（Black Clover 2nd Season 解析为 None），现全部支持。同时用真机验证了海报代理链路：服务器经 PROXY 抓 image.tmdb.org 返回 HTTP 200 / 15719 字节 / image/jpeg，说明 1.0.3 的后端代理可用，封面不显示纯粹是前端 bundle 缓存（remoteEntry.js 无哈希，必须 Ctrl+Shift+R）。",
             "v1.0.3": "海报改走插件后端代理（1.0.3）。诊断结果：库里 19:38 那次运行的 123 条新增中 122 条都带 poster 字段，说明后端早就抓到了，问题在前端取图。根因是国内网络下浏览器直连 image.tmdb.org 常常不可用 —— TMDB 的 API 是服务器带 PROXY 访问的，但图片是浏览器直连，两条链路不是一个出口。修法：新增插件路由 GET /poster?path=/xxx.jpg，由后端按 PROXY 设置抓取图片字节并带 1 天 Cache-Control 返回，内存缓存 400 条；前端 <img> 改为请求 /api/v1/plugin/<id>/poster?path=...，浏览器只连 MoviePilot。同时补上 plugin.api_poster 包装与插件 API 路由声明（response_model 为 None，因为返回的是字节流不是 JSON envelope）。",
             "v1.0.2": "发现页设置弹窗放大 + 流水四列布局 + 封面取用顺序修正（1.0.2）。[1] 用户反馈「发现页点设置进去的窗口过小」—— 根因在 AppPage.vue：设置弹窗写死 max-width=760，与插件管理页的弹窗不一致。改为 width/max-width = min(1120px, 94vw)，与插件页对齐。[2] 流水排版：说明文字单独成列（两行截断 + hover 看全文），网格从三列改为四列「封面 / 作品 / 说明 / 决策+时间」；窄屏（<900px）隐藏说明列。[3] 修一个真 bug：_attach_poster 原在宿主 resolve_target_season 之前调用，而 poster_path 是宿主裁决季号拉 TMDB 详情时才记下的 —— 顺序反了导致 TV 永远取不到顺带的海报、退化成每部剧多查一次 TMDB。现已改为裁决之后再取，电影仍走补查。注：库里 462 条历史记录是 1.0.0 写的、没有 poster 字段，下一轮运行会按身份去重覆盖成带封面的新记录。",

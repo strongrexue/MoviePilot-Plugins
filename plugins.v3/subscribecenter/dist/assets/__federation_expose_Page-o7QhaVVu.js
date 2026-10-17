@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-DEPAailT.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-D_DnLfVh.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -31,37 +31,27 @@ const _hoisted_19 = {
 };
 const _hoisted_20 = {
   key: 1,
-  class: "sc-table"
+  class: "sc-grid"
 };
-const _hoisted_21 = { class: "sc-poster" };
+const _hoisted_21 = { class: "sc-card-poster" };
 const _hoisted_22 = ["src", "alt"];
-const _hoisted_23 = { class: "sc-media" };
-const _hoisted_24 = { class: "sc-media-title" };
-const _hoisted_25 = {
-  key: 0,
-  class: "sc-dim"
-};
-const _hoisted_26 = { class: "sc-media-tags" };
-const _hoisted_27 = {
-  key: 1,
-  class: "sc-dim"
-};
-const _hoisted_28 = {
-  key: 2,
-  class: "sc-dim"
-};
-const _hoisted_29 = ["title"];
+const _hoisted_23 = { class: "sc-card-badge" };
+const _hoisted_24 = { class: "sc-card-body" };
+const _hoisted_25 = ["title"];
+const _hoisted_26 = { class: "sc-card-meta" };
+const _hoisted_27 = { key: 0 };
+const _hoisted_28 = { key: 1 };
+const _hoisted_29 = { key: 2 };
 const _hoisted_30 = {
-  key: 1,
-  class: "sc-dim"
+  key: 0,
+  class: "sc-card-meta"
 };
-const _hoisted_31 = { class: "sc-decision" };
-const _hoisted_32 = { class: "sc-mono sc-dim" };
-const _hoisted_33 = {
+const _hoisted_31 = ["title"];
+const _hoisted_32 = {
   key: 2,
   class: "sc-pager"
 };
-const _hoisted_34 = { class: "sc-hint" };
+const _hoisted_33 = { class: "sc-hint" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -467,18 +457,12 @@ return (_ctx, _cache) => {
       (!history.value.items.length)
         ? (_openBlock(), _createElementBlock("div", _hoisted_19, " 还没有流水。点「立即运行一次」即可看到发现结果。 "))
         : (_openBlock(), _createElementBlock("div", _hoisted_20, [
-            _cache[12] || (_cache[12] = _createElementVNode("div", { class: "sc-tr sc-tr-head" }, [
-              _createElementVNode("span"),
-              _createElementVNode("span", null, "作品"),
-              _createElementVNode("span", null, "说明"),
-              _createElementVNode("span", null, "决策 / 时间")
-            ], -1)),
             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value.items, (item, index) => {
               return (_openBlock(), _createElementBlock("div", {
                 key: index,
-                class: "sc-tr"
+                class: "sc-card-item"
               }, [
-                _createElementVNode("span", _hoisted_21, [
+                _createElementVNode("div", _hoisted_21, [
                   (posterUrl(item))
                     ? (_openBlock(), _createElementBlock("img", {
                         key: 0,
@@ -489,92 +473,76 @@ return (_ctx, _cache) => {
                     : (_openBlock(), _createBlock(_component_VIcon, {
                         key: 1,
                         icon: "mdi-filmstrip-box-multiple",
-                        size: "18",
+                        size: "30",
                         class: "sc-poster-ph"
-                      }))
-                ]),
-                _createElementVNode("span", _hoisted_23, [
-                  _createElementVNode("div", _hoisted_24, [
-                    _createElementVNode("b", null, _toDisplayString(item.title), 1),
-                    (item.year)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_25, "(" + _toDisplayString(item.year) + ")", 1))
-                      : _createCommentVNode("", true)
-                  ]),
-                  _createElementVNode("div", _hoisted_26, [
-                    (item.media_type)
-                      ? (_openBlock(), _createBlock(_component_VChip, {
-                          key: 0,
-                          size: "x-small",
-                          variant: "tonal"
-                        }, {
-                          default: _withCtx(() => [
-                            _createTextVNode(_toDisplayString(item.media_type), 1)
-                          ]),
-                          _: 2
-                        }, 1024))
-                      : _createCommentVNode("", true),
+                      })),
+                  _createElementVNode("span", _hoisted_23, [
                     _createVNode(_component_VChip, {
                       size: "x-small",
-                      variant: "text",
-                      class: "sc-dim"
+                      variant: "flat",
+                      color: decisionColor(item.decision)
                     }, {
                       default: _withCtx(() => [
-                        _createTextVNode(_toDisplayString(item.source), 1)
+                        _createTextVNode(_toDisplayString(decisionLabel(item.decision)), 1)
                       ]),
                       _: 2
-                    }, 1024),
-                    (item.confidence)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_27, "身份 " + _toDisplayString(item.confidence), 1))
-                      : _createCommentVNode("", true),
-                    (item.release_date)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_28, "放送 " + _toDisplayString(item.release_date), 1))
-                      : _createCommentVNode("", true)
+                    }, 1032, ["color"])
                   ])
                 ]),
-                (item.reason)
-                  ? (_openBlock(), _createElementBlock("span", {
-                      key: 0,
-                      class: "sc-reason sc-dim",
-                      title: item.reason
-                    }, _toDisplayString(item.reason), 9, _hoisted_29))
-                  : (_openBlock(), _createElementBlock("span", _hoisted_30, "—")),
-                _createElementVNode("span", _hoisted_31, [
-                  _createVNode(_component_VChip, {
-                    size: "x-small",
-                    variant: "flat",
-                    color: decisionColor(item.decision)
-                  }, {
-                    default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(decisionLabel(item.decision)), 1)
-                    ]),
-                    _: 2
-                  }, 1032, ["color"]),
-                  _createElementVNode("span", _hoisted_32, _toDisplayString(String(item.run_at || '').slice(5, 16)), 1)
+                _createElementVNode("div", _hoisted_24, [
+                  _createElementVNode("div", {
+                    class: "sc-card-title",
+                    title: item.title
+                  }, [
+                    _createElementVNode("b", null, _toDisplayString(item.title), 1)
+                  ], 8, _hoisted_25),
+                  _createElementVNode("div", _hoisted_26, [
+                    (item.year)
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_27, _toDisplayString(item.year), 1))
+                      : _createCommentVNode("", true),
+                    (item.media_type)
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_28, _toDisplayString(item.media_type), 1))
+                      : _createCommentVNode("", true),
+                    _createElementVNode("span", null, _toDisplayString(item.source), 1),
+                    (item.confidence)
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_29, _toDisplayString(item.confidence), 1))
+                      : _createCommentVNode("", true)
+                  ]),
+                  (item.release_date)
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_30, " 放送 " + _toDisplayString(item.release_date), 1))
+                    : _createCommentVNode("", true),
+                  (item.reason)
+                    ? (_openBlock(), _createElementBlock("div", {
+                        key: 1,
+                        class: "sc-card-reason",
+                        title: item.reason
+                      }, _toDisplayString(item.reason), 9, _hoisted_31))
+                    : _createCommentVNode("", true)
                 ])
               ]))
             }), 128))
           ])),
       (history.value.total > history.value.count)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_33, [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_32, [
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
               disabled: history.value.page <= 1,
               onClick: prevPage
             }, {
-              default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+              default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
                 _createTextVNode("上一页", -1)
               ]))]),
               _: 1
             }, 8, ["disabled"]),
-            _createElementVNode("span", _hoisted_34, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
+            _createElementVNode("span", _hoisted_33, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
               disabled: history.value.page * history.value.count >= history.value.total,
               onClick: nextPage
             }, {
-              default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+              default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
                 _createTextVNode(" 下一页 ", -1)
               ]))]),
               _: 1
@@ -587,6 +555,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8e9e02a7"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f6946e8a"]]);
 
 export { Page as default };

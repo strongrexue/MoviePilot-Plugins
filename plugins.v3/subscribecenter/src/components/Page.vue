@@ -316,40 +316,35 @@ onUnmounted(() => {
         还没有流水。点「立即运行一次」即可看到发现结果。
       </div>
 
-      <div v-else class="sc-table">
-        <div class="sc-tr sc-tr-head">
-          <span></span>
-          <span>作品</span>
-          <span>说明</span>
-          <span>决策 / 时间</span>
-        </div>
-        <div v-for="(item, index) in history.items" :key="index" class="sc-tr">
-          <span class="sc-poster">
+      <!-- 卡片网格：多列并排，像榜单页那样一眼扫过 -->
+      <div v-else class="sc-grid">
+        <div v-for="(item, index) in history.items" :key="index" class="sc-card-item">
+          <div class="sc-card-poster">
             <img v-if="posterUrl(item)" :src="posterUrl(item)" :alt="item.title" loading="lazy" />
-            <VIcon v-else icon="mdi-filmstrip-box-multiple" size="18" class="sc-poster-ph" />
-          </span>
-          <span class="sc-media">
-            <div class="sc-media-title">
+            <VIcon v-else icon="mdi-filmstrip-box-multiple" size="30" class="sc-poster-ph" />
+            <span class="sc-card-badge">
+              <VChip size="x-small" variant="flat" :color="decisionColor(item.decision)">
+                {{ decisionLabel(item.decision) }}
+              </VChip>
+            </span>
+          </div>
+          <div class="sc-card-body">
+            <div class="sc-card-title" :title="item.title">
               <b>{{ item.title }}</b>
-              <span v-if="item.year" class="sc-dim">({{ item.year }})</span>
             </div>
-            <div class="sc-media-tags">
-              <VChip v-if="item.media_type" size="x-small" variant="tonal">{{ item.media_type }}</VChip>
-              <VChip size="x-small" variant="text" class="sc-dim">{{ item.source }}</VChip>
-              <span v-if="item.confidence" class="sc-dim">身份 {{ item.confidence }}</span>
-              <span v-if="item.release_date" class="sc-dim">放送 {{ item.release_date }}</span>
+            <div class="sc-card-meta">
+              <span v-if="item.year">{{ item.year }}</span>
+              <span v-if="item.media_type">{{ item.media_type }}</span>
+              <span>{{ item.source }}</span>
+              <span v-if="item.confidence">{{ item.confidence }}</span>
             </div>
-          </span>
-          <span v-if="item.reason" class="sc-reason sc-dim" :title="item.reason">
-            {{ item.reason }}
-          </span>
-          <span v-else class="sc-dim">—</span>
-          <span class="sc-decision">
-            <VChip size="x-small" variant="flat" :color="decisionColor(item.decision)">
-              {{ decisionLabel(item.decision) }}
-            </VChip>
-            <span class="sc-mono sc-dim">{{ String(item.run_at || '').slice(5, 16) }}</span>
-          </span>
+            <div v-if="item.release_date" class="sc-card-meta">
+              放送 {{ item.release_date }}
+            </div>
+            <div v-if="item.reason" class="sc-card-reason" :title="item.reason">
+              {{ item.reason }}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -524,33 +519,77 @@ onUnmounted(() => {
 }
 
 /* 流水表格 */
-.sc-table {
-  display: flex;
-  flex-direction: column;
-}
-.sc-tr {
+/* 卡片网格：多列并排（对齐榜单页的观感） */
+.sc-grid {
   display: grid;
-  grid-template-columns: 44px minmax(150px, 1fr) minmax(140px, 1.3fr) 128px;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: 10px;
-  align-items: center;
-  padding: 7px 4px;
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
-  font-size: 12.5px;
 }
-.sc-tr:last-child {
-  border-bottom: none;
-}
-.sc-tr-head {
-  font-size: 11.5px;
-  font-weight: 600;
-  opacity: 0.55;
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.2);
-}
-.sc-media {
+.sc-card-item {
   display: flex;
-  align-items: baseline;
-  gap: 5px;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid rgba(var(--v-border-color), 0.14);
+  border-radius: 9px;
+  background: rgba(var(--v-theme-surface), 0.35);
   min-width: 0;
+}
+.sc-card-poster {
+  position: relative;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 80px;
+  border-radius: 7px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+}
+.sc-card-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sc-card-badge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  transform: scale(0.82);
+  transform-origin: bottom center;
+}
+.sc-card-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.sc-card-title {
+  font-size: 12.5px;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.sc-card-meta {
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.sc-card-reason {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .sc-reason {
   overflow: hidden;
@@ -613,14 +652,8 @@ onUnmounted(() => {
 }
 
 @media (max-width: 900px) {
-  .sc-tr {
-    grid-template-columns: 44px 1fr 110px;
-  }
-  .sc-tr-head {
-    display: none;
-  }
-  .sc-reason {
-    display: none;
+  .sc-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
 }
 </style>

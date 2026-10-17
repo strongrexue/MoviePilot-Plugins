@@ -131,10 +131,11 @@ const enabledSourceCount = computed(
 
 const sectionNav = computed(() => [
   { key: 'overview', label: '总览', icon: 'mdi-view-dashboard-outline' },
-  { key: 'source', label: '数据源', icon: 'mdi-radar', badge: `${enabledSourceCount.value}/${sourceRows.length}` },
-  { key: 'threshold', label: '窗口与阈值', icon: 'mdi-tune-variant' },
+  { key: 'tmdb', label: 'TMDB', icon: 'mdi-movie-open-outline' },
+  { key: 'anilist', label: 'AniList', icon: 'mdi-animation-outline' },
+  { key: 'douban', label: '豆瓣榜单', icon: 'mdi-movie-filter-outline' },
   { key: 'schedule', label: '写入与调度', icon: 'mdi-calendar-clock' },
-  { key: 'preview', label: '预览结果', icon: 'mdi-eye-outline', badge: previewItems.value.length || '' },
+  { key: 'preview', label: '预览结果', icon: 'mdi-eye-outline' },
 ])
 
 const overviewCards = computed(() => {
@@ -487,27 +488,14 @@ onMounted(() => {
         </template>
 
         <!-- 数据源 -->
-        <template v-if="activeSection === 'source'">
+        <template v-if="activeSection === 'douban'">
           <div class="sc-card">
-            <div class="sc-card-title">数据源</div>
-            <div v-for="row in sourceRows" :key="row.key" class="sc-row">
+            <div class="sc-row">
               <div class="sc-row-main">
-                <div class="sc-row-label">
-                  {{ row.label }}
-                  <VChip
-                    v-if="IMPLEMENTED.includes(row.key.replace('enable_', ''))"
-                    size="x-small"
-                    variant="flat"
-                    color="success"
-                    class="ml-1"
-                  >
-                    已实现
-                  </VChip>
-                  <VChip v-else size="x-small" variant="tonal" class="ml-1">未实现</VChip>
-                </div>
-                <div class="sc-row-hint">{{ row.hint }}</div>
+                <div class="sc-row-label">启用豆瓣 RSS</div>
+                <div class="sc-row-hint">经 RSSHub 的豆瓣路线发现；下面每条榜单可独立配置</div>
               </div>
-              <VSwitch v-model="form[row.key]" density="compact" hide-details color="primary" />
+              <VSwitch v-model="form.enable_douban_rss" density="compact" hide-details color="primary" />
             </div>
           </div>
 
@@ -615,7 +603,17 @@ onMounted(() => {
         </template>
 
         <!-- 窗口与阈值 -->
-        <template v-if="activeSection === 'threshold'">
+        <template v-if="activeSection === 'tmdb'">
+          <div class="sc-card">
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">启用 TMDB 数据源</div>
+                <div class="sc-row-hint">TMDB 即将上映 / 热门发现（电影与剧集）</div>
+              </div>
+              <VSwitch v-model="form.enable_tmdb" density="compact" hide-details color="primary" />
+            </div>
+          </div>
+
           <div class="sc-card">
             <div class="sc-card-title">
               <VIcon icon="mdi-movie-open-outline" size="16" /> TMDB
@@ -690,6 +688,19 @@ onMounted(() => {
             </div>
           </div>
 
+        </template>
+
+        <template v-if="activeSection === 'anilist'">
+          <div class="sc-card">
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">启用 AniList 数据源</div>
+                <div class="sc-row-hint">番剧新番 / 连载 / 国漫（含下一集播出时间）</div>
+              </div>
+              <VSwitch v-model="form.enable_anilist" density="compact" hide-details color="primary" />
+            </div>
+          </div>
+
           <div class="sc-card">
             <div class="sc-card-title">
               <VIcon icon="mdi-animation-outline" size="16" /> AniList
@@ -755,6 +766,9 @@ onMounted(() => {
             </div>
           </div>
 
+        </template>
+
+        <template v-if="activeSection === 'douban'">
           <div class="sc-card">
             <div class="sc-card-title">
               <VIcon icon="mdi-movie-filter-outline" size="16" /> 豆瓣 RSS

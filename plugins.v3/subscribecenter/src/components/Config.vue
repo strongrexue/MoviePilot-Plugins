@@ -210,6 +210,33 @@ const overviewAlerts = computed(() => {
   return list
 })
 
+/** 豆瓣榜单列表（每榜独立配置）。 */
+const doubanLists = computed(() => form.value.douban_rss_sources || [])
+
+/** 添加一条自定义榜单。 */
+function addDoubanList() {
+  if (!Array.isArray(form.value.douban_rss_sources)) form.value.douban_rss_sources = []
+  form.value.douban_rss_sources.push({
+    name: '自定义榜单',
+    url: '',
+    enabled: true,
+    max_items: 30,
+    future_days: 3,
+    min_want: 0,
+  })
+}
+
+/** 删除一条榜单。 */
+function removeDoubanList(index) {
+  const list = form.value.douban_rss_sources
+  if (Array.isArray(list) && index >= 0 && index < list.length) list.splice(index, 1)
+}
+
+/** 统计启用条数（卡片标题用）。 */
+const doubanEnabledCount = computed(
+  () => doubanLists.value.filter((entry) => entry && entry.enabled).length,
+)
+
 function setTip(text, ok = true) {
   tip.value = { show: true, ok, text }
 }
@@ -483,17 +510,83 @@ onMounted(() => {
 
           <div class="sc-card">
             <div class="sc-card-title">豆瓣 RSS 路线</div>
-            <VTextarea
-              v-model="doubanSourcesText"
-              label="每行一个地址"
-              rows="3"
-              auto-grow
-              density="compact"
-              hide-details
-              variant="outlined"
-              :disabled="!form.enable_douban_rss"
-              placeholder="http://<RSSHub>:1200/douban/movie/coming"
-            />
+            <div class="sc-list-head">
+              <span class="sc-hint">已启用 {{ doubanEnabledCount }} / {{ doubanLists.length }} 条</span>
+              <VBtn size="x-small" variant="tonal" prepend-icon="mdi-plus" @click="addDoubanList">
+                添加榜单
+              </VBtn>
+            </div>
+            <div
+              v-for="(entry, index) in doubanLists"
+              :key="index"
+              class="sc-list-item"
+              :class="{ 'sc-list-off': !entry.enabled }"
+            >
+              <div class="sc-list-row">
+                <VSwitch
+                  v-model="entry.enabled"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                  class="sc-list-switch"
+                />
+                <VTextField
+                  v-model="entry.name"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  placeholder="榜单名称"
+                  style="max-width: 160px"
+                />
+                <VTextField
+                  v-model="entry.url"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  placeholder="/douban/movie/coming 或完整 URL"
+                  class="sc-list-url"
+                />
+                <VBtn
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  icon="mdi-delete-outline"
+                  @click="removeDoubanList(index)"
+                />
+              </div>
+              <div class="sc-list-row sc-list-params">
+                <VTextField
+                  v-model.number="entry.max_items"
+                  label="每榜条数"
+                  type="number"
+                  min="1"
+                  max="200"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+                <VTextField
+                  v-model.number="entry.future_days"
+                  label="窗口天数（0=沿用全局）"
+                  type="number"
+                  min="0"
+                  max="120"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+                <VTextField
+                  v-model.number="entry.min_want"
+                  label="最低想看（0=不限）"
+                  type="number"
+                  min="0"
+                  step="100"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+              </div>
+            </div>
             <div class="sc-hint mt-2">
               <b>电影上映类</b>（<code>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br />
               <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
@@ -1075,6 +1168,43 @@ onMounted(() => {
 .sc-content::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: rgba(var(--v-border-color), 0.4);
+}
+
+/* 榜单列表编辑器 */
+.sc-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sc-list-item {
+  padding: 8px;
+  border: 1px solid rgba(var(--v-border-color), 0.14);
+  border-radius: 9px;
+  margin-bottom: 8px;
+}
+.sc-list-off {
+  opacity: 0.5;
+}
+.sc-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-list-row + .sc-list-row {
+  margin-top: 8px;
+}
+.sc-list-switch {
+  flex: 0 0 auto;
+}
+.sc-list-url {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sc-list-params > * {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* 卡片 */

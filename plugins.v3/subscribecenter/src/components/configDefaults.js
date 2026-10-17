@@ -36,7 +36,16 @@ export const configDefaults = {
   filter_original_language: true,
   tmdb_original_languages: 'zh,ja,ko,en',
   // ---------------- 豆瓣 RSS 源列表
-  douban_rss_sources: [],
+  // ---------------- 豆瓣 RSS 榜单（每榜独立配置）
+  douban_rss_sources: [
+    { name: '电影即将上映', url: '/douban/movie/coming', enabled: true, max_items: 30, future_days: 30, min_want: 0 },
+    { name: '剧集即将播出', url: '/douban/tv/coming', enabled: true, max_items: 30, future_days: 30, min_want: 0 },
+    { name: '近期热门剧集', url: '/douban/list/tv_real_time_hotest', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
+    { name: '近期热门国产剧', url: '/douban/list/tv_domestic', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
+    { name: '近期热门综艺', url: '/douban/list/tv_variety', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
+    { name: '近期热门动画', url: '/douban/list/tv_animation', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
+    { name: '豆瓣推荐剧集', url: '/douban/recommended/tv', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
+  ],
   douban_max_items_per_feed: 30,
   douban_future_days: 3,
   douban_min_want: 0,

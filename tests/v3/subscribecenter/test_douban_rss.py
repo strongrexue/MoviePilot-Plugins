@@ -106,7 +106,8 @@ CONFIG = {"douban_rss_sources": ["http://nas:1200/douban/movie/coming"]}
 )
 def test_parse_sources(value, expected):
     """地址支持 list / 逗号 / 换行（含全角逗号）。"""
-    assert parse_sources(value) == expected
+    # parse_sources 现在返回归一化后的 dict 列表（每榜独立配置），这里只比 URL
+    assert [entry["url"] for entry in parse_sources(value)] == expected
 
 
 # --------------------------------------------------------------------- 解析
@@ -335,3 +336,47 @@ async def test_fetch_sorts_by_release_date():
 def test_douban_is_implemented_source():
     """豆瓣 RSS 必须登记为已实现源，否则配置里打开也会被跳过。"""
     assert C.SOURCE_DOUBAN_RSS in C.IMPLEMENTED_SOURCES
+
+
+# ------------------------------------------------- 每榜独立配置（1.1.0）
+
+def test_parse_sources_keeps_per_list_params():
+    """每榜参数（条数/窗口/想看/开关）必须保留。"""
+    from subscribecenter.sources.douban_rss import parse_sources
+
+    parsed = parse_sources([
+        {"name": "即将上映", "url": "http://x/movie/coming", "max_items": 10,
+         "future_days": 30, "min_want": 500},
+        {"name": "关掉的", "url": "http://x/list/tv_hot", "enabled": False},
+    ])
+    assert len(parsed) == 1, "停用的榜单不应进入抓取"
+    entry = parsed[0]
+    assert entry["name"] == "即将上映"
+    assert entry["max_items"] == 10
+    assert entry["future_days"] == 30
+    assert entry["min_want"] == 500
+
+
+def test_list_name_derived_from_url():
+    """自定义 URL 也应推导出可读名字，界面上才看得懂是哪条榜单。"""
+    from subscribecenter.sources.douban_rss import list_name_of
+
+    assert list_name_of("http://h:1200/douban/movie/coming") == "电影即将上映"
+    assert list_name_of("http://h:1200/douban/list/tv_domestic") == "近期热门国产剧"
+    assert list_name_of("http://h:1200/douban/whatever") == "whatever"
+
+
+def test_migration_converts_url_list_to_entries():
+    """老配置（裸 URL 列表）升级为每榜配置，且不丢失原有地址。"""
+    from subscribecenter.core.constants import _migrate_douban_lists
+
+    migrated = _migrate_douban_lists([
+        "http://h:1200/douban/movie/coming",
+        "http://h:1200/douban/list/tv_hot",
+    ])
+    assert [e["url"] for e in migrated] == [
+        "http://h:1200/douban/movie/coming",
+        "http://h:1200/douban/list/tv_hot",
+    ]
+    assert all(e["enabled"] for e in migrated)
+    assert migrated[0]["name"] == "电影即将上映"

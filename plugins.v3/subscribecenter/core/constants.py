@@ -3,14 +3,15 @@
 本模块只放**无副作用**的纯常量与默认值，便于单元测试直接导入，
 不触发任何宿主依赖或网络调用。
 """
-from typing import Any, Dict
+import copy
+from typing import Any, Dict, List
 
 # --------------------------------------------------------------------- 插件元信息
 
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "1.0.11"
+PLUGIN_VERSION = "1.1.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -113,7 +114,73 @@ IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB, SOURCE_ANILIST, SOURCE_DOUBAN_RSS}
 # --------------------------------------------------------------------- 配置
 
 #: 当前配置结构版本。每次改了默认值且希望老用户跟着变，就 +1 并在 config_migrations 登记。
-CONFIG_VERSION = 4
+#: 豆瓣 RSS 的内置榜单预设。
+#:
+#: 每一条都是**实测可用**的 RSSHub 路线（404 的 ustop250 / movie/new 未列入）。
+#: 每条独立可控：开关 / 每榜条数 / 窗口天数 / 最低想看人数 —— 用 dict 而不是
+#: 裸 URL 列表，是因为「即将上映」带精确日期（窗口可放宽到 30 天）、
+#: 而榜单类没有日期（靠 TMDB 未播集判断），两者理想参数本来就不同。
+DEFAULT_DOUBAN_LISTS = [
+    {
+        "name": "电影即将上映",
+        "url": "/douban/movie/coming",
+        "enabled": True,
+        "max_items": 30,
+        "future_days": 30,
+        "min_want": 0,
+    },
+    {
+        "name": "剧集即将播出",
+        "url": "/douban/tv/coming",
+        "enabled": True,
+        "max_items": 30,
+        "future_days": 30,
+        "min_want": 0,
+    },
+    {
+        "name": "近期热门剧集",
+        "url": "/douban/list/tv_real_time_hotest",
+        "enabled": True,
+        "max_items": 30,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "近期热门国产剧",
+        "url": "/douban/list/tv_domestic",
+        "enabled": True,
+        "max_items": 30,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "近期热门综艺",
+        "url": "/douban/list/tv_variety",
+        "enabled": True,
+        "max_items": 30,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "近期热门动画",
+        "url": "/douban/list/tv_animation",
+        "enabled": True,
+        "max_items": 30,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "豆瓣推荐剧集",
+        "url": "/douban/recommended/tv",
+        "enabled": True,
+        "max_items": 30,
+        "future_days": 3,
+        "min_want": 0,
+    },
+]
+
+
+CONFIG_VERSION = 5
 
 
 def default_config() -> Dict[str, Any]:
@@ -167,7 +234,9 @@ def default_config() -> Dict[str, Any]:
         "filter_original_language": True,
         "tmdb_original_languages": DEFAULT_ORIGINAL_LANGUAGES,
         # ---------------- 豆瓣 RSS 源列表
-        "douban_rss_sources": [],
+        #: 豆瓣 RSS 榜单列表：内置预设 + 自定义，每条独立控制
+        #: （name / url / enabled / max_items / future_days / min_want）
+        "douban_rss_sources": copy.deepcopy(DEFAULT_DOUBAN_LISTS),
         #: 每个榜单最多取前 N 条（榜单按名次排列，取前 N 即取最热的）。
         #: 实测 /douban/list/tv_hot 有 241 条，不限量会把额度全吃掉。
         "douban_max_items_per_feed": 30,
@@ -262,7 +331,36 @@ def config_migrations() -> Dict[int, Dict[str, Any]]:
             "anilist_future_days": DEFAULT_FUTURE_DAYS,
             "anilist_include_donghua": True,
         },
+        # v4 -> v5：豆瓣 RSS 从「裸 URL 列表」升级为「每榜独立配置」。
+        # 迁移只做格式转换，不改用户的选择（老的 URL 全部保留、默认启用），
+        # 名字从 URL 末段推导；已是 dict 列表则原样保留。
+        5: {"douban_rss_sources": "migrate_lists"},
     }
+
+
+def _migrate_douban_lists(value: Any) -> List[Dict[str, Any]]:
+    """把老的豆瓣 RSS 配置迁移成「每榜独立配置」列表。
+
+    老形态是字符串列表（每行一个 URL）；新形态是 dict 列表。
+    迁移**不改用户的选择**：老的 URL 全部保留并默认启用，名字从 URL 末段推导
+    （``/douban/movie/coming`` -> ``电影即将上映`` 这类推导不出来时就用末段原文）。
+    """
+    from ..sources.douban_rss import list_name_of, normalize_list_entry
+
+    if not isinstance(value, (list, tuple)):
+        return []
+    result: List[Dict[str, Any]] = []
+    for entry in value:
+        if isinstance(entry, dict):
+            normalized = normalize_list_entry(entry)
+            if normalized["url"]:
+                result.append(normalized)
+            continue
+        url = str(entry or "").strip()
+        if not url:
+            continue
+        result.append(normalize_list_entry({"url": url, "name": list_name_of(url)}))
+    return result
 
 
 def migrate_config(config: Dict[str, Any]) -> tuple:
@@ -284,6 +382,13 @@ def migrate_config(config: Dict[str, Any]) -> tuple:
         next_version = current + 1
         patch = migrations.get(next_version) or {}
         for key, value in patch.items():
+            if value == "migrate_lists":
+                # 特殊迁移：豆瓣 RSS 从裸 URL 列表升级为每榜独立配置
+                converted = _migrate_douban_lists(config.get(key))
+                if config.get(key) != converted:
+                    config[key] = converted
+                    changes.append(f"{key}: -> {len(converted)} 条榜单")
+                continue
             if config.get(key) != value:
                 config[key] = value
                 changes.append(f"{key}: -> {value}")

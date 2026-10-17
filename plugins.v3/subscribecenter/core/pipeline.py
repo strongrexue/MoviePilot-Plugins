@@ -349,6 +349,17 @@ def select_items(
         # 热度门槛也必须按源区分：TMDB popularity 中位数约 3（>=15 算热门），
         # 而 AniList popularity 冷门番也有上千，共用 15 等于完全不过滤。
         popularity_threshold = popularity_map.get(item.source, min_popularity)
+        # 每条榜单可以带自己的窗口与想看门槛（豆瓣 RSS 的「每榜独立控制」）：
+        # 即将上映带精确日期、窗口可放宽；榜单类无日期靠 TMDB 判断。
+        raw = item.raw if isinstance(item.raw, dict) else {}
+        try:
+            window_days = int(raw.get("future_days") or window_days)
+        except (TypeError, ValueError):
+            pass
+        try:
+            item_min_want = float(raw.get("min_want") or min_want)
+        except (TypeError, ValueError):
+            item_min_want = min_want
 
         if not filter_by_rating(item, rating_threshold):
             rejected.append(
@@ -364,12 +375,12 @@ def select_items(
             # 所以单独设门槛。缺失时放行 —— 榜单类路线没有这个数据，
             # 若按「缺失即拦」处理会让整个榜单源失效。
             want = item.raw.get("want") if isinstance(item.raw, dict) else None
-            if want is not None and float(want) < min_want:
+            if want is not None and float(want) < item_min_want:
                 rejected.append(
                     WriteOutcome(
                         item=item,
                         decision=DECISION_SKIPPED_WANT,
-                        reason=f"豆瓣想看 {want} < {min_want:.0f}（冷门，避免占用写入额度）",
+                        reason=f"豆瓣想看 {want} < {item_min_want:.0f}（冷门，避免占用写入额度）",
                     )
                 )
                 continue

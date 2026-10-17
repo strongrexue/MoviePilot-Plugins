@@ -82,17 +82,33 @@ class DoubanRssSource:
             )
 
         tz_name = config.get("timezone")
-        limit = _as_int(config.get("douban_max_items_per_feed"), DEFAULT_MAX_ITEMS_PER_FEED)
+        default_limit = _as_int(
+            config.get("douban_max_items_per_feed"), DEFAULT_MAX_ITEMS_PER_FEED
+        )
+        default_days = _as_int(config.get("douban_future_days"), 0)
+        default_want = _as_int(config.get("douban_min_want"), 0)
         items: List[DiscoveredItem] = []
         errors: List[str] = []
 
-        for url in urls:
+        for entry in urls:
+            url = entry["url"]
+            limit = entry["max_items"] or default_limit
             try:
                 text = await self._fetch_text(url)
             except Exception as exc:  # noqa: BLE001 - 单条 URL 失败不拖垮其余
                 errors.append(f"{url}: {type(exc).__name__}: {exc}")
                 continue
-            items.extend(self.parse(text, url, tz_name, limit))
+            parsed = self.parse(text, url, tz_name, limit)
+            # 每榜独立参数：写进 raw，流水线按条目覆盖全局阈值
+            window = entry["future_days"] or default_days
+            want = entry["min_want"] or default_want
+            for item in parsed:
+                item.raw["douban_list"] = entry["name"]
+                if window:
+                    item.raw["future_days"] = window
+                if want:
+                    item.raw["min_want"] = want
+            items.extend(parsed)
 
         if not items and errors:
             # 全部失败才算该源失败（部分成功时保留已拿到的内容）
@@ -204,24 +220,89 @@ class DoubanRssSource:
 
 # --------------------------------------------------------------------- 工具
 
-def parse_sources(value: Any) -> List[str]:
-    """把配置里的地址解析成 URL 列表（支持 list / 逗号 / 换行分隔）。"""
+#: 内置榜单名（按 URL 末段推导，用户可覆盖）
+_LIST_NAMES = {
+    "movie_coming": "电影即将上映",
+    "tv_coming": "剧集即将播出",
+    "tv_real_time_hotest": "近期热门剧集",
+    "tv_domestic": "近期热门国产剧",
+    "tv_variety": "近期热门综艺",
+    "tv_animation": "近期热门动画",
+    "movie_real_time_hotest": "近期热门电影",
+    "movie_showing": "正在上映",
+    "tv_chinese_best_weekly": "华语口碑剧集",
+    "tv_global_best_weekly": "全球口碑剧集",
+    "movie_weekly_best": "电影口碑榜",
+}
+
+
+def list_name_of(url: str) -> str:
+    """从 RSSHub 路线推导榜单名（/douban/movie/coming -> 电影即将上映）。
+
+    RSSHub 的豆瓣路线 key 是「末两段」拼起来的（movie_coming / tv_domestic），
+    所以先按末两段查表，查不到再退回末段，最后退回原文 —— 保证自定义路线
+    在界面上也有个可读名字。
+    """
+    parts = [p for p in str(url or "").split("/") if p]
+    tail = parts[-1] if parts else ""
+    key = "_".join(parts[-2:]) if len(parts) >= 2 else tail
+    return _LIST_NAMES.get(key) or _LIST_NAMES.get(tail) or tail or "自定义榜单"
+
+
+def normalize_list_entry(entry: Any) -> Dict[str, Any]:
+    """把一条榜单配置归一化为固定字段。
+
+    兼容老的字符串 URL 与新 dict 两种形态；缺省值走全局配置，
+    所以老配置升级后行为不变。
+    """
+    if isinstance(entry, str):
+        entry = {"url": entry}
+    if not isinstance(entry, dict):
+        entry = {}
+    url = str(entry.get("url") or "").strip()
+    return {
+        "name": str(entry.get("name") or "").strip() or list_name_of(url),
+        "url": url,
+        "enabled": bool(entry.get("enabled", True)),
+        # 0 = 跟随全局 douban_max_items_per_feed（老配置迁移过来时走这条）
+        "max_items": _as_int(entry.get("max_items"), 0),
+        "future_days": _as_int(entry.get("future_days"), 0),
+        "min_want": _as_int(entry.get("min_want"), 0),
+    }
+
+
+def parse_sources(value: Any) -> List[Dict[str, Any]]:
+    """解析榜单配置，返回**已归一化且启用**的列表。
+
+    支持 list / dict / 字符串 / 换行或逗号分隔（老配置是最后一种）。
+    ``enabled=False`` 的条目会被跳过。
+    """
     if not value:
         return []
+    entries: List[Any] = []
     if isinstance(value, str):
-        raw = re.split(r"[\n,，]+", value)
+        entries = re.split(r"[\n,，]+", value)
+    elif isinstance(value, dict):
+        entries = [value]
     elif isinstance(value, (list, tuple)):
-        raw = []
         for entry in value:
-            raw.extend(re.split(r"[\n,，]+", str(entry)))
-    else:
-        return []
-    urls: List[str] = []
-    for piece in raw:
-        url = piece.strip()
-        if url and url not in urls:
-            urls.append(url)
-    return urls
+            if isinstance(entry, dict):
+                entries.append(entry)
+            else:
+                entries.extend(re.split(r"[\n,，]+", str(entry)))
+
+    result: List[Dict[str, Any]] = []
+    seen: set = set()
+    for entry in entries:
+        normalized = normalize_list_entry(entry)
+        url = normalized["url"]
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        if not normalized["enabled"]:
+            continue
+        result.append(normalized)
+    return result
 
 
 #: 行首四位年份（19xx / 20xx）

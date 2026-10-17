@@ -78,29 +78,31 @@ class HostTmdbResolver:
         """返回候选：宿主识别结果 + 不带年份的原始搜索。
 
         .. important::
-           宿主识别**返回了结果**也要补一次原始搜索。真机踩过：宿主把
+           宿主识别**返回了结果**也要补两次搜索。真机踩过：宿主把
            「豫见她们 第2季」识别成了别的剧，我们的匹配规则拒掉之后就没有
            第二次机会，条目直接退化成「待确认」。识别结果只是**候选之一**，
            不是最终答案。
+
+        .. important::
+           这里调 **`async_recognize_media`**（宿主完整的多源识别，就是 MP 搜索框
+           用的那条链路），而不是只调 `async_recognize_by_meta`。
+
+           真机对照：另一个同类插件（doubancenter）只做
+           ``plugin.chain.recognize_media(meta, mtype)`` 就够 —— 因为宿主内部会
+           走 TMDB + 豆瓣 + Bangumi 并做跨源换算。而我们之前只调了单源变体，
+           把最强的这条路径绕过去了，于是「人生交换」（TMDB 叫「交换人生」）
+           这类译名不同的条目全部落进待确认。
         """
         from app.chain.media import MediaChain
 
         candidates: List[Dict[str, Any]] = []
         seen: set = set()
 
-        try:
-            metainfo = _build_metainfo(title, year, media_type)
-            mediainfo = await MediaChain().async_recognize_by_meta(
-                metainfo,
-                media_source=media_source_enum(HOST_SOURCE_TMDB),
-                obtain_images=False,
-                mtype=media_type_enum(media_type),
-            )
-        except Exception:  # noqa: BLE001 - 识别失败只表示少一个候选
-            mediainfo = None
-
-        tmdb_id = getattr(mediainfo, "tmdb_id", None) if mediainfo else None
-        if tmdb_id:
+        def _append(mediainfo: Any, source: str) -> None:
+            """把识别结果转成候选。"""
+            tmdb_id = getattr(mediainfo, "tmdb_id", None) if mediainfo else None
+            if not tmdb_id or str(tmdb_id) in seen:
+                return
             seen.add(str(tmdb_id))
             candidates.append(
                 {
@@ -110,11 +112,42 @@ class HostTmdbResolver:
                     "year": getattr(mediainfo, "year", None),
                     "release_date": getattr(mediainfo, "release_date", None),
                     "media_type": media_type,
+                    "via": source,
                 }
             )
 
-        # 宿主识别带年份约束，续作／更名剧会失败；改名剧还会给出错误结果。
-        # 因此始终补一次不带年份的原始搜索（按基础剧名）。
+        try:
+            metainfo = _build_metainfo(title, year, media_type)
+        except Exception:  # noqa: BLE001 - 构造失败等同无候选
+            metainfo = None
+
+        # ① 宿主完整多源识别（TMDB + 豆瓣 + Bangumi + 跨源换算）
+        try:
+            _append(
+                await MediaChain().async_recognize_media(
+                    metainfo, mtype=media_type_enum(media_type)
+                ),
+                "recognize_media",
+            )
+        except Exception:  # noqa: BLE001 - 识别失败只表示少一个候选
+            pass
+
+        # ② 指定 TMDB 源的识别（某些场景更精确）
+        if metainfo is not None:
+            try:
+                _append(
+                    await MediaChain().async_recognize_by_meta(
+                        metainfo,
+                        media_source=media_source_enum(HOST_SOURCE_TMDB),
+                        obtain_images=False,
+                        mtype=media_type_enum(media_type),
+                    ),
+                    "recognize_by_meta",
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        # ③ 不带年份的原始搜索（绕过宿主那层「名称必须包含查询词」的过滤）
         for candidate in await self._search_without_year(title, media_type):
             key = str(candidate.get("tmdb_id"))
             if key and key not in seen:

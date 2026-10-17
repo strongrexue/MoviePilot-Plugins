@@ -748,7 +748,9 @@ class IdentityResolver:
                     seen.add(name)
                     terms.append((name, f"alias:{name}"))
 
+        attempts: List[str] = item.raw.setdefault("search_attempts", [])
         for term, label in terms:
+            attempts.append(term)
             try:
                 extra = await search_raw(term, item.media_type)
             except Exception:  # noqa: BLE001 - 单个备选名失败继续下一个

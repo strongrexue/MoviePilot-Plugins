@@ -152,7 +152,10 @@ def _pending_reason(item: DiscoveredItem, confidence: str) -> str:
     这里把**实际尝试过的搜索词**写出来，并指出下一步：
     如果是 TMDB 里确实没有该条目，那只能手动订阅。
     """
-    tried = item.raw.get("search_variants") if isinstance(item.raw, dict) else None
+    tried = None
+    if isinstance(item.raw, dict):
+        # 优先用「实际尝试过」的搜索词（含豆瓣别名、裸搜），比只列变体有用得多
+        tried = item.raw.get("search_attempts") or item.raw.get("search_variants")
     media = "电影" if item.media_type == "movie" else "剧集"
     if tried:
         terms = "、".join(str(term) for term in tried)

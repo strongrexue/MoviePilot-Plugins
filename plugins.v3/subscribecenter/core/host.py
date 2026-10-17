@@ -378,6 +378,23 @@ class HostTmdbResolver:
             return (True, None, None)
 
     @staticmethod
+    async def season_exists(tmdb_id: str, media_type: str, season: int) -> bool:
+        """该剧是否存在第 N 季（不论是否播完）。
+
+        用于消歧：多个同名候选里，只有正确那条才有「第 5 季」。
+        播完与否交给 `finished` 闸门去标注，别把「已播完」误报成「搜不到」。
+        """
+        if media_type != MEDIA_TYPE_TV:
+            return False
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+
+            detail = await TmdbApi().async_get_tv_season_detail(int(tmdb_id), int(season)) or {}
+            return bool(detail.get("episodes"))
+        except Exception:  # noqa: BLE001 - 查询失败视为不存在
+            return False
+
+    @staticmethod
     async def _season_has_upcoming(api: Any, tmdb_id: int, season: int, start: Any) -> bool:
         """该季是否还有未播集。"""
         detail = await api.async_get_tv_season_detail(tmdb_id, season) or {}

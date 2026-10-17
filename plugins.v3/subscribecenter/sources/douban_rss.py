@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from xml.etree import ElementTree
 
 from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV, SOURCE_DOUBAN_RSS
+from ..core.identity import sanitize_title
 from ..core.model import DiscoveredItem, is_special
 from ..core.window import parse_date
 
@@ -158,7 +159,8 @@ class DoubanRssSource:
 
         items: List[DiscoveredItem] = []
         for node in root.iter("item"):
-            title = (node.findtext("title") or "").strip()
+            # 清洗零宽字符：真机豆瓣标题会带 U+200B，导致季号剥不掉、搜不到
+            title = sanitize_title(node.findtext("title"))
             if not title:
                 continue
             description = html.unescape(node.findtext("description") or "")

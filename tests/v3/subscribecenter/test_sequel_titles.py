@@ -121,12 +121,26 @@ def test_tv_rejects_contained_title_without_year():
 
 
 def test_tv_still_rejects_ambiguity():
-    """多条同名候选仍然拒绝（歧义不猜）。"""
+    """多条同名候选、且没有一条年份接近 -> 仍然拒绝（歧义不猜）。"""
     candidates = [
-        {"tmdb_id": 1, "title": "牧神记", "year": "2024", "media_type": "tv"},
-        {"tmdb_id": 2, "title": "牧神记", "year": "2019", "media_type": "tv"},
+        {"tmdb_id": 1, "title": "牧神记", "year": "2015", "media_type": "tv"},
+        {"tmdb_id": 2, "title": "牧神记", "year": "2010", "media_type": "tv"},
     ]
     assert match_candidate_year(candidates, tv("牧神记"), strict_year=False) is None
+
+
+def test_tv_ambiguity_resolved_by_year_proximity():
+    """多条同名但有**恰好一条**年份在 ±2 内 -> 用它消歧。
+
+    真机：搜「半熟恋人」返回两条同名（2021 / 2012）。
+    """
+    candidates = [
+        {"tmdb_id": 1, "title": "半熟恋人", "year": "2012", "media_type": "tv"},
+        {"tmdb_id": 2, "title": "半熟恋人", "year": "2026", "media_type": "tv"},
+    ]
+    hit = match_candidate_year(candidates, tv("半熟恋人", "2026"), strict_year=False)
+    assert hit is not None
+    assert hit[0]["tmdb_id"] == 2
 
 
 def test_movie_keeps_strict_year():

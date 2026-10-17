@@ -133,6 +133,30 @@ _FULLWIDTH_END = 0xFF5E
 _FULLWIDTH_OFFSET = 0xFEE0
 
 
+#: 需要从标题里清掉的隐形/零宽字符（真机：豆瓣标题尾部带 U+200B）
+_INVISIBLE = dict.fromkeys(
+    map(
+        ord,
+        "\u200b\u200c\u200d\u2060\ufeff\u00a0\u3000\u2000\u2001\u2002\u2003\u2004\u2005",
+    ),
+    " ",
+)
+
+
+def sanitize_title(title: Optional[str]) -> str:
+    """清掉标题里的零宽字符与异常空白。
+
+    真机：《豫见她们 第2季》的豆瓣标题实际是 ``'豫见她们 第2季\\u200b'`` ——
+    尾部一个零宽空格。它让「第2季」剥不掉（正则 ``$`` 匹配不到），于是拿
+    带隐藏字符的整串去搜 TMDB，命中率必然为 0。
+
+    所有标题工具（``normalize_title`` / ``strip_season_suffix`` /
+    ``strip_trailing_year`` / ``extract_season_hint``）都先走这一步。
+    """
+    text = str(title or "").translate(_INVISIBLE)
+    return " ".join(text.split()).strip()
+
+
 def normalize_title(title: Optional[str]) -> str:
     """标准化标题：全角转半角、去装饰、压空白、统一小写。
 
@@ -140,7 +164,7 @@ def normalize_title(title: Optional[str]) -> str:
     """
     if not title:
         return ""
-    text = unicodedata.normalize("NFKC", str(title))
+    text = unicodedata.normalize("NFKC", sanitize_title(title))
     # 显式再做一次全角 ASCII 折叠：NFKC 对部分来源文本不生效
     chars: List[str] = []
     for char in text:
@@ -207,7 +231,7 @@ def strip_season_suffix(title: Optional[str]) -> str:
 
     :return: 基础名；不满足上述约束时原样返回
     """
-    text = str(title or "").strip()
+    text = sanitize_title(title)
     if not text:
         return text
     match = _SEASON_SUFFIX.search(text)
@@ -251,7 +275,7 @@ def strip_trailing_year(title: Optional[str], tz_name: Optional[str] = None) -> 
     - 只削 **2000 ~ 今年+1** 之间的年份 —— 「银翼杀手2099」「1917」不受伤；
     - 削完基础名至少 2 个字符。
     """
-    text = str(title or "").strip()
+    text = sanitize_title(title)
     if not text:
         return text
     match = _TRAILING_YEAR.search(text)
@@ -334,7 +358,7 @@ def extract_season_hint(title: Optional[str]) -> Optional[int]:
     在 TMDB 只有第 1 季）。真正的季号由宿主按「TMDB 哪个季有未播内容」
     决定，这里只提供线索。
     """
-    text = str(title or "").strip()
+    text = sanitize_title(title)
     if not text or strip_season_suffix(text) == text:
         return None
     match = _SEASON_SUFFIX.search(text)
@@ -468,7 +492,19 @@ def match_candidate_year(
         matched.append((candidate, reason))
 
     if len(matched) != 1:
-        # 0 条：未命中；>1 条：歧义 —— 两种情况都不确认
+        # 0 条：未命中；>1 条：先试「年份就近」消歧，仍不行才算歧义。
+        #
+        # 真机：搜「信号」返回 11 条（心动的信号 / 信号 / 心脏信号 …），
+        # 搜「半熟恋人」返回两条同名（2021 / 2012）。只要其中**恰好一条**
+        # 落在条目年份 ±2 内，就能唯一确定。
+        if not strict_year and wanted_year and len(matched) > 1:
+            close: List[Tuple[dict, str]] = []
+            for candidate, desc in matched:
+                year = _year_of(candidate.get("year") or candidate.get("release_date"))
+                if year and abs(int(year) - int(wanted_year)) <= 2:
+                    close.append((candidate, desc))
+            if len(close) == 1:
+                return close[0]
         return None
     return matched[0]
 
@@ -577,6 +613,25 @@ class IdentityResolver:
                 await self._resolve_target_season(item)
                 return item
 
+            # ---- L3 按季号消歧
+            #
+            # 真机：搜「信号」返回 11 条同名候选，「信号 第二季」的正确条目是
+            # 韩剧《信号》(64840, 2016)，靠标题+年份都定不下来 —— 但它的
+            # 第 2 季确实有未播集。所以用「候选是否真有该季未播集」来唯一确定。
+            by_season = await self._disambiguate_by_season(candidates, item)
+            if by_season:
+                candidate, season_no = by_season
+                identity = ResolvedIdentity(
+                    media_source=HOST_SOURCE_TMDB,
+                    media_id=str(candidate["tmdb_id"]),
+                    confidence=CONFIDENCE_L3,
+                    reason=f"search:season_hint({season_no})",
+                )
+                item.resolved = identity
+                self._remember(item, identity)
+                await self._resolve_target_season(item)
+                return item
+
             # ---- L3 换策略重试
             #
             # 真机：豆瓣综艺把年份写进标题（妻子的浪漫旅行2026），而 TMDB 里
@@ -596,6 +651,63 @@ class IdentityResolver:
                 return item
 
         return item
+
+    async def _disambiguate_by_season(
+        self, candidates: Sequence[dict], item: DiscoveredItem
+    ) -> Optional[Tuple[dict, int]]:
+        """用「候选是否真有该季的未播集」在多个同名候选里唯一确定。
+
+        真机场景：豆瓣「信号 第二季」→ 搜「信号」得到 11 条同名/近名候选，
+        标题与年份都无法消歧（韩剧《信号》首播 2016，而豆瓣条目是 2026 的第二季）。
+        但只有正确那条的**第 2 季有未播集**，所以按这个条件筛就唯一了。
+        """
+        if not item.is_tv:
+            return None
+        hint = extract_season_hint(item.title)
+        if not hint:
+            return None
+        checker = getattr(self._tmdb, "resolve_target_season", None)
+        if checker is None:
+            return None
+
+        target = normalize_title(strip_season_suffix(item.title))
+        same_show: List[dict] = []
+        for candidate in candidates[:8]:
+            title = normalize_title(candidate.get("title"))
+            original = normalize_title(candidate.get("original_title"))
+            if target and target not in (title, original):
+                continue
+            same_show.append(candidate)
+        if not same_show:
+            return None
+
+        # 第一优先：只有它「该季还有未播集」
+        winners: List[dict] = []
+        for candidate in same_show:
+            try:
+                verdict = await checker(str(candidate.get("tmdb_id")), item.media_type, hint)
+            except Exception:  # noqa: BLE001 - 单个候选查询失败不影响其余
+                continue
+            if verdict and verdict[0] and verdict[1] == hint:
+                winners.append(candidate)
+        if len(winners) == 1:
+            return winners[0], hint
+
+        # 第二优先：只有它「该季存在」（哪怕已经播完）。
+        # 这样「已播完」会由 finished 闸门明确标出，而不是误报成「搜不到」。
+        exists_checker = getattr(self._tmdb, "season_exists", None)
+        if exists_checker is None:
+            return None
+        existing: List[dict] = []
+        for candidate in same_show:
+            try:
+                if await exists_checker(str(candidate.get("tmdb_id")), item.media_type, hint):
+                    existing.append(candidate)
+            except Exception:  # noqa: BLE001
+                continue
+        if len(existing) == 1:
+            return existing[0], hint
+        return None
 
     async def _retry_with_variants(self, item: DiscoveredItem) -> bool:
         """用备选名重试搜索（去尾部年份、豆瓣又名/原名）。

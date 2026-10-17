@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Page from './__federation_expose_Page-N-q3184N.js';
-import Config from './__federation_expose_Config-qmK3JVwg.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-DJ-VK-pl.js';
+import Page from './__federation_expose_Page-5klKrgos.js';
+import Config from './__federation_expose_Config-C61EL8v2.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-Dkm0UtqI.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementBlock:_createElementBlock} = await importShared('vue');
 

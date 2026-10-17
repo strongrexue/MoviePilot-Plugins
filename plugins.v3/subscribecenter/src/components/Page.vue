@@ -270,12 +270,23 @@ const overviewLimit = ref(OVERVIEW_PAGE)
 const overviewSentinel = ref(null)
 let overviewObserver = null
 
-/** 哨兵是否已进入视口（或接近）。 */
+/** 网格的滚动容器（订阅总览内部滚动，不是窗口）。 */
+function overviewScroller() {
+  return overviewSentinel.value?.closest('.sc-poster-grid') || null
+}
+
+/** 哨兵是否已滚动到容器可视区附近。
+
+ 以前拿 `window.innerHeight` 判断 —— 网格改成内部滚动后，哨兵在裁剪区外
+ 但坐标仍在窗口内，于是循环一路加到 206 条（真机：展开直接全部加载）。
+ */
 function sentinelVisible() {
   const el = overviewSentinel.value
-  if (!el) return false
+  const box = overviewScroller()
+  if (!el || !box) return false
   const rect = el.getBoundingClientRect()
-  return rect.top < window.innerHeight + 200
+  const view = box.getBoundingClientRect()
+  return rect.top <= view.bottom + 120
 }
 
 /** 追加一批，直到不再可见或没剩的（宽屏时一次 +20 可能仍停在原地）。 */
@@ -295,7 +306,8 @@ function ensureOverviewObserver() {
     (entries) => {
       if (entries.some((entry) => entry.isIntersecting)) growOverview()
     },
-    { rootMargin: '0px 0px 200px 0px' },
+    // root 必须是滚动容器本身：默认的视口在内部滚动时不会重新判定
+    { root: overviewScroller(), rootMargin: '0px 0px 120px 0px' },
   )
   overviewObserver.observe(overviewSentinel.value)
 }
@@ -805,6 +817,9 @@ onUnmounted(() => {
    以前是 overflow: hidden + 只让最后一张卡片内部滚 —— 订阅总览搬进来后
    会被直接裁掉（真机：页面锁死、动都不动）。 */
 .sc-root:not(.sc-root-page) {
+  /* 插件详情容器自身是定高 + 裁剪的，这里必须撑满它并自己滚，
+     否则内容被外层直接裁掉（真机：页面锁死、内部没法滚）。 */
+  height: 100%;
   max-height: calc(100dvh - 160px);
   min-height: 0;
   overflow-y: auto;

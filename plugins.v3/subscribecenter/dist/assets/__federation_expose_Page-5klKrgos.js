@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DJ-VK-pl.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Dkm0UtqI.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,normalizeStyle:_normalizeStyle,vModelText:_vModelText,withKeys:_withKeys,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -369,12 +369,23 @@ const overviewLimit = ref(OVERVIEW_PAGE);
 const overviewSentinel = ref(null);
 let overviewObserver = null;
 
-/** 哨兵是否已进入视口（或接近）。 */
+/** 网格的滚动容器（订阅总览内部滚动，不是窗口）。 */
+function overviewScroller() {
+  return overviewSentinel.value?.closest('.sc-poster-grid') || null
+}
+
+/** 哨兵是否已滚动到容器可视区附近。
+
+ 以前拿 `window.innerHeight` 判断 —— 网格改成内部滚动后，哨兵在裁剪区外
+ 但坐标仍在窗口内，于是循环一路加到 206 条（真机：展开直接全部加载）。
+ */
 function sentinelVisible() {
   const el = overviewSentinel.value;
-  if (!el) return false
+  const box = overviewScroller();
+  if (!el || !box) return false
   const rect = el.getBoundingClientRect();
-  return rect.top < window.innerHeight + 200
+  const view = box.getBoundingClientRect();
+  return rect.top <= view.bottom + 120
 }
 
 /** 追加一批，直到不再可见或没剩的（宽屏时一次 +20 可能仍停在原地）。 */
@@ -394,7 +405,8 @@ function ensureOverviewObserver() {
     (entries) => {
       if (entries.some((entry) => entry.isIntersecting)) growOverview();
     },
-    { rootMargin: '0px 0px 200px 0px' },
+    // root 必须是滚动容器本身：默认的视口在内部滚动时不会重新判定
+    { root: overviewScroller(), rootMargin: '0px 0px 120px 0px' },
   );
   overviewObserver.observe(overviewSentinel.value);
 }
@@ -1051,6 +1063,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0018981d"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-05e89303"]]);
 
 export { Page as default };

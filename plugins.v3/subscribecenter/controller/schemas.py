@@ -69,6 +69,7 @@ class HistoryRecord(BaseModel):
     #: 前端拿不到 poster、也就不会发出 /poster 请求（真机现象：F12 里
     #: 完全看不到 poster 请求，一行 placeholder 图标）。
     poster: Optional[str] = Field(default=None, description="海报路径")
+    country: Optional[str] = Field(default=None, description="产地（CN/JP/...）")
     run_at: str = Field(default="", description="所属运行时间")
 
 

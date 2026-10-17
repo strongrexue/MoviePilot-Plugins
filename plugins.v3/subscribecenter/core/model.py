@@ -190,6 +190,9 @@ class DiscoveredItem:
             # 海报路径（TMDB 的 /abc.jpg）。前端据此拼出封面图，
             # 让流水一眼能认出来是哪部作品。
             "poster": (self.raw or {}).get("poster"),
+            # 产地：AniList 给 countryOfOrigin，TMDB 给 origin_country。
+            # 落库后才能判断「国漫豁免」是否生效，也是后续国家筛选的数据源。
+            "country": (self.raw or {}).get("country"),
         }
         if self.resolved:
             data.update(self.resolved.to_dict())

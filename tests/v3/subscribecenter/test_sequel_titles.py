@@ -284,3 +284,38 @@ def test_continuation_floor_only_applies_to_sequels():
     )
     assert _continuation_floor(sequel) == 2026
     assert _continuation_floor(plain) is None
+
+
+# ------------------------------------------------ 分季版降权（1.2.4 真机）
+
+def test_split_entry_is_deprioritized():
+    """同名多候选时，优先选不带「分季版」的重复条目。
+
+    真机（一念永恒）：TMDB 同时有主条目 107371（1 季 200 集 + Seasons 分组）
+    与「分季版」331477（S1~S4）。两者标题都能匹配、年份都是 2020，
+    季号裁决挑了「真有第 4 季」的分季版 → 订到 S04/30 集。
+    """
+    from subscribecenter.core.identity import match_candidate_year
+    from subscribecenter.core.model import DiscoveredItem
+
+    entity = DiscoveredItem(
+        source="anilist", source_id="1", title="一念永恒 第四季",
+        media_type="tv", year="2020", release_date="2020-08-12",
+    )
+    candidates = [
+        {"tmdb_id": "331477", "title": "一念永恒 (分季版)", "year": "2020", "media_type": "tv"},
+        {"tmdb_id": "107371", "title": "一念永恒", "year": "2020", "media_type": "tv"},
+    ]
+    hit = match_candidate_year(candidates, entity, strict_year=False)
+    assert hit is not None
+    assert hit[0]["tmdb_id"] == "107371", "应优先主条目而不是分季版"
+
+
+def test_split_marker_only_inside_brackets():
+    """只认括号里的限定词，别误伤「剧场版」这类正常标题。"""
+    from subscribecenter.core.identity import _is_split_entry
+
+    assert _is_split_entry("一念永恒 (分季版)") is True
+    assert _is_split_entry("某番（合集）") is True
+    assert _is_split_entry("某番", "Split") is False
+    assert _is_split_entry("剧场版 某番") is False

@@ -564,6 +564,23 @@ def match_candidate_year(
             reason = f"{reason}+year_match"
         matched.append((candidate, reason))
 
+    # 优先排除「分季版 / 合集版」这类重复条目。
+    #
+    # 真机（一念永恒）：TMDB 同时存在主条目（107371，1 季 200 集 + Seasons 分组）
+    # 和「分季版」（331477，S1~S4）。两者标题都能匹配、年份都是 2020，
+    # 季号裁决会挑「真有第 4 季」的分季版，于是订到了 S04/30 集而不是主条目。
+    # 规则：多候选时优先不要带括号限定词的那条（分季/合集/总集篇/剧场版）。
+    if len(matched) > 1:
+        primary = [
+            entry
+            for entry in matched
+            if not _is_split_entry(
+                entry[0].get("title"), entry[0].get("original_title")
+            )
+        ]
+        if len(primary) == 1:
+            return primary[0]
+
     if len(matched) != 1:
         # 0 条：未命中；>1 条：先试「年份就近」消歧，仍不行才算歧义。
         #
@@ -580,6 +597,23 @@ def match_candidate_year(
                 return close[0]
         return None
     return matched[0]
+
+
+#: 括号里的「分季/合集」等限定词 —— 这类条目通常是同一部作品的重复条目
+_SPLIT_MARKERS = ("分季", "合集", "总集篇", "剧场版", "特别篇", "split", "seasons")
+
+
+def _is_split_entry(*titles: Optional[str]) -> bool:
+    """标题是否带「分季版 / 合集」这类限定词（重复条目）。"""
+    for title in titles:
+        text = str(title or "").casefold()
+        if not text:
+            continue
+        # 只认括号里的限定词，避免误伤「剧场版」这类真·独立作品标题
+        for marker in _SPLIT_MARKERS:
+            if f"（{marker}" in text or f"({marker}" in text or f" {marker}" in text:
+                return True
+    return False
 
 
 def review_candidates(

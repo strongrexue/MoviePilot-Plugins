@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.2.0"
+    plugin_version = "0.2.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -291,13 +291,19 @@ class SubscribeCenter(_PluginBase):
         )
 
     def _build_sources(self) -> List[SourceAdapter]:
-        """构造已实现的数据源适配器列表。"""
+        """构造已实现的数据源适配器列表。
+
+        .. note::
+           TMDB 源用模块层 ``TmdbApi`` 而不是 ``TmdbChain.tmdb_discover``：
+           后者的日期过滤参数 ``release_date.gte`` 会被 TMDB 静默忽略（0.2.0 真实事故，
+           详见 ``sources/tmdb.py`` 的模块文档）。
+        """
         sources: List[SourceAdapter] = []
         try:
-            from app.chain.tmdb import TmdbChain
+            from app.modules.themoviedb.tmdbapi import TmdbApi
 
-            sources.append(TmdbSource(TmdbChain()))
-        except Exception as err:  # noqa: BLE001 - 宿主缺链时该源不可用，不阻塞其他源
+            sources.append(TmdbSource(TmdbApi()))
+        except Exception as err:  # noqa: BLE001 - 宿主缺 TMDB 时该源不可用，不阻塞其他源
             logger.warning(f"[SubscribeCenter] TMDB 源不可用：{err}")
         return sources
 

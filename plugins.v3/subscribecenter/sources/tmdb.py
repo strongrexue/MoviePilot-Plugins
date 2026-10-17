@@ -1,20 +1,32 @@
-"""TMDB 数据源适配器（P1 唯一实现的源）。
+"""TMDB 数据源适配器（P1）。
 
-实现要点（开发文档 §5.1）——**这里的取舍是本次核验最重要的发现**：
+.. important::
+   本模块**刻意绕过** ``TmdbChain.tmdb_discover``，直接调用宿主模块层的
+   ``TmdbApi.async_discover_*``。原因是实机核验发现的硬限制：
 
-宿主的 ``tmdb_discover`` 对电影拼 ``release_date.gte``、对剧集拼
-``first_air_date.gte``，**两处都没有上界**，也不暴露 ``region`` 与
-``with_release_type``。因此「未来 N 天」无法在服务端表达，只能：
+   ``tmdb_discover`` 把日期过滤写死成 ``release_date.gte`` / ``first_air_date.gte``，
+   **TMDB 并不接受 ``release_date.gte`` 作为过滤参数**（它只是排序字段），
+   所以下界被静默忽略；再叠加「按日期升序」排序，TMDB 把 ``release_date`` 为空的
+   条目当最小值排在最前 —— 结果就是拉回一堆 1926 年前后的老片（0.2.0 真实事故）。
 
-1. ``sort_by`` 用日期**升序**（``primary_release_date.asc`` / ``first_air_date.asc``），
-   让下界之后最近的条目排在最前；
-2. ``release_date`` 传今天，把历史条目挡在服务端之外；
-3. **本地按上界过滤**（由流水线的窗口过滤完成，这里只负责取数和翻页）。
+   正确的过滤参数是 ``primary_release_date.gte/lte``（电影）与
+   ``first_air_date.gte/lte``（剧集）。实机实测：
+   - 错误用法：771 条全部落在窗口外（1926 年起的默片）；
+   - 正确用法：1708 条全部落在目标窗口内。
 
-分页策略：逐页取，直到「本页最新一条都已超出窗口」或达到页数上限。
+   代价是耦合了 ``app.modules.themoviedb.tmdbapi`` 这一层（它属于官方文档
+   「仍可稳定使用」的既有入口），收益是日期窗口真正生效。这一取舍是显式的。
+
+取数策略（每种媒体类型最多 2×N 个查询）：
+
+1. 按 ``popularity.desc``：拉「受关注的新片」，避免被同日上映的冷门片子淹没；
+2. 按日期升序（``primary_release_date.asc`` / ``first_air_date.asc``）：补齐窗口内条目。
+
+身份：TMDB 返回自带 ``id``，直接作为 L1 确定性身份，**不做任何标题匹配**。
 """
 import asyncio
-from typing import Any, Dict, List, Optional, Sequence
+from datetime import timedelta
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.constants import (
     DEFAULT_MIN_RATING,
@@ -23,27 +35,30 @@ from ..core.constants import (
     SOURCE_TMDB,
 )
 from ..core.model import DiscoveredItem
-from ..core.window import parse_date, release_sort_ascending, to_iso, today
+from ..core.window import today
 
-#: discover 最多翻的页数（每页 20 条）。窗口靠升序 + 本地过滤收紧，
-#: 翻太多页对「未来 30 天」没有收益。
-DEFAULT_MAX_PAGES = 5
+#: 每种媒体类型每种排序的最大拉取页数
+DEFAULT_MAX_PAGES = 3
 
-#: 服务端评分下界的松弛量：比最终阈值低一档，避免因四舍五入漏掉边界条目
-RATING_RELAX = 0.5
+#: 服务端评分下界的松弛量。TMDB 的新片普遍 ``vote_average=0``（还没人评分），
+#: 因此服务端不按评分硬过滤，评分只作为流水线里「明确过低」的排除依据。
+RATING_RELAX = 1.0
 
-#: 每页结果条数（TMDB 固定 20，仅用于日志估算）
+#: 电影上映类型：2=限定上映, 3=院线上映
+MOVIE_RELEASE_TYPES = "2|3"
+
+#: TMDB 每页条数
 PAGE_SIZE = 20
 
 
 class TmdbSource:
-    """基于宿主 ``TmdbChain`` 的 TMDB 发现源。
+    """基于宿主 ``TmdbApi`` 模块层的 TMDB 发现源。
 
-    :param chain: 宿主 ``TmdbChain`` 实例（或同签名的替身，便于单测）
+    :param api: ``app.modules.themoviedb.tmdbapi.TmdbApi`` 实例（或同签名替身）
     """
 
-    def __init__(self, chain: Any, *, max_pages: int = DEFAULT_MAX_PAGES) -> None:
-        self._chain = chain
+    def __init__(self, api: Any, *, max_pages: int = DEFAULT_MAX_PAGES) -> None:
+        self._api = api
         self._max_pages = max(1, int(max_pages))
 
     @property
@@ -52,18 +67,14 @@ class TmdbSource:
         return SOURCE_TMDB
 
     async def fetch(self, config: Dict[str, Any]) -> List[DiscoveredItem]:
-        """按配置拉取电影与剧集，返回标准化条目。
-
-        电影与剧集并行拉取；任一分支异常都不应让另一分支失败。
-        """
+        """按配置拉取电影与剧集，返回标准化条目。"""
         future_days = _as_int(config.get("tmdb_future_days"), 30)
         min_rating = _as_float(config.get("min_rating_tmdb"), DEFAULT_MIN_RATING)
         tz_name = config.get("timezone")
-        start = today(tz_name)
 
         results = await asyncio.gather(
-            self._fetch_type(MEDIA_TYPE_MOVIE, future_days, min_rating, start, tz_name),
-            self._fetch_type(MEDIA_TYPE_TV, future_days, min_rating, start, tz_name),
+            self._fetch_type(MEDIA_TYPE_MOVIE, future_days, min_rating, tz_name),
+            self._fetch_type(MEDIA_TYPE_TV, future_days, min_rating, tz_name),
             return_exceptions=True,
         )
 
@@ -76,7 +87,6 @@ class TmdbSource:
             items.extend(result)
 
         if errors and not items:
-            # 两个分支都失败时才算源失败，让流水线记录真实原因
             raise RuntimeError("; ".join(errors))
         return items
 
@@ -87,121 +97,129 @@ class TmdbSource:
         media_type: str,
         future_days: int,
         min_rating: float,
-        start: Any,
         tz_name: Optional[str],
     ) -> List[DiscoveredItem]:
-        """拉取单一媒体类型的全部页。"""
-        items: List[DiscoveredItem] = []
-        sort_by = release_sort_ascending(media_type)
+        """拉取单一媒体类型：popularity 与日期两种排序各取若干页。"""
+        start = today(tz_name)
+        end = start + timedelta(days=max(1, future_days))
+        seen: Dict[str, DiscoveredItem] = {}
 
-        for page in range(1, self._max_pages + 1):
-            infos = await self._discover(
-                media_type=media_type,
-                sort_by=sort_by,
-                min_rating=min_rating,
-                start=start,
-                page=page,
-            )
-            if not infos:
-                break
+        for sort_by in self._sort_keys(media_type):
+            for page in range(1, self._max_pages + 1):
+                params = self._build_params(
+                    media_type=media_type,
+                    sort_by=sort_by,
+                    start=start.isoformat(),
+                    end=end.isoformat(),
+                    min_rating=min_rating,
+                    page=page,
+                )
+                raw = await self._discover(media_type, params)
+                if not raw:
+                    break
 
-            page_items = [self._normalize(info, media_type, tz_name) for info in infos]
-            page_items = [item for item in page_items if item is not None]
+                added = 0
+                for info in raw:
+                    item = self._normalize(info, media_type)
+                    if item is None or item.source_id in seen:
+                        continue
+                    seen[item.source_id] = item
+                    added += 1
+                # 整页都是已知条目说明该排序已翻到底，换下一种排序
+                if added == 0:
+                    break
+                if len(raw) < PAGE_SIZE:
+                    break
 
-            if not page_items:
-                # 整页都是无法归一的条目（缺 ID/缺日期）——继续翻页没有意义
-                break
-            items.extend(page_items)
+        return list(seen.values())
 
-            # 升序排序下：本页最晚的定档日期已超出窗口 → 后续页只会更晚，停止翻页
-            latest = max(
-                (parse_date(item.release_date, tz_name) for item in page_items
-                 if parse_date(item.release_date, tz_name) is not None),
-                default=None,
-            )
-            if latest is None:
-                break
-            if (latest - start).days > future_days:
-                break
-            if len(infos) < PAGE_SIZE:
-                break
+    @staticmethod
+    def _sort_keys(media_type: str) -> Tuple[str, ...]:
+        """返回要使用的排序组合（先关注度，再按日期补齐）。"""
+        date_field = (
+            "first_air_date.asc" if media_type == MEDIA_TYPE_TV else "primary_release_date.asc"
+        )
+        return ("popularity.desc", date_field)
 
-        return items
-
-    async def _discover(
-        self,
+    @staticmethod
+    def _build_params(
         *,
         media_type: str,
         sort_by: str,
+        start: str,
+        end: str,
         min_rating: float,
-        start: Any,
         page: int,
-    ) -> Sequence[Any]:
-        """调用宿主 ``async_tmdb_discover``；把媒体类型字符串换成宿主枚举。"""
-        media_type_enum = _media_type_enum(media_type)
-        if media_type_enum is None:
-            return ()
-        return await self._chain.async_tmdb_discover(
-            mtype=media_type_enum,
-            sort_by=sort_by,
-            with_genres="",
-            with_original_language="",
-            with_keywords="",
-            with_watch_providers="",
-            vote_average=max(0.0, float(min_rating) - RATING_RELAX),
-            vote_count=0,
-            release_date=start.isoformat(),
-            page=page,
-        ) or ()
+    ) -> Dict[str, Any]:
+        """构造 TMDB discover 参数。
+
+        **关键**：日期过滤必须用 ``primary_release_date.gte/lte``（电影）或
+        ``first_air_date.gte/lte``（剧集）。用 ``release_date.gte`` 会被 TMDB 忽略。
+        """
+        params: Dict[str, Any] = {
+            "sort_by": sort_by,
+            "include_adult": "false",
+            "page": page,
+            "vote_average.gte": max(0.0, float(min_rating) - RATING_RELAX),
+        }
+        if media_type == MEDIA_TYPE_TV:
+            params["first_air_date.gte"] = start
+            params["first_air_date.lte"] = end
+        else:
+            params["primary_release_date.gte"] = start
+            params["primary_release_date.lte"] = end
+            params["with_release_type"] = MOVIE_RELEASE_TYPES
+        return params
+
+    async def _discover(self, media_type: str, params: Dict[str, Any]) -> Sequence[dict]:
+        """调用宿主模块层的异步 discover。"""
+        if media_type == MEDIA_TYPE_TV:
+            return await self._api.async_discover_tvs(params) or ()
+        return await self._api.async_discover_movies(params) or ()
 
     @staticmethod
-    def _normalize(info: Any, media_type: str, tz_name: Optional[str]) -> Optional[DiscoveredItem]:
-        """把宿主 ``MediaInfo`` 归一为 :class:`DiscoveredItem`。
+    def _normalize(info: Any, media_type: str) -> Optional[DiscoveredItem]:
+        """把 TMDB 原始字典归一为 :class:`DiscoveredItem`。
 
-        身份直接取 ``tmdb_id``（TMDB 源自带确定性 ID，归入 L1），
-        因此本条目的身份解析不需要任何网络搜索。
+        直接用 TMDB 原始字典，**不经过** ``MediaInfo(tmdb_info=...)`` ——
+        避免依赖宿主投影层的字段映射细节。
         """
-        tmdb_id = getattr(info, "tmdb_id", None)
+        if not isinstance(info, dict):
+            return None
+        tmdb_id = info.get("id")
         if not tmdb_id:
             return None
 
-        title = getattr(info, "title", None) or getattr(info, "original_title", None)
-        if not title:
-            return None
-
-        release_date = to_iso(getattr(info, "release_date", None), tz_name)
-        if not release_date:
+        is_tv = media_type == MEDIA_TYPE_TV
+        release_date = info.get("first_air_date") if is_tv else info.get("release_date")
+        title = info.get("name") if is_tv else info.get("title")
+        original_title = info.get("original_name") if is_tv else info.get("original_title")
+        if not title or not release_date:
             # 没有定档日期就无法判断「即将开播」，直接丢弃（宁缺毋滥）
             return None
 
-        year = getattr(info, "year", None)
-        rating = getattr(info, "vote_average", None)
-
+        vote = info.get("vote_average")
         return DiscoveredItem(
             source=SOURCE_TMDB,
             source_id=str(tmdb_id),
             title=str(title),
             media_type=media_type,
-            year=str(year) if year else release_date[:4],
-            original_title=getattr(info, "original_title", None),
-            release_date=release_date,
-            rating=_as_float(rating, None) if rating is not None else None,
-            popularity=_as_float(getattr(info, "popularity", None), None),
+            year=str(release_date)[:4],
+            original_title=original_title,
+            release_date=str(release_date),
+            rating=float(vote) if vote else None,
+            popularity=_as_float(info.get("popularity"), None),
             native_ids={"tmdb": str(tmdb_id)},
-            raw={"tmdb_id": tmdb_id, "release_date": release_date},
+            raw={
+                "tmdb_id": tmdb_id,
+                "release_date": release_date,
+                "vote_count": info.get("vote_count"),
+                "original_language": info.get("original_language"),
+            },
         )
 
 
 # --------------------------------------------------------------------- 工具
-
-def _media_type_enum(media_type: str) -> Any:
-    """把 ``"movie"``/``"tv"`` 换成宿主 ``MediaType``；失败返回 ``None``。"""
-    try:
-        from app.schemas.types import MediaType
-    except Exception:  # noqa: BLE001 - 无宿主环境（离线单测）时按不可用处理
-        return None
-    return MediaType.MOVIE if media_type == MEDIA_TYPE_MOVIE else MediaType.TV
-
 
 def _as_int(value: Any, default: int) -> int:
     """宽松整型转换。"""
@@ -221,4 +239,9 @@ def _as_float(value: Any, default: Optional[float]) -> Optional[float]:
         return default
 
 
-__all__ = ["DEFAULT_MAX_PAGES", "PAGE_SIZE", "TmdbSource"]
+__all__ = [
+    "DEFAULT_MAX_PAGES",
+    "MOVIE_RELEASE_TYPES",
+    "PAGE_SIZE",
+    "TmdbSource",
+]

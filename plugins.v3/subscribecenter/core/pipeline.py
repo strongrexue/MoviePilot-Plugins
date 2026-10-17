@@ -89,6 +89,7 @@ class RunSummary:
             "first_run": self.first_run,
             "fetched": self.fetched_count,
             "prefiltered": len(self.prefiltered),
+            "rejected_reasons": self._rejected_reasons(),
             "sources": [
                 {
                     "source": s.source,
@@ -99,8 +100,30 @@ class RunSummary:
                 for s in self.sources
             ],
             "failed_sources": self.failed_sources,
+            # 注意顺序：report 的键（total/added/skipped/pending_review）覆盖上面的派生值。
+            # 但 writer 的 skipped 只统计 writer 自己产生的跳过，**不含**预过滤阶段被
+            # 拦下的条目 —— 那部分必须在这里补，否则会出现「拉取 100 / 跳过 0」的假象
+            # （0.2.0 真实事故）。
             **report,
+            "skipped": self.skipped_count(report),
+            "total": self.fetched_count,
         }
+
+    def skipped_count(self, report: Optional[Dict[str, Any]] = None) -> int:
+        """返回跳过的总条数（**含**预过滤阶段被拦下的条目）。
+
+        :param report: 已算好的 ``report.to_summary()``，避免重复计算
+        """
+        data = report if report is not None else (self.report.to_summary() if self.report else {})
+        return int(data.get("skipped", 0)) + len(self.prefiltered)
+
+    def _rejected_reasons(self) -> Dict[str, int]:
+        """按决策统计被预过滤拦下的条目数，便于一眼看出为什么一条都没写。"""
+        counts: Dict[str, int] = {}
+        for outcome in self.prefiltered:
+            key = outcome.decision or "unknown"
+            counts[key] = counts.get(key, 0) + 1
+        return counts
 
 
 # --------------------------------------------------------------------- 纯逻辑

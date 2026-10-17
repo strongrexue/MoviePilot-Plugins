@@ -1,34 +1,34 @@
 
-.sc-root[data-v-9afa0b65] {
+.sc-root[data-v-805132c0] {
   padding: 4px;
 }
-.sc-hint[data-v-9afa0b65] {
+.sc-hint[data-v-805132c0] {
   font-size: 12px;
   opacity: 0.7;
 }
-.sc-error[data-v-9afa0b65] {
+.sc-error[data-v-805132c0] {
   font-size: 12px;
   color: rgb(var(--v-theme-error));
   margin-top: 4px;
 }
-.sc-kv[data-v-9afa0b65] {
+.sc-kv[data-v-805132c0] {
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 13px;
   padding: 3px 0;
 }
-.sc-source[data-v-9afa0b65] {
+.sc-source[data-v-805132c0] {
   padding: 6px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
-.sc-source[data-v-9afa0b65]:last-child {
+.sc-source[data-v-805132c0]:last-child {
   border-bottom: none;
 }
-.sc-row[data-v-9afa0b65] {
+.sc-row[data-v-805132c0] {
   padding: 6px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
-.sc-row[data-v-9afa0b65]:last-child {
+.sc-row[data-v-805132c0]:last-child {
   border-bottom: none;
 }

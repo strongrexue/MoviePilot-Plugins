@@ -21,7 +21,7 @@ PLUGIN_ID = "subscribecenter"
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "plugins.v3"))
 
 from subscribecenter.core import constants as C  # noqa: E402
-from subscribecenter.sources.bangumi import BangumiSource  # noqa: E402
+from subscribecenter.sources.bangumi import BangumiSource, is_special  # noqa: E402
 
 TODAY = date.today()
 
@@ -200,6 +200,43 @@ async def test_output_sorted_by_release_date():
     client = FakeClient(week([anime(1, d2, name_cn="后"), anime(2, d1, name_cn="先")]))
     items = await BangumiSource(client).fetch(CONFIG)
     assert [i.source_id for i in items] == ["2", "1"]
+
+
+# --------------------------------------------------------------------- 特别篇
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("我的幸福婚姻 特别篇", True),
+        ("罗小黑战记 学前篇", True),
+        ("万圣街 特别篇 古堡的秘密", True),
+        ("某番 番外篇", True),
+        ("某番 OVA", True),
+        ("某番 前传", True),
+        ("赛博朋克：边缘行者 2", False),
+        ("牧神记5", False),
+        ("Dreamland", False),
+    ],
+)
+def test_is_special(title, expected):
+    """特别篇 / OVA / 番外等衍生内容的识别。
+
+    TMDB 通常没有这类内容的独立条目，标题匹配必然失败。若不单独标注，
+    日志会显示「无确定性身份（L4）」，看起来像插件有 bug（真机踩过 3 条）。
+    """
+    assert is_special(title) is expected
+
+
+@pytest.mark.asyncio
+async def test_special_items_are_flagged():
+    """Bangumi 源要把特别篇标出来（供 writer 给出明确决策）。"""
+    client = FakeClient(week([
+        anime(1, TODAY.isoformat(), name_cn="某番 特别篇"),
+        anime(2, TODAY.isoformat(), name_cn="某番 第2期"),
+    ]))
+    items = {i.source_id: i for i in await BangumiSource(client).fetch(CONFIG)}
+    assert items["1"].special is True
+    assert items["2"].special is False
 
 
 # --------------------------------------------------------------------- 容错

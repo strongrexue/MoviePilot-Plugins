@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-Bd14_1p7.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-CAj5YbEH.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -120,6 +120,7 @@ const DECISION_LABELS = {
   added: '新增',
   skipped_dry_run: 'dry-run',
   pending_review: '待确认',
+  skipped_special: '特别篇',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
   skipped_out_of_window: '超出窗口',
@@ -893,6 +894,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5d7c2d3c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d11920d4"]]);
 
 export { Config as default };

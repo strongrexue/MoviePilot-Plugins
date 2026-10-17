@@ -47,6 +47,7 @@ const DECISION_LABELS = {
   skipped_not_future: '定档已过',
   skipped_daily_limit: '触达上限',
   pending_review: '待确认',
+  skipped_special: '特别篇（不处理）',
   skipped_source_disabled: '源未启用',
 }
 

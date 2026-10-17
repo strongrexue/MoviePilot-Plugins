@@ -274,6 +274,36 @@ async def test_within_self_check_window_is_written():
     assert report.added_count == 1
 
 
+# --------------------------------------------------------------------- 特别篇
+
+@pytest.mark.asyncio
+async def test_special_items_get_explicit_decision():
+    """特别篇要给明确决策，不能报成「无确定性身份」。
+
+    真机踩过：3 条 Bangumi 特别篇显示「无确定性身份（L4）」，
+    看起来像插件的匹配有 bug，实际是这类内容 TMDB 没有独立条目。
+    """
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    special = item(resolved=None, special=True)
+    report = await writer.write([special], dry_run=False)
+
+    assert backend.add_calls == []
+    outcome = report.outcomes[0]
+    assert outcome.decision == C.DECISION_SKIPPED_SPECIAL
+    assert "特别篇" in outcome.reason
+    assert "需要可手动订阅" in outcome.reason
+
+
+@pytest.mark.asyncio
+async def test_normal_item_not_treated_as_special():
+    """普通条目不受影响。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item(special=False)], dry_run=False)
+    assert report.added_count == 1
+
+
 # --------------------------------------------------------------------- 每日上限
 
 @pytest.mark.asyncio

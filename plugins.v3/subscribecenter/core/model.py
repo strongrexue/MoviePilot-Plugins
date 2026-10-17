@@ -86,6 +86,8 @@ class DiscoveredItem:
     resolved: Optional[ResolvedIdentity] = None
     #: 未解析出确定性身份时的模糊候选相似度（进待确认列表）
     review_score: Optional[float] = None
+    #: 是否为特别篇 / OVA / 番外等衍生内容（这类内容 TMDB 通常没有独立条目）
+    special: bool = False
     #: 原始载荷（排查用，落流水时可截断）
     raw: Dict[str, Any] = field(default_factory=dict)
     discovered_at: str = ""

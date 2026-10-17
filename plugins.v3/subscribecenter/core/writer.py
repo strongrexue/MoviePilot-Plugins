@@ -25,6 +25,7 @@ from .constants import (
     DECISION_SKIPPED_DRY_RUN,
     DECISION_SKIPPED_NOT_FUTURE,
     DECISION_SKIPPED_OUT_OF_WINDOW,
+    DECISION_SKIPPED_SPECIAL,
     WRITABLE_CONFIDENCE,
 )
 from .identity import HOST_SOURCE_TMDB
@@ -201,6 +202,18 @@ class SubscriptionWriter:
         today_value: Any,
     ) -> WriteOutcome:
         """判定单条条目并（在允许时）写入。"""
+        # ---- 特别篇 / OVA / 番外：设计上不处理
+        #
+        # 这类内容在 TMDB 通常没有独立条目，标题匹配必然失败。若走通用分支会
+        # 显示「无确定性身份（L4）」，看起来像插件有 bug（真机踩过 3 条）。
+        # 明确标注为「特别篇不处理」，让日志说实话；需要的话可手动订阅。
+        if getattr(item, "special", False):
+            return WriteOutcome(
+                item=item,
+                decision=DECISION_SKIPPED_SPECIAL,
+                reason="特别篇 / OVA / 番外等衍生内容，本插件不处理（需要可手动订阅）",
+            )
+
         # ---- 身份可写性（L4 永不写入）
         confidence = item.confidence
         if not item.resolved or confidence not in WRITABLE_CONFIDENCE:

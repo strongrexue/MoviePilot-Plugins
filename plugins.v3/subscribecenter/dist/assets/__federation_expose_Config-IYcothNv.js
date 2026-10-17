@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-DD5MUxzg.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-tmiyn5fn.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -118,26 +118,27 @@ const _hoisted_40 = {
   key: 4,
   class: "sc-card"
 };
-const _hoisted_41 = { class: "sc-card-title" };
-const _hoisted_42 = {
+const _hoisted_41 = { class: "sc-card-title sc-preview-head" };
+const _hoisted_42 = { class: "sc-preview-action" };
+const _hoisted_43 = {
   key: 0,
   class: "sc-empty"
 };
-const _hoisted_43 = { class: "d-flex align-center flex-wrap ga-2" };
-const _hoisted_44 = {
+const _hoisted_44 = { class: "d-flex align-center flex-wrap ga-2" };
+const _hoisted_45 = {
   key: 0,
   class: "sc-hint"
 };
-const _hoisted_45 = {
+const _hoisted_46 = {
   key: 1,
   class: "sc-hint"
 };
-const _hoisted_46 = {
+const _hoisted_47 = {
   key: 2,
   class: "sc-hint"
 };
-const _hoisted_47 = { class: "sc-footer" };
-const _hoisted_48 = { class: "sc-footer-right" };
+const _hoisted_48 = { class: "sc-footer" };
+const _hoisted_49 = { class: "sc-footer-right" };
 
 const {computed,onMounted,ref} = await importShared('vue');
 
@@ -695,7 +696,7 @@ return (_ctx, _cache) => {
                   disabled: !form.value.enable_douban_rss,
                   placeholder: "http://<RSSHub>:1200/douban/movie/coming"
                 }, null, 8, ["modelValue", "disabled"]),
-                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-a0666175><b data-v-a0666175>电影上映类</b>（<code data-v-a0666175>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-a0666175><b data-v-a0666175>剧集类</b>（<code data-v-a0666175>/douban/tv/coming</code>、<code data-v-a0666175>/douban/list/tv_*</code>、 <code data-v-a0666175>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-a0666175><b data-v-a0666175>电影榜单类</b>没有日期，会被跳过。<code data-v-a0666175>ustop250</code> 与 <code data-v-a0666175>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-5f5f0dc7><b data-v-5f5f0dc7>电影上映类</b>（<code data-v-5f5f0dc7>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-5f5f0dc7><b data-v-5f5f0dc7>剧集类</b>（<code data-v-5f5f0dc7>/douban/tv/coming</code>、<code data-v-5f5f0dc7>/douban/list/tv_*</code>、 <code data-v-5f5f0dc7>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-5f5f0dc7><b data-v-5f5f0dc7>电影榜单类</b>没有日期，会被跳过。<code data-v-5f5f0dc7>ustop250</code> 与 <code data-v-5f5f0dc7>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
               ])
             ], 64))
           : _createCommentVNode("", true),
@@ -1154,7 +1155,7 @@ return (_ctx, _cache) => {
                   icon: "mdi-eye-outline",
                   size: "16"
                 }),
-                _cache[53] || (_cache[53] = _createTextVNode(" 预览结果 ", -1)),
+                _cache[54] || (_cache[54] = _createTextVNode(" 预览结果 ", -1)),
                 _createVNode(_component_VChip, {
                   size: "x-small",
                   variant: "flat",
@@ -1175,17 +1176,37 @@ return (_ctx, _cache) => {
                     _createTextVNode("未写入 · 未消耗额度", -1)
                   ]))]),
                   _: 1
-                })
+                }),
+                _createElementVNode("div", _hoisted_42, [
+                  _createVNode(_component_VBtn, {
+                    variant: "tonal",
+                    color: "info",
+                    size: "small",
+                    loading: busy.value === 'preview',
+                    disabled: loading.value,
+                    "prepend-icon": "mdi-eye-outline",
+                    onClick: preview
+                  }, {
+                    default: _withCtx(() => [...(_cache[53] || (_cache[53] = [
+                      _createTextVNode(" 开始预览 ", -1)
+                    ]))]),
+                    _: 1
+                  }, 8, ["loading", "disabled"])
+                ])
               ]),
               (!previewItems.value.length)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_42, " 还没有预览结果。点底部「预览」跑一次 —— 它跑完整流程但不写订阅。 "))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_43, [...(_cache[55] || (_cache[55] = [
+                    _createTextVNode(" 还没有预览结果。点上方「开始预览」跑一次 —— 它跑完整流程但", -1),
+                    _createElementVNode("b", null, "不写订阅、不消耗每日额度", -1),
+                    _createTextVNode("，是调参的主要手段。 ", -1)
+                  ]))]))
                 : _createCommentVNode("", true),
               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(previewItems.value, (row, index) => {
                 return (_openBlock(), _createElementBlock("div", {
                   key: index,
                   class: "sc-preview-row"
                 }, [
-                  _createElementVNode("div", _hoisted_43, [
+                  _createElementVNode("div", _hoisted_44, [
                     _createVNode(_component_VChip, {
                       size: "x-small",
                       variant: "flat",
@@ -1198,10 +1219,10 @@ return (_ctx, _cache) => {
                     }, 1024),
                     _createElementVNode("b", null, _toDisplayString(row.title), 1),
                     (row.year)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_44, "(" + _toDisplayString(row.year) + ")", 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_45, "(" + _toDisplayString(row.year) + ")", 1))
                       : _createCommentVNode("", true),
                     (row.release_date)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_45, "放送 " + _toDisplayString(row.release_date), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_46, "放送 " + _toDisplayString(row.release_date), 1))
                       : _createCommentVNode("", true),
                     _createVNode(_component_VChip, {
                       size: "x-small",
@@ -1214,7 +1235,7 @@ return (_ctx, _cache) => {
                       _: 2
                     }, 1024),
                     (row.rating != null)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_46, "评分 " + _toDisplayString(row.rating), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_47, "评分 " + _toDisplayString(row.rating), 1))
                       : _createCommentVNode("", true)
                   ])
                 ]))
@@ -1223,18 +1244,18 @@ return (_ctx, _cache) => {
           : _createCommentVNode("", true)
       ])
     ]),
-    _createElementVNode("div", _hoisted_47, [
+    _createElementVNode("div", _hoisted_48, [
       _createVNode(_component_VBtn, {
         variant: "text",
         size: "small",
         onClick: _cache[22] || (_cache[22] = $event => (emit('close')))
       }, {
-        default: _withCtx(() => [...(_cache[54] || (_cache[54] = [
+        default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
           _createTextVNode("关闭", -1)
         ]))]),
         _: 1
       }),
-      _createElementVNode("div", _hoisted_48, [
+      _createElementVNode("div", _hoisted_49, [
         _createVNode(_component_VBtn, {
           variant: "tonal",
           size: "small",
@@ -1243,22 +1264,8 @@ return (_ctx, _cache) => {
           "prepend-icon": "mdi-radar",
           onClick: runOnce
         }, {
-          default: _withCtx(() => [...(_cache[55] || (_cache[55] = [
+          default: _withCtx(() => [...(_cache[57] || (_cache[57] = [
             _createTextVNode(" 立即运行一次 ", -1)
-          ]))]),
-          _: 1
-        }, 8, ["loading", "disabled"]),
-        _createVNode(_component_VBtn, {
-          variant: "tonal",
-          color: "info",
-          size: "small",
-          loading: busy.value === 'preview',
-          disabled: loading.value,
-          "prepend-icon": "mdi-eye-outline",
-          onClick: preview
-        }, {
-          default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
-            _createTextVNode(" 预览 ", -1)
           ]))]),
           _: 1
         }, 8, ["loading", "disabled"]),
@@ -1270,7 +1277,7 @@ return (_ctx, _cache) => {
           "prepend-icon": "mdi-content-save",
           onClick: save
         }, {
-          default: _withCtx(() => [...(_cache[57] || (_cache[57] = [
+          default: _withCtx(() => [...(_cache[58] || (_cache[58] = [
             _createTextVNode(" 保存配置 ", -1)
           ]))]),
           _: 1
@@ -1282,6 +1289,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a0666175"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5f5f0dc7"]]);
 
 export { Config as default };

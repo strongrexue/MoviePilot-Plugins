@@ -813,15 +813,29 @@ onMounted(() => {
         <!-- 预览结果 -->
         <template v-if="activeSection === 'preview'">
           <div class="sc-card">
-            <div class="sc-card-title">
+            <div class="sc-card-title sc-preview-head">
               <VIcon icon="mdi-eye-outline" size="16" /> 预览结果
               <VChip size="x-small" variant="flat" color="info" class="ml-2">
                 会订 {{ previewItems.length }} 条
               </VChip>
               <VChip size="x-small" variant="tonal" class="ml-1">未写入 · 未消耗额度</VChip>
+              <div class="sc-preview-action">
+                <VBtn
+                  variant="tonal"
+                  color="info"
+                  size="small"
+                  :loading="busy === 'preview'"
+                  :disabled="loading"
+                  prepend-icon="mdi-eye-outline"
+                  @click="preview"
+                >
+                  开始预览
+                </VBtn>
+              </div>
             </div>
             <div v-if="!previewItems.length" class="sc-empty">
-              还没有预览结果。点底部「预览」跑一次 —— 它跑完整流程但不写订阅。
+              还没有预览结果。点上方「开始预览」跑一次 ——
+              它跑完整流程但<b>不写订阅、不消耗每日额度</b>，是调参的主要手段。
             </div>
             <div v-for="(row, index) in previewItems" :key="index" class="sc-preview-row">
               <div class="d-flex align-center flex-wrap ga-2">
@@ -853,17 +867,6 @@ onMounted(() => {
           @click="runOnce"
         >
           立即运行一次
-        </VBtn>
-        <VBtn
-          variant="tonal"
-          color="info"
-          size="small"
-          :loading="busy === 'preview'"
-          :disabled="loading"
-          prepend-icon="mdi-eye-outline"
-          @click="preview"
-        >
-          预览
         </VBtn>
         <VBtn
           color="primary"
@@ -940,6 +943,7 @@ onMounted(() => {
   align-items: stretch;
   min-height: 420px;
   height: min(64vh, 620px);
+  overflow: hidden;
 }
 .sc-nav {
   flex: 0 0 148px;
@@ -947,6 +951,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 2px;
   padding: 6px;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
@@ -1102,6 +1107,12 @@ onMounted(() => {
 }
 
 /* 预览 */
+.sc-preview-head {
+  flex-wrap: wrap;
+}
+.sc-preview-action {
+  margin-left: auto;
+}
 .sc-preview-row {
   padding: 6px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);

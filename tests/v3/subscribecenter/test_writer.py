@@ -61,14 +61,14 @@ class FakeBackend:
             return self._add_result
         return 42, MESSAGE_ADDED
 
-    async def subscription_exists(self, media_source, media_id):
+    async def subscription_exists(self, media_source, media_id, season=None):
         """活跃订阅查询。"""
         self.precheck_calls += 1
         if self._raise_precheck:
             raise RuntimeError("查询失败")
         return self._exists
 
-    async def history_exists(self, media_source, media_id):
+    async def history_exists(self, media_source, media_id, season=None):
         """订阅历史查询。"""
         if self._raise_precheck:
             raise RuntimeError("查询失败")

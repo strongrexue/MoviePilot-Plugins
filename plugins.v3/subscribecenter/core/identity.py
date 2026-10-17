@@ -209,6 +209,25 @@ def strip_season_suffix(title: Optional[str]) -> str:
     return base
 
 
+def extract_season_hint(title: Optional[str]) -> Optional[int]:
+    """从标题尾部提取季号提示（牧神记5 -> 5、第2期 -> 2）。
+
+    只是**提示**，不直接用于订阅 —— TMDB 未必有同号季（真机：《牧神记5》
+    在 TMDB 只有第 1 季）。真正的季号由宿主按「TMDB 哪个季有未播内容」
+    决定，这里只提供线索。
+    """
+    text = str(title or "").strip()
+    if not text or strip_season_suffix(text) == text:
+        return None
+    match = _SEASON_SUFFIX.search(text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
 def title_similarity(left: str, right: str) -> float:
     """返回两个标题的相似度（0~1），输入会先标准化。"""
     a = normalize_title(left)
@@ -398,7 +417,7 @@ class IdentityResolver:
         if identity:
             item.resolved = identity
             self._remember(item, identity)
-            await self._verify_not_finished(item)
+            await self._resolve_target_season(item)
             return item
 
         # ---- L1b：可换算来源（Bangumi / 豆瓣 / Simkl 的原生 ID → TMDB）
@@ -406,14 +425,14 @@ class IdentityResolver:
         if identity:
             item.resolved = identity
             self._remember(item, identity)
-            await self._verify_not_finished(item)
+            await self._resolve_target_season(item)
             return item
 
         # ---- L2 缓存
         identity = self._resolve_from_cache(item)
         if identity:
             item.resolved = identity
-            await self._verify_not_finished(item)
+            await self._resolve_target_season(item)
             return item
 
         # ---- L3 精确搜索 + 年份硬校验
@@ -432,7 +451,7 @@ class IdentityResolver:
                 )
                 item.resolved = identity
                 self._remember(item, identity)
-                await self._verify_not_finished(item)
+                await self._resolve_target_season(item)
                 return item
 
             # ---- L4 模糊评分：只记录，永不写入
@@ -542,26 +561,36 @@ class IdentityResolver:
         except Exception:  # noqa: BLE001 - 搜索失败等同「无候选」
             return ()
 
-    async def _verify_not_finished(self, item: DiscoveredItem) -> None:
-        """校验匹配到的剧集**是否还有未播出内容**，没有就标记 finished。
+    async def _resolve_target_season(self, item: DiscoveredItem) -> None:
+        """确定该订阅哪一季，并判断是否还有未播内容。
 
-        真机事故：Bangumi《ゲルぴよ 第2期》开播 2026-10-21，但匹配到的 TMDB
-        309774 只有第 1 季（10 集，2026-01~03 全播完）。不传季号时宿主按第 1 季
-        订阅，等于订了一部已完结的番，只会去搜老资源。
+        把 Bangumi 标题里的季号作为**提示**交给宿主，由宿主按 TMDB 实际数据
+        裁决（见 `HostTmdbResolver.resolve_target_season`）：
+
+        - 《赛博朋克：边缘行者 2》→ 提示 2，TMDB 第 2 季有未播集 → 订第 2 季
+        - 《牧神记5》→ 提示 5，TMDB 只有第 1 季有未播集 → 订第 1 季
+        - 《ゲルぴよ 第2期》→ 提示 2，TMDB 只有第 1 季且已播完 → 不可订
 
         `TmdbResolver` 未实现该能力时跳过（向后兼容）。
         """
         if not item.resolved or not item.is_tv:
             return
-        checker = getattr(self._tmdb, "has_upcoming_episodes", None)
-        if checker is None:
+        resolver = getattr(self._tmdb, "resolve_target_season", None)
+        if resolver is None:
             return
         try:
-            upcoming = await checker(item.resolved.media_id, item.media_type)
+            writable, season = await resolver(
+                item.resolved.media_id,
+                item.media_type,
+                extract_season_hint(item.title),
+            )
         except Exception:  # noqa: BLE001 - 校验失败 fail-open
             return
-        if upcoming is False:
+        if not writable:
             item.finished = True
+            return
+        if season is not None and item.season is None:
+            item.season = int(season)
 
     def _remember(self, item: DiscoveredItem, identity: ResolvedIdentity) -> None:
         """把确定性身份写入缓存（L4 不写）。"""

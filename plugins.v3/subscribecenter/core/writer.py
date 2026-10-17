@@ -61,11 +61,15 @@ class SubscribeBackend(Protocol):
         """调用 ``SubscribeChain().async_add()``，返回 ``(subscribe_id, message)``。"""
         ...
 
-    async def subscription_exists(self, media_source: str, media_id: str) -> bool:
+    async def subscription_exists(
+        self, media_source: str, media_id: str, season: Optional[int] = None
+    ) -> bool:
         """宿主是否已有该身份的**活跃**订阅（``Subscribe`` 表，任意状态）。"""
         ...
 
-    async def history_exists(self, media_source: str, media_id: str) -> bool:
+    async def history_exists(
+        self, media_source: str, media_id: str, season: Optional[int] = None
+    ) -> bool:
         """宿主是否已有该身份的**已完成**订阅历史（``SubscribeHistory`` 表）。"""
         ...
 
@@ -261,14 +265,22 @@ class SubscriptionWriter:
                 )
 
         # ---- 写入前实时复查（两层：活跃订阅 + 已完成历史）
+        #
+        # 去重**必须带季号**：同一部剧的不同季是不同订阅。
+        # 真机事故：按 media_id 去重会把「第 1 季已完成」的历史记录当成
+        # 「整部剧都处理过」，导致第 2 季永远订不上。
         try:
-            if await self._backend.subscription_exists(identity.media_source, identity.media_id):
+            if await self._backend.subscription_exists(
+                identity.media_source, identity.media_id, item.season
+            ):
                 return WriteOutcome(
                     item=item,
                     decision=DECISION_SKIPPED_ALREADY_SUBSCRIBED,
                     reason="宿主已有该订阅",
                 )
-            if await self._backend.history_exists(identity.media_source, identity.media_id):
+            if await self._backend.history_exists(
+                identity.media_source, identity.media_id, item.season
+            ):
                 return WriteOutcome(
                     item=item,
                     decision=DECISION_SKIPPED_ALREADY_COMPLETED,

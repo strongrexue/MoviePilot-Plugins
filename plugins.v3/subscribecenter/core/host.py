@@ -160,53 +160,78 @@ class HostTmdbResolver:
         }
 
 
-    async def has_upcoming_episodes(
+    async def resolve_target_season(
         self,
         tmdb_id: str,
         media_type: str,
+        season_hint: Optional[int] = None,
         tz_name: Optional[str] = None,
-    ) -> bool:
-        """判断匹配到的 TMDB 剧集是否**还有未播出内容**。
+    ) -> Tuple[bool, Optional[int]]:
+        """确定该订阅**哪一季**，并判断是否还有未播出内容。
 
-        为什么必须有这道校验（真机事故）：Bangumi 的《ゲルぴよ 第2期》
-        开播日是 2026-10-21，但 TMDB 309774 只有第 1 季（10 集，2026-01~03
-        全部播完）。因为不传季号，宿主按第 1 季订阅 —— 等于订了一部 7 个月前
-        就完结的番，宿主会去搜那 10 集老资源。
+        返回 `(可订, 季号)`；季号 `None` 表示用宿主默认季。
 
-        规则：取**最高季**（排除第 0 季特别篇）的剧集列表，只要存在任意一集
-        `air_date >= 今天` 就认为还有未播内容。电影一律返回 True。
+        为什么必须做这件事（真机两起事故）：
 
-        **失败时返回 True（fail-open）**：校验本身出错不应该拦掉正常内容，
-        宁可多订一条也不要因为一次 API 抖动静默丢条目。
+        - 《牧神记5》：Bangumi 的「5」**不是** TMDB 的季号 —— TMDB 只有第 1 季
+          （110 集，第 105 集 = 2026-10-18）。按季订会去找不存在的季。
+        - 《赛博朋克：边缘行者 2》：Bangumi 的「2」**是** TMDB 的第 2 季。
+          若按默认季（第 1 季）订，那季早已播完，宿主会立刻标记完成并移入历史 ——
+          白订，还会让去重永久挡住这个系列。
+
+        判定规则（以 **TMDB 实际数据**为准，不猜 Bangumi 的含义）：
+
+        1. 列出 TMDB 所有季（排除第 0 季特别篇），找出**有未播集**的季；
+        2. 一个都没有 → 不可订（匹配到了旧季/已完结）；
+        3. Bangumi 的季号提示正好是其中之一 → 用它（《边缘行者 2》→ 第 2 季）；
+        4. 只有一个季有未播集 → 用它（《牧神记》→ 第 1 季，忽略提示里的 5）；
+        5. 其余情况（多个候选且提示对不上）→ 返回 `None` 用默认季。
+
+        **失败时 fail-open**（返回可订 + 默认季）：校验出错不该拦正常内容。
         """
         if media_type != MEDIA_TYPE_TV:
-            return True
+            return (True, None)
         try:
             from app.modules.themoviedb.tmdbapi import TmdbApi
             from app.schemas.types import MediaType
 
             api = TmdbApi()
             info = await api.async_get_info(mtype=MediaType.TV, tmdbid=int(tmdb_id)) or {}
-            seasons = [
-                int(season.get("season_number") or 0)
-                for season in (info.get("seasons") or [])
-                if isinstance(season, dict)
-            ]
-            numbers = sorted({number for number in seasons if number > 0})
+            numbers = sorted(
+                {
+                    int(season.get("season_number") or 0)
+                    for season in (info.get("seasons") or [])
+                    if isinstance(season, dict) and int(season.get("season_number") or 0) > 0
+                },
+                reverse=True,
+            )
             if not numbers:
-                return True
-            detail = await api.async_get_tv_season_detail(int(tmdb_id), numbers[-1]) or {}
-            episodes = detail.get("episodes") or []
+                return (True, None)
+
             start = today(tz_name)
-            for episode in episodes:
-                if not isinstance(episode, dict):
-                    continue
-                air = parse_date(episode.get("air_date"))
-                if air and air >= start:
-                    return True
-            return False
+            upcoming: List[int] = []
+            for number in numbers[:6]:
+                detail = await api.async_get_tv_season_detail(int(tmdb_id), number) or {}
+                episodes = detail.get("episodes") or []
+                if any(
+                    (parse_date(episode.get("air_date")) or start.replace(year=1970)) >= start
+                    for episode in episodes
+                    if isinstance(episode, dict)
+                ):
+                    upcoming.append(number)
+                # 提示季已命中有未播集，且降序遍历到它了，可以提前收工
+                if season_hint is not None and season_hint in upcoming:
+                    break
+
+            if not upcoming:
+                return (False, None)
+            if season_hint is not None and season_hint in upcoming:
+                return (True, season_hint)
+            if len(upcoming) == 1:
+                return (True, upcoming[0])
+            return (True, None)
         except Exception:  # noqa: BLE001 - 校验失败 fail-open
-            return True
+            return (True, None)
 
     async def _search_without_year(
         self, title: str, media_type: str
@@ -315,7 +340,9 @@ class HostSubscribeBackend:
         )
         return sid, str(msg or "")
 
-    async def subscription_exists(self, media_source: str, media_id: str) -> bool:
+    async def subscription_exists(
+        self, media_source: str, media_id: str, season: Optional[int] = None
+    ) -> bool:
         """该身份是否已有**活跃**订阅（``Subscribe`` 表，任意状态都算已有）。
 
         .. note::
@@ -333,12 +360,16 @@ class HostSubscribeBackend:
         if source_enum is None:
             return False
         page = await async_list_subscriptions(
-            SubscriptionFilter(media_source=source_enum, media_id=str(media_id)),
+            SubscriptionFilter(
+                media_source=source_enum, media_id=str(media_id), season=season
+            ),
             QueryPageRequest(page=1, count=QUERY_PAGE_SIZE),
         )
         return bool(getattr(page, "total", 0))
 
-    async def history_exists(self, media_source: str, media_id: str) -> bool:
+    async def history_exists(
+        self, media_source: str, media_id: str, season: Optional[int] = None
+    ) -> bool:
         """该身份是否已有**已完成**订阅历史（``SubscribeHistory`` 表）。
 
         .. important::
@@ -357,7 +388,9 @@ class HostSubscribeBackend:
         if source_enum is None:
             return False
         page = await async_list_subscription_history(
-            SubscriptionHistoryFilter(media_source=source_enum, media_id=str(media_id)),
+            SubscriptionHistoryFilter(
+                media_source=source_enum, media_id=str(media_id), season=season
+            ),
             QueryPageRequest(page=1, count=QUERY_PAGE_SIZE),
         )
         return bool(getattr(page, "total", 0))

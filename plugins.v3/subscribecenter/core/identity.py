@@ -234,6 +234,54 @@ def strip_season_suffix(title: Optional[str]) -> str:
     return base
 
 
+#: 标题尾部的年份（「妻子的浪漫旅行2026」这类综艺命名）
+_TRAILING_YEAR = re.compile(r"[\s:：·\-]*((?:19|20)\d{2})\s*$")
+
+
+def strip_trailing_year(title: Optional[str], tz_name: Optional[str] = None) -> str:
+    """去掉标题尾部的年份，得到「基础名」。
+
+    真机：豆瓣综艺常把年份写进标题（妻子的浪漫旅行2026、歌手2026、
+    披荆斩棘2026、我家那闺女2026），而 TMDB 里是不带年份的
+    （妻子的浪漫旅行 2018 / 歌手 / 披荆斩棘 2021 / 我家那闺女 2019）。
+    直接搜全名命中率为 0，去掉年份才搜得到。
+
+    安全约束：
+
+    - 只削 **2000 ~ 今年+1** 之间的年份 —— 「银翼杀手2099」「1917」不受伤；
+    - 削完基础名至少 2 个字符。
+    """
+    text = str(title or "").strip()
+    if not text:
+        return text
+    match = _TRAILING_YEAR.search(text)
+    if not match:
+        return text
+    year = int(match.group(1))
+    from .window import today as _today
+
+    limit = (_today(tz_name) or _today()).year + 1
+    if not 2000 <= year <= limit:
+        return text
+    base = text[: match.start()].strip(" :：·-")
+    return base if len(base) >= 2 else text
+
+
+def search_variants(title: Optional[str], tz_name: Optional[str] = None) -> List[str]:
+    """返回依次尝试的搜索词（去重、保序）。
+
+    1. 原名的去季号版本（牧神记5 -> 牧神记）
+    2. 再去掉尾部年份（妻子的浪漫旅行2026 -> 妻子的浪漫旅行）
+    """
+    first = strip_season_suffix(title) or str(title or "").strip()
+    second = strip_trailing_year(first, tz_name)
+    variants: List[str] = []
+    for value in (first, second):
+        if value and value not in variants:
+            variants.append(value)
+    return variants
+
+
 def extract_season_hint(title: Optional[str]) -> Optional[int]:
     """从标题尾部提取季号提示（牧神记5 -> 5、第2期 -> 2）。
 
@@ -306,6 +354,7 @@ def match_candidate_year(
     item: DiscoveredItem,
     *,
     strict_year: bool = True,
+    target_title: Optional[str] = None,
 ) -> Optional[Tuple[dict, str]]:
     """L3：在候选中按「标题精确 + 年份硬校验」选出唯一目标。
 
@@ -320,7 +369,9 @@ def match_candidate_year(
     :return: ``(候选, 说明)``；无唯一命中返回 ``None``。
     """
     wanted_year = _year_of(item.year or item.release_date)
-    target_title = normalize_title(item.title)
+    # 换策略重试时用「变体词」作为目标标题（条目原名与候选名可能不同）
+    raw_target = target_title or item.title
+    target_title = normalize_title(raw_target)
     if not target_title:
         return None
 
@@ -345,7 +396,7 @@ def match_candidate_year(
         # 《赛博朋克：边缘行者》—— 条目名与候选名相差「 2」，
         # 若只认「精确相等」会把宿主已经成功识别的结果拒掉（0.6.3 踩过）。
         base_equiv = bool(candidate_title) and candidate_title in {
-            normalize_title(strip_season_suffix(item.title)),
+            normalize_title(strip_season_suffix(raw_target)),
             normalize_title(strip_season_suffix(item.original_title)),
         }
 
@@ -461,6 +512,8 @@ class IdentityResolver:
             return item
 
         # ---- L3 精确搜索 + 年份硬校验
+        # 记录尝试过的搜索词，供「待确认」给出可操作原因
+        item.raw.setdefault("search_variants", search_variants(item.title))
         candidates = await self._search(item)
         if candidates:
             hit = match_candidate_year(
@@ -479,12 +532,58 @@ class IdentityResolver:
                 await self._resolve_target_season(item)
                 return item
 
+            # ---- L3 换策略重试
+            #
+            # 真机：豆瓣综艺把年份写进标题（妻子的浪漫旅行2026），而 TMDB 里
+            # 不带年份；只搜一次全名命中率为 0。这里依次尝试「去年份」等变体，
+            # 只在宿主提供 search_raw 时生效。
+            hit = await self._retry_with_variants(item)
+            if hit:
+                return item
+
             # ---- L4 模糊评分：只记录，永不写入
             item.review_score = review_candidates(
                 candidates, item, threshold=self._review_threshold
             )
+        else:
+            # 首次搜索完全没有候选，同样值得换策略再试一次
+            if await self._retry_with_variants(item):
+                return item
 
         return item
+
+    async def _retry_with_variants(self, item: DiscoveredItem) -> bool:
+        """用「去掉尾部年份」等变体重试搜索；命中则解析成功。"""
+        search_raw = getattr(self._tmdb, "search_raw", None)
+        if search_raw is None:
+            return False
+        for variant in search_variants(item.title)[1:]:
+            try:
+                extra = await search_raw(variant, item.media_type)
+            except Exception:  # noqa: BLE001 - 变体搜索失败不影响主流程
+                continue
+            if not extra:
+                continue
+            hit = match_candidate_year(
+                extra,
+                item,
+                strict_year=item.media_type == MEDIA_TYPE_MOVIE,
+                target_title=variant,
+            )
+            if not hit:
+                continue
+            candidate, reason = hit
+            identity = ResolvedIdentity(
+                media_source=HOST_SOURCE_TMDB,
+                media_id=str(candidate["tmdb_id"]),
+                confidence=CONFIDENCE_L3,
+                reason=f"{reason}|variant:{variant}",
+            )
+            item.resolved = identity
+            self._remember(item, identity)
+            await self._resolve_target_season(item)
+            return True
+        return False
 
     # ------------------------------------------------------------------ 内部
 

@@ -30,11 +30,16 @@ def resolved(media_id="111", confidence=C.CONFIDENCE_L1):
 
 
 def item(**overrides):
-    """构造一条测试条目。"""
+    """构造一条测试条目。
+
+    默认标题按 ``source_id`` 生成唯一值 —— 源内去重现在会按
+    「标题 + 年份 + 类型」兜底合并（豆瓣不同路线结构不同，同一部剧拿到的
+    source_id 会不一样），同名条目会被正确合并成一条。
+    """
     data = {
         "source": C.SOURCE_TMDB,
         "source_id": "1",
-        "title": "沙丘",
+        "title": f"片{overrides.get('source_id', '1')}",
         "media_type": C.MEDIA_TYPE_MOVIE,
         "year": "2026",
         "release_date": (TODAY + timedelta(days=5)).isoformat(),

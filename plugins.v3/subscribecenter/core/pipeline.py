@@ -22,7 +22,7 @@ from .constants import (
     DECISION_SKIPPED_RATING,
     DECISION_SKIPPED_WANT,
 )
-from .identity import IdentityResolver
+from .identity import IdentityResolver, normalize_title
 from .model import DiscoveredItem, item_sort_key
 from .window import in_window, local_now_text, parse_date, today, utc_now_text
 from .writer import SubscriptionWriter, WriteOutcome, WriteReport
@@ -132,19 +132,55 @@ class RunSummary:
 # --------------------------------------------------------------------- 纯逻辑
 
 def dedupe_within_source(items: Sequence[DiscoveredItem]) -> List[DiscoveredItem]:
-    """第一层去重：``source + source_id`` 唯一。
+    """第一层去重：``source + source_id`` 唯一，再按标题兜底。
 
     同一 ``source_id`` 重复出现时**保留先出现的**（源实现通常已按重要性排序）。
+
+    .. important::
+       还要按「标准化标题 + 年份 + 类型」再兜一次。真机原因：豆瓣不同路线的
+       结构不同 —— ``/douban/tv/coming`` 带 ``<link>``（有 subject id，作为
+       source_id），而 ``/douban/list/*`` 的 ``<link>`` 是空的（只能用标题造
+       source_id）。同一部剧同时出现在两类路线里时 source_id 不同，会被当成
+       两条：重复占用额度，也让待确认列表出现成对重复（真机：伊甸园之东、
+       流人 第六季、爱上草莓的季节 各出现两次）。
+       合并时**优先保留带原生 id 的那条**（能省一次标题搜索）。
     """
     seen: set = set()
-    result: List[DiscoveredItem] = []
+    first_pass: List[DiscoveredItem] = []
     for item in items:
         key = (item.source, item.source_id)
         if key in seen:
             continue
         seen.add(key)
-        result.append(item)
-    return result
+        first_pass.append(item)
+
+    kept: List[DiscoveredItem] = []
+    index: Dict[tuple, List[int]] = {}
+    for item in first_pass:
+        title = normalize_title(item.title)
+        if not title:
+            kept.append(item)
+            continue
+        title_key = (item.source, title, str(item.year or ""), item.media_type)
+        positions = index.setdefault(title_key, [])
+        merged = False
+        for position in positions:
+            existing = kept[position]
+            # 两条都带原生 id -> 是不同的作品（同名），不合并
+            if existing.native_ids and item.native_ids:
+                if existing.source_id == item.source_id:
+                    merged = True
+                    break
+                continue
+            # 只有一方带原生 id 或都没带 -> 视为同一部剧，带 id 的优先保留
+            if not existing.native_ids and item.native_ids:
+                kept[position] = item
+            merged = True
+            break
+        if not merged:
+            positions.append(len(kept))
+            kept.append(item)
+    return kept
 
 
 def dedupe_cross_source(items: Sequence[DiscoveredItem]) -> Tuple[List[DiscoveredItem], List[DiscoveredItem]]:

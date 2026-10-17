@@ -145,6 +145,24 @@ class WriteReport:
         }
 
 
+def _pending_reason(item: DiscoveredItem, confidence: str) -> str:
+    """生成「待确认」的可操作原因。
+
+    「无确定性身份（L4）」这种措辞没有信息量 —— 用户看不出该去补什么。
+    这里把**实际尝试过的搜索词**写出来，并指出下一步：
+    如果是 TMDB 里确实没有该条目，那只能手动订阅。
+    """
+    tried = item.raw.get("search_variants") if isinstance(item.raw, dict) else None
+    media = "电影" if item.media_type == "movie" else "剧集"
+    if tried:
+        terms = "、".join(str(term) for term in tried)
+        return (
+            f"TMDB 搜不到匹配的{media}（已尝试：{terms}），"
+            f"身份置信度 {confidence}，未写入 —— 需要请手动订阅"
+        )
+    return f"无确定性身份（{confidence}），未写入 —— 需要请手动订阅"
+
+
 class SubscriptionWriter:
     """把发现条目写成宿主订阅。
 
@@ -236,7 +254,7 @@ class SubscriptionWriter:
             return WriteOutcome(
                 item=item,
                 decision=DECISION_PENDING_REVIEW,
-                reason=f"无确定性身份（{confidence}），仅记录待人工确认",
+                reason=_pending_reason(item, confidence),
             )
         identity = item.resolved
 

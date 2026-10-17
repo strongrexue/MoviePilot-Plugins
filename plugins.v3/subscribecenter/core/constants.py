@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.8.2"
+PLUGIN_VERSION = "0.8.3"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -27,7 +27,6 @@ AUTH_LEVEL = 1
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_CRON = "0 3 * * *"
 DEFAULT_DAILY_LIMIT = 30
-MAX_DAILY_LIMIT = 50
 DEFAULT_FUTURE_DAYS = 3
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
@@ -169,6 +168,12 @@ def default_config() -> Dict[str, Any]:
         #: 榜单类来源一次能给 200+ 条候选，串行约 0.7s/条（3 分钟）。
         #: 并发 8 路实测降到 20~30 秒；再高收益有限且容易触发 TMDB 限流。
         "resolve_concurrency": 8,
+        #: 是否用 TMDB episode group 精确订阅「被压成单季」的番剧。
+        #:
+        #: 真机：《药屋少女的呢喃》TMDB 是 1 季 60 集连续编号（第 49~60 集才是
+        #: 第 3 季），但 episode group 里 Season 3 = 12 集。带 group 订阅后
+        #: 宿主只追这 12 集，不会去补前 48 集旧番。关掉则按单季整体订阅。
+        "prefer_episode_group": True,
         # ---------------- Simkl
         "simkl_client_id": "",
         # ---------------- 写入

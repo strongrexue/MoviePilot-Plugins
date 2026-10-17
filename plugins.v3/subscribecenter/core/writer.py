@@ -325,6 +325,9 @@ class SubscriptionWriter:
                 media_id=identity.media_id,
                 media_type=item.media_type,
                 season=item.season,
+                # 被压成单季的番剧按 episode group 精确订阅
+                # （真机：《药屋少女的呢喃》1 季 60 集，第 3 季 = 第 49~60 集）
+                episode_group=item.episode_group,
                 message=False,  # 逐条静默，由插件在末尾发汇总通知
                 exist_ok=False,
             )

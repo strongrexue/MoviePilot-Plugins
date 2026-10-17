@@ -57,7 +57,9 @@ class FakeTmdb:
         """走换算路径。"""
         return {"tmdb_id": "555", "year": None}
 
-    async def resolve_target_season(self, tmdb_id, media_type, season_hint=None):
+    async def resolve_target_season(
+        self, tmdb_id, media_type, season_hint=None, **kwargs
+    ):
         """记录调用并返回预设裁决。"""
         self.season_calls.append((tmdb_id, media_type, season_hint))
         return (self.writable, self.season)
@@ -173,7 +175,9 @@ async def test_gate_failure_is_fail_open():
     """守门本身出错时**不拦内容**（宁可多订一条，也不因一次 API 抖动丢条目）。"""
 
     class Boom(FakeTmdb):
-        async def resolve_target_season(self, tmdb_id, media_type, season_hint=None):
+        async def resolve_target_season(
+        self, tmdb_id, media_type, season_hint=None, **kwargs
+    ):
             raise RuntimeError("TMDB 抽风")
 
     item = await IdentityResolver(Boom()).resolve(

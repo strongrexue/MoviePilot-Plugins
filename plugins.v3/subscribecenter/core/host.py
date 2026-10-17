@@ -166,31 +166,35 @@ class HostTmdbResolver:
         media_type: str,
         season_hint: Optional[int] = None,
         tz_name: Optional[str] = None,
-    ) -> Tuple[bool, Optional[int]]:
-        """确定该订阅**哪一季**，并判断是否还有未播出内容。
+        *,
+        prefer_episode_group: bool = True,
+    ) -> Tuple[bool, Optional[int], Optional[str]]:
+        """确定该订阅**哪一季**（以及是否要用 episode group）。
 
-        返回 `(可订, 季号)`；季号 `None` 表示用宿主默认季。
+        返回 `(可订, 季号, episode_group_id)`。
 
-        为什么必须做这件事（真机两起事故）：
+        为什么需要 episode group（真机：《药屋少女的呢喃》）：
 
-        - 《牧神记5》：Bangumi 的「5」**不是** TMDB 的季号 —— TMDB 只有第 1 季
-          （110 集，第 105 集 = 2026-10-18）。按季订会去找不存在的季。
-        - 《赛博朋克：边缘行者 2》：Bangumi 的「2」**是** TMDB 的第 2 季。
-          若按默认季（第 1 季）订，那季早已播完，宿主会立刻标记完成并移入历史 ——
-          白订，还会让去重永久挡住这个系列。
+        - TMDB 把它压成 **1 季 60 集**连续编号（第 49~60 集才是第 3 季）。
+        - 若只按 season=1 订阅，宿主要去补前 48 集旧番（真机实测库里只有 27 集，
+          lack_episode=33，等于把整部老番重扫一遍）。
+        - 但 TMDB 的 `episode_group`（type=6「Seasons」）里 **Season 3 = 12 集**，
+          带 group + season=3 订阅后宿主只追这 12 集。
 
-        判定规则（以 **TMDB 实际数据**为准，不猜 Bangumi 的含义）：
+        判定顺序：
 
-        1. 列出 TMDB 所有季（排除第 0 季特别篇），找出**有未播集**的季；
-        2. 一个都没有 → 不可订（匹配到了旧季/已完结）；
-        3. Bangumi 的季号提示正好是其中之一 → 用它（《边缘行者 2》→ 第 2 季）；
-        4. 只有一个季有未播集 → 用它（《牧神记》→ 第 1 季，忽略提示里的 5）；
-        5. 其余情况（多个候选且提示对不上）→ 返回 `None` 用默认季。
+        1. 列出常规季（排除第 0 季），找**有未播集**的季；
+        2. 一个都没有 -> 不可订；
+        3. 提示季正好有未播集 -> 用它，不用 group；
+        4. 剧集被压成**单季**且提示季更大 -> 去 episode group 里找同名/同序的季，
+           该季有未播集就带上 group；
+        5. 只有一个季有未播集 -> 用它；
+        6. 其余用默认季。
 
-        **失败时 fail-open**（返回可订 + 默认季）：校验出错不该拦正常内容。
+        **失败时 fail-open**（可订 + 默认季 + 无 group）。
         """
         if media_type != MEDIA_TYPE_TV:
-            return (True, None)
+            return (True, None, None)
         try:
             from app.modules.themoviedb.tmdbapi import TmdbApi
             from app.schemas.types import MediaType
@@ -206,32 +210,94 @@ class HostTmdbResolver:
                 reverse=True,
             )
             if not numbers:
-                return (True, None)
+                return (True, None, None)
 
             start = today(tz_name)
             upcoming: List[int] = []
             for number in numbers[:6]:
-                detail = await api.async_get_tv_season_detail(int(tmdb_id), number) or {}
-                episodes = detail.get("episodes") or []
-                if any(
-                    (parse_date(episode.get("air_date")) or start.replace(year=1970)) >= start
-                    for episode in episodes
-                    if isinstance(episode, dict)
-                ):
+                if await self._season_has_upcoming(api, int(tmdb_id), number, start):
                     upcoming.append(number)
-                # 提示季已命中有未播集，且降序遍历到它了，可以提前收工
                 if season_hint is not None and season_hint in upcoming:
                     break
 
             if not upcoming:
-                return (False, None)
+                return (False, None, None)
             if season_hint is not None and season_hint in upcoming:
-                return (True, season_hint)
+                return (True, season_hint, None)
+
+            # 被压成单季的番剧：去 episode group 里找真实季
+            if prefer_episode_group and season_hint and len(numbers) == 1:
+                group_id = await self._find_season_group(int(tmdb_id), season_hint, start)
+                if group_id:
+                    return (True, season_hint, group_id)
+
             if len(upcoming) == 1:
-                return (True, upcoming[0])
-            return (True, None)
+                return (True, upcoming[0], None)
+            return (True, None, None)
         except Exception:  # noqa: BLE001 - 校验失败 fail-open
-            return (True, None)
+            return (True, None, None)
+
+    @staticmethod
+    async def _season_has_upcoming(api: Any, tmdb_id: int, season: int, start: Any) -> bool:
+        """该季是否还有未播集。"""
+        detail = await api.async_get_tv_season_detail(tmdb_id, season) or {}
+        for episode in detail.get("episodes") or []:
+            if not isinstance(episode, dict):
+                continue
+            air = parse_date(episode.get("air_date"))
+            if air and air >= start:
+                return True
+        return False
+
+    async def _find_season_group(
+        self, tmdb_id: int, season_hint: int, start: Any
+    ) -> Optional[str]:
+        """在被压成单季的剧里找出「第 N 季」的 episode group id。
+
+        只在**该分组确实有未播集**时返回，避免为了一个已经播完的季去建订阅。
+        """
+        groups = await self._tmdb_get(f"/tv/{tmdb_id}/episode_groups")
+        group_id = None
+        for entry in (groups or {}).get("results") or []:
+            # type 6 = 「Seasons」分组（实测：药屋少女的呢喃）
+            if str(entry.get("type")) == "6" and int(entry.get("group_count") or 0) > 1:
+                group_id = entry.get("id")
+                break
+        if not group_id:
+            return None
+
+        payload = await self._tmdb_get(f"/tv/episode_group/{group_id}")
+        for group in (payload or {}).get("groups") or []:
+            order = int(group.get("order") or 0)
+            name = str(group.get("name") or "")
+            if order != season_hint and name != f"Season {season_hint}":
+                continue
+            for episode in group.get("episodes") or []:
+                air = parse_date(episode.get("air_date"))
+                if air and air >= start:
+                    return str(group_id)
+            return None
+        return None
+
+    @staticmethod
+    async def _tmdb_get(path: str) -> Dict[str, Any]:
+        """直连 TMDB 原始接口（宿主的 TmdbApi 未暴露 episode_groups 列表）。"""
+        from app.runtime.settings import get_runtime_setting
+        from app.sdk.network import AsyncRequestUtils
+
+        domain = get_runtime_setting("TMDB_API_DOMAIN") or "api.themoviedb.org"
+        key = get_runtime_setting("TMDB_API_KEY") or ""
+        url = f"https://{domain}/3{path}"
+        utils = AsyncRequestUtils(
+            proxies=get_runtime_setting("PROXY") or None,
+            timeout=20,
+        )
+        response = await utils.get_res(
+            url, params={"api_key": key, "language": "zh-CN"}, raise_exception=True
+        )
+        if not response:
+            return {}
+        return response.json() or {}
 
     async def _search_without_year(
         self, title: str, media_type: str
@@ -314,6 +380,7 @@ class HostSubscribeBackend:
         media_type: str,
         season: Optional[int] = None,
         *,
+        episode_group: Optional[str] = None,
         message: bool = False,
         exist_ok: bool = False,
     ) -> Tuple[Optional[int], str]:
@@ -332,6 +399,11 @@ class HostSubscribeBackend:
             title,
             str(year or ""),
             mtype=media_type_enum(media_type),
+            # episode_group 用于「被 TMDB 压成单季」的番剧按真实季精确订阅
+            # （真机：《药屋少女的呢喃》TMDB 是 1 季 60 集连续编号，
+            #  但 episode group 里 Season 3 = 第 49~60 集。带 group + season=3
+            #  订阅后宿主只追这 12 集，不会去补前 48 集旧番。）
+            episode_group=episode_group or None,
             season=season,
             media_source=source_enum,
             media_id=str(media_id),

@@ -421,12 +421,15 @@ class IdentityResolver:
         *,
         review_threshold: float = DEFAULT_REVIEW_THRESHOLD,
         use_converted_season: bool = False,
+        prefer_episode_group: bool = True,
     ) -> None:
         self._tmdb = tmdb
         self._cache = cache
         self._review_threshold = review_threshold
         #: 是否采用跨源换算回来的季号。**默认关**（见 _resolve_by_conversion 注释）
         self._use_converted_season = use_converted_season
+        #: 是否用 TMDB episode group 精确订阅被压成单季的番剧
+        self._prefer_episode_group = prefer_episode_group
 
     async def resolve(self, item: DiscoveredItem) -> DiscoveredItem:
         """就地解析条目身份并写回 ``resolved`` / ``review_score``。
@@ -601,18 +604,26 @@ class IdentityResolver:
         if resolver is None:
             return
         try:
-            writable, season = await resolver(
+            verdict = await resolver(
                 item.resolved.media_id,
                 item.media_type,
                 extract_season_hint(item.title),
+                prefer_episode_group=self._prefer_episode_group,
             )
         except Exception:  # noqa: BLE001 - 校验失败 fail-open
             return
+        # 兼容二元组（早期实现）与三元组
+        writable, season = verdict[0], verdict[1]
+        episode_group = verdict[2] if len(verdict) > 2 else None
+
         if not writable:
             item.finished = True
             return
         if season is not None and item.season is None:
             item.season = int(season)
+        if episode_group and item.episode_group is None:
+            # 「被压成单季」的番剧按真实季精确订阅，避免补一大堆旧集
+            item.episode_group = str(episode_group)
 
     def _remember(self, item: DiscoveredItem, identity: ResolvedIdentity) -> None:
         """把确定性身份写入缓存（L4 不写）。"""

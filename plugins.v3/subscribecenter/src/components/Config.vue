@@ -494,6 +494,20 @@ onMounted(() => {
           <code>ustop250</code> 与 <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
         </div>
 
+        <VSwitch
+          v-model="form.prefer_episode_group"
+          label="用 TMDB 分组精确订阅被压成单季的番剧"
+          density="compact"
+          hide-details
+          class="mt-3"
+        />
+        <div class="sc-hint mb-3">
+          <b>建议保持开启。</b>有些番剧在 TMDB 被压成「一季多集连续编号」
+          （如《药屋少女的呢喃》= 第 1 季 60 集，第 49~60 集才是第 3 季）。
+          开启后会用 TMDB 的分组数据精确订阅第 3 季（12 集），
+          <b>不会去补前 48 集旧番</b>；关闭则按整季订阅（宿主要扫全部缺集）。
+        </div>
+
         <div class="sc-hint mb-3">
           Bangumi 是<b>独立配置</b>：番剧的窗口与评分门槛跟 TMDB 分开设 ——
           两边评分量纲不同（Bangumi 社区评分普遍偏高），共用门槛会误杀。
@@ -534,10 +548,10 @@ onMounted(() => {
           <VCol cols="12" sm="6">
             <VTextField
               v-model.number="form.daily_limit"
-              label="每日写入上限"
+              label="每日写入上限（0 = 不限）"
               type="number"
               min="1"
-              max="50"
+              :max="100000"
               density="compact"
               hide-details
               class="mb-2"

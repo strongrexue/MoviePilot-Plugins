@@ -41,7 +41,7 @@ class FakeBackend:
         self.precheck_calls = 0
 
     async def add(self, title, year, media_source, media_id, media_type,
-                  season=None, *, message=False, exist_ok=False):
+                  season=None, *, episode_group=None, message=False, exist_ok=False):
         """记录调用并返回预设结果。"""
         self.add_calls.append(
             {
@@ -51,6 +51,7 @@ class FakeBackend:
                 "media_id": media_id,
                 "media_type": media_type,
                 "season": season,
+                "episode_group": episode_group,
                 "message": message,
                 "exist_ok": exist_ok,
             }

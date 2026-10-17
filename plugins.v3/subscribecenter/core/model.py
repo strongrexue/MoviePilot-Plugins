@@ -116,6 +116,13 @@ class DiscoveredItem:
     #: 未播集」来替代窗口判定（见 IdentityResolver._resolve_target_season）；
     #: 电影没有日期就无从判断是否即将上映，直接跳过。
     date_unknown: bool = False
+    #: TMDB episode group id。
+    #:
+    #: 用于「被 TMDB 压成单季」的番剧按真实季精确订阅 —— 真机：
+    #: 《药屋少女的呢喃》是 1 季 60 集连续编号（第 49~60 集才是第 3 季），
+    #: 但 episode group 里 Season 3 = 12 集。带 group 订阅后宿主只追这 12 集，
+    #: 不会去补前 48 集旧番。
+    episode_group: Optional[str] = None
     #: 原始载荷（排查用，落流水时可截断）
     raw: Dict[str, Any] = field(default_factory=dict)
     discovered_at: str = ""

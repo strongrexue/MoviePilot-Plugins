@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.2.3"
+PLUGIN_VERSION = "0.2.4"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -132,9 +132,17 @@ def default_config() -> Dict[str, Any]:
         "notify": False,
         # ---------------- 界面
         "discovery_page_enabled": False,
+        # ---------------- 测试辅助
+        #: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试。
+        #: 用完自动置回 False（否则每日额度会永远失效）。
+        "reset_daily_counter": False,
         # ---------------- 一次性执行（不持久化语义，保存后由宿主清理）
         "onlyonce": False,
     }
+
+
+#: 一次性开关：读取后必须立刻置回默认值（避免长期生效）
+ONE_SHOT_FLAGS = frozenset({"reset_daily_counter", "onlyonce"})
 
 
 #: 不进前端表单、仅后端自管的状态键（前端整份回写时必须排除）

@@ -223,6 +223,19 @@ onMounted(() => {
           class="mb-2"
         />
         <VSwitch v-model="form.notify" label="发送运行摘要通知" density="compact" hide-details />
+        <VSwitch
+          v-model="form.reset_daily_counter"
+          label="清零今日写入计数（测试用，保存后自动关闭）"
+          density="compact"
+          hide-details
+          color="warning"
+          class="mt-2"
+        />
+        <div class="sc-hint mt-1">
+          勾选并保存后，本次会把「今日已写入 N 条」清零，方便同一天反复测。
+          <b>这是测试开关</b>，目标达成后会评估是否保留；保存即自动置回关闭，
+          不会让每日上限永久失效。
+        </div>
         <div class="sc-hint mt-2">
           首次运行无论此开关如何都会强制 dry-run 一次，确认结果后再按本开关执行。
         </div>

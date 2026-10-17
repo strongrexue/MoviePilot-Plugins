@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.2.3"
+    plugin_version = "0.2.4"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -108,6 +108,9 @@ class SubscribeCenter(_PluginBase):
         merged.update(config or {})
         self._config = merged
 
+        # 一次性开关：读取后立刻置回默认值，避免长期生效
+        self._consume_one_shot_flags()
+
         # 宿主适配器延迟到运行时构造：模块导入期不得接触宿主内部（官方硬性要求）
         from .core.host import HostSubscribeBackend, HostTmdbResolver
 
@@ -115,6 +118,29 @@ class SubscribeCenter(_PluginBase):
         daily_limit = self._int_config("daily_limit", C.DEFAULT_DAILY_LIMIT)
         self._writer = SubscriptionWriter(HostSubscribeBackend(), daily_limit=daily_limit)
         self._last_run = self._state().get("last_run")
+
+    def _consume_one_shot_flags(self) -> None:
+        """处理并复位一次性开关。
+
+        目前只有一个：``reset_daily_counter`` —— 把「今日已写入条数」清零，
+        用于同一天反复测试。**用完立刻置回 False 并写回配置**，
+        否则每日写入上限会永久失效。
+        """
+        if not self._config.get("reset_daily_counter"):
+            return
+        try:
+            state = self._state()
+            state[C.STATE_DAILY_COUNT] = 0
+            state[C.STATE_TODAY] = today(self._tz()).isoformat()
+            self._save_state(state)
+            self._config["reset_daily_counter"] = False
+            self.update_config(self._config)
+            logger.info(
+                "[SubscribeCenter] 已按「清零今日写入计数」开关重置额度"
+                "（测试用，开关已自动关闭）"
+            )
+        except Exception as err:  # noqa: BLE001 - 测试辅助失败不应影响插件加载
+            logger.warning(f"[SubscribeCenter] 清零今日写入计数失败：{err}")
 
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""
@@ -400,6 +426,20 @@ class SubscribeCenter(_PluginBase):
             + ("（dry-run，未写入）" if summary.dry_run else "")
             + ("（触达每日上限）" if data.get("limit_hit") else "")
         )
+        # 把本次新增的标题也打出来：只看数字无法判断「订得对不对」，
+        # 而这个问题在真机上已经踩过两次（订了 29 部冷门片）。
+        titles = self._added_titles(summary)
+        if titles:
+            logger.info(f"[新增明细] {'；'.join(titles)}")
+
+    @staticmethod
+    def _added_titles(summary: RunSummary, limit: int = 20) -> List[str]:
+        """返回本次真正新增的条目标题（最多 ``limit`` 条）。"""
+        added = summary.report.added if summary.report else []
+        result = [outcome.item.title_year for outcome in added[:limit]]
+        if len(added) > limit:
+            result.append(f"…另有 {len(added) - limit} 条")
+        return result
 
     def _notify_summary(self, summary: RunSummary) -> None:
         """发送运行摘要通知。"""

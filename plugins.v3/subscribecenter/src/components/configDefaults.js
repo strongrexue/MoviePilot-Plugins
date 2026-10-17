@@ -15,13 +15,16 @@ export const configDefaults = {
   enable_simkl: false,
   enable_justwatch: false,
   // ---------------- 发现窗口与阈值
-  tmdb_future_days: 30,
-  bangumi_future_days: 30,
+  tmdb_future_days: 8,
+  bangumi_future_days: 8,
   min_rating_tmdb: 6.0,
   min_rating_bangumi: 6.0,
   min_rating_douban: 6.0,
   min_rating_simkl: 6.0,
-  min_popularity: 10.0,
+  min_popularity: 8.0,
+  //: 是否只保留指定原始语言的条目
+  filter_original_language: true,
+  tmdb_original_languages: 'zh,ja,ko,en',
   // ---------------- 豆瓣 RSS 源列表
   douban_rss_sources: [],
   // ---------------- Simkl

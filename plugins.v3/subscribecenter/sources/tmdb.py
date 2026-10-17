@@ -64,13 +64,14 @@ class TmdbSource:
 
     async def fetch(self, config: Dict[str, Any]) -> List[DiscoveredItem]:
         """按配置拉取电影与剧集，返回标准化条目。"""
-        future_days = _as_int(config.get("tmdb_future_days"), 30)
+        future_days = _as_int(config.get("tmdb_future_days"), 8)
+        languages = _language_filter(config)
         min_rating = _as_float(config.get("min_rating_tmdb"), DEFAULT_MIN_RATING)
         tz_name = config.get("timezone")
 
         results = await asyncio.gather(
-            self._fetch_type(MEDIA_TYPE_MOVIE, future_days, min_rating, tz_name),
-            self._fetch_type(MEDIA_TYPE_TV, future_days, min_rating, tz_name),
+            self._fetch_type(MEDIA_TYPE_MOVIE, future_days, min_rating, tz_name, languages),
+            self._fetch_type(MEDIA_TYPE_TV, future_days, min_rating, tz_name, languages),
             return_exceptions=True,
         )
 
@@ -94,6 +95,7 @@ class TmdbSource:
         future_days: int,
         min_rating: float,
         tz_name: Optional[str],
+        languages: str = "",
     ) -> List[DiscoveredItem]:
         """拉取单一媒体类型：popularity 与日期两种排序各取若干页。"""
         start = today(tz_name)
@@ -107,6 +109,7 @@ class TmdbSource:
                     sort_by=sort_by,
                     start=start.isoformat(),
                     end=end.isoformat(),
+                    languages=languages,
                     page=page,
                 )
                 raw = await self._discover(media_type, params)
@@ -143,7 +146,8 @@ class TmdbSource:
         sort_by: str,
         start: str,
         end: str,
-        page: int,
+        languages: str = "",
+        page: int = 1,
     ) -> Dict[str, Any]:
         """构造 TMDB discover 参数。
 
@@ -162,6 +166,9 @@ class TmdbSource:
             "include_adult": "false",
             "page": page,
         }
+        if languages:
+            # TMDB 的 with_original_language 支持 `zh|ja|ko|en` 形式的并列
+            params["with_original_language"] = languages
         if media_type == MEDIA_TYPE_TV:
             params["first_air_date.gte"] = start
             params["first_air_date.lte"] = end
@@ -220,6 +227,30 @@ class TmdbSource:
 
 
 # --------------------------------------------------------------------- 工具
+
+def _language_filter(config: Dict[str, Any]) -> str:
+    """把配置里的语言列表转成 TMDB 的 ``with_original_language`` 值。
+
+    配置形态：``filter_original_language=True`` + ``tmdb_original_languages="zh,ja,ko,en"``
+    → 返回 ``"zh|ja|ko|en"``（TMDB 用竖线表示并列）。
+    关闭过滤、或列表为空/非法时返回 ``""``（表示不限）。
+
+    .. note::
+       语言过滤是**服务端**参数，比在本地过滤更省请求，也不会漏掉
+       被分页截断的条目。
+    """
+    if not config.get("filter_original_language"):
+        return ""
+    raw = config.get("tmdb_original_languages") or ""
+    if isinstance(raw, (list, tuple)):
+        parts = [str(item) for item in raw]
+    else:
+        parts = str(raw).replace("|", ",").split(",")
+    codes = [part.strip().lower() for part in parts if part and part.strip()]
+    # 只接受 2~3 位语言码，避免脏配置把请求搞坏
+    codes = [code for code in codes if 2 <= len(code) <= 3 and code.isalpha()]
+    return "|".join(dict.fromkeys(codes))
+
 
 def _as_int(value: Any, default: int) -> int:
     """宽松整型转换。"""

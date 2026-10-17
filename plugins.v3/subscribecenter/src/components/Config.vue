@@ -307,6 +307,27 @@ onMounted(() => {
           <b>最低关注度</b>：新片还没人评分，popularity 是唯一可用的质量信号。
           设 0 表示不过滤，会把同日上映的冷门片也订进来（观众级大片 100+、
           院线片 10~50、冷门片 &lt;5）。</div>
+
+        <VSwitch
+          v-model="form.filter_original_language"
+          label="只保留指定原始语言的条目"
+          density="compact"
+          hide-details
+          class="mt-3"
+        />
+        <VTextField
+          v-model="form.tmdb_original_languages"
+          label="允许的原始语言（逗号分隔）"
+          density="compact"
+          hide-details
+          :disabled="!form.filter_original_language"
+          placeholder="zh,ja,ko,en"
+          class="mt-2"
+        />
+        <div class="sc-hint mt-1">
+          语种码：zh 华语 / ja 日语 / ko 韩语 / en 英语。小语种片（印度、土耳其、
+          荷兰等）通常不会被下载，进订阅只会白占每日额度。
+        </div>
       </VCardText>
     </VCard>
 

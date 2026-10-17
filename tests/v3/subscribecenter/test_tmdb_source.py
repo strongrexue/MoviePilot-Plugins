@@ -68,7 +68,7 @@ def tv_show(mid, air_date, name="剧", vote=7.0):
     }
 
 
-CONFIG = {"tmdb_future_days": 30, "min_rating_tmdb": 6.0, "timezone": "Asia/Shanghai"}
+CONFIG = {"tmdb_future_days": 8, "min_rating_tmdb": 6.0, "timezone": "Asia/Shanghai"}
 
 
 # --------------------------------------------------------------------- 参数（核心）

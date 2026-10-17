@@ -9,6 +9,11 @@
  *   宿主在不同挂载方式下对 save 事件的处理不一致（参考 embycovercenter 的结论），
  *   自持保存能保证「点了保存就一定落库」；
  * - 顶部显示前端/后端版本号，不一致时明确提示硬刷新（remoteEntry.js 无哈希）。
+ *
+ * 版面（0.9.0 重做）：
+ * - 左侧分区导航 + 右侧卡片内容 + 底部吸底操作栏；
+ * - 首屏「总览」用数据卡呈现关键状态，不必滚到底就看清；
+ * - 每个开关一行（标题/说明在左、开关在右），避免一长串灰色文字堆叠。
  */
 import { computed, onMounted, ref } from 'vue'
 import { FRONTEND_VERSION } from './version'
@@ -34,6 +39,7 @@ const busy = ref('')
 const status = ref(null)
 const tip = ref({ show: false, ok: true, text: '' })
 const previewItems = ref([])
+const activeSection = ref('overview')
 
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
 const DECISION_LABELS = {
@@ -85,8 +91,115 @@ const sourceRows = [
   { key: 'enable_bangumi', label: 'Bangumi', hint: '当季番剧，自带 subject ID，经宿主换算成 TMDB' },
   { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '经 RSSHub；上映日期与豆瓣 ID 均可解析' },
   { key: 'enable_simkl', label: 'Simkl Calendar', hint: '未来 33 天 TV + 动画 + 电影（尚未实现）' },
-  { key: 'enable_justwatch', label: 'JustWatch', hint: '溪流媒体上线发现，只记日志（尚未实现）' },
+  { key: 'enable_justwatch', label: 'JustWatch', hint: '流媒体上线发现，只记日志（尚未实现）' },
 ]
+
+/** 基础开关：一行一个，左标题右开关。 */
+const switchRows = [
+  {
+    key: 'enabled',
+    label: '启用插件',
+    hint: '关闭后定时任务与手动运行都会跳过',
+  },
+  {
+    key: 'discovery_page_enabled',
+    label: '在「发现」分区显示入口',
+    hint: '关闭只是不显示入口，插件仍会按时运行',
+  },
+  {
+    key: 'dry_run',
+    label: 'dry-run（只记录不写入）',
+    hint: '调参阶段建议开启：跑完整流程但不真的建订阅',
+  },
+  {
+    key: 'notify',
+    label: '发送运行摘要通知',
+    hint: '每次运行结束后推送一条汇总消息',
+  },
+]
+
+const enabledSourceCount = computed(
+  () => sourceRows.filter((row) => form.value[row.key]).length,
+)
+
+const sectionNav = computed(() => [
+  { key: 'overview', label: '总览', icon: 'mdi-view-dashboard-outline' },
+  { key: 'source', label: '数据源', icon: 'mdi-radar', badge: `${enabledSourceCount.value}/${sourceRows.length}` },
+  { key: 'threshold', label: '窗口与阈值', icon: 'mdi-tune-variant' },
+  { key: 'schedule', label: '写入与调度', icon: 'mdi-calendar-clock' },
+  { key: 'preview', label: '预览结果', icon: 'mdi-eye-outline', badge: previewItems.value.length || '' },
+])
+
+const overviewCards = computed(() => {
+  const written = status.value?.written_today
+  const limit = status.value?.daily_limit
+  return [
+    {
+      icon: 'mdi-download-network-outline',
+      label: '今日写入',
+      value: written != null ? `${written}` : '—',
+      sub: limit ? `上限 ${limit} 条${Number(limit) <= 0 ? '（不限）' : ''}` : '上限未取到',
+      color: 'primary',
+    },
+    {
+      icon: 'mdi-radar',
+      label: '已启用数据源',
+      value: `${enabledSourceCount.value}`,
+      sub: `共 ${sourceRows.length} 个，已实现 ${IMPLEMENTED.length} 个`,
+      color: 'info',
+    },
+    {
+      icon: 'mdi-calendar-range',
+      label: '发现窗口',
+      value: `${form.value.tmdb_future_days ?? '—'} 天`,
+      sub: `Bangumi ${form.value.bangumi_future_days ?? '—'} 天 · 豆瓣 ${form.value.douban_future_days ?? '—'} 天`,
+      color: 'success',
+    },
+    {
+      icon: 'mdi-source-branch',
+      label: '组件版本',
+      value: `v${FRONTEND_VERSION}`,
+      sub: backendVersion.value ? `后端 v${backendVersion.value}` : '后端版本未知',
+      color: versionMismatch.value ? 'warning' : 'default',
+    },
+  ]
+})
+
+/** 概览里的提醒条目（只显示确实需要注意的）。 */
+const overviewAlerts = computed(() => {
+  const list = []
+  if (versionMismatch.value) {
+    list.push({
+      type: 'warning',
+      text: `${versionMismatch.value}：浏览器仍在用缓存的旧联邦组件，请按 Ctrl+Shift+R 硬刷新后再操作。`,
+    })
+  }
+  if (status.value && !status.value.first_run_completed) {
+    list.push({
+      type: 'info',
+      text: '首次运行会强制 dry-run 一次：只记录不写入，确认结果后再放开。',
+    })
+  }
+  if (!form.value.enabled) {
+    list.push({ type: 'warning', text: '插件当前未启用，定时任务不会执行。' })
+  }
+  if (form.value.dry_run) {
+    list.push({ type: 'info', text: 'dry-run 已开启：本次运行不会真的建订阅。' })
+  }
+  if (!cronValid()) {
+    list.push({ type: 'error', text: '执行时间不是合法的 5 段式 cron（分 时 日 月 周）。' })
+  }
+  const pending = sourceRows.filter(
+    (row) => form.value[row.key] && !IMPLEMENTED.includes(row.key.replace('enable_', '')),
+  )
+  if (pending.length) {
+    list.push({
+      type: 'info',
+      text: `已启用但当前版本不会运行：${pending.map((row) => row.label).join('、')}`,
+    })
+  }
+  return list
+})
 
 function setTip(text, ok = true) {
   tip.value = { show: true, ok, text }
@@ -198,6 +311,7 @@ async function preview() {
       return
     }
     previewItems.value = result?.items || []
+    activeSection.value = 'preview'
     const s = result?.summary || {}
     const reasons = Object.entries(result?.rejections || {})
       .map(([key, count]) => `${DECISION_LABELS[key] || key} ${count}`)
@@ -222,458 +336,830 @@ onMounted(() => {
 <template>
   <div class="sc-root">
     <VAlert
-      v-if="versionMismatch"
-      type="warning"
-      variant="tonal"
-      density="compact"
-      class="mb-3"
-      :text="`${versionMismatch}：浏览器仍在用缓存的旧联邦组件。请按 Ctrl+Shift+R 硬刷新页面后再操作。`"
-    />
-
-    <VAlert
       v-if="tip.show"
       :type="tip.ok ? 'success' : 'error'"
       variant="tonal"
       density="compact"
+      closable
       class="mb-3"
       :text="tip.text"
+      @click:close="tip.show = false"
     />
 
-    <VCard variant="tonal" class="mb-3">
-      <VCardTitle class="d-flex align-center flex-wrap ga-2">
-        <span>胖虎订阅中心</span>
-        <VChip size="small" variant="flat" color="primary">v{{ FRONTEND_VERSION }}</VChip>
-        <VChip
-          v-if="status"
-          size="small"
-          variant="tonal"
-          :color="status.enabled ? 'success' : 'default'"
-        >
-          {{ status.enabled ? '已启用' : '未启用' }}
-        </VChip>
-        <VChip v-if="status" size="small" variant="tonal">
-          今日写入 {{ status.written_today }} / {{ status.daily_limit }}
-        </VChip>
-        <VChip
-          v-if="status && !status.first_run_completed"
-          size="small"
-          variant="tonal"
-          color="warning"
-        >
-          首次运行将强制 dry-run
-        </VChip>
-      </VCardTitle>
-      <VCardText class="sc-hint">
-        只做三件事：发现 → 去重 → 写订阅。版本控制、洗版与下载优先级由 MoviePilot
-        后台订阅规则接管，本插件不介入。
-      </VCardText>
-    </VCard>
-
-    <VCard variant="outlined" class="mb-3">
-      <VCardTitle class="text-subtitle-1">基础</VCardTitle>
-      <VCardText>
-        <VSwitch v-model="form.enabled" label="启用插件" density="compact" hide-details class="mb-2" />
-        <VSwitch
-          v-model="form.discovery_page_enabled"
-          label="在「发现」分区显示入口"
-          density="compact"
-          hide-details
-          :disabled="!form.enabled"
-          class="mb-2"
-        />
-        <VSwitch
-          v-model="form.dry_run"
-          label="dry-run（只记录不写入）"
-          density="compact"
-          hide-details
-          class="mb-2"
-        />
-        <VSwitch v-model="form.notify" label="发送运行摘要通知" density="compact" hide-details />
-        <VSwitch
-          v-model="form.reset_daily_counter"
-          label="清零今日写入计数（测试用，保存后自动关闭）"
-          density="compact"
-          hide-details
-          color="warning"
-          class="mt-2"
-        />
-        <div class="sc-hint mt-1">
-          勾选并保存后，本次会把「今日已写入 N 条」清零，方便同一天反复测。
-          <b>这是测试开关</b>，目标达成后会评估是否保留；保存即自动置回关闭，
-          不会让每日上限永久失效。
+    <!-- 顶部标题栏 -->
+    <div class="sc-header">
+      <div class="sc-header-main">
+        <div class="sc-logo">
+          <VIcon icon="mdi-movie-open-star-outline" size="22" />
         </div>
-        <div class="sc-hint mt-2">
-          首次运行无论此开关如何都会强制 dry-run 一次，确认结果后再按本开关执行。
-        </div>
-      </VCardText>
-    </VCard>
-
-    <VCard variant="outlined" class="mb-3">
-      <VCardTitle class="text-subtitle-1">数据源</VCardTitle>
-      <VCardText>
-        <div v-for="row in sourceRows" :key="row.key" class="mb-2">
-          <VSwitch v-model="form[row.key]" :label="row.label" density="compact" hide-details />
-          <div class="sc-hint ml-10">
-            {{ row.hint }}
-            <span v-if="!IMPLEMENTED.includes(row.key.replace('enable_', ''))" class="sc-warn">
-              （当前版本已启用也不会运行）
-            </span>
-          </div>
-        </div>
-      </VCardText>
-    </VCard>
-
-    <VCard variant="outlined" class="mb-3">
-      <VCardTitle class="text-subtitle-1">发现窗口与阈值</VCardTitle>
-      <VCardText>
-        <VRow dense>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.tmdb_future_days"
-              label="TMDB 发现窗口（天）"
-              type="number"
-              min="1"
-              max="90"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.min_rating_tmdb"
-              label="TMDB 最低评分"
-              type="number"
-              step="0.1"
-              min="0"
-              max="10"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.min_popularity"
-              label="最低关注度（popularity）"
-              type="number"
-              step="1"
-              min="0"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-        </VRow>
-        <div class="sc-hint">
-          TMDB 只保留「今天 ~ 今天 + N 天」内的定档条目。注意宿主 discover 不支持按地区过滤，
-          结果会偏欧美。
-        </div>
-        <VRow dense class="mt-3">
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.bangumi_future_days"
-              label="Bangumi 发现窗口（天）"
-              type="number"
-              min="1"
-              max="90"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.min_rating_bangumi"
-              label="Bangumi 最低评分"
-              type="number"
-              step="0.1"
-              min="0"
-              max="10"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-        </VRow>
-        <VSwitch
-          v-model="form.bangumi_split_season"
-          label="Bangumi 按季拆分订阅"
-          density="compact"
-          hide-details
-          class="mt-1"
-        />
-        <div class="sc-hint mb-3">
-          <b>默认关闭</b>，建议保持关闭。国产动画在 TMDB 通常被建模成「单季多集」
-          （如《牧神记》是第 1 季 110 集，第 105 集正好对应 Bangumi「牧神记5」的开播日），
-          此时 Bangumi 的「第 N 期」并不是 TMDB 的第 N 季 —— 按季订会去找一个不存在的季，
-          什么都订不到。关闭后按 TMDB 默认季订阅、靠宿主的按集追踪，才是正确行为。
-        </div>
-
-        <VTextarea
-          v-model="doubanSourcesText"
-          label="豆瓣 RSS 地址（每行一个）"
-          rows="2"
-          density="compact"
-          hide-details
-          class="mb-2"
-          :disabled="!form.enable_douban_rss"
-        />
-        <VRow dense class="mt-1">
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.douban_future_days"
-              label="豆瓣发现窗口（天）"
-              type="number"
-              min="1"
-              max="90"
-              density="compact"
-              hide-details
-              class="mb-2"
-              :disabled="!form.enable_douban_rss"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.douban_max_items_per_feed"
-              label="每个榜单最多取 N 条"
-              type="number"
-              min="1"
-              max="200"
-              density="compact"
-              hide-details
-              class="mb-2"
-              :disabled="!form.enable_douban_rss"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.resolve_concurrency"
-              label="身份解析并发数"
-              type="number"
-              min="1"
-              max="16"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.douban_min_want"
-              label="豆瓣最低想看人数（0=不限）"
-              type="number"
-              min="0"
-              step="100"
-              density="compact"
-              hide-details
-              class="mb-2"
-              :disabled="!form.enable_douban_rss"
-            />
-          </VCol>
-        </VRow>
-        <div class="sc-hint mb-3">
-          <b>豆瓣是独立配置</b>：窗口独立于 TMDB（豆瓣「即将上映」是策展列表，可以放宽些）。
-          想看人数只有 coming 类路线提供（如「想看：27357」），榜单类没有该数据 ——
-          缺失时不拦。设 0 表示不按想看过滤。<br />
-          <b>每个榜单最多取 N 条</b>：榜单按名次排列，取前 N 即最热的。
-          候选多不需要手动减 —— 身份解析是并发的（默认 8 路），
-          实测 260 条候选约 20~30 秒跑完。
-        </div>
-
-        <div class="sc-hint mb-3">
-          填 RSSHub 的豆瓣路线，每行一个（如
-          <code>http://192.168.50.134:1200/douban/movie/coming</code>）。<br />
-          <b>三类路线的实测行为不同：</b><br />
-          • <b>电影上映类</b>（<code>/douban/movie/coming</code>）：<b>带精确上映日期</b>，
-          按窗口过滤，最准 —— 推荐。<br />
-          • <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
-          <code>/douban/recommended/tv</code>）：<b>没有日期</b>，按「TMDB 还有没有未播集」
-          判断，等效于追番。可配多条。<br />
-          • <b>电影榜单类</b>（<code>/douban/list/movie_*</code>）：没有日期，会被跳过（老片居多，订了浪费额度）。<br />
-          <code>ustop250</code> 与 <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
-        </div>
-
-        <VSwitch
-          v-model="form.resubscribe_completed"
-          label="已完成过的订阅允许重新订阅（忽略订阅历史）"
-          density="compact"
-          hide-details
-          class="mt-2"
-        />
-        <div class="sc-hint mb-3">
-          <b>默认开启。</b>宿主把订阅标成「完成」时会移入订阅历史；如果你之后从媒体库
-          删掉了文件、想重新下，就需要这一项。真正<b>已经播完</b>的剧不会因此重复订阅 ——
-          它们会先被「TMDB 已无未播内容」拦住。
-        </div>
-
-        <VSwitch
-          v-model="form.prefer_episode_group"
-          label="用 TMDB 分组精确订阅被压成单季的番剧"
-          density="compact"
-          hide-details
-          class="mt-3"
-        />
-        <div class="sc-hint mb-3">
-          <b>建议保持开启。</b>有些番剧在 TMDB 被压成「一季多集连续编号」
-          （如《药屋少女的呢喃》= 第 1 季 60 集，第 49~60 集才是第 3 季）。
-          开启后会用 TMDB 的分组数据精确订阅第 3 季（12 集），
-          <b>不会去补前 48 集旧番</b>；关闭则按整季订阅（宿主要扫全部缺集）。
-        </div>
-
-        <div class="sc-hint mb-3">
-          Bangumi 是<b>独立配置</b>：番剧的窗口与评分门槛跟 TMDB 分开设 ——
-          两边评分量纲不同（Bangumi 社区评分普遍偏高），共用门槛会误杀。
-        </div>
-
-        <div class="sc-hint mt-1">
-          <b>最低关注度</b>：新片还没人评分，popularity 是唯一可用的质量信号。
-          设 0 表示不过滤，会把同日上映的冷门片也订进来（观众级大片 100+、
-          院线片 10~50、冷门片 &lt;5）。</div>
-
-        <VSwitch
-          v-model="form.filter_original_language"
-          label="只保留指定原始语言的条目"
-          density="compact"
-          hide-details
-          class="mt-3"
-        />
-        <VTextField
-          v-model="form.tmdb_original_languages"
-          label="允许的原始语言（逗号分隔）"
-          density="compact"
-          hide-details
-          :disabled="!form.filter_original_language"
-          placeholder="zh,ja,ko,en"
-          class="mt-2"
-        />
-        <div class="sc-hint mt-1">
-          语种码：zh 华语 / ja 日语 / ko 韩语 / en 英语。小语种片（印度、土耳其、
-          荷兰等）通常不会被下载，进订阅只会白占每日额度。
-        </div>
-      </VCardText>
-    </VCard>
-
-    <VCard variant="outlined" class="mb-3">
-      <VCardTitle class="text-subtitle-1">写入与调度</VCardTitle>
-      <VCardText>
-        <VRow dense>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model.number="form.daily_limit"
-              label="每日写入上限（0 = 不限）"
-              type="number"
-              min="1"
-              :max="100000"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model="form.cron"
-              label="执行时间（5 段式 cron）"
-              :error="!cronValid()"
-              :error-messages="cronValid() ? [] : ['需要 5 段，例如 0 3 * * *']"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-          <VCol cols="12" sm="6">
-            <VTextField
-              v-model="form.timezone"
-              label="时区"
-              density="compact"
-              hide-details
-              class="mb-2"
-            />
-          </VCol>
-        </VRow>
-        <div class="sc-hint">修改 cron 后需要重新保存配置才会重建定时任务。</div>
-      </VCardText>
-    </VCard>
-
-    <div class="d-flex flex-wrap ga-2">
-      <VBtn
-        color="primary"
-        :loading="busy === 'save'"
-        :disabled="loading"
-        prepend-icon="mdi-content-save"
-        @click="save"
-      >
-        保存配置
-      </VBtn>
-      <VBtn
-        variant="tonal"
-        color="info"
-        :loading="busy === 'preview'"
-        :disabled="loading"
-        prepend-icon="mdi-eye-outline"
-        @click="preview"
-      >
-        预览（只看不订）
-      </VBtn>
-      <VBtn
-        variant="tonal"
-        :loading="busy === 'run'"
-        :disabled="loading"
-        prepend-icon="mdi-radar"
-        @click="runOnce"
-      >
-        立即运行一次
-      </VBtn>
-      <VBtn variant="text" prepend-icon="mdi-close" @click="emit('close')">关闭</VBtn>
-    </div>
-
-    <div class="sc-hint mt-3">
-      「<b>预览</b>」跑完整流程但不写订阅、<b>不消耗每日额度</b> —— 调参时先用它看结果。
-      「立即运行一次」会真实写入（首次仍强制 dry-run）。
-    </div>
-
-    <VCard v-if="previewItems.length" variant="outlined" class="mt-3">
-      <VCardTitle class="text-subtitle-1 d-flex align-center flex-wrap ga-2">
-        <span>预览结果</span>
-        <VChip size="x-small" variant="flat" color="info">会订 {{ previewItems.length }} 条</VChip>
-        <VChip size="x-small" variant="tonal">未写入、未消耗额度</VChip>
-      </VCardTitle>
-      <VCardText>
-        <div v-for="(row, index) in previewItems" :key="index" class="sc-preview-row">
-          <div class="d-flex align-center flex-wrap ga-2">
-            <VChip size="x-small" variant="flat" color="info">{{ row.media_type }}</VChip>
-            <b>{{ row.title }}</b>
-            <span v-if="row.year" class="sc-hint">({{ row.year }})</span>
-            <span v-if="row.release_date" class="sc-hint">放送 {{ row.release_date }}</span>
-            <VChip v-if="row.language" size="x-small" variant="text">{{ row.language }}</VChip>
-            <VChip size="x-small" variant="tonal" color="warning">
-              关注度 {{ row.popularity != null ? row.popularity.toFixed(1) : '—' }}
+        <div>
+          <div class="sc-title">
+            胖虎订阅中心
+            <VChip size="x-small" variant="flat" color="primary" class="ml-2">
+              v{{ FRONTEND_VERSION }}
             </VChip>
-            <span v-if="row.rating != null" class="sc-hint">评分 {{ row.rating }}</span>
+          </div>
+          <div class="sc-subtitle">
+            发现片源 → 解析身份 → 去重 → 写订阅。版本控制与洗版由 MoviePilot 接管，本插件不介入。
           </div>
         </div>
-      </VCardText>
-    </VCard>
+      </div>
+      <VSwitch
+        v-model="form.enabled"
+        :label="form.enabled ? '已启用' : '未启用'"
+        color="success"
+        density="compact"
+        hide-details
+        class="sc-header-switch"
+      />
+    </div>
+
+    <div class="sc-body">
+      <!-- 左侧分区导航 -->
+      <nav class="sc-nav">
+        <button
+          v-for="item in sectionNav"
+          :key="item.key"
+          type="button"
+          class="sc-nav-item"
+          :class="{ 'sc-nav-active': activeSection === item.key }"
+          @click="activeSection = item.key"
+        >
+          <VIcon :icon="item.icon" size="18" />
+          <span class="sc-nav-label">{{ item.label }}</span>
+          <span v-if="item.badge" class="sc-nav-badge">{{ item.badge }}</span>
+        </button>
+      </nav>
+
+      <!-- 右侧内容 -->
+      <section class="sc-content">
+        <!-- 总览 -->
+        <template v-if="activeSection === 'overview'">
+          <div class="sc-cards">
+            <div v-for="card in overviewCards" :key="card.label" class="sc-stat">
+              <div class="sc-stat-top">
+                <VIcon :icon="card.icon" size="18" :color="card.color" />
+                <span class="sc-stat-label">{{ card.label }}</span>
+              </div>
+              <div class="sc-stat-value">{{ card.value }}</div>
+              <div class="sc-stat-sub">{{ card.sub }}</div>
+            </div>
+          </div>
+
+          <div v-if="overviewAlerts.length" class="sc-card">
+            <div class="sc-card-title">需要注意</div>
+            <div
+              v-for="(alert, index) in overviewAlerts"
+              :key="index"
+              class="sc-alert-row"
+              :class="`sc-alert-${alert.type}`"
+            >
+              <VIcon
+                :icon="alert.type === 'error'
+                  ? 'mdi-alert-circle-outline'
+                  : alert.type === 'warning'
+                    ? 'mdi-alert-outline'
+                    : 'mdi-information-outline'"
+                size="16"
+              />
+              <span>{{ alert.text }}</span>
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">运行链路</div>
+            <div class="sc-flow">
+              <span class="sc-flow-node">拉取候选</span>
+              <VIcon icon="mdi-arrow-right" size="14" />
+              <span class="sc-flow-node">身份解析</span>
+              <VIcon icon="mdi-arrow-right" size="14" />
+              <span class="sc-flow-node">季号裁决</span>
+              <VIcon icon="mdi-arrow-right" size="14" />
+              <span class="sc-flow-node">阈值过滤</span>
+              <VIcon icon="mdi-arrow-right" size="14" />
+              <span class="sc-flow-node">去重</span>
+              <VIcon icon="mdi-arrow-right" size="14" />
+              <span class="sc-flow-node sc-flow-accent">写订阅</span>
+            </div>
+            <div class="sc-hint mt-2">
+              季号由 TMDB 的真实数据裁决（哪一季还有未播集），不猜豆瓣/Bangumi 的命名含义。
+            </div>
+          </div>
+        </template>
+
+        <!-- 数据源 -->
+        <template v-if="activeSection === 'source'">
+          <div class="sc-card">
+            <div class="sc-card-title">数据源</div>
+            <div v-for="row in sourceRows" :key="row.key" class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">
+                  {{ row.label }}
+                  <VChip
+                    v-if="IMPLEMENTED.includes(row.key.replace('enable_', ''))"
+                    size="x-small"
+                    variant="flat"
+                    color="success"
+                    class="ml-1"
+                  >
+                    已实现
+                  </VChip>
+                  <VChip v-else size="x-small" variant="tonal" class="ml-1">未实现</VChip>
+                </div>
+                <div class="sc-row-hint">{{ row.hint }}</div>
+              </div>
+              <VSwitch v-model="form[row.key]" density="compact" hide-details color="primary" />
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">豆瓣 RSS 路线</div>
+            <VTextarea
+              v-model="doubanSourcesText"
+              label="每行一个地址"
+              rows="3"
+              density="compact"
+              hide-details
+              variant="outlined"
+              :disabled="!form.enable_douban_rss"
+              placeholder="http://<RSSHub>:1200/douban/movie/coming"
+            />
+            <div class="sc-hint mt-2">
+              <b>电影上映类</b>（<code>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br />
+              <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
+              <code>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br />
+              <b>电影榜单类</b>没有日期，会被跳过。<code>ustop250</code> 与
+              <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
+            </div>
+          </div>
+        </template>
+
+        <!-- 窗口与阈值 -->
+        <template v-if="activeSection === 'threshold'">
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-movie-open-outline" size="16" /> TMDB
+            </div>
+            <VRow dense>
+              <VCol cols="12" sm="4">
+                <VTextField
+                  v-model.number="form.tmdb_future_days"
+                  label="发现窗口（天）"
+                  type="number"
+                  min="1"
+                  max="90"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="4">
+                <VTextField
+                  v-model.number="form.min_rating_tmdb"
+                  label="最低评分"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="4">
+                <VTextField
+                  v-model.number="form.min_popularity"
+                  label="最低关注度"
+                  type="number"
+                  step="1"
+                  min="0"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">
+              只保留「今天 ~ 今天 + N 天」内的定档条目。<b>最低关注度</b>是新片唯一可用的质量信号
+              （观众级大片 100+、院线片 10~50、冷门片 &lt;5），设 0 表示不过滤。
+            </div>
+
+            <VDivider class="my-3" />
+            <VSwitch
+              v-model="form.filter_original_language"
+              label="只保留指定原始语言的条目"
+              density="compact"
+              hide-details
+              color="primary"
+            />
+            <VTextField
+              v-model="form.tmdb_original_languages"
+              label="允许的原始语言（逗号分隔）"
+              density="compact"
+              hide-details
+              variant="outlined"
+              :disabled="!form.filter_original_language"
+              placeholder="zh,ja,ko,en"
+              class="mt-2"
+            />
+            <div class="sc-hint mt-1">
+              语种码：zh 华语 / ja 日语 / ko 韩语 / en 英语。小语种片通常不会被下载，进订阅只会白占额度。
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-animation-outline" size="16" /> Bangumi
+            </div>
+            <VRow dense>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.bangumi_future_days"
+                  label="发现窗口（天）"
+                  type="number"
+                  min="1"
+                  max="90"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.min_rating_bangumi"
+                  label="最低评分"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <VSwitch
+              v-model="form.bangumi_split_season"
+              label="按季拆分订阅"
+              density="compact"
+              hide-details
+              color="primary"
+              class="mt-1"
+            />
+            <div class="sc-hint mt-1">
+              <b>建议关闭。</b>国产动画在 TMDB 常被建模成「单季多集」
+              （《牧神记》= 第 1 季 110 集，第 105 集对应 Bangumi「牧神记5」开播日），
+              此时 Bangumi 的「第 N 期」并不是 TMDB 的第 N 季 —— 按季订会去找不存在的季。
+              评分量纲也与 TMDB 不同，所以两边分开设。
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-movie-filter-outline" size="16" /> 豆瓣 RSS
+            </div>
+            <VRow dense>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.douban_future_days"
+                  label="发现窗口（天）"
+                  type="number"
+                  min="1"
+                  max="90"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.douban_min_want"
+                  label="最低想看人数（0 = 不限）"
+                  type="number"
+                  min="0"
+                  step="100"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.douban_max_items_per_feed"
+                  label="每个榜单最多取 N 条"
+                  type="number"
+                  min="1"
+                  max="200"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.resolve_concurrency"
+                  label="身份解析并发数"
+                  type="number"
+                  min="1"
+                  max="16"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">
+              豆瓣窗口独立于 TMDB（「即将上映」是策展列表，可以放宽）。想看人数只有 coming 类路线提供，
+              榜单类没有该数据，<b>缺失时不拦</b>。候选多不需要手动减 —— 解析是并发的，
+              实测 260 条约 20~30 秒。
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-check-decagram-outline" size="16" /> 订阅行为
+            </div>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">已完成过的订阅允许重新订阅</div>
+                <div class="sc-row-hint">
+                  从媒体库删掉文件后想重新下时需要。真正<b>已经播完</b>的剧不会因此重复订阅。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.resubscribe_completed"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">用 TMDB 分组精确订阅被压成单季的番剧</div>
+                <div class="sc-row-hint">
+                  如《药屋少女的呢喃》= 1 季 60 集，第 49~60 集才是第 3 季。开启后只订那 12 集，
+                  <b>不会去补前 48 集旧番</b>。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.prefer_episode_group"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+          </div>
+        </template>
+
+        <!-- 写入与调度 -->
+        <template v-if="activeSection === 'schedule'">
+          <div class="sc-card">
+            <div class="sc-card-title">写入与调度</div>
+            <VRow dense>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.daily_limit"
+                  label="每日写入上限（0 = 不限）"
+                  type="number"
+                  min="0"
+                  :max="100000"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.resolve_concurrency"
+                  label="身份解析并发数"
+                  type="number"
+                  min="1"
+                  max="16"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model="form.cron"
+                  label="执行时间（5 段式 cron）"
+                  :error="!cronValid()"
+                  :error-messages="cronValid() ? [] : ['需要 5 段，例如 0 3 * * *']"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model="form.timezone"
+                  label="时区"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">修改 cron 后需要重新保存配置才会重建定时任务。</div>
+
+            <VDivider class="my-3" />
+            <div v-for="row in switchRows.slice(0, 1)" :key="row.key" class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">{{ row.label }}</div>
+                <div class="sc-row-hint">{{ row.hint }}</div>
+              </div>
+              <VSwitch v-model="form[row.key]" density="compact" hide-details color="primary" />
+            </div>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">清零今日写入计数（测试开关）</div>
+                <div class="sc-row-hint">
+                  保存后把「今日已写入 N 条」清零，方便同一天反复测；保存即自动置回关闭。
+                  首次运行无论此开关如何都会强制 dry-run 一次。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.reset_daily_counter"
+                density="compact"
+                hide-details
+                color="warning"
+              />
+            </div>
+          </div>
+        </template>
+
+        <!-- 预览结果 -->
+        <template v-if="activeSection === 'preview'">
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-eye-outline" size="16" /> 预览结果
+              <VChip size="x-small" variant="flat" color="info" class="ml-2">
+                会订 {{ previewItems.length }} 条
+              </VChip>
+              <VChip size="x-small" variant="tonal" class="ml-1">未写入 · 未消耗额度</VChip>
+            </div>
+            <div v-if="!previewItems.length" class="sc-empty">
+              还没有预览结果。点底部「预览」跑一次 —— 它跑完整流程但不写订阅。
+            </div>
+            <div v-for="(row, index) in previewItems" :key="index" class="sc-preview-row">
+              <div class="d-flex align-center flex-wrap ga-2">
+                <VChip size="x-small" variant="flat" color="info">{{ row.media_type }}</VChip>
+                <b>{{ row.title }}</b>
+                <span v-if="row.year" class="sc-hint">({{ row.year }})</span>
+                <span v-if="row.release_date" class="sc-hint">放送 {{ row.release_date }}</span>
+                <VChip size="x-small" variant="tonal" color="warning">
+                  关注度 {{ row.popularity != null ? row.popularity.toFixed(1) : '—' }}
+                </VChip>
+                <span v-if="row.rating != null" class="sc-hint">评分 {{ row.rating }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </section>
+    </div>
+
+    <!-- 吸底操作栏 -->
+    <div class="sc-footer">
+      <VBtn variant="text" size="small" @click="emit('close')">关闭</VBtn>
+      <div class="sc-footer-right">
+        <VBtn
+          variant="tonal"
+          size="small"
+          :loading="busy === 'run'"
+          :disabled="loading"
+          prepend-icon="mdi-radar"
+          @click="runOnce"
+        >
+          立即运行一次
+        </VBtn>
+        <VBtn
+          variant="tonal"
+          color="info"
+          size="small"
+          :loading="busy === 'preview'"
+          :disabled="loading"
+          prepend-icon="mdi-eye-outline"
+          @click="preview"
+        >
+          预览
+        </VBtn>
+        <VBtn
+          color="primary"
+          size="small"
+          :loading="busy === 'save'"
+          :disabled="loading"
+          prepend-icon="mdi-content-save"
+          @click="save"
+        >
+          保存配置
+        </VBtn>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .sc-root {
-  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 2px 0;
+  font-size: 13px;
 }
-.sc-hint {
+
+/* 顶部 */
+.sc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+  background: rgba(var(--v-theme-surface), 0.5);
+}
+.sc-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sc-logo {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 9px;
+  color: rgb(var(--v-theme-on-primary));
+  background: rgb(var(--v-theme-primary));
+}
+.sc-title {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.sc-subtitle {
   font-size: 12px;
-  line-height: 1.5;
+  opacity: 0.66;
+  line-height: 1.4;
+}
+.sc-header-switch {
+  flex: 0 0 auto;
+}
+
+/* 主体布局 */
+.sc-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.sc-nav {
+  flex: 0 0 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+}
+.sc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.78;
+  transition: background 0.15s, opacity 0.15s;
+}
+.sc-nav-item:hover {
+  background: rgba(var(--v-theme-primary), 0.08);
+  opacity: 1;
+}
+.sc-nav-active {
+  background: rgba(var(--v-theme-primary), 0.14);
+  opacity: 1;
+  font-weight: 600;
+}
+.sc-nav-label {
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
+.sc-nav-badge {
+  font-size: 11px;
   opacity: 0.7;
 }
-.sc-preview-row {
+.sc-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 卡片 */
+.sc-card {
+  padding: 12px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+}
+.sc-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+
+/* 数据卡 */
+.sc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.sc-stat {
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+}
+.sc-stat-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.72;
+}
+.sc-stat-value {
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.sc-stat-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* 提醒 */
+.sc-alert-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   padding: 5px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sc-alert-warning {
+  color: rgb(var(--v-theme-warning));
+}
+.sc-alert-error {
+  color: rgb(var(--v-theme-error));
+}
+.sc-alert-info {
+  opacity: 0.75;
+}
+
+/* 流程 */
+.sc-flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  opacity: 0.85;
+}
+.sc-flow-node {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+.sc-flow-accent {
+  background: rgba(var(--v-theme-primary), 0.18);
+  font-weight: 600;
+}
+
+/* 开关行 */
+.sc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
+}
+.sc-row:last-child {
+  border-bottom: none;
+}
+.sc-row-main {
+  min-width: 0;
+}
+.sc-row-label {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sc-row-hint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.62;
+}
+
+/* 预览 */
+.sc-preview-row {
+  padding: 6px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
 .sc-preview-row:last-child {
   border-bottom: none;
 }
-.sc-warn {
-  color: rgb(var(--v-theme-warning));
+.sc-empty {
+  padding: 18px 4px;
+  font-size: 12px;
+  text-align: center;
+  opacity: 0.6;
+}
+.sc-hint {
+  font-size: 12px;
+  line-height: 1.55;
+  opacity: 0.66;
+}
+
+/* 吸底操作栏 */
+.sc-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+  background: rgb(var(--v-theme-surface));
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.12);
+}
+.sc-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 窄屏：导航变成横向条 */
+@media (max-width: 720px) {
+  .sc-body {
+    flex-direction: column;
+  }
+  .sc-nav {
+    flex: 1 1 auto;
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .sc-nav-item {
+    width: auto;
+    white-space: nowrap;
+  }
+  .sc-nav-badge {
+    display: none;
+  }
+  .sc-subtitle {
+    display: none;
+  }
+}
+
+code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  font-size: 11.5px;
 }
 </style>

@@ -785,12 +785,25 @@ onMounted(() => {
             <div class="sc-hint">修改 cron 后需要重新保存配置才会重建定时任务。</div>
 
             <VDivider class="my-3" />
-            <div v-for="row in switchRows.slice(0, 1)" :key="row.key" class="sc-row">
+            <!-- 注意：这里要把 switchRows 里除 enabled 之外的全部渲染出来。
+                 之前写成 slice(0, 1) 只渲染了第一项，导致「发现页入口」「dry-run」
+                 「发送运行摘要通知」三个开关在界面上消失（真机反馈：通知开关没了）。 -->
+            <div
+              v-for="row in switchRows.filter((item) => item.key !== 'enabled')"
+              :key="row.key"
+              class="sc-row"
+            >
               <div class="sc-row-main">
                 <div class="sc-row-label">{{ row.label }}</div>
                 <div class="sc-row-hint">{{ row.hint }}</div>
               </div>
-              <VSwitch v-model="form[row.key]" density="compact" hide-details color="primary" />
+              <VSwitch
+                v-model="form[row.key]"
+                density="compact"
+                hide-details
+                color="primary"
+                :disabled="row.key !== 'notify' && !form.enabled"
+              />
             </div>
             <div class="sc-row">
               <div class="sc-row-main">

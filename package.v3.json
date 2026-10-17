@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.6.3",
+        "version": "1.6.4",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.6.4": "订阅总览恢复固定 2 行 + 内部滚动，插件页不再锁死（1.6.4）。按用户澄清的设计：各板块自管高度，订阅总览展开后固定 2 行、超出内部滚动；发现流水保持自己的内部滚动与底部翻页；插件页与发现页行为一致。改动：[1] 海报网格由 minmax(132px,1fr) 改为固定 132px 列宽 —— 1fr 会让行高随窗口宽度变化，无法精确算「2 行」高度，卡片会被切在中间；同时加 max-height: 492px（2 行 = 海报 198 + 文字约 40，两行加间距约 484）与 overflow-y: auto、align-content: start。[2] 插件详情上下文 .sc-root:not(.sc-root-page) 由 overflow: hidden 改为 overflow-y: auto，并删除两条「只让最后一张卡片内部滚」的旧规则 —— 正是它们把搬到上方的订阅总览直接裁掉，导致页面动都动不了。滚动加载仍用 IntersectionObserver 观察网格底部哨兵，在内部滚动容器里同样生效。构建通过、ruff 全绿、448 项测试通过、CSS 门禁通过。",
             "v1.6.3": "订阅总览改观察器加载 + 挂载即拉数据（1.6.3）。用户反馈两点：[1]「首次点击订阅总览显示加载中，其实已经有了」——之前只在点击展开时才调用拉取，而默认是展开状态，所以第一次进入页面看到的是空面板；改为抽出 loadOverview()，onMounted 时若展开就直接拉，toggleOverview 只负责切换与按需拉取，未加载时的文案改成「（尚未加载）」。[2]「插件页的订阅总览不滚动，MP 自己的页面一滚就出」——根因是我把加载监听绑在 window 的 scroll 上，而插件页的滚动容器是宿主内部的 div，window 的 scroll 事件不触发。改为用 IntersectionObserver 观察网格底部哨兵（不关心谁在滚，只要进入视口就追加），并修了两处隐患：收起时 v-if 会销毁哨兵节点，必须 disconnect 观察器并在展开时重建；宽屏下一次 +20 可能仍停在原地，加 growOverview() 循环补足直到哨兵离开视口。彻底移除 window scroll 监听。构建通过、ruff 全绿、448 项测试通过。",
             "v1.6.2": "订阅总览改跟随页面滚动加载，修两个体验问题（1.6.2）。用户反馈：[1]「固定 60 张也没有滚动」——真因是我把判断写成了 overviewLimit < overviewItems.length，而 overviewItems 本身已经被 slice 到 limit，等于 60 < 60 永远为假，滚动到底也不会加载。[2]「插件页只显示一半、收起状态差点看不见」——外层设了 max-height: 520px + overflow: auto，等于在页面里再套一层滚动，卡片被切在中间；收起时标题栏又太薄。修法：去掉 max-height 与内部滚动，订阅总览跟随页面滚动（监听 window scroll，视口底部进入网格底部 200px 内即追加 20 张）；把列表拆成 overviewSorted（筛选+排序后的全部）与 overviewItems（slice 后的渲染集），剩余量用 overviewRemain 计算，判断不再自我比较；首屏从 60 张降到 20 张，更快；切换状态 tab 或重新加载时重置已显示条数；收起态标题栏加 min-height 44px 并给整块加背景与更深边框，收起后仍是一张可见的卡片。构建通过、ruff 全绿、448 项测试通过。",
             "v1.6.1": "订阅总览移到源状态下方并补齐交互（1.6.1）。按用户确认的方案 A 落地：[1] 把订阅总览整块从「发现流水」卡片内部搬出来，放到三个源状态条下方（DOM 顺序：统计卡 -> 源状态 -> 订阅总览 -> 发现流水）。[2] 三个源显示名改为 TMDB / AniList / 豆瓣榜单（sourceLabel 映射）。[3] 默认展开 + 右上角「收起/展开」按钮 + localStorage 记住上次选择（键 subscribecenter:overview-open）。[4] 首屏 60 张，滚动到底自动加载下一批（OVERVIEW_PAGE=60，@scroll.passive）。[5] 排序权重按用户要求改为 订阅中 > 暂停 > 待定 > 未开始 > 完成，同状态内按 last_update 倒序。[6] 洗版角标：后端订阅总览明细新增 best_version / best_version_full（MP 订阅表字段），前端右上角显示紫色「洗版」角标，与状态维度独立。容器内验证：映射含两个字段、真实数据近 40 条中 37 条开启洗版、schema 接受字段。新增 1 项测试。ruff 全绿、448 项测试通过、构建通过。",

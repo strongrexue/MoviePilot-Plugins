@@ -801,21 +801,13 @@ onUnmounted(() => {
 }
 /* 插件管理页的弹窗模式：同样固定高度 + 内部滚动，
    否则整页跟着滚、翻页按钮被推到屏幕外。 */
+/* 插件详情上下文：内容超出视口时整块滚动。
+   以前是 overflow: hidden + 只让最后一张卡片内部滚 —— 订阅总览搬进来后
+   会被直接裁掉（真机：页面锁死、动都不动）。 */
 .sc-root:not(.sc-root-page) {
   max-height: calc(100dvh - 160px);
   min-height: 0;
-  overflow: hidden;
-}
-.sc-root:not(.sc-root-page) .sc-card:last-child {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.sc-root:not(.sc-root-page) .sc-card:last-child .sc-grid {
-  min-height: 0;
   overflow-y: auto;
-  align-content: start;
 }
 .sc-root-page .sc-card:last-child {
   flex: 1 1 auto;
@@ -1217,10 +1209,16 @@ onUnmounted(() => {
   height: 7px;
   border-radius: 50%;
 }
+/* 固定列宽（而不是 1fr）：列宽恒定才能精确算「2 行」的高度，
+   否则行高随窗口宽度变化，卡片会被切在中间。 */
 .sc-poster-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fill, 132px);
   gap: 8px;
+  /* 2 行 = 海报 198 + 文字约 40 = 238；两行加间距约 484，留余量 */
+  max-height: 492px;
+  overflow-y: auto;
+  align-content: start;
 }
 .sc-poster-card {
   border: 1px solid rgba(var(--v-border-color), 0.16);

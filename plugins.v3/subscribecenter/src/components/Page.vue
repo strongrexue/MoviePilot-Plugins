@@ -209,17 +209,35 @@ function stateMeta(item) {
   const total = Number(item.total_episode || 0)
   const lack = Number(item.lack_episode || 0)
   const code = String(item.state || 'N')
-  if (code === 'S') return STATE_META.S
-  if (total > 0 && lack === 0) return STATE_META.D
-  return STATE_META[code] || { label: code, color: '#6B7280' }
+  if (code === 'S') return { ...STATE_META.S, code: 'S' }
+  if (total > 0 && lack === 0) return { ...STATE_META.D, code: 'D' }
+  return { ...(STATE_META[code] || { label: code, color: '#6B7280' }), code }
 }
 
-/** 状态筛选后的订阅列表。 */
+/** 状态排序权重：暂停 → 待定 → 订阅中 → 未开始 → 完成。 */
+const STATE_ORDER = { S: 0, P: 1, R: 2, N: 3, D: 4 }
+
+/** 订阅列表：先按状态排序，同状态内按最近更新倒序。 */
 const overviewItems = computed(() => {
-  const items = overview.value.items || []
-  if (!overviewState.value) return items
-  return items.filter((item) => String(item.state || 'N') === overviewState.value)
+  let items = overview.value.items || []
+  if (overviewState.value) {
+    items = items.filter((item) => stateMeta(item).code === overviewState.value)
+  }
+  return [...items].sort((a, b) => {
+    const wa = STATE_ORDER[stateMeta(a).code] ?? 9
+    const wb = STATE_ORDER[stateMeta(b).code] ?? 9
+    if (wa !== wb) return wa - wb
+    return String(b.last_update || '').localeCompare(String(a.last_update || ''))
+  })
 })
+
+/** 集数进度文本。 */
+function episodeText(item) {
+  const total = Number(item.total_episode || 0)
+  if (!total) return ''
+  const lack = Number(item.lack_episode || 0)
+  return `${Math.max(total - lack, 0)}/${total}`
+}
 
 /** 展开时按需拉取一次。 */
 async function toggleOverview() {
@@ -475,25 +493,35 @@ onUnmounted(() => {
                   <span class="sc-dim">{{ overview.counts[code] || 0 }}</span>
                 </button>
               </div>
-              <div class="sc-sub-grid">
+              <div class="sc-poster-grid">
                 <div
                   v-for="item in overviewItems"
                   :key="item.id"
-                  class="sc-sub-card"
-                  :style="{ borderLeftColor: stateMeta(item).color }"
+                  class="sc-poster-card"
+                  :style="{ borderColor: stateMeta(item).color }"
                 >
-                  <div class="sc-sub-title" :title="item.name">
-                    {{ item.name }}
-                    <span v-if="item.season"> S{{ String(item.season).padStart(2, '0') }}</span>
-                  </div>
-                  <div class="sc-sub-meta">
-                    <span>{{ item.year || '' }}</span>
-                    <span v-if="item.total_episode">
-                      {{ (item.total_episode || 0) - (item.lack_episode || 0) }}/{{ item.total_episode }}
+                  <div class="sc-poster-wrap">
+                    <img
+                      v-if="posterUrl(item)"
+                      :src="posterUrl(item)"
+                      alt=""
+                      loading="lazy"
+                      class="sc-poster-img"
+                      @error="markPosterFailed(item)"
+                    />
+                    <div v-else class="sc-poster-empty">
+                      <VIcon icon="mdi-television-classic" size="26" />
+                    </div>
+                    <span class="sc-poster-state" :style="{ background: stateMeta(item).color }">
+                      {{ stateMeta(item).label }}
                     </span>
                   </div>
-                  <div class="sc-sub-state" :style="{ color: stateMeta(item).color }">
-                    {{ stateMeta(item).label }}
+                  <div class="sc-poster-name" :title="item.name">
+                    {{ item.name }}<span v-if="item.season"> S{{ String(item.season).padStart(2, '0') }}</span>
+                  </div>
+                  <div class="sc-poster-meta">
+                    <span>{{ item.year || '' }}</span>
+                    <span v-if="episodeText(item)">{{ episodeText(item) }}</span>
                   </div>
                 </div>
               </div>
@@ -1033,6 +1061,63 @@ onUnmounted(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
+}
+.sc-poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+  max-height: 520px;
+  overflow: auto;
+}
+.sc-poster-card {
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(var(--v-border-color), 0.05);
+}
+.sc-poster-wrap {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+}
+.sc-poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sc-poster-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.4;
+}
+.sc-poster-state {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+.sc-poster-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 6px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-poster-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 10.5px;
+  opacity: 0.62;
+  padding: 1px 6px 5px;
 }
 .sc-sub-grid {
   display: grid;

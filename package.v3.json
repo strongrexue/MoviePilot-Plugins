@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.5.4",
+        "version": "1.5.5",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.5.5": "修 api.py 模块别名错误，订阅总览真正打通（1.5.5）。1.5.4 仍 500，容器日志给出真实异常：controller/api.py 里写的是 schemas.SubscriptionOverview，但该文件中的 schemas 是宿主的 app.schemas，我们自己的模型导入名是 api_schemas —— 运行时 AttributeError（module app.schemas has no attribute SubscriptionOverview）。改为 api_schemas.SubscriptionOverview。为此新增「接口直调测试」：构造假插件直接 await api_subscriptions，断言返回包络与模型；并做反向验证（把 bug 放回去时该测试确实失败，恢复后通过）。另外在容器内真实调用了一次 api_subscriptions（把修好的 api.py 放进插件副本），输出「调用成功: True | total = 1 | 首条 = 测试剧」。此前还单独验证过 ORM 查询本身（206 条订阅、字段齐全）。ruff 全绿、447 项测试通过。",
             "v1.5.4": "补上漏写的常量，订阅总览 500 根治（1.5.4）。用户从浏览器 F12 拿到关键信息：GET /api/v1/plugin/SubscribeCenter/subscriptions 返回 500（227 字节，12ms）。查容器日志拿到真实异常：AttributeError: module app.plugins.subscribecenter.core.constants has no attribute SUBSCRIBE_OVERVIEW_LIMIT —— 1.5.0 那次「加常量」的补丁其实没写进去（用文本定位 MAX_HISTORY 失败后落到了错误位置），而 py_compile 与 ruff 都查不出「模块属性不存在」。修法：把 SUBSCRIBE_OVERVIEW_LIMIT=500 明确写进 constants.py 的模块顶层；新增测试断言该常量存在、且 subscription_overview 源码引用的 C.xxx 常量都真实存在。并做了容器内真实导入验证：把新 constants.py 放进插件副本，导入 subscribecenter.core.constants 确认 SUBSCRIBE_OVERVIEW_LIMIT=500、方法内引用正确、确实走 ORM。ruff 全绿、446 项测试通过。",
             "v1.5.3": "订阅总览改 ORM 直连 + 状态口径统一（1.5.3）。1.5.2 点开订阅总览报「未知错误」：后端 /subscriptions 走宿主 SDK 的 async_list_subscriptions，而该服务在某些调用路径下尚未配置，会直接抛「插件数据查询服务尚未配置」→ 接口 500 → 前端只能显示未知错误。改为 ORM 直连（app.db.async_session_scope + Subscribe 模型 + select，按 id 倒序取 SUBSCRIBE_OVERVIEW_LIMIT=500 条），只依赖数据库连接。已在容器内实测：查询到 206 条订阅（状态分布 R=95 / S=98 / P=13），字段齐全，且诛仙 state=R total=26 lack=15 season=4 —— 说明 S04 订阅确实对了。另外统一状态口径：新增 _display_state，暂停优先、其次「total_episode>0 且 lack_episode==0」算完成（D），否则用原始状态码；计数与卡片着色用同一函数，避免筛选条数字与卡片颜色对不上。ruff 全绿、445 项测试通过。",
             "v1.5.2": "修「订阅总览」调用不存在的 helper（1.5.2）。用户点开订阅总览报 fetchPluginApi is not defined —— 我在 Page.vue 里写了 fetchPluginApi，而 api.js 实际只导出 getPluginApi / postPluginApi / putPluginApi；Vue 构建不做未定义标识符检查，所以构建通过、点到才炸。修法：改用 getPluginApi。另外补一条前端契约测试：解析 components/api.js 的导出函数，再扫描 Page.vue / Config.vue 里所有 *PluginApi( 调用，断言每个都已导出且已 import —— 并做了反向验证（把 helper 故意改回 fetchPluginApi 时测试确实失败，恢复后通过），防止这类「构建通过、运行时报未定义」的问题再漏出去。ruff 全绿，445 项测试通过。",

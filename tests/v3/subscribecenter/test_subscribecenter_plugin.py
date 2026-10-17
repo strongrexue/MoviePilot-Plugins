@@ -588,3 +588,43 @@ def test_overview_constant_exists():
     for name in ("SUBSCRIBE_OVERVIEW_LIMIT",):
         assert f"C.{name}" in source
         assert hasattr(C, name), f"代码引用了不存在的常量 C.{name}"
+
+
+def test_api_subscriptions_calls_through():
+    """直接调用 api_subscriptions，确认返回包络与模型都对。
+
+    真机：1.5.4 里写成了 `schemas.SubscriptionOverview`，而 api.py 中的
+    `schemas` 是**宿主的 app.schemas**，我们的模型在 `api_schemas` ——
+    运行时 AttributeError -> 接口 500。py_compile / ruff / 现有测试都查不出来，
+    所以这里直接**调用一次**这个接口函数。
+    """
+    import asyncio
+
+    from subscribecenter.controller import api as api_module
+
+    class _FakePlugin:
+        async def subscription_overview(self):
+            return {
+                "total": 1,
+                "counts": {"R": 1},
+                "items": [
+                    {
+                        "id": 1,
+                        "name": "测试剧",
+                        "year": "2026",
+                        "season": 1,
+                        "total_episode": 12,
+                        "lack_episode": 3,
+                        "state": "R",
+                        "media_source": "themoviedb",
+                        "media_id": "123",
+                        "poster": None,
+                        "last_update": None,
+                    }
+                ],
+            }
+
+    result = asyncio.run(api_module.api_subscriptions(_FakePlugin()))
+    assert getattr(result, "success", False) is True
+    assert result.data.total == 1
+    assert result.data.items[0].name == "测试剧"

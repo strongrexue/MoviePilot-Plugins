@@ -91,7 +91,7 @@ async def api_history(
 async def api_subscriptions(plugin) -> Any:
     """订阅总览：宿主订阅按状态分组 + 明细（供「订阅总览」标签页）。"""
     data = await plugin.subscription_overview()
-    return schemas.Response(success=True, data=schemas.SubscriptionOverview(**data))
+    return schemas.Response(success=True, data=api_schemas.SubscriptionOverview(**data))
 
 
 async def api_run_once(plugin) -> Any:

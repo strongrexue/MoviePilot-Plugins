@@ -328,6 +328,12 @@ def search_variants(title: Optional[str], tz_name: Optional[str] = None) -> List
     for value in (first, second):
         if value and value not in variants:
             variants.append(value)
+    # 去掉副标题再试：TMDB 里很多国漫只有主名（真机：诛仙 最终季 -> 诛仙、
+    # 逆天邪神 年番 -> 逆天邪神、师兄啊师兄 年番2 -> 师兄啊师兄）。
+    for value in list(variants):
+        head = value.split(' ')[0].strip()
+        if head and len(head) >= 2 and head != value and head not in variants:
+            variants.append(head)
     return variants
 
 
@@ -407,6 +413,11 @@ def is_continuation_title(title: Optional[str]) -> bool:
     """
     hint = extract_season_hint(title)
     return bool(hint and hint >= 2)
+
+
+def _is_donghua(item: DiscoveredItem) -> bool:
+    """是否国产动画（AniList 的 countryOfOrigin=CN）。"""
+    return str((item.raw or {}).get("country") or "").upper() == "CN"
 
 
 def _prefers_latest_year(item: DiscoveredItem) -> bool:
@@ -501,6 +512,7 @@ def match_candidate_year(
     target_title: Optional[str] = None,
     min_year: Optional[int] = None,
     prefer_latest_year: bool = False,
+    allow_contained: bool = False,
 ) -> Optional[Tuple[dict, str]]:
     """L3：在候选中按「标题精确 + 年份硬校验」选出唯一目标。
 
@@ -549,6 +561,10 @@ def match_candidate_year(
         contained = bool(candidate_title) and (
             target_title in candidate_title or candidate_title in target_title
         )
+        if contained:
+            shorter = min(len(target_title), len(candidate_title))
+            longer = max(len(target_title), len(candidate_title))
+            contained = shorter >= 3 and bool(longer) and shorter / longer >= 0.5
         if not (exact or base_equiv or contained):
             continue
 
@@ -565,7 +581,7 @@ def match_candidate_year(
             if wanted_year and candidate_year != wanted_year:
                 # 年份不符或缺年份 —— 电影不做任何「放宽」，直接不算命中
                 continue
-        elif not (exact or base_equiv):
+        elif not (exact or base_equiv or (allow_contained and contained)):
             # 剧集不校验年份，但必须「标题精确相等」或「基础名相等」才认 ——
             # 只认「包含」会把同名前传之类错误配对放进来（如
             # 条目《牧神记》配上候选《牧神记外传》）。
@@ -753,6 +769,7 @@ class IdentityResolver:
                 strict_year=item.media_type == MEDIA_TYPE_MOVIE,
                 min_year=_continuation_floor(item),
                 prefer_latest_year=_prefers_latest_year(item),
+                allow_contained=_is_donghua(item),
             )
             if hit:
                 candidate, reason = hit
@@ -934,6 +951,7 @@ class IdentityResolver:
                 target_title=term,
                 min_year=_continuation_floor(item),
                 prefer_latest_year=_prefers_latest_year(item),
+                allow_contained=_is_donghua(item),
             )
             if not hit:
                 # 标题比对失败时用「唯一同年候选」兜底（豆瓣/TMDB 译名差异）。

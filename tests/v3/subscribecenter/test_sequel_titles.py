@@ -425,3 +425,20 @@ def test_all_donghua_use_closest_year_rule():
         year="2023", release_date="2023-01-01", raw={"country": "CN"},
     )
     assert _prefers_latest_year(plain) is True
+
+
+# ------------------------------------- 国漫副标题/包含匹配（1.2.9 容器验证）
+
+def test_subtitle_is_dropped_from_variants():
+    """标题带副标题时，要生成「主名」变体。
+
+    TMDB 里很多国漫只有主名（容器实测：诛仙 最终季 -> 诛仙、
+    逆天邪神 年番 -> 逆天邪神、师兄啊师兄 年番2 -> 师兄啊师兄、
+    武神主宰 大威篇 -> 武神主宰）。
+    """
+    from subscribecenter.core.identity import search_variants
+
+    assert "诛仙" in search_variants("诛仙 最终季")
+    assert "逆天邪神" in search_variants("逆天邪神 年番")
+    assert "师兄啊师兄" in search_variants("师兄啊师兄 年番2")
+    assert "武神主宰" in search_variants("武神主宰 大威篇")

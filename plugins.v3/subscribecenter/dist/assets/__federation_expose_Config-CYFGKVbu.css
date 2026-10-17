@@ -1,0 +1,12 @@
+
+.sc-root[data-v-5f02cba1] {
+  padding: 4px;
+}
+.sc-hint[data-v-5f02cba1] {
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+.sc-warn[data-v-5f02cba1] {
+  color: rgb(var(--v-theme-warning));
+}

@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v0.2.0": "新增 Vue 联邦前端（配置页 / 详情页 / 仪表盘 / 发现页整页入口）：配置页落地所有配置项并支持保存（同时走宿主编排与自己 PUT 兜底，保证点了保存一定落库）、「立即运行一次」按钮、前后端版本不一致提示；详情页展示运行状态、各数据源情况与分页发现流水，支持按决策筛选；仪表盘紧凑展示今日写入进度与最近运行。修复 0.1.0 只有后端导致的「配置页无法加载组件、无法启用保存」问题。",
             "v0.1.0": "首个版本（P0+P1）：插件骨架与每日定时发现；TMDB 数据源（复用宿主 TmdbChain，按定档日期升序 + 本地窗口过滤，规避宿主 discover 无日期上界的限制）；身份分级解析 L1–L4（L4 模糊匹配永不写入，只进待确认）；订阅写入走 SubscribeChain.async_add（身份为 media_source + media_id 成对字段），写入前复查活跃订阅与订阅历史；每日写入上限、首次运行强制 dry-run、结构化日志与汇总通知；/status /history /run_once /mapping_cache /mapping_cache/fix 五个后端接口。Bangumi、豆瓣 RSS、Simkl 与 Vue 联邦前端尚未实现，配置中启用后会在日志中明确跳过。"
         }
     },

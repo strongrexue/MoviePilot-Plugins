@@ -287,8 +287,12 @@ def test_enabled_sources_skips_unimplemented(plugin):
             "enable_simkl": True,
         }
     )
-    # TMDB 与 Bangumi 已实现；豆瓣 RSS / Simkl / JustWatch 尚未实现会被跳过
-    assert plugin._enabled_sources() == [C.SOURCE_TMDB, C.SOURCE_BANGUMI]
+    # TMDB / Bangumi / 豆瓣 RSS 已实现；Simkl / JustWatch 尚未实现会被跳过
+    assert plugin._enabled_sources() == [
+        C.SOURCE_TMDB,
+        C.SOURCE_BANGUMI,
+        C.SOURCE_DOUBAN_RSS,
+    ]
 
 
 def test_enabled_sources_respects_switches(plugin):

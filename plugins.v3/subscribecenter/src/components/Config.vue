@@ -62,12 +62,26 @@ const versionMismatch = computed(() => {
 })
 
 /** 已实现的数据源（其余源在当前版本会在日志里明确跳过）。 */
-const IMPLEMENTED = ['tmdb', 'bangumi']
+const IMPLEMENTED = ['tmdb', 'bangumi', 'douban_rss']
+
+/** 豆瓣 RSS 地址：后端存字符串数组，界面用多行文本编辑。 */
+const doubanSourcesText = computed({
+  get() {
+    const value = form.value.douban_rss_sources
+    return Array.isArray(value) ? value.join('\n') : String(value || '')
+  },
+  set(value) {
+    form.value.douban_rss_sources = String(value || '')
+      .split(/[\n,，]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  },
+})
 
 const sourceRows = [
   { key: 'enable_tmdb', label: 'TMDB', hint: '全球电影/剧集，自带 TMDB ID（身份最可靠）' },
   { key: 'enable_bangumi', label: 'Bangumi', hint: '当季番剧，自带 subject ID，经宿主换算成 TMDB' },
-  { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '需自建 RSSHub（尚未实现）' },
+  { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '经 RSSHub；上映日期与豆瓣 ID 均可解析' },
   { key: 'enable_simkl', label: 'Simkl Calendar', hint: '未来 33 天 TV + 动画 + 电影（尚未实现）' },
   { key: 'enable_justwatch', label: 'JustWatch', hint: '溪流媒体上线发现，只记日志（尚未实现）' },
 ]
@@ -392,6 +406,24 @@ onMounted(() => {
           （如《牧神记》是第 1 季 110 集，第 105 集正好对应 Bangumi「牧神记5」的开播日），
           此时 Bangumi 的「第 N 期」并不是 TMDB 的第 N 季 —— 按季订会去找一个不存在的季，
           什么都订不到。关闭后按 TMDB 默认季订阅、靠宿主的按集追踪，才是正确行为。
+        </div>
+
+        <VTextarea
+          v-model="doubanSourcesText"
+          label="豆瓣 RSS 地址（每行一个）"
+          rows="2"
+          density="compact"
+          hide-details
+          class="mb-2"
+          :disabled="!form.enable_douban_rss"
+        />
+        <div class="sc-hint mb-3">
+          填 RSSHub 的豆瓣路线，例如
+          <code>http://192.168.50.134:1200/douban/movie/coming</code>（即将上映）。
+          实测可用：<code>/douban/movie/coming</code>、<code>/douban/movie/playing</code>、
+          <code>/douban/movie/weekly</code>；<code>ustop250</code> 与
+          <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
+          条目自带上映日期与豆瓣 ID，可精确匹配 TMDB。
         </div>
 
         <div class="sc-hint mb-3">

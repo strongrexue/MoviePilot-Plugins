@@ -23,7 +23,7 @@
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..core.constants import MEDIA_TYPE_TV, SOURCE_BANGUMI
-from ..core.model import DiscoveredItem
+from ..core.model import DiscoveredItem, is_special
 from ..core.window import parse_date, today
 
 #: Bangumi 公开 API 基础地址（实测唯一可用域名）
@@ -37,26 +37,6 @@ TIMEOUT_SECONDS = 20
 
 #: Bangumi 番剧在 TMDB 侧统一按剧集处理
 BANGUMI_MEDIA_TYPE = MEDIA_TYPE_TV
-
-
-#: 特别篇 / OVA / 番外等衍生内容的标题标记。
-#:
-#: 这类内容在 TMDB 里通常**没有独立条目**（或归到剧集的 Season 0），
-#: 因此靠标题匹配必然失败。与其让它显示成「无确定性身份（L4）」——
-#: 看起来像插件有 bug —— 不如明确标注为「特别篇，本插件不处理」，
-#: 让日志说实话。需要的话可手动订阅。
-_SPECIAL_MARKERS = (
-    "特别篇", "特別篇", "特别版", "特別版", "番外", "外传", "前传", "学前篇",
-    "剧场版", "劇場版", "特典", "OVA", "OAD", "ONA", "SP",
-)
-
-
-def is_special(title: Optional[str]) -> bool:
-    """判断标题是否为特别篇 / OVA / 番外等衍生内容。"""
-    if not title:
-        return False
-    text = str(title).upper()
-    return any(marker.upper() in text for marker in _SPECIAL_MARKERS)
 
 
 class BangumiSource:

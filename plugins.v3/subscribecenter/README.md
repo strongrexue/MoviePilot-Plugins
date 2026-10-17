@@ -29,9 +29,40 @@ MoviePilot V3 插件。**只做三件事：发现 → 去重 → 写订阅。**
 |---|---|---|
 | **TMDB** | ✅ 已实现 | 全球电影/剧集，自带 TMDB id（身份最可靠） |
 | **Bangumi** | ✅ 已实现 | 当季番剧；条目自带 subject id，经宿主换算成 TMDB |
-| 豆瓣 RSS | ⬜ 未实现 | 需要自建 RSSHub 实例 |
+| **豆瓣 RSS** | ✅ 已实现 | 经 RSSHub 的豆瓣路线；上映日期与豆瓣 ID 均可解析 |
 | Simkl | ⬜ 未实现 | 需要 Simkl client_id |
 | JustWatch | ⬜ 未实现 | 可选，只记日志 |
+
+### 豆瓣 RSS 的实机结论（0.7.0）
+
+实测环境：RSSHub diygod/rsshub:latest，宿主容器可直连。
+
+| 路线 | 结果 |
+|---|---|
+| /douban/movie/coming（即将上映） | ✅ HTTP 200，15 条，**条条有上映日期** |
+| /douban/movie/playing（正在上映） | ⚠️ HTTP 200 但**不带上映日期** → 全部被丢弃（0 条） |
+| /douban/movie/weekly（一周口碑榜） | ✅ HTTP 200，条目不带上映日期 |
+| /douban/movie/ustop250、/douban/movie/new | ❌ 新版 RSSHub 已 404，别照旧文档写 |
+
+**只建议配 coming** —— 其他路线没有上映日期，无法做窗口过滤。
+
+条目结构（真实样本）自带上映日期与豆瓣 subject id：
+
+`xml
+<title>生日快乐</title>
+<link>https://movie.douban.com/subject/37322586/</link>
+<description>…<li>上映日期：2026-10-23(中国大陆)</li>…<li>想看：27357</li>…</description>
+`
+
+**想看数不冒充 popularity**：豆瓣想看数动辄上万，与 TMDB popularity 量纲完全不同，
+塞进去会让关注度门槛形同虚设。按接入契约只放进 
+aw 供排查。
+
+**「重映老片」会被年份校验挡掉（有意为之）**：实测 15 条里 13 条能搜到同名 TMDB 条目，
+但其中「疾速追杀」（2014）、「笑傲江湖2：东方不败」（1992）、「戴帽子的猫」（2003）
+在豆瓣的上映日期是 2026 —— 那是**中国重映**。电影走年份严格校验，这类会被跳过；
+而「生日快乐」（TMDB 2007 / 豆瓣 2026）则是纯粹的同名假匹配，同样被挡掉。
+即：**只订「TMDB 年份与上映年份一致」的电影**，宁可漏掉重映也不订错片。
 
 ### Bangumi 源的两个实机结论
 

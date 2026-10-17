@@ -59,6 +59,26 @@ class ResolvedIdentity:
         }
 
 
+#: 特别篇 / OVA / 番外等衍生内容的标题标记。
+#:
+#: 这类内容在 TMDB 里通常**没有独立条目**（或归到剧集的 Season 0），
+#: 靠标题匹配必然失败。因此凡是有这种标题的来源都要标出来，
+#: 由 writer 统一给出「特别篇不处理」的明确原因，
+#: 而不是报成「无确定性身份」让人误以为匹配有 bug。
+SPECIAL_MARKERS = (
+    "特别篇", "特別篇", "特别版", "特別版", "番外", "外传", "前传", "学前篇",
+    "剧场版", "劇場版", "特典", "OVA", "OAD", "ONA", "SP",
+)
+
+
+def is_special(title: Optional[str]) -> bool:
+    """判断标题是否为特别篇 / OVA / 番外等衍生内容。"""
+    if not title:
+        return False
+    text = str(title).upper()
+    return any(marker.upper() in text for marker in SPECIAL_MARKERS)
+
+
 @dataclass
 class DiscoveredItem:
     """一个标准化后的发现条目。

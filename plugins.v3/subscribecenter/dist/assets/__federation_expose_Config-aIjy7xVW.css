@@ -1,5 +1,5 @@
 
-.sc-root[data-v-53c00306] {
+.sc-root[data-v-a2c270a3] {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -8,7 +8,7 @@
 }
 
 /* 顶部 */
-.sc-header[data-v-53c00306] {
+.sc-header[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -18,13 +18,13 @@
   border-radius: 10px;
   background: rgba(var(--v-theme-surface), 0.5);
 }
-.sc-header-main[data-v-53c00306] {
+.sc-header-main[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
 }
-.sc-logo[data-v-53c00306] {
+.sc-logo[data-v-a2c270a3] {
   display: grid;
   place-items: center;
   width: 34px;
@@ -34,42 +34,40 @@
   color: rgb(var(--v-theme-on-primary));
   background: rgb(var(--v-theme-primary));
 }
-.sc-title[data-v-53c00306] {
+.sc-title[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   font-size: 15px;
   font-weight: 600;
   line-height: 1.3;
 }
-.sc-subtitle[data-v-53c00306] {
+.sc-subtitle[data-v-a2c270a3] {
   font-size: 12px;
   opacity: 0.66;
   line-height: 1.4;
 }
-.sc-header-switch[data-v-53c00306] {
+.sc-header-switch[data-v-a2c270a3] {
   flex: 0 0 auto;
 }
 
 /* 主体布局 */
 /* 主体：不设固定高度（宿主容器高度不可控，固定高度会让滚动条落到可视区外），
    改为右侧内容给 max-height，超出才内部滚动；左侧导航跟随滚动。 */
-.sc-body[data-v-53c00306] {
+.sc-body[data-v-a2c270a3] {
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  align-items: stretch;
 }
-.sc-nav[data-v-53c00306] {
+.sc-nav[data-v-a2c270a3] {
   flex: 0 0 148px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  position: sticky;
-  top: 0;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
 }
-.sc-nav-item[data-v-53c00306] {
+.sc-nav-item[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -85,38 +83,52 @@
   opacity: 0.78;
   transition: background 0.15s, opacity 0.15s;
 }
-.sc-nav-item[data-v-53c00306]:hover {
+.sc-nav-item[data-v-a2c270a3]:hover {
   background: rgba(var(--v-theme-primary), 0.08);
   opacity: 1;
 }
-.sc-nav-active[data-v-53c00306] {
+.sc-nav-active[data-v-a2c270a3] {
   background: rgba(var(--v-theme-primary), 0.14);
   opacity: 1;
   font-weight: 600;
 }
-.sc-nav-label[data-v-53c00306] {
+.sc-nav-label[data-v-a2c270a3] {
   flex: 1 1 auto;
   white-space: nowrap;
 }
-.sc-nav-badge[data-v-53c00306] {
+.sc-nav-badge[data-v-a2c270a3] {
   font-size: 11px;
   opacity: 0.7;
 }
-.sc-content[data-v-53c00306] {
+.sc-content[data-v-a2c270a3] {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* 固定高度：切换分区时整体高度不跳动。
+     用固定 px 而不是 vh —— 宿主把配置页渲染在高度不可控的容器里，
+     vh 会算出超出可视区的高度，反而让滚动条跑到看不见的地方。 */
+  height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+.sc-content[data-v-a2c270a3]::-webkit-scrollbar {
+  width: 6px;
+}
+.sc-content[data-v-a2c270a3]::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(var(--v-border-color), 0.4);
 }
 
 /* 卡片 */
-.sc-card[data-v-53c00306] {
+.sc-card[data-v-a2c270a3] {
   padding: 12px;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
 }
-.sc-card-title[data-v-53c00306] {
+.sc-card-title[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -127,37 +139,37 @@
 }
 
 /* 数据卡 */
-.sc-cards[data-v-53c00306] {
+.sc-cards[data-v-a2c270a3] {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
-.sc-stat[data-v-53c00306] {
+.sc-stat[data-v-a2c270a3] {
   padding: 10px 12px;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
 }
-.sc-stat-top[data-v-53c00306] {
+.sc-stat-top[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
   opacity: 0.72;
 }
-.sc-stat-value[data-v-53c00306] {
+.sc-stat-value[data-v-a2c270a3] {
   margin-top: 4px;
   font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
 }
-.sc-stat-sub[data-v-53c00306] {
+.sc-stat-sub[data-v-a2c270a3] {
   margin-top: 2px;
   font-size: 11px;
   opacity: 0.6;
 }
 
 /* 提醒 */
-.sc-alert-row[data-v-53c00306] {
+.sc-alert-row[data-v-a2c270a3] {
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -165,37 +177,37 @@
   font-size: 12px;
   line-height: 1.5;
 }
-.sc-alert-warning[data-v-53c00306] {
+.sc-alert-warning[data-v-a2c270a3] {
   color: rgb(var(--v-theme-warning));
 }
-.sc-alert-error[data-v-53c00306] {
+.sc-alert-error[data-v-a2c270a3] {
   color: rgb(var(--v-theme-error));
 }
-.sc-alert-info[data-v-53c00306] {
+.sc-alert-info[data-v-a2c270a3] {
   opacity: 0.75;
 }
 
 /* 流程 */
-.sc-flow[data-v-53c00306] {
+.sc-flow[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
   opacity: 0.85;
 }
-.sc-flow-node[data-v-53c00306] {
+.sc-flow-node[data-v-a2c270a3] {
   padding: 3px 8px;
   border-radius: 6px;
   font-size: 12px;
   background: rgba(var(--v-theme-on-surface), 0.06);
 }
-.sc-flow-accent[data-v-53c00306] {
+.sc-flow-accent[data-v-a2c270a3] {
   background: rgba(var(--v-theme-primary), 0.18);
   font-weight: 600;
 }
 
 /* 开关行 */
-.sc-row[data-v-53c00306] {
+.sc-row[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -203,50 +215,50 @@
   padding: 7px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
-.sc-row[data-v-53c00306]:last-child {
+.sc-row[data-v-a2c270a3]:last-child {
   border-bottom: none;
 }
-.sc-row-main[data-v-53c00306] {
+.sc-row-main[data-v-a2c270a3] {
   min-width: 0;
 }
-.sc-row-label[data-v-53c00306] {
+.sc-row-label[data-v-a2c270a3] {
   font-size: 13px;
   line-height: 1.5;
 }
-.sc-row-hint[data-v-53c00306] {
+.sc-row-hint[data-v-a2c270a3] {
   font-size: 11.5px;
   line-height: 1.5;
   opacity: 0.62;
 }
 
 /* 预览 */
-.sc-preview-head[data-v-53c00306] {
+.sc-preview-head[data-v-a2c270a3] {
   flex-wrap: wrap;
 }
-.sc-preview-action[data-v-53c00306] {
+.sc-preview-action[data-v-a2c270a3] {
   margin-left: auto;
 }
-.sc-preview-row[data-v-53c00306] {
+.sc-preview-row[data-v-a2c270a3] {
   padding: 6px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
-.sc-preview-row[data-v-53c00306]:last-child {
+.sc-preview-row[data-v-a2c270a3]:last-child {
   border-bottom: none;
 }
-.sc-empty[data-v-53c00306] {
+.sc-empty[data-v-a2c270a3] {
   padding: 18px 4px;
   font-size: 12px;
   text-align: center;
   opacity: 0.6;
 }
-.sc-hint[data-v-53c00306] {
+.sc-hint[data-v-a2c270a3] {
   font-size: 12px;
   line-height: 1.55;
   opacity: 0.66;
 }
 
 /* 吸底操作栏 */
-.sc-footer[data-v-53c00306] {
+.sc-footer[data-v-a2c270a3] {
   position: sticky;
   bottom: 0;
   display: flex;
@@ -259,7 +271,7 @@
   background: rgb(var(--v-theme-surface));
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.12);
 }
-.sc-footer-right[data-v-53c00306] {
+.sc-footer-right[data-v-a2c270a3] {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -268,35 +280,35 @@
 
 /* 窄屏：导航变成横向条 */
 @media (max-width: 720px) {
-.sc-body[data-v-53c00306] {
+.sc-body[data-v-a2c270a3] {
     flex-direction: column;
 }
-.sc-nav[data-v-53c00306] {
+.sc-nav[data-v-a2c270a3] {
     position: static;
 }
-.sc-content[data-v-53c00306] {
-    max-height: none;
+.sc-content[data-v-a2c270a3] {
+    height: auto;
     overflow-y: visible;
     padding-right: 0;
 }
-.sc-nav[data-v-53c00306] {
+.sc-nav[data-v-a2c270a3] {
     flex: 1 1 auto;
     width: 100%;
     flex-direction: row;
     overflow-x: auto;
 }
-.sc-nav-item[data-v-53c00306] {
+.sc-nav-item[data-v-a2c270a3] {
     width: auto;
     white-space: nowrap;
 }
-.sc-nav-badge[data-v-53c00306] {
+.sc-nav-badge[data-v-a2c270a3] {
     display: none;
 }
-.sc-subtitle[data-v-53c00306] {
+.sc-subtitle[data-v-a2c270a3] {
     display: none;
 }
 }
-code[data-v-53c00306] {
+code[data-v-a2c270a3] {
   padding: 1px 4px;
   border-radius: 4px;
   background: rgba(var(--v-theme-on-surface), 0.08);

@@ -941,7 +941,7 @@ onMounted(() => {
 .sc-body {
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  align-items: stretch;
 }
 .sc-nav {
   flex: 0 0 148px;
@@ -949,8 +949,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  position: sticky;
-  top: 0;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
 }
@@ -993,6 +991,20 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* 固定高度：切换分区时整体高度不跳动。
+     用固定 px 而不是 vh —— 宿主把配置页渲染在高度不可控的容器里，
+     vh 会算出超出可视区的高度，反而让滚动条跑到看不见的地方。 */
+  height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+.sc-content::-webkit-scrollbar {
+  width: 6px;
+}
+.sc-content::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(var(--v-border-color), 0.4);
 }
 
 /* 卡片 */
@@ -1160,7 +1172,7 @@ onMounted(() => {
     position: static;
   }
   .sc-content {
-    max-height: none;
+    height: auto;
     overflow-y: visible;
     padding-right: 0;
   }

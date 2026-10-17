@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.5.2",
+        "version": "1.5.3",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.5.3": "订阅总览改 ORM 直连 + 状态口径统一（1.5.3）。1.5.2 点开订阅总览报「未知错误」：后端 /subscriptions 走宿主 SDK 的 async_list_subscriptions，而该服务在某些调用路径下尚未配置，会直接抛「插件数据查询服务尚未配置」→ 接口 500 → 前端只能显示未知错误。改为 ORM 直连（app.db.async_session_scope + Subscribe 模型 + select，按 id 倒序取 SUBSCRIBE_OVERVIEW_LIMIT=500 条），只依赖数据库连接。已在容器内实测：查询到 206 条订阅（状态分布 R=95 / S=98 / P=13），字段齐全，且诛仙 state=R total=26 lack=15 season=4 —— 说明 S04 订阅确实对了。另外统一状态口径：新增 _display_state，暂停优先、其次「total_episode>0 且 lack_episode==0」算完成（D），否则用原始状态码；计数与卡片着色用同一函数，避免筛选条数字与卡片颜色对不上。ruff 全绿、445 项测试通过。",
             "v1.5.2": "修「订阅总览」调用不存在的 helper（1.5.2）。用户点开订阅总览报 fetchPluginApi is not defined —— 我在 Page.vue 里写了 fetchPluginApi，而 api.js 实际只导出 getPluginApi / postPluginApi / putPluginApi；Vue 构建不做未定义标识符检查，所以构建通过、点到才炸。修法：改用 getPluginApi。另外补一条前端契约测试：解析 components/api.js 的导出函数，再扫描 Page.vue / Config.vue 里所有 *PluginApi( 调用，断言每个都已导出且已 import —— 并做了反向验证（把 helper 故意改回 fetchPluginApi 时测试确实失败，恢复后通过），防止这类「构建通过、运行时报未定义」的问题再漏出去。ruff 全绿，445 项测试通过。",
             "v1.5.1": "修 1.5.0 的两个 ruff 级错误（1.5.1）。1.5.0 提交时 ruff 已报 2 个 F821（未定义名），但我在流水线里没有把 ruff 结果当作阻断条件就推送了，这是流程疏漏。两处都会在运行时炸：[1] __init__.py 的 subscription_overview 里用了 SUBSCRIBE_OVERVIEW_LIMIT 而没加 C. 前缀（本文件所有常量都走 from .core import constants as C），会 NameError；已改为 C.SUBSCRIBE_OVERVIEW_LIMIT。[2] controller/api.py 的 api_subscriptions 签名写了 _PluginBase，但该文件其他函数都用裸 plugin 参数、且此处并未导入该类型，会 NameError；已改为 plugin) -> Any: 与其他函数一致。修复后 ruff 全绿、444 项测试通过、插件模块可正常导入。后续提交把 ruff 作为硬门禁。",
             "v1.5.0": "新增「订阅总览」（1.5.0）。用户希望像 MP 订阅页那样按状态给卡片上色、一目了然，并问「订阅助手插件能做到，我们能不能」。技术结论：插件不能改 MP 自己的前端页面（改宿主会被升级覆盖），但可以新增自己的页面/区块 —— 这次在发现流水上方加一个可展开的「订阅总览」区块。实现：[1] 后端新增 GET /subscriptions 路由 + SubscriptionOverview/SubscriptionRow schema，走宿主 SDK app.sdk.queries.async_list_subscriptions（与 subscription_exists 同一路径），返回 total、按状态码的 counts 与明细（id/name/year/season/total_episode/lack_episode/state/media_source/media_id/poster/last_update），单次上限 500 条（新增常量 SUBSCRIBE_OVERVIEW_LIMIT）。[2] 前端：可折叠区块，展开时按需拉取一次；状态彩色圆点筛选条（未开始黄/订阅中蓝/待定橙/暂停灰/订阅完成绿，完成态由 total_episode>0 且 lack_episode==0 推导）；卡片左侧 4px 彩色边条 + 集数进度 + 状态文字，网格自适应，最多 340px 高可滚动。响应模型与路由测试期望同步更新。",

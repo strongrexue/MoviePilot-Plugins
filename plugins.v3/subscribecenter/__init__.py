@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.2.7"
+    plugin_version = "1.2.8"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -851,6 +851,9 @@ class SubscribeCenter(_PluginBase):
                 index[key] = len(records)
                 records.append(record)
 
+        # 逐条合并依赖写入顺序，不可靠（真机：待确认与已订阅两条并存）。
+        # 这里在**全部写完之后**统一收敛一次，保证同一作品只留一条。
+        records = _collapse_history(records)
         if len(records) > MAX_HISTORY:
             records = records[-MAX_HISTORY:]
         self.save_data(DATA_KEY_HISTORY, records)
@@ -965,6 +968,54 @@ def _decision_counts(records: List[Dict[str, Any]]) -> Dict[str, int]:
             continue
         counts[decision] = counts.get(decision, 0) + 1
     return counts
+
+
+#: 决策优先级：数值越小越「有信息量」，收敛时保留它
+_DECISION_RANK = {
+    "added": 0,
+    "skipped_already_subscribed": 1,
+    "skipped_already_completed": 1,
+    "skipped_finished": 2,
+    "skipped_out_of_window": 3,
+    "skipped_popularity": 3,
+    "skipped_rating": 3,
+    "skipped_duplicate": 4,
+    "pending_review": 9,
+}
+
+
+def _collapse_history(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """同一作品只保留一条记录（按「最有信息量」的决策）。
+
+    真机：完美世界 第七季 同时存在 `pending_review`（无 media_id）与
+    `skipped_already_subscribed`（有 media_id）两条 —— 界面上就出现
+    「已订阅却还在待确认」。逐条合并依赖写入顺序，不可靠；
+    改成写完后按作品键统一收敛。
+
+    作品键 = **去掉季号/尾年份的归一化标题**（国漫在「待确认」阶段标题常带
+    「第七季」，订阅成功后可能不带，用原始标题会合不上）。
+    """
+    from .core.identity import normalize_title, strip_season_suffix
+
+    best: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    for record in records:
+        base = normalize_title(strip_season_suffix(str(record.get("title") or "")))
+        key = base or str(record.get("title") or "")
+        if key not in best:
+            best[key] = record
+            order.append(key)
+            continue
+        current = best[key]
+        rank_new = _DECISION_RANK.get(str(record.get("decision") or ""), 5)
+        rank_old = _DECISION_RANK.get(str(current.get("decision") or ""), 5)
+        # 决策相近时优先保留带 media_id 的那条（说明身份已解析）
+        if (rank_new, 0 if record.get("media_id") else 1) < (
+            rank_old,
+            0 if current.get("media_id") else 1,
+        ):
+            best[key] = record
+    return [best[key] for key in order]
 
 
 def _source_counts(records: List[Dict[str, Any]]) -> Dict[str, int]:

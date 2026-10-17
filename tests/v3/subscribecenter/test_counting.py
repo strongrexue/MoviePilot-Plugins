@@ -377,3 +377,40 @@ def test_donghua_ignores_season_split():
     source = inspect.getsource(IdentityResolver._resolve_target_season)
     assert 'country") or "").upper() == "CN"' in source or "country" in source
     assert "item.season = None" in source, "国漫应清掉季号，订默认季"
+
+
+def test_collapse_history_keeps_best_record():
+    """写入后统一收敛：同一作品只保留最有信息量的一条。
+
+    真机：完美世界 第七季 同时存在 pending_review（无 id）与
+    skipped_already_subscribed（有 id）两条 → 界面「已订阅却仍待确认」。
+    """
+    import importlib
+
+    module = importlib.import_module("subscribecenter")
+    records = [
+        {"decision": "pending_review", "source": "anilist", "title": "完美世界 第七季",
+         "year": "2026", "media_id": None},
+        {"decision": "skipped_already_subscribed", "source": "anilist",
+         "title": "完美世界 第七季", "year": "2026", "media_source": "themoviedb",
+         "media_id": "124003"},
+    ]
+    collapsed = module._collapse_history(records)
+    assert len(collapsed) == 1
+    assert collapsed[0]["decision"] == "skipped_already_subscribed"
+    assert collapsed[0]["media_id"] == "124003"
+
+
+def test_collapse_history_merges_title_variants():
+    """标题带季号与不带的两种写法也要合并（国漫常见）。"""
+    import importlib
+
+    module = importlib.import_module("subscribecenter")
+    records = [
+        {"decision": "pending_review", "source": "anilist", "title": "遮天", "year": "2023"},
+        {"decision": "added", "source": "anilist", "title": "遮天 第2季", "year": "2023",
+         "media_id": "224839"},
+    ]
+    collapsed = module._collapse_history(records)
+    assert len(collapsed) == 1, "带季号与不带季号应视为同一作品"
+    assert collapsed[0]["decision"] == "added"

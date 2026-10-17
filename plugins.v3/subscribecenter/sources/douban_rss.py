@@ -90,8 +90,9 @@ class DoubanRssSource:
         items: List[DiscoveredItem] = []
         errors: List[str] = []
 
+        domain = config.get("rsshub_domain")
         for entry in urls:
-            url = entry["url"]
+            url = build_feed_url(domain, entry["url"])
             limit = entry["max_items"] or default_limit
             try:
                 text = await self._fetch_text(url)
@@ -234,6 +235,26 @@ _LIST_NAMES = {
     "tv_global_best_weekly": "全球口碑剧集",
     "movie_weekly_best": "电影口碑榜",
 }
+
+
+def build_feed_url(domain: Any, route: Any) -> str:
+    """拼接完整 RSS 地址：``域名 + 路由``。
+
+    榜单里只存**路由**（``/douban/movie/coming``），域名由全局
+    ``rsshub_domain`` 统一提供 —— 换 RSSHub 地址只改一处。
+    已经是完整 URL 的条目原样返回（兼容自定义外部 RSS）。
+    """
+    text = str(route or "").strip()
+    if not text:
+        return ""
+    if text.startswith("http://") or text.startswith("https://"):
+        return text
+    base = str(domain or "").strip().rstrip("/")
+    if not base:
+        return text
+    if not base.startswith("http"):
+        base = "https://" + base
+    return base + (text if text.startswith("/") else "/" + text)
 
 
 def list_name_of(url: str) -> str:

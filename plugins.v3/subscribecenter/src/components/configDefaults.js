@@ -13,15 +13,12 @@ export const configDefaults = {
   enable_anilist: true,
   enable_bangumi: false,
   enable_douban_rss: false,
-  enable_simkl: false,
-  enable_justwatch: false,
   // ---------------- 发现窗口与阈值
   tmdb_future_days: 3,
   bangumi_future_days: 3,
   min_rating_tmdb: 6.0,
   min_rating_bangumi: 6.0,
   min_rating_douban: 6.0,
-  min_rating_simkl: 6.0,
   min_popularity: 15.0,
   // ---------------- AniList（番剧 / 国漫）
   anilist_future_days: 3,
@@ -37,14 +34,15 @@ export const configDefaults = {
   tmdb_original_languages: 'zh,ja,ko,en',
   // ---------------- 豆瓣 RSS 源列表
   // ---------------- 豆瓣 RSS 榜单（每榜独立配置）
+  rsshub_domain: 'https://rsshub.app',
   douban_rss_sources: [
-    { name: '电影即将上映', url: '/douban/movie/coming', enabled: true, max_items: 30, future_days: 30, min_want: 0 },
-    { name: '剧集即将播出', url: '/douban/tv/coming', enabled: true, max_items: 30, future_days: 30, min_want: 0 },
-    { name: '近期热门剧集', url: '/douban/list/tv_real_time_hotest', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
-    { name: '近期热门国产剧', url: '/douban/list/tv_domestic', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
-    { name: '近期热门综艺', url: '/douban/list/tv_variety', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
-    { name: '近期热门动画', url: '/douban/list/tv_animation', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
-    { name: '豆瓣推荐剧集', url: '/douban/recommended/tv', enabled: true, max_items: 30, future_days: 3, min_want: 0 },
+    { name: '电影即将上映', url: '/douban/movie/coming', enabled: true, max_items: 0, future_days: 30, min_want: 0 },
+    { name: '剧集即将播出', url: '/douban/tv/coming', enabled: true, max_items: 0, future_days: 30, min_want: 0 },
+    { name: '近期热门剧集', url: '/douban/list/tv_real_time_hotest', enabled: true, max_items: 0, future_days: 3, min_want: 0 },
+    { name: '近期热门国产剧', url: '/douban/list/tv_domestic', enabled: true, max_items: 0, future_days: 3, min_want: 0 },
+    { name: '近期热门综艺', url: '/douban/list/tv_variety', enabled: true, max_items: 0, future_days: 3, min_want: 0 },
+    { name: '近期热门动画', url: '/douban/list/tv_animation', enabled: true, max_items: 0, future_days: 3, min_want: 0 },
+    { name: '豆瓣推荐剧集', url: '/douban/recommended/tv', enabled: true, max_items: 0, future_days: 3, min_want: 0 },
   ],
   douban_max_items_per_feed: 30,
   douban_future_days: 3,
@@ -53,7 +51,6 @@ export const configDefaults = {
   prefer_episode_group: true,
   resubscribe_completed: true,
   // ---------------- Simkl
-  simkl_client_id: '',
   // ---------------- 写入
   daily_limit: 30,
   dry_run: false,

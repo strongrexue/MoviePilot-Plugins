@@ -94,8 +94,6 @@ const sourceRows = [
     hint: '番剧 + 国漫；官方 GraphQL，自带开播日、在播状态与热度',
   },
   { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '经 RSSHub；上映日期与豆瓣 ID 均可解析' },
-  { key: 'enable_simkl', label: 'Simkl Calendar', hint: '未来 33 天 TV + 动画 + 电影（尚未实现）' },
-  { key: 'enable_justwatch', label: 'JustWatch', hint: '流媒体上线发现，只记日志（尚未实现）' },
 ]
 
 /** 基础开关：一行一个，左标题右开关。 */
@@ -510,6 +508,20 @@ onMounted(() => {
 
           <div class="sc-card">
             <div class="sc-card-title">豆瓣 RSS 路线</div>
+            <VTextField
+              v-model="form.rsshub_domain"
+              label="RSSHub 域名（总控）"
+              density="compact"
+              hide-details
+              variant="outlined"
+              placeholder="http://192.168.50.134:1200"
+              class="mb-2"
+              :disabled="!form.enable_douban_rss"
+            />
+            <div class="sc-hint mb-2">
+              每条榜单只填**路由**（如 <code>/douban/movie/coming</code>），
+              实际请求 = 域名 + 路由。换 RSSHub 地址只改这里，不用逐条改。
+            </div>
             <div class="sc-list-head">
               <span class="sc-hint">已启用 {{ doubanEnabledCount }} / {{ doubanLists.length }} 条</span>
               <VBtn size="x-small" variant="tonal" prepend-icon="mdi-plus" @click="addDoubanList">
@@ -557,7 +569,7 @@ onMounted(() => {
               <div class="sc-list-row sc-list-params">
                 <VTextField
                   v-model.number="entry.max_items"
-                  label="每榜条数"
+                  label="每榜条数（0=沿用全局）"
                   type="number"
                   min="1"
                   max="200"

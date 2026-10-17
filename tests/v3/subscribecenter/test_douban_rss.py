@@ -380,3 +380,44 @@ def test_migration_converts_url_list_to_entries():
     ]
     assert all(e["enabled"] for e in migrated)
     assert migrated[0]["name"] == "电影即将上映"
+
+
+# ------------------------------------------- RSSHub 域名总控（1.2.0）
+
+def test_build_feed_url_joins_domain_and_route():
+    """榜单只存路由，实际请求 = 域名 + 路由（换 RSSHub 只改一处）。"""
+    from subscribecenter.sources.douban_rss import build_feed_url
+
+    assert (
+        build_feed_url("http://192.168.50.134:1200", "/douban/movie/coming")
+        == "http://192.168.50.134:1200/douban/movie/coming"
+    )
+    # 域名带尾斜杠、路由不带前斜杠都要能拼对
+    assert (
+        build_feed_url("http://h:1200/", "douban/tv/coming")
+        == "http://h:1200/douban/tv/coming"
+    )
+    # 没写协议的域名自动补 https
+    assert build_feed_url("rsshub.app", "/douban/movie/coming") == (
+        "https://rsshub.app/douban/movie/coming"
+    )
+    # 完整 URL 原样返回（自定义外部 RSS）
+    assert build_feed_url("http://h:1200", "https://other/x.xml") == "https://other/x.xml"
+    assert build_feed_url("http://h:1200", "") == ""
+
+
+def test_simkl_and_justwatch_are_gone():
+    """未实现的两个源已彻底移除（配置、源集合、前端都不该再有）。"""
+    from subscribecenter.core import constants as C
+
+    assert "simkl" not in C.ALL_SOURCES
+    assert "justwatch" not in C.ALL_SOURCES
+    assert "enable_simkl" not in C.default_config()
+    assert "enable_justwatch" not in C.default_config()
+
+
+def test_default_rsshub_domain_present():
+    """RSSHub 域名总控必须有默认值。"""
+    from subscribecenter.core import constants as C
+
+    assert C.default_config().get("rsshub_domain")

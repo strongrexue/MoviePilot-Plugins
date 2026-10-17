@@ -10,8 +10,13 @@ from typing import Any, Dict, List
 
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
-PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "1.1.0"
+PLUGIN_DESCRIPTION = (
+    "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS "
+    "发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。"
+    "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
+    "版本控制、洗版与下载优先级由宿主规则接管。"
+)
+PLUGIN_VERSION = "1.2.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -103,8 +108,6 @@ ALL_SOURCES = (
     SOURCE_TMDB,
     SOURCE_ANILIST,
     SOURCE_DOUBAN_RSS,
-    SOURCE_SIMKL,
-    SOURCE_JUSTWATCH,
 )
 
 #: 已实现的数据源（其余源在配置页可开，但运行时会记录「未实现」并跳过）
@@ -125,7 +128,7 @@ DEFAULT_DOUBAN_LISTS = [
         "name": "电影即将上映",
         "url": "/douban/movie/coming",
         "enabled": True,
-        "max_items": 30,
+        "max_items": 0,
         "future_days": 30,
         "min_want": 0,
     },
@@ -133,7 +136,7 @@ DEFAULT_DOUBAN_LISTS = [
         "name": "剧集即将播出",
         "url": "/douban/tv/coming",
         "enabled": True,
-        "max_items": 30,
+        "max_items": 0,
         "future_days": 30,
         "min_want": 0,
     },
@@ -141,7 +144,7 @@ DEFAULT_DOUBAN_LISTS = [
         "name": "近期热门剧集",
         "url": "/douban/list/tv_real_time_hotest",
         "enabled": True,
-        "max_items": 30,
+        "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
@@ -149,7 +152,7 @@ DEFAULT_DOUBAN_LISTS = [
         "name": "近期热门国产剧",
         "url": "/douban/list/tv_domestic",
         "enabled": True,
-        "max_items": 30,
+        "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
@@ -157,7 +160,7 @@ DEFAULT_DOUBAN_LISTS = [
         "name": "近期热门综艺",
         "url": "/douban/list/tv_variety",
         "enabled": True,
-        "max_items": 30,
+        "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
@@ -165,7 +168,7 @@ DEFAULT_DOUBAN_LISTS = [
         "name": "近期热门动画",
         "url": "/douban/list/tv_animation",
         "enabled": True,
-        "max_items": 30,
+        "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
@@ -173,7 +176,7 @@ DEFAULT_DOUBAN_LISTS = [
         "name": "豆瓣推荐剧集",
         "url": "/douban/recommended/tv",
         "enabled": True,
-        "max_items": 30,
+        "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
@@ -199,15 +202,12 @@ def default_config() -> Dict[str, Any]:
         "enable_anilist": True,
         "enable_bangumi": False,
         "enable_douban_rss": False,
-        "enable_simkl": False,
-        "enable_justwatch": False,
         # ---------------- 发现窗口与阈值
         "tmdb_future_days": DEFAULT_FUTURE_DAYS,
         "bangumi_future_days": DEFAULT_FUTURE_DAYS,
         "min_rating_tmdb": DEFAULT_MIN_RATING,
         "min_rating_bangumi": DEFAULT_MIN_RATING,
         "min_rating_douban": DEFAULT_MIN_RATING,
-        "min_rating_simkl": DEFAULT_MIN_RATING,
         "min_popularity": DEFAULT_MIN_POPULARITY,
         # ---------------- AniList（番剧 / 国漫）
         #: 番剧发现窗口（天）。番剧定档密集，窗口不必太长。
@@ -236,6 +236,9 @@ def default_config() -> Dict[str, Any]:
         # ---------------- 豆瓣 RSS 源列表
         #: 豆瓣 RSS 榜单列表：内置预设 + 自定义，每条独立控制
         #: （name / url / enabled / max_items / future_days / min_want）
+        #: RSSHub 域名（总控）：榜单里只存路由（/douban/movie/coming），
+        #: 拼接时用「域名 + 路由」。换 RSSHub 地址只改这一处，不用逐条改。
+        "rsshub_domain": "https://rsshub.app",
         "douban_rss_sources": copy.deepcopy(DEFAULT_DOUBAN_LISTS),
         #: 每个榜单最多取前 N 条（榜单按名次排列，取前 N 即取最热的）。
         #: 实测 /douban/list/tv_hot 有 241 条，不限量会把额度全吃掉。
@@ -270,7 +273,6 @@ def default_config() -> Dict[str, Any]:
         #: （TMDB 无未播集），所以不会每轮都重复建订阅。
         "resubscribe_completed": True,
         # ---------------- Simkl
-        "simkl_client_id": "",
         # ---------------- 写入
         "daily_limit": DEFAULT_DAILY_LIMIT,
         "dry_run": False,

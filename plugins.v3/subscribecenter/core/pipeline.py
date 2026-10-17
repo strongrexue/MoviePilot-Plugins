@@ -69,6 +69,8 @@ class RunSummary:
     report: Optional[WriteReport] = None
     dry_run: bool = False
     first_run: bool = False
+    #: 源内去重时被丢弃的条目数（不进流水，但要计入总数才能对账）
+    deduped_out: int = 0
     started_at: str = ""
     finished_at: str = ""
 
@@ -109,16 +111,35 @@ class RunSummary:
             # （0.2.0 真实事故）。
             **report,
             "skipped": self.skipped_count(report),
+            "pending_review": self.pending_count(report),
+            "deduped_out": self.deduped_out,
             "total": self.fetched_count,
         }
 
     def skipped_count(self, report: Optional[Dict[str, Any]] = None) -> int:
-        """返回跳过的总条数（**含**预过滤阶段被拦下的条目）。
+        """返回真正跳过的总条数（含预过滤阶段，**不含**待确认）。
 
         :param report: 已算好的 ``report.to_summary()``，避免重复计算
         """
         data = report if report is not None else (self.report.to_summary() if self.report else {})
-        return int(data.get("skipped", 0)) + len(self.prefiltered)
+        return int(data.get("skipped", 0)) + len(self._prefiltered_skipped())
+
+    def pending_count(self, report: Optional[Dict[str, Any]] = None) -> int:
+        """待确认总数（writer 产出 + 预过滤阶段）。
+
+        跳过与待确认必须**互斥**，否则通知里「跳过 + 待确认」会超过「拉取」。
+        真机就是这样：跳过 341 里其实包含了 18 条待确认。
+        """
+        data = report if report is not None else (self.report.to_summary() if self.report else {})
+        return int(data.get("pending_review", 0)) + len(self._prefiltered_pending())
+
+    def _prefiltered_skipped(self) -> List[WriteOutcome]:
+        """预过滤阶段的**真正跳过**（不含待确认）。"""
+        return [o for o in self.prefiltered if o.decision != DECISION_PENDING_REVIEW]
+
+    def _prefiltered_pending(self) -> List[WriteOutcome]:
+        """预过滤阶段的待确认。"""
+        return [o for o in self.prefiltered if o.decision == DECISION_PENDING_REVIEW]
 
     def _rejected_reasons(self) -> Dict[str, int]:
         """按决策统计被预过滤拦下的条目数，便于一眼看出为什么一条都没写。"""
@@ -460,7 +481,10 @@ async def run_pipeline(
             item.discovered_at = utc_now_text()
 
     # ---- 2. 源内去重（提前做，减少后续网络调用）
+    before_dedupe = len(raw)
     raw = dedupe_within_source(raw)
+    # 记录被丢弃数：否则「拉取」与「各决策之和」对不上（真机：371 vs 341 差 30）
+    summary.deduped_out = max(0, before_dedupe - len(raw))
 
     # ---- 3. 身份解析（**并发**，单条失败不影响其余）
     #

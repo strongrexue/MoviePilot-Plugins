@@ -125,8 +125,18 @@ class WriteReport:
 
     @property
     def skipped(self) -> List[WriteOutcome]:
-        """被跳过的条目（含待确认）。"""
-        return [o for o in self.outcomes if o.decision != DECISION_ADDED]
+        """真正被跳过的条目（**不含**待确认）。
+
+        .. important::
+           之前这里把 `pending_review` 也算进 skipped，导致通知里
+           「跳过 341 + 待确认 18」看起来比「拉取 371」还多（重复计数）。
+           跳过与待确认必须互斥，否则总数对不上。
+        """
+        return [
+            o
+            for o in self.outcomes
+            if o.decision not in (DECISION_ADDED, DECISION_PENDING_REVIEW)
+        ]
 
     @property
     def pending_review(self) -> List[WriteOutcome]:

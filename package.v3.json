@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "0.9.4",
+        "version": "0.9.5",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v0.9.5": "修正运行计数口径（0.9.5）。用户困惑：预览界面显示「会订 215 条」，通知却是「会订 0 / 拉取 371 / 跳过 341 / 待确认 18」，而 341+18=359 又对不上 371。查出的三处口径错误：[1] 预览的「会订」把**全部** writer 产出都算了进去（含 skipped_already_subscribed / skipped_finished / pending_review）—— 真机那 215 条里实际 0 条会写（79 条已订阅、118 条已播完、18 条待确认）；现在只统计 added / skipped_dry_run。[2] WriteReport.skipped 包含了 pending_review，导致「跳过 + 待确认」重复计数；现改为互斥，并新增 RunSummary.pending_count() 把预过滤阶段的待确认一并算入。[3] 源内去重丢弃的条目完全没记账（371 与 359 差的 12～30 条既不在跳过也不在待确认），新增 RunSummary.deduped_out 并在流水阶段记录，通知里显示「源内去重 N 条」。现在总数闭合：拉取 = 源内去重 + 新增 + 跳过 + 待确认。真机那次的真实解释是：16:04 先真跑新增 79 条，16:22 再预览时那 79 条已存在 → 全部记为已订阅 → 会订 0，预览与真跑数字不同属于正常。新增 5 项口径不变式测试。",
             "v0.9.4": "修配置页高度跳动（0.9.4）。前两版都没做对，这次找到真正的根因：0.9.3 的 CSS 补丁打在了错误位置 —— .sc-content 上根本没有 max-height 与 overflow-y，内容是自然撑高的，所以切分区必然高度跳动；0.9.2 用 vh + overflow:hidden 又让滚动条跑到宿主容器可视区之外。最终方案：右侧内容区固定 height:480px 并 overflow-y:auto（用固定 px 而不用 vh，因为宿主把配置页渲染在高度不可控的容器里），左侧导航随 align-items:stretch 自动等高、视觉齐平；窄屏（<720px）取消固定高度。整体高度 = 顶部栏 + 480 + 吸底栏 ≈ 610px，切任何分区都不再跳动。",
             "v0.9.3": "修滚动方案 + dry-run 通知文案（0.9.3）。[1] 滚动：0.9.2 给 .sc-body 设了固定高度，宿主容器高度不可控，导致内层滚动条落到可视区外、反而滚不动。现改为不给主体设固定高度，只给右侧内容 max-height: min(56vh,560px) 超出才内部滚动，左侧导航 position:sticky 吸顶；窄屏取消 max-height。[2] dry-run/预览 通知不再报「新增 0 条」—— 真机踩过：预览显示「新增 0 / 跳过 341」，实际那 341 条里本来有 79 条可订，只是被 dry-run 拦下记成「跳过」，容易误判为插件什么都没找到。现在 dry-run 时改报「会订 N 条（未写入）/ 拉取 / 跳过 / 待确认」，标题也区分「预览完成 / 发现完成」。",
             "v0.9.2": "修右侧滚动失效 + 预览按钮移到预览结果内（0.9.2）。用户反馈「右侧内容应该独立滚动，怎么整个往下滚了」。根因是 CSS flexbox 的经典陷阱：flex 子项默认 min-height:auto，会阻止收缩到内容高度以下，所以 .sc-content 上的 overflow-y:auto 形同虚设，内容把固定高度的 .sc-body 撑开、整页跟着滚。修法：给 .sc-content 与 .sc-nav 加 min-height:0，并给 .sc-body 加 overflow:hidden。另按用户建议把吸底操作栏的「预览」按钮移到「预览结果」分区右上角（含空状态提示），吸底栏只保留 关闭 / 立即运行一次 / 保存配置 —— 避免误点预览。空状态文案改为指向上方按钮。",

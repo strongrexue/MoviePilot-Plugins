@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.9.4"
+    plugin_version = "0.9.5"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -352,7 +352,16 @@ class SubscribeCenter(_PluginBase):
 
         items: List[Dict[str, Any]] = []
         outcomes = summary.report.outcomes if summary.report else []
+        # 只把「会写入」的条目算进会订列表。
+        #
+        # 真机 bug：旧实现把**所有** writer 产出都塞进 items —— 包括
+        # skipped_already_subscribed / skipped_finished / pending_review，
+        # 于是界面显示「会订 215 条」，而实际只有 0 条会写（那 215 条里
+        # 79 条已订阅、118 条已播完、18 条待确认）。
+        writable_decisions = {C.DECISION_ADDED, C.DECISION_SKIPPED_DRY_RUN}
         for outcome in outcomes:
+            if outcome.decision not in writable_decisions:
+                continue
             item = outcome.item
             identity = item.resolved
             items.append(
@@ -619,12 +628,15 @@ class SubscribeCenter(_PluginBase):
             lines = [
                 f"{label}：会订 {would_add} 条（未写入）",
                 f"拉取：{data.get('fetched', 0)} 条",
+                f"源内去重：{data.get('deduped_out', 0)} 条",
                 f"跳过：{data.get('skipped', 0)} 条",
                 f"待确认：{data.get('pending_review', 0)} 条",
             ]
         else:
             lines = [
                 f"新增：{data.get('added', 0)} 条",
+                f"拉取：{data.get('fetched', 0)} 条",
+                f"源内去重：{data.get('deduped_out', 0)} 条",
                 f"跳过：{data.get('skipped', 0)} 条",
                 f"待确认：{data.get('pending_review', 0)} 条",
             ]

@@ -73,6 +73,30 @@ class HistoryRecord(BaseModel):
     run_at: str = Field(default="", description="所属运行时间")
 
 
+class SubscriptionRow(BaseModel):
+    """宿主订阅表的一行（只取界面要用的字段）。"""
+
+    id: int = Field(description="订阅 ID")
+    name: str = Field(description="名称")
+    year: Optional[str] = Field(default=None, description="年份")
+    season: Optional[int] = Field(default=None, description="季")
+    total_episode: Optional[int] = Field(default=None, description="总集数")
+    lack_episode: Optional[int] = Field(default=None, description="缺失集数")
+    state: str = Field(default="N", description="宿主状态码 N/R/P/S")
+    media_source: Optional[str] = Field(default=None, description="媒体源")
+    media_id: Optional[str] = Field(default=None, description="媒体 ID")
+    poster: Optional[str] = Field(default=None, description="海报")
+    last_update: Optional[str] = Field(default=None, description="最近更新")
+
+
+class SubscriptionOverview(BaseModel):
+    """订阅总览：按状态分组统计 + 明细。"""
+
+    total: int = Field(default=0, description="总数")
+    counts: Dict[str, int] = Field(default_factory=dict, description="按状态码的条数")
+    items: List[SubscriptionRow] = Field(default_factory=list, description="明细")
+
+
 class HistoryPage(BaseModel):
     """分页流水。"""
 
@@ -170,6 +194,7 @@ class MappingFixResult(BaseModel):
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
+    "/subscriptions": SubscriptionOverview,
     "/run_once": RunOnceResult,
     "/preview": PreviewResult,
     "/mapping_cache": MappingCacheView,
@@ -180,6 +205,8 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
 __all__ = [
     "API_RESPONSE_MODELS",
     "HistoryPage",
+    "SubscriptionOverview",
+    "SubscriptionRow",
     "HistoryRecord",
     "MappingCacheView",
     "MappingEntry",

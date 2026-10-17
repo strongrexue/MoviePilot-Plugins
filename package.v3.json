@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.5.0": "新增「订阅总览」（1.5.0）。用户希望像 MP 订阅页那样按状态给卡片上色、一目了然，并问「订阅助手插件能做到，我们能不能」。技术结论：插件不能改 MP 自己的前端页面（改宿主会被升级覆盖），但可以新增自己的页面/区块 —— 这次在发现流水上方加一个可展开的「订阅总览」区块。实现：[1] 后端新增 GET /subscriptions 路由 + SubscriptionOverview/SubscriptionRow schema，走宿主 SDK app.sdk.queries.async_list_subscriptions（与 subscription_exists 同一路径），返回 total、按状态码的 counts 与明细（id/name/year/season/total_episode/lack_episode/state/media_source/media_id/poster/last_update），单次上限 500 条（新增常量 SUBSCRIBE_OVERVIEW_LIMIT）。[2] 前端：可折叠区块，展开时按需拉取一次；状态彩色圆点筛选条（未开始黄/订阅中蓝/待定橙/暂停灰/订阅完成绿，完成态由 total_episode>0 且 lack_episode==0 推导）；卡片左侧 4px 彩色边条 + 集数进度 + 状态文字，网格自适应，最多 340px 高可滚动。响应模型与路由测试期望同步更新。",
             "v1.4.0": "设置页按源拆成 6 个分区（1.4.0）。上一轮（1.2.x）尝试分区时把模板改坏、构建报错，已整体回退；这次改为分步重构，每一步都跑一次 npm run build 验证：（1）只改 sectionNav 为 6 项：总览 / TMDB / AniList / 豆瓣榜单 / 写入与调度 / 预览结果；（2）把原「数据源」分区改名为 douban，并把其中的「数据源」列表卡片替换成单个「启用豆瓣 RSS」开关（RSSHub 域名与 14 条榜单编辑器保留在该分区）；（3）把原「窗口与阈值」分区改名为 tmdb，并在 AniList 卡片前、豆瓣卡片前各插入一对 </template> + <template v-if>，拆成 tmdb / anilist / douban 三块（豆瓣阈值与订阅行为归入豆瓣分区）；（4）在 tmdb 与 anilist 分区顶部各插入该源的启用开关（enable_tmdb / enable_anilist）。最终结构：总览保持不变；TMDB 分区 = 启用开关 + 语言过滤 + 窗口/评分/热度/条数；AniList 分区 = 启用开关 + 窗口/评分/热度/国漫；豆瓣分区 = 启用开关 + RSSHub 域名总控 + 每榜配置列表 + 豆瓣阈值 + 订阅行为；写入与调度、预览结果两个分区保持原样。7 个 v-if 模板 + 根模板 = 8 个闭合标签，构建通过。",
             "v1.3.4": "恢复 MP 原生「新增订阅」通知（1.3.4）。用户反馈：MP 手动新增订阅时会发一条订阅通知，但经插件订阅的全部没有，只收到插件自己的汇总通知。根因：订阅写入时固定传了 message=False（当初为了「逐条静默、只在末尾发汇总」），而 MP 的 SubscribeChain 正是靠这个参数决定是否走 __async_post_subscribe_added（发原生通知 + 广播 SubscribeAdded 事件）。修法：writer 增加 notify_each 参数，插件从配置 notify_each_subscription（默认 True）传入，写入时 message=self._notify_each；设置页「开关」区新增「每条新订阅都发 MP 原生通知」，与原有「发送运行摘要通知」并列，用户可自行取舍。同步更新 composer 的测试期望（原断言 message is False 改为 True）。",
             "v1.3.3": "国漫季号规则细化：真实季按季订（1.3.3）。用户指出「诛仙/斗破苍穹映射没问题，之前订的是 S04/S05，这次都订成 S01」。根因是我 1.2.6 加的「国漫一律订默认季」过度纠偏：它解决了 一念永恒 被订成 S04/35 集的问题（主条目只有 1 季 200 集，第四季只是剧集组），但把 诛仙 S04 / 斗破苍穹 S05 这类**真实季**也抹成默认季，于是订成 S01，而库里 S01 早已完结 → MP 立即判定完成，新季度永远订不到。新规则以「解析结果里是否带 episode_group」为判据：带剧集组 或 没有季号 → 订默认季（一念永恒）；有真实季 → 按季订（诛仙 S04、斗破苍穹 S05）。同时把此前那条断言「国漫必须清季号」的测试改写为同时覆盖两种情况的规则测试。",

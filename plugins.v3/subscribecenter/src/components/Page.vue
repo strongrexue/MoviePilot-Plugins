@@ -189,6 +189,51 @@ function switchFilter(value) {
   loadHistory()
 }
 
+/** 订阅总览：宿主订阅按状态分组（着色的卡片）。 */
+const overview = ref({ total: 0, counts: {}, items: [] })
+const overviewLoaded = ref(false)
+const overviewOpen = ref(false)
+const overviewState = ref('')
+
+/** 状态码 → 中文 + 颜色（与 MP 订阅页一致：未开始/订阅中/待定/暂停/完成）。 */
+const STATE_META = {
+  N: { label: '未开始', color: '#FFC107' },
+  R: { label: '订阅中', color: '#3B82F6' },
+  P: { label: '待定', color: '#F97316' },
+  S: { label: '暂停', color: '#9CA3AF' },
+  D: { label: '订阅完成', color: '#22C55E' },
+}
+
+/** 一条订阅的状态元信息（完成后优先显示「订阅完成」）。 */
+function stateMeta(item) {
+  const total = Number(item.total_episode || 0)
+  const lack = Number(item.lack_episode || 0)
+  const code = String(item.state || 'N')
+  if (code === 'S') return STATE_META.S
+  if (total > 0 && lack === 0) return STATE_META.D
+  return STATE_META[code] || { label: code, color: '#6B7280' }
+}
+
+/** 状态筛选后的订阅列表。 */
+const overviewItems = computed(() => {
+  const items = overview.value.items || []
+  if (!overviewState.value) return items
+  return items.filter((item) => String(item.state || 'N') === overviewState.value)
+})
+
+/** 展开时按需拉取一次。 */
+async function toggleOverview() {
+  overviewOpen.value = !overviewOpen.value
+  if (!overviewOpen.value || overviewLoaded.value) return
+  try {
+    const data = unwrap(await fetchPluginApi(props.api, props.pluginId, 'subscriptions'))
+    overview.value = data || { total: 0, counts: {}, items: [] }
+    overviewLoaded.value = true
+  } catch (error) {
+    setTip(error?.message || '读取订阅总览失败', false)
+  }
+}
+
 /** 「按源」tab：TMDB / AniList / 豆瓣，带条数。 */
 const sourceTabs = computed(() => {
   const counts = history.value?.source_counts || {}
@@ -396,6 +441,66 @@ onUnmounted(() => {
       <div class="sc-card-head">
         <span class="sc-card-title">发现流水</span>
         <!-- 状态 tab：点一下即筛选，比下拉框少一步操作 -->
+        <div class="sc-overview">
+          <div class="sc-overview-head" @click="toggleOverview">
+            <VIcon :icon="overviewOpen ? 'mdi-chevron-down' : 'mdi-chevron-right'" size="18" />
+            <span class="sc-overview-title">订阅总览</span>
+            <span class="sc-dim">
+              {{ overviewLoaded ? `共 ${overview.total} 条订阅` : '点击展开，按状态看颜色' }}
+            </span>
+          </div>
+          <div v-if="overviewOpen" class="sc-overview-body">
+            <div v-if="!overview.total" class="sc-hint">暂无订阅</div>
+            <template v-else>
+              <div class="sc-state-row">
+                <button
+                  type="button"
+                  class="sc-state-chip"
+                  :class="{ 'sc-state-active': !overviewState }"
+                  @click="overviewState = ''"
+                >
+                  全部 <span class="sc-dim">{{ overview.total }}</span>
+                </button>
+                <button
+                  v-for="(meta, code) in STATE_META"
+                  :key="code"
+                  type="button"
+                  class="sc-state-chip"
+                  :class="{ 'sc-state-active': overviewState === code }"
+                  :style="{ borderColor: meta.color }"
+                  @click="overviewState = overviewState === code ? '' : code"
+                >
+                  <span class="sc-state-dot" :style="{ background: meta.color }" />
+                  {{ meta.label }}
+                  <span class="sc-dim">{{ overview.counts[code] || 0 }}</span>
+                </button>
+              </div>
+              <div class="sc-sub-grid">
+                <div
+                  v-for="item in overviewItems"
+                  :key="item.id"
+                  class="sc-sub-card"
+                  :style="{ borderLeftColor: stateMeta(item).color }"
+                >
+                  <div class="sc-sub-title" :title="item.name">
+                    {{ item.name }}
+                    <span v-if="item.season"> S{{ String(item.season).padStart(2, '0') }}</span>
+                  </div>
+                  <div class="sc-sub-meta">
+                    <span>{{ item.year || '' }}</span>
+                    <span v-if="item.total_episode">
+                      {{ (item.total_episode || 0) - (item.lack_episode || 0) }}/{{ item.total_episode }}
+                    </span>
+                  </div>
+                  <div class="sc-sub-state" :style="{ color: stateMeta(item).color }">
+                    {{ stateMeta(item).label }}
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <div class="sc-tabs sc-tabs-source">
           <span class="sc-tabs-label">数据源</span>
           <button
@@ -880,6 +985,86 @@ onUnmounted(() => {
   border-color: rgba(var(--v-theme-primary), 0.4);
   opacity: 1;
   font-weight: 600;
+}
+.sc-overview {
+  margin-bottom: 10px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.sc-overview-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.sc-overview-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sc-overview-body {
+  padding: 0 12px 12px;
+}
+.sc-state-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.sc-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--v-border-color), 0.2);
+  background: transparent;
+  color: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.sc-state-active {
+  background: rgba(var(--v-theme-primary), 0.14);
+  border-color: rgba(var(--v-theme-primary), 0.6);
+}
+.sc-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.sc-sub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+  max-height: 340px;
+  overflow: auto;
+}
+.sc-sub-card {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--v-border-color), 0.14);
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+.sc-sub-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-sub-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  opacity: 0.65;
+  margin-top: 2px;
+}
+.sc-sub-state {
+  font-size: 11px;
+  margin-top: 3px;
 }
 .sc-search {
   display: flex;

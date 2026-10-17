@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.4.0"
+    plugin_version = "1.5.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -249,6 +249,10 @@ class SubscribeCenter(_PluginBase):
         return await api_controller.api_history(
             self, page=page, count=count, decision=decision, source=source, keyword=keyword
         )
+
+    async def api_subscriptions(self) -> Any:
+        """订阅总览：宿主订阅按状态分组 + 明细。"""
+        return await api_controller.api_subscriptions(self)
 
     async def api_run_once(self) -> Any:
         """手动触发一次发现任务。"""
@@ -714,6 +718,54 @@ class SubscribeCenter(_PluginBase):
             mapping_cache_size=self._cache.size,
             timezone=self._tz(),
         )
+
+    async def subscription_overview(self) -> Dict[str, Any]:
+        """读取宿主订阅表，按状态统计并返回明细（供「订阅总览」标签页）。
+
+        用宿主的 SDK 查询服务（``app.sdk.queries``）而不是直接写 SQL ——
+        和 ``HostTmdbResolver.subscription_exists`` 走同一条路径，
+        插件被卸载/宿主换库时行为一致。
+        """
+        from app.sdk.queries import (
+            QueryPageRequest,
+            async_list_subscriptions,
+        )
+
+        try:
+            page = await async_list_subscriptions(
+                None, QueryPageRequest(page=1, count=SUBSCRIBE_OVERVIEW_LIMIT)
+            )
+        except Exception as err:  # noqa: BLE001 - 查询失败不该炸整个页面
+            logger.error(f"[SubscribeCenter] 读取订阅总览失败：{err}", exc_info=True)
+            return {"total": 0, "counts": {}, "items": [], "error": str(err)}
+
+        rows = list(getattr(page, "items", None) or getattr(page, "results", None) or [])
+        items: List[Dict[str, Any]] = []
+        counts: Dict[str, int] = {}
+        for row in rows:
+            data = row.model_dump() if hasattr(row, "model_dump") else dict(vars(row))
+            state = str(data.get("state") or "N")
+            counts[state] = counts.get(state, 0) + 1
+            items.append(
+                {
+                    "id": data.get("id"),
+                    "name": data.get("name"),
+                    "year": data.get("year"),
+                    "season": data.get("season"),
+                    "total_episode": data.get("total_episode"),
+                    "lack_episode": data.get("lack_episode"),
+                    "state": state,
+                    "media_source": data.get("media_source"),
+                    "media_id": data.get("media_id"),
+                    "poster": data.get("poster"),
+                    "last_update": data.get("last_update"),
+                }
+            )
+        return {
+            "total": int(getattr(page, "total", len(items)) or len(items)),
+            "counts": counts,
+            "items": items,
+        }
 
     def history_page(
         self,

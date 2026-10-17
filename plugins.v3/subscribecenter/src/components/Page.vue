@@ -168,6 +168,12 @@ function nextPage() {
   loadHistory()
 }
 
+/** 海报加载失败：隐藏 <img>，露出底下的占位图标（否则浏览器会画出 alt 文本）。 */
+function markPosterFailed(event) {
+  const img = event?.target
+  if (img) img.style.display = 'none'
+}
+
 /** 上次运行的详细数字（通知里只报新增，细节放这里看）。 */
 const lastSummary = computed(() => status.value?.last_summary || null)
 
@@ -335,7 +341,13 @@ onUnmounted(() => {
       <div v-else class="sc-grid">
         <div v-for="(item, index) in history.items" :key="index" class="sc-card-item">
           <div class="sc-card-poster">
-            <img v-if="posterUrl(item)" :src="posterUrl(item)" :alt="item.title" loading="lazy" />
+            <img
+              v-if="posterUrl(item)"
+              :src="posterUrl(item)"
+              alt=""
+              loading="lazy"
+              @error="markPosterFailed($event)"
+            />
             <VIcon v-else icon="mdi-filmstrip-box-multiple" size="30" class="sc-poster-ph" />
             <span class="sc-card-badge">
               <VChip size="x-small" variant="flat" :color="decisionColor(item.decision)">
@@ -554,15 +566,18 @@ onUnmounted(() => {
 
 /* 流水表格 */
 /* 卡片网格：多列并排（对齐榜单页的观感） */
+/* 卡片尺寸对齐参考插件（maoyandianying：minmax(390px,1fr)，海报 8rem≈128px） */
 .sc-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+  align-content: stretch;
+  grid-auto-rows: minmax(150px, 1fr);
 }
 .sc-card-item {
   display: flex;
-  gap: 10px;
-  padding: 10px;
+  gap: 12px;
+  padding: 12px;
   border: 1px solid rgba(var(--v-border-color), 0.14);
   border-radius: 9px;
   background: rgba(var(--v-theme-surface), 0.35);
@@ -570,9 +585,10 @@ onUnmounted(() => {
 }
 .sc-card-poster {
   position: relative;
-  flex: 0 0 88px;
-  width: 88px;
-  height: 126px;
+  flex: 0 0 128px;
+  width: 128px;
+  aspect-ratio: 2 / 3;
+  height: auto;
   border-radius: 7px;
   overflow: hidden;
   display: grid;
@@ -600,7 +616,7 @@ onUnmounted(() => {
   flex: 1 1 auto;
 }
 .sc-card-title {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.35;
   overflow: hidden;
@@ -609,16 +625,16 @@ onUnmounted(() => {
   -webkit-box-orient: vertical;
 }
 .sc-card-meta {
-  margin-top: 4px;
+  margin-top: 6px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   opacity: 0.6;
 }
 .sc-card-reason {
-  margin-top: 5px;
-  font-size: 11.5px;
+  margin-top: 6px;
+  font-size: 12px;
   line-height: 1.4;
   opacity: 0.55;
   display: -webkit-box;

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-DS5H_2ie.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-CFZUL6-A.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass} = await importShared('vue');
 
@@ -33,7 +33,7 @@ const _hoisted_19 = {
   class: "sc-grid"
 };
 const _hoisted_20 = { class: "sc-card-poster" };
-const _hoisted_21 = ["src", "alt"];
+const _hoisted_21 = ["src"];
 const _hoisted_22 = { class: "sc-card-badge" };
 const _hoisted_23 = { class: "sc-card-body" };
 const _hoisted_24 = ["title"];
@@ -226,6 +226,12 @@ function nextPage() {
   loadHistory();
 }
 
+/** 海报加载失败：隐藏 <img>，露出底下的占位图标（否则浏览器会画出 alt 文本）。 */
+function markPosterFailed(event) {
+  const img = event?.target;
+  if (img) img.style.display = 'none';
+}
+
 /** 上次运行的详细数字（通知里只报新增，细节放这里看）。 */
 const lastSummary = computed(() => status.value?.last_summary || null);
 
@@ -323,7 +329,7 @@ return (_ctx, _cache) => {
         ]),
         _createElementVNode("div", _hoisted_4, [
           _createElementVNode("div", _hoisted_5, [
-            _cache[4] || (_cache[4] = _createTextVNode(" 胖虎订阅中心 ", -1)),
+            _cache[5] || (_cache[5] = _createTextVNode(" 胖虎订阅中心 ", -1)),
             _createVNode(_component_VChip, {
               size: "x-small",
               variant: "flat",
@@ -336,7 +342,7 @@ return (_ctx, _cache) => {
               _: 1
             })
           ]),
-          _cache[5] || (_cache[5] = _createElementVNode("div", { class: "sc-subtitle" }, "发现片源 → 解析身份 → 去重 → 写订阅", -1))
+          _cache[6] || (_cache[6] = _createElementVNode("div", { class: "sc-subtitle" }, "发现片源 → 解析身份 → 去重 → 写订阅", -1))
         ])
       ]),
       _createElementVNode("div", _hoisted_6, [
@@ -348,7 +354,7 @@ return (_ctx, _cache) => {
           loading: busy.value === 'run',
           onClick: runOnce
         }, {
-          default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+          default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
             _createTextVNode(" 立即运行一次 ", -1)
           ]))]),
           _: 1
@@ -360,7 +366,7 @@ return (_ctx, _cache) => {
           loading: loading.value,
           onClick: refreshAll
         }, {
-          default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+          default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
             _createTextVNode(" 刷新 ", -1)
           ]))]),
           _: 1
@@ -371,7 +377,7 @@ return (_ctx, _cache) => {
           "prepend-icon": "mdi-cog",
           onClick: _cache[1] || (_cache[1] = $event => (emit('switch')))
         }, {
-          default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
+          default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
             _createTextVNode("设置", -1)
           ]))]),
           _: 1
@@ -422,7 +428,7 @@ return (_ctx, _cache) => {
                   variant: "flat",
                   color: "warning"
                 }, {
-                  default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+                  default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
                     _createTextVNode(" 未实现 ", -1)
                   ]))]),
                   _: 1
@@ -438,7 +444,7 @@ return (_ctx, _cache) => {
     ]),
     _createElementVNode("div", _hoisted_16, [
       _createElementVNode("div", _hoisted_17, [
-        _cache[11] || (_cache[11] = _createElementVNode("span", { class: "sc-card-title" }, "发现流水", -1)),
+        _cache[12] || (_cache[12] = _createElementVNode("span", { class: "sc-card-title" }, "发现流水", -1)),
         _createVNode(_component_VSelect, {
           modelValue: filter.value,
           "onUpdate:modelValue": [
@@ -464,7 +470,7 @@ return (_ctx, _cache) => {
           size: "x-small",
           variant: "text"
         }, {
-          default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+          default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
             _createTextVNode("每部只显示最新状态", -1)
           ]))]),
           _: 1
@@ -483,9 +489,10 @@ return (_ctx, _cache) => {
                     ? (_openBlock(), _createElementBlock("img", {
                         key: 0,
                         src: posterUrl(item),
-                        alt: item.title,
-                        loading: "lazy"
-                      }, null, 8, _hoisted_21))
+                        alt: "",
+                        loading: "lazy",
+                        onError: _cache[4] || (_cache[4] = $event => (markPosterFailed($event)))
+                      }, null, 40, _hoisted_21))
                     : (_openBlock(), _createBlock(_component_VIcon, {
                         key: 1,
                         icon: "mdi-filmstrip-box-multiple",
@@ -546,7 +553,7 @@ return (_ctx, _cache) => {
               disabled: history.value.page <= 1,
               onClick: prevPage
             }, {
-              default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+              default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
                 _createTextVNode("上一页", -1)
               ]))]),
               _: 1
@@ -558,7 +565,7 @@ return (_ctx, _cache) => {
               disabled: history.value.page * history.value.count >= history.value.total,
               onClick: nextPage
             }, {
-              default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+              default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
                 _createTextVNode(" 下一页 ", -1)
               ]))]),
               _: 1
@@ -571,6 +578,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f36ad8eb"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2926b9f1"]]);
 
 export { Page as default };

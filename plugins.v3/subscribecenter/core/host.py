@@ -18,6 +18,7 @@
 ============================  ==================================================
 """
 import asyncio
+import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV
@@ -98,6 +99,29 @@ _IMAGE_CACHE: Dict[str, Any] = {}
 _IMAGE_CACHE_LIMIT = 400
 
 
+#: 从 TMDB 图片 URL 里抠出图片路径（``/t/p/original/abc.jpg`` -> ``/abc.jpg``）
+_TMDB_IMAGE_RE = re.compile(r"/t/p/[^/]+(/[^\s]+)$")
+
+
+def _poster_path(value: Any) -> Optional[str]:
+    """把海报值归一化成 TMDB 图片**路径**（``/abc.jpg``）。
+
+    真机：宿主识别返回的 ``poster_path`` **有时是完整 URL**
+    （``https://image.tmdb.org/t/p/original/xxx.jpg``），有时是纯路径。
+    存成完整 URL 会让前端直连 ``image.tmdb.org`` —— 国内网络下必然失败，
+    表现为「只有少数卡片有图」（正好是那些拿到纯路径的条目）。
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = _TMDB_IMAGE_RE.search(text)
+    if match:
+        return match.group(1)
+    if text.startswith("/"):
+        return text
+    return None
+
+
 async def fetch_poster_bytes(path: str) -> Optional[tuple]:
     """按 TMDB 的图片路径抓取海报字节，返回 ``(content, content_type)``。
 
@@ -107,8 +131,8 @@ async def fetch_poster_bytes(path: str) -> Optional[tuple]:
        根本连不上，于是流水里的封面全部空白（真机反馈）。
        走插件后端代理后，浏览器只连 MoviePilot，图片由服务器绕代理取回。
     """
-    key = str(path or "").strip()
-    if not key or not key.startswith("/"):
+    key = _poster_path(path)
+    if not key:
         return None
     cached = _IMAGE_CACHE.get(key)
     if cached:

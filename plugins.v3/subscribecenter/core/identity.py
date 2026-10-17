@@ -1015,7 +1015,12 @@ class IdentityResolver:
                 except Exception:  # noqa: BLE001
                     poster = None
         if poster:
-            item.raw["poster"] = poster
+            # 归一化成路径：完整 URL 会让浏览器直连 image.tmdb.org（国内不可达）
+            from .host import _poster_path
+
+            normalized = _poster_path(poster)
+            if normalized:
+                item.raw["poster"] = normalized
 
     async def _resolve_target_season(self, item: DiscoveredItem) -> None:
         """确定该订阅哪一季，并判断是否还有未播内容。

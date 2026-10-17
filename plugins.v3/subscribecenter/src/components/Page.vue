@@ -61,10 +61,25 @@ const DECISION_LABELS = {
  * 国内网络下 image.tmdb.org 常常连不上，封面会整片空白（真机反馈）。
  * 走 /poster 代理后浏览器只连 MoviePilot，图片由服务器绕代理取回。
  */
+/**
+ * 把数据库里的 poster 值归一化成 TMDB **图片路径**（`/abc.jpg`）。
+ *
+ * 宿主识别有时返回完整 URL（`https://image.tmdb.org/t/p/original/xxx.jpg`），
+ * 存进流水后如果直接当 src 用，浏览器会去直连 image.tmdb.org ——
+ * 国内网络下必然失败，表现为「只有少数卡片有图」。
+ */
+function posterPath(item) {
+  const raw = item?.poster
+  if (!raw) return ''
+  const text = String(raw)
+  const match = text.match(/\/t\/p\/[^/]+(\/.+)$/)
+  if (match) return match[1]
+  return text.startsWith('/') ? text : ''
+}
+
 function posterUrl(item) {
-  const path = item?.poster
+  const path = posterPath(item)
   if (!path) return ''
-  if (String(path).startsWith('http')) return String(path)
   const id = String(props.pluginId || 'SubscribeCenter')
   // 插件路由固定挂在 /api/v1/plugin/<id> 下；<img> 用绝对路径，与 axios 的 baseURL 无关。
   return `/api/v1/plugin/${id}/poster?path=${encodeURIComponent(path)}`
@@ -210,7 +225,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="sc-root">
+  <div class="sc-root" :class="{ 'sc-root-page': appPage }">
     <VAlert
       v-if="versionMismatch"
       type="warning"
@@ -368,6 +383,25 @@ onUnmounted(() => {
 .sc-root {
   padding: 4px;
   font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* 作为「发现」分区整页渲染时：撑满视口，让流水区吃掉剩余高度，
+   避免页面下方一大片空白。 */
+.sc-root-page {
+  min-height: calc(100dvh - 150px);
+}
+.sc-root-page .sc-card:last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sc-root-page .sc-card:last-child .sc-grid {
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
 }
 .sc-hint {
   font-size: 12px;

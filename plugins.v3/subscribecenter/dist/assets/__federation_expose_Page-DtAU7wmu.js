@@ -1,57 +1,56 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-BicEx3Xe.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-DS5H_2ie.js';
 
-const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
+const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
-const _hoisted_1 = { class: "sc-root" };
-const _hoisted_2 = { class: "sc-top" };
-const _hoisted_3 = { class: "sc-top-left" };
-const _hoisted_4 = { class: "sc-logo" };
-const _hoisted_5 = { class: "sc-top-text" };
-const _hoisted_6 = { class: "sc-title" };
-const _hoisted_7 = { class: "sc-top-actions" };
-const _hoisted_8 = { class: "sc-stat-grid" };
-const _hoisted_9 = { class: "sc-stat-top" };
-const _hoisted_10 = { class: "sc-stat-label" };
-const _hoisted_11 = { class: "sc-stat-value" };
-const _hoisted_12 = { class: "sc-stat-sub" };
-const _hoisted_13 = { class: "sc-sources" };
-const _hoisted_14 = { class: "sc-source-head" };
-const _hoisted_15 = { class: "sc-source-sub" };
-const _hoisted_16 = {
+const _hoisted_1 = { class: "sc-top" };
+const _hoisted_2 = { class: "sc-top-left" };
+const _hoisted_3 = { class: "sc-logo" };
+const _hoisted_4 = { class: "sc-top-text" };
+const _hoisted_5 = { class: "sc-title" };
+const _hoisted_6 = { class: "sc-top-actions" };
+const _hoisted_7 = { class: "sc-stat-grid" };
+const _hoisted_8 = { class: "sc-stat-top" };
+const _hoisted_9 = { class: "sc-stat-label" };
+const _hoisted_10 = { class: "sc-stat-value" };
+const _hoisted_11 = { class: "sc-stat-sub" };
+const _hoisted_12 = { class: "sc-sources" };
+const _hoisted_13 = { class: "sc-source-head" };
+const _hoisted_14 = { class: "sc-source-sub" };
+const _hoisted_15 = {
   key: 0,
   class: "sc-error"
 };
-const _hoisted_17 = { class: "sc-card" };
-const _hoisted_18 = { class: "sc-card-head" };
-const _hoisted_19 = {
+const _hoisted_16 = { class: "sc-card" };
+const _hoisted_17 = { class: "sc-card-head" };
+const _hoisted_18 = {
   key: 0,
   class: "sc-empty"
 };
-const _hoisted_20 = {
+const _hoisted_19 = {
   key: 1,
   class: "sc-grid"
 };
-const _hoisted_21 = { class: "sc-card-poster" };
-const _hoisted_22 = ["src", "alt"];
-const _hoisted_23 = { class: "sc-card-badge" };
-const _hoisted_24 = { class: "sc-card-body" };
-const _hoisted_25 = ["title"];
-const _hoisted_26 = { class: "sc-card-meta" };
-const _hoisted_27 = { key: 0 };
-const _hoisted_28 = { key: 1 };
-const _hoisted_29 = { key: 2 };
-const _hoisted_30 = {
+const _hoisted_20 = { class: "sc-card-poster" };
+const _hoisted_21 = ["src", "alt"];
+const _hoisted_22 = { class: "sc-card-badge" };
+const _hoisted_23 = { class: "sc-card-body" };
+const _hoisted_24 = ["title"];
+const _hoisted_25 = { class: "sc-card-meta" };
+const _hoisted_26 = { key: 0 };
+const _hoisted_27 = { key: 1 };
+const _hoisted_28 = { key: 2 };
+const _hoisted_29 = {
   key: 0,
   class: "sc-card-meta"
 };
-const _hoisted_31 = ["title"];
-const _hoisted_32 = {
+const _hoisted_30 = ["title"];
+const _hoisted_31 = {
   key: 2,
   class: "sc-pager"
 };
-const _hoisted_33 = { class: "sc-hint" };
+const _hoisted_32 = { class: "sc-hint" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -120,10 +119,25 @@ const DECISION_LABELS = {
  * 国内网络下 image.tmdb.org 常常连不上，封面会整片空白（真机反馈）。
  * 走 /poster 代理后浏览器只连 MoviePilot，图片由服务器绕代理取回。
  */
+/**
+ * 把数据库里的 poster 值归一化成 TMDB **图片路径**（`/abc.jpg`）。
+ *
+ * 宿主识别有时返回完整 URL（`https://image.tmdb.org/t/p/original/xxx.jpg`），
+ * 存进流水后如果直接当 src 用，浏览器会去直连 image.tmdb.org ——
+ * 国内网络下必然失败，表现为「只有少数卡片有图」。
+ */
+function posterPath(item) {
+  const raw = item?.poster;
+  if (!raw) return ''
+  const text = String(raw);
+  const match = text.match(/\/t\/p\/[^/]+(\/.+)$/);
+  if (match) return match[1]
+  return text.startsWith('/') ? text : ''
+}
+
 function posterUrl(item) {
-  const path = item?.poster;
+  const path = posterPath(item);
   if (!path) return ''
-  if (String(path).startsWith('http')) return String(path)
   const id = String(props.pluginId || 'SubscribeCenter');
   // 插件路由固定挂在 /api/v1/plugin/<id> 下；<img> 用绝对路径，与 axios 的 baseURL 无关。
   return `/api/v1/plugin/${id}/poster?path=${encodeURIComponent(path)}`
@@ -274,7 +288,9 @@ return (_ctx, _cache) => {
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VSelect = _resolveComponent("VSelect");
 
-  return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+  return (_openBlock(), _createElementBlock("div", {
+    class: _normalizeClass(["sc-root", { 'sc-root-page': __props.appPage }])
+  }, [
     (versionMismatch.value)
       ? (_openBlock(), _createBlock(_component_VAlert, {
           key: 0,
@@ -297,16 +313,16 @@ return (_ctx, _cache) => {
           "onClick:close": _cache[0] || (_cache[0] = $event => (tip.value.show = false))
         }, null, 8, ["type", "text"]))
       : _createCommentVNode("", true),
-    _createElementVNode("div", _hoisted_2, [
-      _createElementVNode("div", _hoisted_3, [
-        _createElementVNode("div", _hoisted_4, [
+    _createElementVNode("div", _hoisted_1, [
+      _createElementVNode("div", _hoisted_2, [
+        _createElementVNode("div", _hoisted_3, [
           _createVNode(_component_VIcon, {
             icon: "mdi-movie-open-star-outline",
             size: "20"
           })
         ]),
-        _createElementVNode("div", _hoisted_5, [
-          _createElementVNode("div", _hoisted_6, [
+        _createElementVNode("div", _hoisted_4, [
+          _createElementVNode("div", _hoisted_5, [
             _cache[4] || (_cache[4] = _createTextVNode(" 胖虎订阅中心 ", -1)),
             _createVNode(_component_VChip, {
               size: "x-small",
@@ -323,7 +339,7 @@ return (_ctx, _cache) => {
           _cache[5] || (_cache[5] = _createElementVNode("div", { class: "sc-subtitle" }, "发现片源 → 解析身份 → 去重 → 写订阅", -1))
         ])
       ]),
-      _createElementVNode("div", _hoisted_7, [
+      _createElementVNode("div", _hoisted_6, [
         _createVNode(_component_VBtn, {
           color: "primary",
           size: "small",
@@ -362,32 +378,32 @@ return (_ctx, _cache) => {
         })
       ])
     ]),
-    _createElementVNode("div", _hoisted_8, [
+    _createElementVNode("div", _hoisted_7, [
       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(statCards.value, (card) => {
         return (_openBlock(), _createElementBlock("div", {
           key: card.label,
           class: "sc-stat"
         }, [
-          _createElementVNode("div", _hoisted_9, [
+          _createElementVNode("div", _hoisted_8, [
             _createVNode(_component_VIcon, {
               icon: card.icon,
               size: "17",
               color: card.color
             }, null, 8, ["icon", "color"]),
-            _createElementVNode("span", _hoisted_10, _toDisplayString(card.label), 1)
+            _createElementVNode("span", _hoisted_9, _toDisplayString(card.label), 1)
           ]),
-          _createElementVNode("div", _hoisted_11, _toDisplayString(card.value), 1),
-          _createElementVNode("div", _hoisted_12, _toDisplayString(card.sub), 1)
+          _createElementVNode("div", _hoisted_10, _toDisplayString(card.value), 1),
+          _createElementVNode("div", _hoisted_11, _toDisplayString(card.sub), 1)
         ]))
       }), 128))
     ]),
-    _createElementVNode("div", _hoisted_13, [
+    _createElementVNode("div", _hoisted_12, [
       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((status.value?.sources || []), (s) => {
         return (_openBlock(), _createElementBlock("div", {
           key: s.source,
           class: "sc-source-chip"
         }, [
-          _createElementVNode("div", _hoisted_14, [
+          _createElementVNode("div", _hoisted_13, [
             _createElementVNode("b", null, _toDisplayString(s.source), 1),
             _createVNode(_component_VChip, {
               size: "x-small",
@@ -413,15 +429,15 @@ return (_ctx, _cache) => {
                 }))
               : _createCommentVNode("", true)
           ]),
-          _createElementVNode("div", _hoisted_15, " 最近 " + _toDisplayString(s.last_count) + " 条 · " + _toDisplayString(s.last_run || '从未运行'), 1),
+          _createElementVNode("div", _hoisted_14, " 最近 " + _toDisplayString(s.last_count) + " 条 · " + _toDisplayString(s.last_run || '从未运行'), 1),
           (s.last_error)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_16, "失败：" + _toDisplayString(s.last_error), 1))
+            ? (_openBlock(), _createElementBlock("div", _hoisted_15, "失败：" + _toDisplayString(s.last_error), 1))
             : _createCommentVNode("", true)
         ]))
       }), 128))
     ]),
-    _createElementVNode("div", _hoisted_17, [
-      _createElementVNode("div", _hoisted_18, [
+    _createElementVNode("div", _hoisted_16, [
+      _createElementVNode("div", _hoisted_17, [
         _cache[11] || (_cache[11] = _createElementVNode("span", { class: "sc-card-title" }, "发现流水", -1)),
         _createVNode(_component_VSelect, {
           modelValue: filter.value,
@@ -455,28 +471,28 @@ return (_ctx, _cache) => {
         })
       ]),
       (!history.value.items.length)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_19, " 还没有流水。点「立即运行一次」即可看到发现结果。 "))
-        : (_openBlock(), _createElementBlock("div", _hoisted_20, [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_18, " 还没有流水。点「立即运行一次」即可看到发现结果。 "))
+        : (_openBlock(), _createElementBlock("div", _hoisted_19, [
             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value.items, (item, index) => {
               return (_openBlock(), _createElementBlock("div", {
                 key: index,
                 class: "sc-card-item"
               }, [
-                _createElementVNode("div", _hoisted_21, [
+                _createElementVNode("div", _hoisted_20, [
                   (posterUrl(item))
                     ? (_openBlock(), _createElementBlock("img", {
                         key: 0,
                         src: posterUrl(item),
                         alt: item.title,
                         loading: "lazy"
-                      }, null, 8, _hoisted_22))
+                      }, null, 8, _hoisted_21))
                     : (_openBlock(), _createBlock(_component_VIcon, {
                         key: 1,
                         icon: "mdi-filmstrip-box-multiple",
                         size: "30",
                         class: "sc-poster-ph"
                       })),
-                  _createElementVNode("span", _hoisted_23, [
+                  _createElementVNode("span", _hoisted_22, [
                     _createVNode(_component_VChip, {
                       size: "x-small",
                       variant: "flat",
@@ -489,41 +505,41 @@ return (_ctx, _cache) => {
                     }, 1032, ["color"])
                   ])
                 ]),
-                _createElementVNode("div", _hoisted_24, [
+                _createElementVNode("div", _hoisted_23, [
                   _createElementVNode("div", {
                     class: "sc-card-title",
                     title: item.title
                   }, [
                     _createElementVNode("b", null, _toDisplayString(item.title), 1)
-                  ], 8, _hoisted_25),
-                  _createElementVNode("div", _hoisted_26, [
+                  ], 8, _hoisted_24),
+                  _createElementVNode("div", _hoisted_25, [
                     (item.year)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_27, _toDisplayString(item.year), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_26, _toDisplayString(item.year), 1))
                       : _createCommentVNode("", true),
                     (item.media_type)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_28, _toDisplayString(item.media_type), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_27, _toDisplayString(item.media_type), 1))
                       : _createCommentVNode("", true),
                     _createElementVNode("span", null, _toDisplayString(item.source), 1),
                     (item.confidence)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_29, _toDisplayString(item.confidence), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_28, _toDisplayString(item.confidence), 1))
                       : _createCommentVNode("", true)
                   ]),
                   (item.release_date)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_30, " 放送 " + _toDisplayString(item.release_date), 1))
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_29, " 放送 " + _toDisplayString(item.release_date), 1))
                     : _createCommentVNode("", true),
                   (item.reason)
                     ? (_openBlock(), _createElementBlock("div", {
                         key: 1,
                         class: "sc-card-reason",
                         title: item.reason
-                      }, _toDisplayString(item.reason), 9, _hoisted_31))
+                      }, _toDisplayString(item.reason), 9, _hoisted_30))
                     : _createCommentVNode("", true)
                 ])
               ]))
             }), 128))
           ])),
       (history.value.total > history.value.count)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_32, [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_31, [
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
@@ -535,7 +551,7 @@ return (_ctx, _cache) => {
               ]))]),
               _: 1
             }, 8, ["disabled"]),
-            _createElementVNode("span", _hoisted_33, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
+            _createElementVNode("span", _hoisted_32, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
@@ -550,11 +566,11 @@ return (_ctx, _cache) => {
           ]))
         : _createCommentVNode("", true)
     ])
-  ]))
+  ], 2))
 }
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a880aeea"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f36ad8eb"]]);
 
 export { Page as default };

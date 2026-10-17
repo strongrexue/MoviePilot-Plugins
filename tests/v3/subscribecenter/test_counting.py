@@ -305,3 +305,23 @@ def test_history_item_whitelist_includes_poster():
 
     item = module._history_item({"decision": "added", "poster": "/x.jpg", "title": "T"})
     assert item["poster"] == "/x.jpg"
+
+
+def test_poster_full_url_is_normalized_to_path():
+    """完整 TMDB 图片 URL 必须归一化成路径。
+
+    真机：宿主识别返回的 poster_path 有时是
+    ``https://image.tmdb.org/t/p/original/xxx.jpg``。存成完整 URL 后，
+    前端直接当 src 用 → 浏览器直连 image.tmdb.org（国内不可达）
+    → 表现为「只有少数卡片有图」，正好是那些拿到纯路径的条目。
+    """
+    from subscribecenter.core.host import _poster_path
+
+    assert _poster_path("https://image.tmdb.org/t/p/original/abc.jpg") == "/abc.jpg"
+    assert _poster_path("https://image.tmdb.org/t/p/w500/abc.jpg") == "/abc.jpg"
+    assert _poster_path("/abc.jpg") == "/abc.jpg"
+    assert _poster_path("  /abc.jpg  ") == "/abc.jpg"
+    assert _poster_path("") is None
+    assert _poster_path(None) is None
+    # 非 TMDB 的地址一律当无效，避免被用作任意 URL 代理
+    assert _poster_path("https://evil.example.com/x.jpg") is None

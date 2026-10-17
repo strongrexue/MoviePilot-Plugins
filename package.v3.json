@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "0.9.6",
+        "version": "0.9.7",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v0.9.7": "设置页放大 + 通知精简 + 流水按作品去重 + 运行详情补上次摘要（0.9.7）。[1] 设置页太小：参考本仓库 tgmediacenter 与 embycovercenter 的成熟写法，根容器改为 width:min(1120px,100vw-48px) / height:min(860px,100dvh-48px)，主体 flex:1 + min-height:0、右内容与左导航各自 overflow-y:auto、吸底栏 flex:0 0 auto（不再 sticky）—— 既占满视口又在内部滚动，切分区不跳动。[2] 通知精简：只保留一行结论（真跑报「新增 N 条」、dry-run/预览报「会订 N 条（未写入）」），去掉拉取/源内去重/跳过/待确认；失败源与触达上限仍会追加。[3] 流水去重：_append_history 改为按 media_source:media_id（无身份时 source:标题:年份）就地替换，同一部作品只保留最新状态 —— 真机反馈「每次运行都重复记一遍，好多重复条目」。[4] 运行详情：状态卡新增「上次运行」摘要行（拉取/新增/跳过/待确认/源内去重），流水数量文案从「条」改为「部作品」并注明每部只显示最新状态。",
             "v0.9.6": "修复配置页丢失三个开关（0.9.6）。用户反馈「通知怎么没了？之前是有开关？」—— 查证是我 0.9.0 重做版面时写成 switchRows.slice(0, 1)，只渲染了数组第一项（enabled，而它已经在顶部栏的启用开关里），导致「在发现分区显示入口」「dry-run」「发送运行摘要通知」三个开关在界面上完全消失。现改为 switchRows.filter((item) => item.key !== 'enabled') 逐项渲染；顺带让通知开关不受「插件未启用」的联动禁用（否则用户会以为它坏了）。另加 2 项回归测试：Config.vue 不得再出现 switchRows.slice(0, 1)、switchRows 必须包含这三个键、通知开关必须带 row.key !== 'notify' 的豁免。",
             "v0.9.5": "修正运行计数口径（0.9.5）。用户困惑：预览界面显示「会订 215 条」，通知却是「会订 0 / 拉取 371 / 跳过 341 / 待确认 18」，而 341+18=359 又对不上 371。查出的三处口径错误：[1] 预览的「会订」把**全部** writer 产出都算了进去（含 skipped_already_subscribed / skipped_finished / pending_review）—— 真机那 215 条里实际 0 条会写（79 条已订阅、118 条已播完、18 条待确认）；现在只统计 added / skipped_dry_run。[2] WriteReport.skipped 包含了 pending_review，导致「跳过 + 待确认」重复计数；现改为互斥，并新增 RunSummary.pending_count() 把预过滤阶段的待确认一并算入。[3] 源内去重丢弃的条目完全没记账（371 与 359 差的 12～30 条既不在跳过也不在待确认），新增 RunSummary.deduped_out 并在流水阶段记录，通知里显示「源内去重 N 条」。现在总数闭合：拉取 = 源内去重 + 新增 + 跳过 + 待确认。真机那次的真实解释是：16:04 先真跑新增 79 条，16:22 再预览时那 79 条已存在 → 全部记为已订阅 → 会订 0，预览与真跑数字不同属于正常。新增 5 项口径不变式测试。",
             "v0.9.4": "修配置页高度跳动（0.9.4）。前两版都没做对，这次找到真正的根因：0.9.3 的 CSS 补丁打在了错误位置 —— .sc-content 上根本没有 max-height 与 overflow-y，内容是自然撑高的，所以切分区必然高度跳动；0.9.2 用 vh + overflow:hidden 又让滚动条跑到宿主容器可视区之外。最终方案：右侧内容区固定 height:480px 并 overflow-y:auto（用固定 px 而不用 vh，因为宿主把配置页渲染在高度不可控的容器里），左侧导航随 align-items:stretch 自动等高、视觉齐平；窄屏（<720px）取消固定高度。整体高度 = 顶部栏 + 480 + 吸底栏 ≈ 610px，切任何分区都不再跳动。",

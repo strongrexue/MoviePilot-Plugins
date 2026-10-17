@@ -130,7 +130,10 @@ function prevPage() {
 }
 
 function nextPage() {
-  const total = Number(history.value.total) || 0
+  /** 上次运行的详细数字（通知里只报新增，细节放这里看）。 */
+const lastSummary = computed(() => status.value?.last_summary || null)
+
+const total = Number(history.value.total) || 0
   const count = Number(history.value.count) || 20
   if (history.value.page * count >= total) return
   history.value.page += 1
@@ -192,6 +195,18 @@ onUnmounted(() => {
             <div class="sc-kv"><span>时区</span><b>{{ status.timezone }}</b></div>
             <div class="sc-kv"><span>最近运行</span><b>{{ status.last_run || '—' }}</b></div>
             <div class="sc-kv"><span>映射缓存</span><b>{{ status.mapping_cache_size }} 条</b></div>
+            <div v-if="lastSummary" class="sc-kv">
+              <span>上次运行</span>
+              <b class="sc-summary-line">
+                拉取 {{ lastSummary.fetched ?? 0 }}
+                · 新增 {{ lastSummary.added ?? 0 }}
+                · 跳过 {{ lastSummary.skipped ?? 0 }}
+                · 待确认 {{ lastSummary.pending_review ?? 0 }}
+                <span v-if="lastSummary.deduped_out" class="sc-hint">
+                  （源内去重 {{ lastSummary.deduped_out }}）
+                </span>
+              </b>
+            </div>
             <div class="sc-kv">
               <span>当前任务</span>
               <VChip size="x-small" :color="status.busy ? 'warning' : 'default'" variant="flat">
@@ -255,7 +270,8 @@ onUnmounted(() => {
           style="max-width: 180px"
           @update:model-value="history.page = 1; loadHistory()"
         />
-        <VChip size="x-small" variant="tonal">共 {{ history.total }} 条</VChip>
+        <VChip size="x-small" variant="tonal">共 {{ history.total }} 部作品</VChip>
+          <VChip size="x-small" variant="text">每部只显示最新状态</VChip>
       </VCardTitle>
       <VCardText>
         <div v-if="!history.items.length" class="sc-hint">
@@ -277,7 +293,7 @@ onUnmounted(() => {
       </VCardText>
       <VCardActions v-if="history.total > history.count" class="justify-center">
         <VBtn size="small" variant="text" :disabled="history.page <= 1" @click="prevPage">上一页</VBtn>
-        <span class="sc-hint mx-2">第 {{ history.page }} 页 · 共 {{ history.total }} 条</span>
+        <span class="sc-hint mx-2">第 {{ history.page }} 页 · 共 {{ history.total }} 部作品</span>
         <VBtn
           size="small"
           variant="text"

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-BA0XsRTC.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-q50-IyqC.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -696,7 +696,7 @@ return (_ctx, _cache) => {
                   disabled: !form.value.enable_douban_rss,
                   placeholder: "http://<RSSHub>:1200/douban/movie/coming"
                 }, null, 8, ["modelValue", "disabled"]),
-                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-2d189faa><b data-v-2d189faa>电影上映类</b>（<code data-v-2d189faa>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-2d189faa><b data-v-2d189faa>剧集类</b>（<code data-v-2d189faa>/douban/tv/coming</code>、<code data-v-2d189faa>/douban/list/tv_*</code>、 <code data-v-2d189faa>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-2d189faa><b data-v-2d189faa>电影榜单类</b>没有日期，会被跳过。<code data-v-2d189faa>ustop250</code> 与 <code data-v-2d189faa>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-a89131d9><b data-v-a89131d9>电影上映类</b>（<code data-v-a89131d9>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-a89131d9><b data-v-a89131d9>剧集类</b>（<code data-v-a89131d9>/douban/tv/coming</code>、<code data-v-a89131d9>/douban/list/tv_*</code>、 <code data-v-a89131d9>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-a89131d9><b data-v-a89131d9>电影榜单类</b>没有日期，会被跳过。<code data-v-a89131d9>ustop250</code> 与 <code data-v-a89131d9>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
               ])
             ], 64))
           : _createCommentVNode("", true),
@@ -1290,6 +1290,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2d189faa"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a89131d9"]]);
 
 export { Config as default };

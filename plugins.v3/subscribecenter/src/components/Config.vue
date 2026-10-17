@@ -897,11 +897,17 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 根容器：占满可用空间。
+   参考本仓库 tgmediacenter 的成熟写法 —— 顶部栏 + 主体(flex:1) + 吸底栏，
+   主体 min-height:0 后内部滚动，既不会跳动也不会把滚动条顶出可视区。 */
 .sc-root {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 2px 2px 0;
+  width: min(1120px, calc(100vw - 48px));
+  height: min(860px, calc(100dvh - 48px));
+  padding: 16px;
+  box-sizing: border-box;
   font-size: 13px;
 }
 
@@ -952,16 +958,20 @@ onMounted(() => {
 /* 主体：不设固定高度（宿主容器高度不可控，固定高度会让滚动条落到可视区外），
    改为右侧内容给 max-height，超出才内部滚动；左侧导航跟随滚动。 */
 .sc-body {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   gap: 12px;
   align-items: stretch;
 }
 .sc-nav {
-  flex: 0 0 148px;
+  flex: 0 0 160px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
+  min-height: 0;
+  overflow-y: auto;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
 }
@@ -1004,10 +1014,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* 固定高度：切换分区时整体高度不跳动。
-     用固定 px 而不是 vh —— 宿主把配置页渲染在高度不可控的容器里，
-     vh 会算出超出可视区的高度，反而让滚动条跑到看不见的地方。 */
-  height: 480px;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-width: thin;
@@ -1157,8 +1164,7 @@ onMounted(() => {
 
 /* 吸底操作栏 */
 .sc-footer {
-  position: sticky;
-  bottom: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1178,6 +1184,11 @@ onMounted(() => {
 
 /* 窄屏：导航变成横向条 */
 @media (max-width: 720px) {
+  .sc-root {
+    width: calc(100vw - 24px);
+    height: auto;
+    max-height: none;
+  }
   .sc-body {
     flex-direction: column;
   }

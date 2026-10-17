@@ -224,3 +224,53 @@ def test_notify_switch_is_not_disabled_when_plugin_disabled():
         pytest.skip("前端尚未构建")
     text = source.read_text(encoding="utf-8")
     assert "row.key !== 'notify'" in text
+
+
+# --------------------------------------------------------------------- 流水去重
+
+def test_history_keeps_one_record_per_title():
+    """同一部作品在流水里只保留最新一条。
+
+    真机反馈：每次运行都把同一批作品再记一遍，「发现流水」里同一部剧按运行次数
+    重复出现，根本看不出它现在是什么状态。
+    """
+    from subscribecenter.core.constants import (
+        DECISION_ADDED,
+        DECISION_SKIPPED_ALREADY_SUBSCRIBED,
+    )
+    from subscribecenter.core.writer import WriteOutcome
+
+    records = []
+
+    def append(outcomes, run_at):
+        index = {}
+
+        def key(r):
+            ms = str(r.get("media_source") or "")
+            mi = str(r.get("media_id") or "")
+            if ms and mi:
+                return f"{ms}:{mi}"
+            return "{}:{}:{}".format(r.get("source") or "", r.get("title") or "", r.get("year") or "")
+
+        for position, record in enumerate(records):
+            index[key(record)] = position
+        for outcome in outcomes:
+            record = outcome.to_dict()
+            record["run_at"] = run_at
+            existing = index.get(key(record))
+            if existing is not None:
+                records[existing] = record
+            else:
+                index[key(record)] = len(records)
+                records.append(record)
+
+    same = item(1, title="同一部剧", resolved=ResolvedIdentity("themoviedb", "999"))
+    append([WriteOutcome(item=same, decision=DECISION_ADDED, success=True, reason="")], "r1")
+    append(
+        [WriteOutcome(item=same, decision=DECISION_SKIPPED_ALREADY_SUBSCRIBED, reason="")],
+        "r2",
+    )
+
+    assert len(records) == 1, "同一部作品应该只留一条"
+    assert records[0]["run_at"] == "r2", "应保留最新状态"
+    assert records[0]["decision"] == DECISION_SKIPPED_ALREADY_SUBSCRIBED

@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.9.6"
+    plugin_version = "0.9.7"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -608,9 +608,12 @@ class SubscribeCenter(_PluginBase):
         """发送运行摘要通知。
 
         .. important::
-           dry-run / 预览时**不能报「新增 0 条」** —— 那会让人以为插件什么都没找到。
-           真机踩过：预览显示「新增 0 / 跳过 341」，实际那 341 条里本来有 79 条可订，
-           只是被 dry-run 拦下记成了「跳过」。这里改报「会订 N 条（未写入）」。
+           通知**只报一条结论**：真跑报「新增 N 条」、dry-run / 预览报
+           「会订 N 条（未写入）」。
+
+           历史：早期版本把「拉取/跳过/待确认」都塞进通知，既冗长又容易误读
+           （预览报「新增 0」让人以为没找到东西）。详细数字留在「运行状态」
+           页面里看，通知只负责「有没有新增」。
         """
         data = summary.to_summary()
         dry = bool(summary.dry_run)
@@ -625,21 +628,9 @@ class SubscribeCenter(_PluginBase):
 
         if dry:
             label = "预览" if is_preview else "dry-run"
-            lines = [
-                f"{label}：会订 {would_add} 条（未写入）",
-                f"拉取：{data.get('fetched', 0)} 条",
-                f"源内去重：{data.get('deduped_out', 0)} 条",
-                f"跳过：{data.get('skipped', 0)} 条",
-                f"待确认：{data.get('pending_review', 0)} 条",
-            ]
+            lines = [f"{label}：会订 {would_add} 条（未写入）"]
         else:
-            lines = [
-                f"新增：{data.get('added', 0)} 条",
-                f"拉取：{data.get('fetched', 0)} 条",
-                f"源内去重：{data.get('deduped_out', 0)} 条",
-                f"跳过：{data.get('skipped', 0)} 条",
-                f"待确认：{data.get('pending_review', 0)} 条",
-            ]
+            lines = [f"新增：{data.get('added', 0)} 条"]
 
         if data.get("failed_sources"):
             lines.append(f"失败源：{', '.join(data['failed_sources'])}")
@@ -756,12 +747,44 @@ class SubscribeCenter(_PluginBase):
         return list(value) if isinstance(value, list) else []
 
     def _append_history(self, outcomes: List[WriteOutcome], *, run_at: str) -> None:
-        """追加流水并截断到上限。"""
+        """写入流水：**同一部作品只保留最新一条**，再截断到上限。
+
+        真机反馈：每次运行都把同一批作品再记一遍，页面上「发现流水」全是重复条目
+        （同一部剧按运行次数出现 N 次），根本看不清这部剧现在是什么状态。
+
+        去重键：`media_source:media_id`（有确定性身份时）；没有身份时退回
+        `source:标题:年份`。命中已有记录就**替换**成最新状态（并把时间更新为
+        本次运行），而不是追加 —— 于是列表里每部作品只会出现一次。
+        """
         records = self._history()
+
+        def _key(record: Dict[str, Any]) -> str:
+            media_source = str(record.get("media_source") or "")
+            media_id = str(record.get("media_id") or "")
+            if media_source and media_id:
+                return f"{media_source}:{media_id}"
+            return "{}:{}:{}".format(
+                record.get("source") or "",
+                record.get("title") or "",
+                record.get("year") or "",
+            )
+
+        index: Dict[str, int] = {}
+        for position, record in enumerate(records):
+            index[_key(record)] = position
+
         for outcome in outcomes:
             record = outcome.to_dict()
             record["run_at"] = run_at
-            records.append(record)
+            key = _key(record)
+            existing = index.get(key)
+            if existing is not None:
+                # 就地替换：保留「最新状态」，避免同一作品堆成多行
+                records[existing] = record
+            else:
+                index[key] = len(records)
+                records.append(record)
+
         if len(records) > MAX_HISTORY:
             records = records[-MAX_HISTORY:]
         self.save_data(DATA_KEY_HISTORY, records)

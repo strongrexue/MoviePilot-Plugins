@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-BA0XsRTC.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-q50-IyqC.js';
 
-const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
+const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createElementBlock:_createElementBlock,renderList:_renderList,Fragment:_Fragment} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "sc-root" };
@@ -13,33 +13,42 @@ const _hoisted_6 = { class: "sc-kv" };
 const _hoisted_7 = { class: "sc-kv" };
 const _hoisted_8 = { class: "sc-kv" };
 const _hoisted_9 = { class: "sc-kv" };
-const _hoisted_10 = { class: "sc-kv" };
-const _hoisted_11 = { class: "d-flex align-center ga-2 flex-wrap" };
-const _hoisted_12 = { class: "sc-hint" };
-const _hoisted_13 = {
+const _hoisted_10 = {
+  key: 0,
+  class: "sc-kv"
+};
+const _hoisted_11 = { class: "sc-summary-line" };
+const _hoisted_12 = {
+  key: 0,
+  class: "sc-hint"
+};
+const _hoisted_13 = { class: "sc-kv" };
+const _hoisted_14 = { class: "d-flex align-center ga-2 flex-wrap" };
+const _hoisted_15 = { class: "sc-hint" };
+const _hoisted_16 = {
   key: 0,
   class: "sc-error"
 };
-const _hoisted_14 = { class: "d-flex flex-wrap ga-2 my-3" };
-const _hoisted_15 = {
+const _hoisted_17 = { class: "d-flex flex-wrap ga-2 my-3" };
+const _hoisted_18 = {
   key: 0,
   class: "sc-hint"
 };
-const _hoisted_16 = { class: "d-flex align-center flex-wrap ga-2" };
-const _hoisted_17 = {
-  key: 0,
-  class: "sc-hint"
-};
-const _hoisted_18 = { class: "sc-hint" };
-const _hoisted_19 = {
-  key: 2,
-  class: "sc-hint"
-};
+const _hoisted_19 = { class: "d-flex align-center flex-wrap ga-2" };
 const _hoisted_20 = {
   key: 0,
   class: "sc-hint"
 };
-const _hoisted_21 = { class: "sc-hint mx-2" };
+const _hoisted_21 = { class: "sc-hint" };
+const _hoisted_22 = {
+  key: 2,
+  class: "sc-hint"
+};
+const _hoisted_23 = {
+  key: 0,
+  class: "sc-hint"
+};
+const _hoisted_24 = { class: "sc-hint mx-2" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -177,7 +186,10 @@ function prevPage() {
 }
 
 function nextPage() {
-  const total = Number(history.value.total) || 0;
+  /** 上次运行的详细数字（通知里只报新增，细节放这里看）。 */
+computed(() => status.value?.last_summary || null);
+
+const total = Number(history.value.total) || 0;
   const count = Number(history.value.count) || 20;
   if (history.value.page * count >= total) return
   history.value.page += 1;
@@ -290,8 +302,19 @@ return (_ctx, _cache) => {
                           _cache[13] || (_cache[13] = _createElementVNode("span", null, "映射缓存", -1)),
                           _createElementVNode("b", null, _toDisplayString(status.value.mapping_cache_size) + " 条", 1)
                         ]),
-                        _createElementVNode("div", _hoisted_10, [
-                          _cache[14] || (_cache[14] = _createElementVNode("span", null, "当前任务", -1)),
+                        (_ctx.lastSummary)
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_10, [
+                              _cache[14] || (_cache[14] = _createElementVNode("span", null, "上次运行", -1)),
+                              _createElementVNode("b", _hoisted_11, [
+                                _createTextVNode(" 拉取 " + _toDisplayString(_ctx.lastSummary.fetched ?? 0) + " · 新增 " + _toDisplayString(_ctx.lastSummary.added ?? 0) + " · 跳过 " + _toDisplayString(_ctx.lastSummary.skipped ?? 0) + " · 待确认 " + _toDisplayString(_ctx.lastSummary.pending_review ?? 0) + " ", 1),
+                                (_ctx.lastSummary.deduped_out)
+                                  ? (_openBlock(), _createElementBlock("span", _hoisted_12, " （源内去重 " + _toDisplayString(_ctx.lastSummary.deduped_out) + "） ", 1))
+                                  : _createCommentVNode("", true)
+                              ])
+                            ]))
+                          : _createCommentVNode("", true),
+                        _createElementVNode("div", _hoisted_13, [
+                          _cache[15] || (_cache[15] = _createElementVNode("span", null, "当前任务", -1)),
                           _createVNode(_component_VChip, {
                             size: "x-small",
                             color: status.value.busy ? 'warning' : 'default',
@@ -310,7 +333,7 @@ return (_ctx, _cache) => {
                       key: 1,
                       class: "sc-hint"
                     }, {
-                      default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+                      default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
                         _createTextVNode("状态加载中…", -1)
                       ]))]),
                       _: 1
@@ -332,7 +355,7 @@ return (_ctx, _cache) => {
             }, {
               default: _withCtx(() => [
                 _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-                  default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+                  default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
                     _createTextVNode("数据源", -1)
                   ]))]),
                   _: 1
@@ -344,7 +367,7 @@ return (_ctx, _cache) => {
                         key: s.source,
                         class: "sc-source"
                       }, [
-                        _createElementVNode("div", _hoisted_11, [
+                        _createElementVNode("div", _hoisted_14, [
                           _createElementVNode("b", null, _toDisplayString(s.source), 1),
                           _createVNode(_component_VChip, {
                             size: "x-small",
@@ -363,16 +386,16 @@ return (_ctx, _cache) => {
                                 variant: "flat",
                                 color: "warning"
                               }, {
-                                default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+                                default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
                                   _createTextVNode(" 当前版本未实现 ", -1)
                                 ]))]),
                                 _: 1
                               }))
                             : _createCommentVNode("", true),
-                          _createElementVNode("span", _hoisted_12, "最近 " + _toDisplayString(s.last_count) + " 条 · " + _toDisplayString(s.last_run || '从未运行'), 1)
+                          _createElementVNode("span", _hoisted_15, "最近 " + _toDisplayString(s.last_count) + " 条 · " + _toDisplayString(s.last_run || '从未运行'), 1)
                         ]),
                         (s.last_error)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_13, "失败：" + _toDisplayString(s.last_error), 1))
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_16, "失败：" + _toDisplayString(s.last_error), 1))
                           : _createCommentVNode("", true)
                       ]))
                     }), 128))
@@ -388,7 +411,7 @@ return (_ctx, _cache) => {
       ]),
       _: 1
     }),
-    _createElementVNode("div", _hoisted_14, [
+    _createElementVNode("div", _hoisted_17, [
       _createVNode(_component_VBtn, {
         color: "primary",
         size: "small",
@@ -396,7 +419,7 @@ return (_ctx, _cache) => {
         loading: busy.value === 'run',
         onClick: runOnce
       }, {
-        default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
+        default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
           _createTextVNode(" 立即运行一次 ", -1)
         ]))]),
         _: 1
@@ -408,7 +431,7 @@ return (_ctx, _cache) => {
         loading: loading.value,
         onClick: refreshAll
       }, {
-        default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+        default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
           _createTextVNode(" 刷新 ", -1)
         ]))]),
         _: 1
@@ -419,7 +442,7 @@ return (_ctx, _cache) => {
         "prepend-icon": "mdi-cog",
         onClick: _cache[1] || (_cache[1] = $event => (emit('switch')))
       }, {
-        default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+        default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
           _createTextVNode("设置", -1)
         ]))]),
         _: 1
@@ -432,7 +455,7 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-close",
             onClick: _cache[2] || (_cache[2] = $event => (emit('close')))
           }, {
-            default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+            default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
               _createTextVNode(" 关闭 ", -1)
             ]))]),
             _: 1
@@ -443,7 +466,7 @@ return (_ctx, _cache) => {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "d-flex align-center flex-wrap ga-2 text-subtitle-1" }, {
           default: _withCtx(() => [
-            _cache[22] || (_cache[22] = _createElementVNode("span", null, "发现流水", -1)),
+            _cache[24] || (_cache[24] = _createElementVNode("span", null, "发现流水", -1)),
             _createVNode(_component_VSelect, {
               modelValue: filter.value,
               "onUpdate:modelValue": [
@@ -460,8 +483,17 @@ return (_ctx, _cache) => {
               variant: "tonal"
             }, {
               default: _withCtx(() => [
-                _createTextVNode("共 " + _toDisplayString(history.value.total) + " 条", 1)
+                _createTextVNode("共 " + _toDisplayString(history.value.total) + " 部作品", 1)
               ]),
+              _: 1
+            }),
+            _createVNode(_component_VChip, {
+              size: "x-small",
+              variant: "text"
+            }, {
+              default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                _createTextVNode("每部只显示最新状态", -1)
+              ]))]),
               _: 1
             })
           ]),
@@ -470,14 +502,14 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCardText, null, {
           default: _withCtx(() => [
             (!history.value.items.length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_15, " 还没有流水。插件启用后点「立即运行一次」即可看到发现结果。 "))
+              ? (_openBlock(), _createElementBlock("div", _hoisted_18, " 还没有流水。插件启用后点「立即运行一次」即可看到发现结果。 "))
               : _createCommentVNode("", true),
             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value.items, (item, index) => {
               return (_openBlock(), _createElementBlock("div", {
                 key: index,
                 class: "sc-row"
               }, [
-                _createElementVNode("div", _hoisted_16, [
+                _createElementVNode("div", _hoisted_19, [
                   _createVNode(_component_VChip, {
                     size: "x-small",
                     variant: "flat",
@@ -490,9 +522,9 @@ return (_ctx, _cache) => {
                   }, 1032, ["color"]),
                   _createElementVNode("b", null, _toDisplayString(item.title), 1),
                   (item.year)
-                    ? (_openBlock(), _createElementBlock("span", _hoisted_17, "(" + _toDisplayString(item.year) + ")", 1))
+                    ? (_openBlock(), _createElementBlock("span", _hoisted_20, "(" + _toDisplayString(item.year) + ")", 1))
                     : _createCommentVNode("", true),
-                  _createElementVNode("span", _hoisted_18, _toDisplayString(item.source), 1),
+                  _createElementVNode("span", _hoisted_21, _toDisplayString(item.source), 1),
                   (item.confidence)
                     ? (_openBlock(), _createBlock(_component_VChip, {
                         key: 1,
@@ -506,11 +538,11 @@ return (_ctx, _cache) => {
                       }, 1024))
                     : _createCommentVNode("", true),
                   (item.release_date)
-                    ? (_openBlock(), _createElementBlock("span", _hoisted_19, "放送 " + _toDisplayString(item.release_date), 1))
+                    ? (_openBlock(), _createElementBlock("span", _hoisted_22, "放送 " + _toDisplayString(item.release_date), 1))
                     : _createCommentVNode("", true)
                 ]),
                 (item.reason)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_20, _toDisplayString(item.reason), 1))
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_23, _toDisplayString(item.reason), 1))
                   : _createCommentVNode("", true)
               ]))
             }), 128))
@@ -529,19 +561,19 @@ return (_ctx, _cache) => {
                   disabled: history.value.page <= 1,
                   onClick: prevPage
                 }, {
-                  default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                  default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
                     _createTextVNode("上一页", -1)
                   ]))]),
                   _: 1
                 }, 8, ["disabled"]),
-                _createElementVNode("span", _hoisted_21, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 条", 1),
+                _createElementVNode("span", _hoisted_24, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
                 _createVNode(_component_VBtn, {
                   size: "small",
                   variant: "text",
                   disabled: history.value.page * history.value.count >= history.value.total,
                   onClick: nextPage
                 }, {
-                  default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
+                  default: _withCtx(() => [...(_cache[26] || (_cache[26] = [
                     _createTextVNode(" 下一页 ", -1)
                   ]))]),
                   _: 1
@@ -558,6 +590,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2d19a99b"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e974a960"]]);
 
 export { Page as default };

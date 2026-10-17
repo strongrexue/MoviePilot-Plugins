@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.8.0"
+PLUGIN_VERSION = "0.8.1"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -67,6 +67,8 @@ DECISION_SKIPPED_SPECIAL = "skipped_special"
 DECISION_SKIPPED_FINISHED = "skipped_finished"
 #: 来源没有定档日期，且是电影 —— 无从判断是否即将上映
 DECISION_SKIPPED_NO_DATE = "skipped_no_date"
+#: 豆瓣想看人数不足
+DECISION_SKIPPED_WANT = "skipped_want"
 DECISION_SKIPPED_SOURCE_DISABLED = "skipped_source_disabled"
 
 #: 身份解析级别
@@ -151,6 +153,17 @@ def default_config() -> Dict[str, Any]:
         #: 每个榜单最多取前 N 条（榜单按名次排列，取前 N 即取最热的）。
         #: 实测 /douban/list/tv_hot 有 241 条，不限量会把额度全吃掉。
         "douban_max_items_per_feed": 10,
+        #: 豆瓣的发现窗口（天）—— **独立于 TMDB**。
+        #:
+        #: 豆瓣「即将上映」是按档期排的策展列表，可以比 TMDB 宽一些；
+        #: 而榜单类路线本身没有日期，窗口对它不起作用。
+        "douban_future_days": DEFAULT_FUTURE_DAYS,
+        #: 豆瓣「想看人数」门槛（0 = 不过滤）。
+        #:
+        #: 只有 coming 类路线带想看数（如「想看：27357」），榜单类没有。
+        #: 缺失时放行（按接入契约，缺失值不拦）。量纲是「人数」，
+        #: 与 TMDB popularity 无关，因此单独设一个门槛。
+        "douban_min_want": 0,
         # ---------------- Simkl
         "simkl_client_id": "",
         # ---------------- 写入

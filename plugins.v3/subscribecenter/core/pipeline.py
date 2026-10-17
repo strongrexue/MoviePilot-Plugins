@@ -20,6 +20,7 @@ from .constants import (
     DECISION_SKIPPED_OUT_OF_WINDOW,
     DECISION_SKIPPED_POPULARITY,
     DECISION_SKIPPED_RATING,
+    DECISION_SKIPPED_WANT,
 )
 from .identity import IdentityResolver
 from .model import DiscoveredItem, item_sort_key
@@ -249,6 +250,7 @@ def select_items(
     future_days: int,
     min_rating: float,
     min_popularity: float = 0.0,
+    min_want: float = 0.0,
     tz_name: Optional[str] = None,
     now: Any = None,
     future_days_by_source: Optional[Dict[str, int]] = None,
@@ -295,6 +297,21 @@ def select_items(
                 )
             )
             continue
+        if min_want > 0:
+            # 豆瓣「想看人数」：量纲是人数（动辄上万），与 TMDB popularity 无关，
+            # 所以单独设门槛。缺失时放行 —— 榜单类路线没有这个数据，
+            # 若按「缺失即拦」处理会让整个榜单源失效。
+            want = item.raw.get("want") if isinstance(item.raw, dict) else None
+            if want is not None and float(want) < min_want:
+                rejected.append(
+                    WriteOutcome(
+                        item=item,
+                        decision=DECISION_SKIPPED_WANT,
+                        reason=f"豆瓣想看 {want} < {min_want:.0f}（冷门，避免占用写入额度）",
+                    )
+                )
+                continue
+
         if min_popularity > 0 and not filter_by_popularity(item, min_popularity):
             rejected.append(
                 WriteOutcome(
@@ -376,6 +393,7 @@ async def run_pipeline(
     future_days: int,
     min_rating: float,
     min_popularity: float = 0.0,
+    min_want: float = 0.0,
     dry_run: bool,
     first_run: bool,
     already_written_today: int = 0,
@@ -421,6 +439,7 @@ async def run_pipeline(
         future_days=future_days,
         min_rating=min_rating,
         min_popularity=min_popularity,
+        min_want=min_want,
         future_days_by_source=future_days_by_source,
         min_rating_by_source=min_rating_by_source,
         tz_name=tz_name,

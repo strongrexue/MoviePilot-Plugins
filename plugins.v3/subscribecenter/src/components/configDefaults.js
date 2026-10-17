@@ -30,6 +30,8 @@ export const configDefaults = {
   // ---------------- 豆瓣 RSS 源列表
   douban_rss_sources: [],
   douban_max_items_per_feed: 10,
+  douban_future_days: 3,
+  douban_min_want: 0,
   // ---------------- Simkl
   simkl_client_id: '',
   // ---------------- 写入

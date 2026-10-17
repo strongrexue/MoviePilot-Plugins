@@ -43,6 +43,7 @@ const DECISION_LABELS = {
   skipped_special: '特别篇',
   skipped_finished: '已播完',
   skipped_no_date: '无日期',
+  skipped_want: '想看不足',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
   skipped_out_of_window: '超出窗口',
@@ -418,6 +419,40 @@ onMounted(() => {
           class="mb-2"
           :disabled="!form.enable_douban_rss"
         />
+        <VRow dense class="mt-1">
+          <VCol cols="12" sm="6">
+            <VTextField
+              v-model.number="form.douban_future_days"
+              label="豆瓣发现窗口（天）"
+              type="number"
+              min="1"
+              max="90"
+              density="compact"
+              hide-details
+              class="mb-2"
+              :disabled="!form.enable_douban_rss"
+            />
+          </VCol>
+          <VCol cols="12" sm="6">
+            <VTextField
+              v-model.number="form.douban_min_want"
+              label="豆瓣最低想看人数（0=不限）"
+              type="number"
+              min="0"
+              step="100"
+              density="compact"
+              hide-details
+              class="mb-2"
+              :disabled="!form.enable_douban_rss"
+            />
+          </VCol>
+        </VRow>
+        <div class="sc-hint mb-3">
+          <b>豆瓣是独立配置</b>：窗口独立于 TMDB（豆瓣「即将上映」是策展列表，可以放宽些）。
+          想看人数只有 coming 类路线提供（如「想看：27357」），榜单类没有该数据 ——
+          缺失时不拦。设 0 表示不按想看过滤。
+        </div>
+
         <div class="sc-hint mb-3">
           填 RSSHub 的豆瓣路线，每行一个（如
           <code>http://192.168.50.134:1200/douban/movie/coming</code>）。<br />

@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.8.0"
+    plugin_version = "0.8.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -404,6 +404,8 @@ class SubscribeCenter(_PluginBase):
             future_days=self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS),
             min_rating=self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING),
             min_popularity=self._float_config("min_popularity", C.DEFAULT_MIN_POPULARITY),
+            # 豆瓣「想看人数」门槛（独立于 TMDB popularity，量纲是人数）
+            min_want=self._float_config("douban_min_want", 0.0),
             # 窗口与评分门槛**按源独立**：TMDB 与 Bangumi 的配置项不同，
             # 共用一个值会把窗口更窄的源错误放行（真机踩过）。
             future_days_by_source=self._future_days_by_source(),
@@ -420,7 +422,7 @@ class SubscribeCenter(_PluginBase):
         return {
             C.SOURCE_TMDB: default_days,
             C.SOURCE_BANGUMI: self._int_config("bangumi_future_days", C.DEFAULT_FUTURE_DAYS),
-            C.SOURCE_DOUBAN_RSS: default_days,
+            C.SOURCE_DOUBAN_RSS: self._int_config("douban_future_days", C.DEFAULT_FUTURE_DAYS),
             C.SOURCE_SIMKL: default_days,
             C.SOURCE_JUSTWATCH: default_days,
         }

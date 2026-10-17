@@ -1,19 +1,19 @@
 
-.sc-root[data-v-4eb97a45] {
+.sc-root[data-v-1483841a] {
   padding: 4px;
 }
-.sc-hint[data-v-4eb97a45] {
+.sc-hint[data-v-1483841a] {
   font-size: 12px;
   line-height: 1.5;
   opacity: 0.7;
 }
-.sc-preview-row[data-v-4eb97a45] {
+.sc-preview-row[data-v-1483841a] {
   padding: 5px 0;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
-.sc-preview-row[data-v-4eb97a45]:last-child {
+.sc-preview-row[data-v-1483841a]:last-child {
   border-bottom: none;
 }
-.sc-warn[data-v-4eb97a45] {
+.sc-warn[data-v-1483841a] {
   color: rgb(var(--v-theme-warning));
 }

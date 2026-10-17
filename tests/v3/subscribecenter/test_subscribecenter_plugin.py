@@ -481,3 +481,19 @@ def test_history_page_reports_decision_counts(plugin):
     filtered = plugin.history_page(decision=C.DECISION_ADDED)
     assert filtered.total == 2
     assert filtered.counts.get(C.DECISION_PENDING_REVIEW) == 1
+
+
+def test_history_page_reports_source_counts(plugin):
+    """流水接口要返回各数据源条数（前端「按源」tab 用）。"""
+    plugin.save_data("run_history", [
+        {"decision": C.DECISION_ADDED, "source": "tmdb", "title": "A"},
+        {"decision": C.DECISION_ADDED, "source": "anilist", "title": "B"},
+        {"decision": C.DECISION_PENDING_REVIEW, "source": "anilist", "title": "C"},
+    ])
+    page = plugin.history_page()
+    assert page.source_counts.get("anilist") == 2
+    assert page.source_counts.get("tmdb") == 1
+    # 按源筛选后，source_counts 仍是全量口径（两个维度可以叠加使用）
+    filtered = plugin.history_page(source="anilist")
+    assert filtered.total == 2
+    assert filtered.source_counts.get("tmdb") == 1

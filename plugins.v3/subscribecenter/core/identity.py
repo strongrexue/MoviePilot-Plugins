@@ -417,6 +417,13 @@ def _continuation_floor(item: DiscoveredItem) -> Optional[int]:
     """
     if not is_continuation_title(item.title):
         return None
+    # **国漫豁免**：国漫长篇在 TMDB 通常是「单条目、首播年很早、按季/集推进」，
+    # 而 AniList 的条目年份是「该季年份」（2026）。真机：完美世界 第七季、
+    # 妖神记 第十季、万界独尊 第三季、逆天邪神 第2季 全部卡在这一层 ——
+    # 候选年份 2018~2021 被全部拒绝，直接退化成待确认。
+    # 国漫的正确性由季号裁决 + 「TMDB 还有没有未播集」把关，不需要年份下限。
+    if str((item.raw or {}).get("country") or "").upper() == "CN":
+        return None
     year = _year_of(item.year or item.release_date)
     try:
         return int(year) if year else None

@@ -310,3 +310,30 @@ async def test_poster_is_attached_from_host_index():
     await resolver.resolve(entity)
     assert entity.resolved is not None
     assert entity.raw.get("poster") == "/dune2.jpg"
+
+
+# ------------------------------------------------ 国漫续作豁免（1.2.3 真机）
+
+def test_donghua_is_exempt_from_continuation_year_floor():
+    """国漫续作不加年份下限。
+
+    真机：完美世界 第七季 / 妖神记 第十季 / 万界独尊 第三季 / 逆天邪神 第2季
+    全部是 L4 待确认 —— 国漫在 TMDB 是「单条目 + 首播年很早（2018~2021）」，
+    而 AniList 条目年份是该季年份（2026），续作年份闸门把候选全拒了。
+    国漫的正确性交给季号裁决 + 「TMDB 还有没有未播集」，不需要年份下限。
+    """
+    from subscribecenter.core.identity import _continuation_floor
+    from subscribecenter.core.model import DiscoveredItem
+
+    donghua = DiscoveredItem(
+        source=C.SOURCE_ANILIST, source_id="1", title="完美世界 第七季",
+        media_type="tv", year="2026", release_date="2026-10-20",
+        raw={"country": "CN"},
+    )
+    jp = DiscoveredItem(
+        source=C.SOURCE_ANILIST, source_id="2", title="某番 第2期",
+        media_type="tv", year="2026", release_date="2026-10-20",
+        raw={"country": "JP"},
+    )
+    assert _continuation_floor(donghua) is None, "国漫不应有年份下限"
+    assert _continuation_floor(jp) == 2026, "日番续作仍要年份下限"

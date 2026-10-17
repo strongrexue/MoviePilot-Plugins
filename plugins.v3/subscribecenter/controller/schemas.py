@@ -82,6 +82,8 @@ class HistoryPage(BaseModel):
     #: 各决策的条数（不受 decision 筛选影响，只受 source/keyword 影响）。
     #: 前端顶部 tab 直接用它显示「新增 24 / 待确认 30 …」，不必额外请求。
     counts: Dict[str, int] = Field(default_factory=dict, description="按决策的条数")
+    #: 各数据源条数（同样在筛选之前统计），供前端「按源」tab 使用
+    source_counts: Dict[str, int] = Field(default_factory=dict, description="按数据源的条数")
 
 
 # --------------------------------------------------------------------- 手动运行

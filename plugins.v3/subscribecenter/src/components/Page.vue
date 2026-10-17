@@ -23,6 +23,7 @@ const tip = ref({ show: false, ok: true, text: '' })
 const status = ref(null)
 const history = ref({ items: [], total: 0, page: 1, count: 20 })
 const filter = ref('')
+const sourceFilter = ref('')
 
 let refreshTimer = null
 
@@ -116,6 +117,7 @@ async function loadHistory() {
       count: String(history.value.count || 20),
     })
     if (filter.value) params.set('decision', filter.value)
+    if (sourceFilter.value) params.set('source', sourceFilter.value)
     history.value = unwrap(
       await getPluginApi(props.api, props.pluginId, `history?${params.toString()}`),
     )
@@ -181,6 +183,24 @@ const decisionTabs = computed(() => {
 function switchFilter(value) {
   if (filter.value === value) return
   filter.value = value
+  history.value.page = 1
+  loadHistory()
+}
+
+/** 「按源」tab：TMDB / AniList / 豆瓣，带条数。 */
+const sourceTabs = computed(() => {
+  const counts = history.value?.source_counts || {}
+  const labelOf = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣' }
+  return Object.entries(counts)
+    .filter(([, value]) => Number(value) > 0)
+    .map(([value, count]) => ({ value, count, label: labelOf[value] || value }))
+    .sort((a, b) => b.count - a.count)
+})
+
+/** 切换数据源筛选。 */
+function switchSource(value) {
+  if (sourceFilter.value === value) return
+  sourceFilter.value = value
   history.value.page = 1
   loadHistory()
 }
@@ -338,6 +358,27 @@ onUnmounted(() => {
       <div class="sc-card-head">
         <span class="sc-card-title">发现流水</span>
         <!-- 状态 tab：点一下即筛选，比下拉框少一步操作 -->
+        <div class="sc-tabs sc-tabs-source">
+          <span class="sc-tabs-label">数据源</span>
+          <button
+            type="button"
+            class="sc-tab"
+            :class="{ 'sc-tab-active': !sourceFilter }"
+            @click="switchSource('')"
+          >
+            全部
+          </button>
+          <button
+            v-for="tab in sourceTabs"
+            :key="tab.value"
+            type="button"
+            class="sc-tab"
+            :class="{ 'sc-tab-active': sourceFilter === tab.value }"
+            @click="switchSource(tab.value)"
+          >
+            {{ tab.label }} <span class="sc-tab-count">{{ tab.count }}</span>
+          </button>
+        </div>
         <div class="sc-tabs">
           <button
             type="button"
@@ -769,6 +810,15 @@ onUnmounted(() => {
   border-color: rgba(var(--v-theme-primary), 0.4);
   opacity: 1;
   font-weight: 600;
+}
+.sc-tabs-source {
+  margin-bottom: 4px;
+}
+.sc-tabs-label {
+  font-size: 11.5px;
+  opacity: 0.55;
+  align-self: center;
+  margin-right: 2px;
 }
 .sc-tab-count {
   font-size: 11px;

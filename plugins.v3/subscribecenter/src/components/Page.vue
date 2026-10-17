@@ -24,6 +24,7 @@ const status = ref(null)
 const history = ref({ items: [], total: 0, page: 1, count: 20 })
 const filter = ref('')
 const sourceFilter = ref('')
+const keyword = ref('')
 
 let refreshTimer = null
 
@@ -118,6 +119,7 @@ async function loadHistory() {
     })
     if (filter.value) params.set('decision', filter.value)
     if (sourceFilter.value) params.set('source', sourceFilter.value)
+    if (keyword.value.trim()) params.set('keyword', keyword.value.trim())
     history.value = unwrap(
       await getPluginApi(props.api, props.pluginId, `history?${params.toString()}`),
     )
@@ -198,6 +200,11 @@ const sourceTabs = computed(() => {
 })
 
 /** 切换数据源筛选。 */
+function searchKeyword() {
+  history.value.page = 1
+  loadHistory()
+}
+
 function switchSource(value) {
   if (sourceFilter.value === value) return
   sourceFilter.value = value
@@ -378,6 +385,23 @@ onUnmounted(() => {
           >
             {{ tab.label }} <span class="sc-tab-count">{{ tab.count }}</span>
           </button>
+        </div>
+        <div class="sc-search">
+          <VIcon icon="mdi-magnify" size="16" class="sc-dim" />
+          <input
+            v-model="keyword"
+            class="sc-search-input"
+            type="text"
+            placeholder="搜索片名 / 原因（回车）"
+            @keyup.enter="searchKeyword"
+          />
+          <VBtn
+            v-if="keyword"
+            size="x-small"
+            variant="text"
+            icon="mdi-close"
+            @click="keyword = ''; searchKeyword()"
+          />
         </div>
         <div class="sc-tabs">
           <button
@@ -810,6 +834,24 @@ onUnmounted(() => {
   border-color: rgba(var(--v-theme-primary), 0.4);
   opacity: 1;
   font-weight: 600;
+}
+.sc-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(var(--v-border-color), 0.18);
+  border-radius: 999px;
+  min-width: 190px;
+}
+.sc-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
 }
 .sc-tabs-source {
   margin-bottom: 4px;

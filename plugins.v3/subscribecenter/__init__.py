@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.2.9"
+    plugin_version = "1.3.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -725,14 +725,23 @@ class SubscribeCenter(_PluginBase):
     ) -> api_schemas.HistoryPage:
         """分页返回流水，支持按决策/来源/关键词筛选。"""
         records = list(reversed(self._history()))
-        # tab 的计数必须在**应用 decision 筛选之前**统计 ——
-        # 否则点进「新增」tab 后，其他 tab 的数量会全变 0。
-        counts = _decision_counts(records)
         source_counts = _source_counts(records)
-        if decision:
-            records = [r for r in records if r.get("decision") == decision]
         if source:
             records = [r for r in records if r.get("source") == source]
+        if keyword:
+            needle = str(keyword).strip().casefold()
+            records = [
+                r
+                for r in records
+                if needle in str(r.get("title") or "").casefold()
+                or needle in str(r.get("reason") or "").casefold()
+            ]
+        # 决策 tab 的计数：在 source / keyword 过滤**之后**、decision 过滤**之前**
+        # 统计 —— 这样「选 AniList 后，待确认显示的是 AniList 的条数」，
+        # 而不是三个源的合计（真机反馈的就是这个）。
+        counts = _decision_counts(records)
+        if decision:
+            records = [r for r in records if r.get("decision") == decision]
         if keyword:
             needle = str(keyword).strip().casefold()
             records = [

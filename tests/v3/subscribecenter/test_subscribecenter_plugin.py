@@ -497,3 +497,35 @@ def test_history_page_reports_source_counts(plugin):
     filtered = plugin.history_page(source="anilist")
     assert filtered.total == 2
     assert filtered.source_counts.get("tmdb") == 1
+
+
+def test_decision_counts_follow_source_filter(plugin):
+    """决策 tab 的计数要跟着「源」筛选走。
+
+    真机反馈：选了 AniList + 待确认，状态栏仍显示三个源合计的 17 条。
+    正确口径：source 过滤之后再统计 decision 计数。
+    """
+    plugin.save_data("run_history", [
+        {"decision": C.DECISION_PENDING_REVIEW, "source": "anilist", "title": "A"},
+        {"decision": C.DECISION_PENDING_REVIEW, "source": "anilist", "title": "B"},
+        {"decision": C.DECISION_PENDING_REVIEW, "source": "tmdb", "title": "C"},
+        {"decision": C.DECISION_ADDED, "source": "tmdb", "title": "D"},
+    ])
+    page = plugin.history_page(source="anilist")
+    assert page.total == 2
+    assert page.counts.get(C.DECISION_PENDING_REVIEW) == 2, "应只统计 AniList 的待确认"
+    assert C.DECISION_ADDED not in page.counts
+    # 源 tab 的计数仍是全量（否则切换后其它源会消失）
+    assert page.source_counts.get("tmdb") == 2
+
+
+def test_history_keyword_searches_title_and_reason(plugin):
+    """关键词搜索：片名与原因都能命中。"""
+    plugin.save_data("run_history", [
+        {"decision": C.DECISION_PENDING_REVIEW, "source": "anilist", "title": "凡人修仙传 第五季",
+         "reason": "TMDB 搜不到匹配的剧集"},
+        {"decision": C.DECISION_ADDED, "source": "anilist", "title": "诛仙", "reason": ""},
+    ])
+    assert plugin.history_page(keyword="凡人").total == 1
+    assert plugin.history_page(keyword="搜不到").total == 1
+    assert plugin.history_page(keyword="不存在").total == 0

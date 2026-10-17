@@ -565,3 +565,26 @@ def test_sfc_api_calls_use_imported_helpers():
         for used in set(re.findall(r"\b(\w+PluginApi)\s*\(", text)):
             assert used in exported, f"{name} 调用了不存在的 {used}"
             assert used in imported_names, f"{name} 调用 {used} 但没有 import"
+
+
+def test_overview_constant_exists():
+    """订阅总览依赖的常量必须真的在模块顶层。
+
+    真机：1.5.3 的 `subscription_overview` 用了 `C.SUBSCRIBE_OVERVIEW_LIMIT`，
+    但常量根本没写进 constants.py（插入位置算错），运行时
+    AttributeError -> 接口 500 -> 前端「未知错误」。
+    py_compile 和 ruff 都查不出这种「模块属性不存在」。
+    """
+    from subscribecenter.core import constants as C
+
+    assert hasattr(C, "SUBSCRIBE_OVERVIEW_LIMIT"), "缺 SUBSCRIBE_OVERVIEW_LIMIT"
+    assert int(C.SUBSCRIBE_OVERVIEW_LIMIT) >= 100
+    # 总览方法引用的常量都要真实存在
+    import inspect
+
+    from subscribecenter import SubscribeCenter
+
+    source = inspect.getsource(SubscribeCenter.subscription_overview)
+    for name in ("SUBSCRIBE_OVERVIEW_LIMIT",):
+        assert f"C.{name}" in source
+        assert hasattr(C, name), f"代码引用了不存在的常量 C.{name}"

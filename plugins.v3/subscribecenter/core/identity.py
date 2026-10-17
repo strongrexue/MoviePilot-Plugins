@@ -409,6 +409,17 @@ def is_continuation_title(title: Optional[str]) -> bool:
     return bool(hint and hint >= 2)
 
 
+def _prefers_latest_year(item: DiscoveredItem) -> bool:
+    """同名多条目时是否应取「年份最大」的那条（仅国漫续作）。
+
+    日番续作在 TMDB 通常是**独立条目**（年份本来就接近），取最大年份会
+    误选到「下一季的新条目」；而国漫是「单条目多年」，最近的那条才是对的。
+    """
+    if str((item.raw or {}).get("country") or "").upper() != "CN":
+        return False
+    return is_continuation_title(item.title)
+
+
 def _continuation_floor(item: DiscoveredItem) -> Optional[int]:
     """续作条目的「年份下限」：``min_year`` 参数的取值。
 
@@ -489,6 +500,7 @@ def match_candidate_year(
     strict_year: bool = True,
     target_title: Optional[str] = None,
     min_year: Optional[int] = None,
+    prefer_latest_year: bool = False,
 ) -> Optional[Tuple[dict, str]]:
     """L3：在候选中按「标题精确 + 年份硬校验」选出唯一目标。
 
@@ -570,6 +582,23 @@ def match_candidate_year(
     # 和「分季版」（331477，S1~S4）。两者标题都能匹配、年份都是 2020，
     # 季号裁决会挑「真有第 4 季」的分季版，于是订到了 S04/30 集而不是主条目。
     # 规则：多候选时优先不要带括号限定词的那条（分季/合集/总集篇/剧场版）。
+    if len(matched) > 1 and prefer_latest_year:
+        # 国漫续作：同名多条目时取**年份最大**的那个。
+        #
+        # 真机：完美世界 第七季 -> TMDB 有「完美世界 2021」和「完美世界 2000」
+        # 两个同名条目；旧逻辑判定歧义（年份都不在 ±1 内）且续作又跳过兜底，
+        # 直接退化成待确认。国漫的正确条目就是最近的那部。
+        # 同年再取 tmdb_id 最小 —— 主条目通常最早创建，分季版/合集是后补的
+        # （一念永恒：107371 主条目 vs 331477 分季版）。
+        best = max(
+            matched,
+            key=lambda entry: (
+                int(_year_of(entry[0].get("year") or entry[0].get("release_date")) or 0),
+                -int(entry[0].get("tmdb_id") or 0),
+            ),
+        )
+        return best
+
     if len(matched) > 1:
         primary = [
             entry
@@ -712,6 +741,7 @@ class IdentityResolver:
                 item,
                 strict_year=item.media_type == MEDIA_TYPE_MOVIE,
                 min_year=_continuation_floor(item),
+                prefer_latest_year=_prefers_latest_year(item),
             )
             if hit:
                 candidate, reason = hit
@@ -892,6 +922,7 @@ class IdentityResolver:
                 strict_year=item.media_type == MEDIA_TYPE_MOVIE,
                 target_title=term,
                 min_year=_continuation_floor(item),
+                prefer_latest_year=_prefers_latest_year(item),
             )
             if not hit:
                 # 标题比对失败时用「唯一同年候选」兜底（豆瓣/TMDB 译名差异）。
@@ -1131,12 +1162,12 @@ class IdentityResolver:
 
 def source_id_key(source: str, source_id: str) -> str:
     """缓存键：来源内身份。"""
-    return f"sid:{source}:{source_id}"
+    return f"v2:sid:{source}:{source_id}"
 
 
 def title_key(normalized_title: str, year: Optional[str], media_type: str) -> str:
     """缓存键：标准化标题 + 年份 + 类型。"""
-    return f"t:{media_type}:{year or ''}:{normalized_title}"
+    return f"v2:t:{media_type}:{year or ''}:{normalized_title}"
 
 
 __all__ = [

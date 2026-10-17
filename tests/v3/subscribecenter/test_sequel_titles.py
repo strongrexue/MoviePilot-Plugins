@@ -319,3 +319,62 @@ def test_split_marker_only_inside_brackets():
     assert _is_split_entry("某番（合集）") is True
     assert _is_split_entry("某番", "Split") is False
     assert _is_split_entry("剧场版 某番") is False
+
+
+# ------------------------------------- 国漫同名多条目（1.2.5 真机）
+
+def _donghua(title, year):
+    from subscribecenter.core.model import DiscoveredItem
+
+    return DiscoveredItem(
+        source="anilist", source_id="1", title=title, media_type="tv",
+        year=year, release_date=f"{year}-10-01", raw={"country": "CN"},
+    )
+
+
+def test_donghua_prefers_latest_year_on_same_title():
+    """同名多条目时国漫取年份最大的那个。
+
+    真机：完美世界 第七季 -> TMDB 有「完美世界 2021」与「完美世界 2000」；
+    旧逻辑判歧义（年份都不在 ±1）且续作跳过兜底 -> 直接待确认。
+    """
+    from subscribecenter.core.identity import match_candidate_year
+
+    entity = _donghua("完美世界 第七季", "2026")
+    candidates = [
+        {"tmdb_id": "7120", "title": "完美世界", "year": "2000", "media_type": "tv"},
+        {"tmdb_id": "124003", "title": "完美世界", "year": "2021", "media_type": "tv"},
+    ]
+    hit = match_candidate_year(candidates, entity, strict_year=False, prefer_latest_year=True)
+    assert hit is not None
+    assert hit[0]["tmdb_id"] == "124003", "应取年份更大的主条目"
+
+
+def test_donghua_same_year_prefers_smaller_tmdb_id():
+    """同年同名时取 tmdb_id 最小的（主条目最早创建，分季版/合集是后补的）。
+
+    真机：一念永恒 107371（主条目 1 季 200 集）vs 331477（分季版 S1~S4），
+    标题与年份都一样，只能靠 id 顺序判断。
+    """
+    from subscribecenter.core.identity import match_candidate_year
+
+    entity = _donghua("一念永恒 第四季", "2020")
+    candidates = [
+        {"tmdb_id": "331477", "title": "一念永恒", "year": "2020", "media_type": "tv"},
+        {"tmdb_id": "107371", "title": "一念永恒", "year": "2020", "media_type": "tv"},
+    ]
+    hit = match_candidate_year(candidates, entity, strict_year=False, prefer_latest_year=True)
+    assert hit is not None
+    assert hit[0]["tmdb_id"] == "107371", "应取主条目而不是分季版"
+
+
+def test_japanese_sequel_does_not_prefer_latest():
+    """日番续作不启用「年份最大」——它们在 TMDB 是独立条目，取最大会选错。"""
+    from subscribecenter.core.identity import _prefers_latest_year
+    from subscribecenter.core.model import DiscoveredItem
+
+    jp = DiscoveredItem(
+        source="anilist", source_id="2", title="某番 第2期", media_type="tv",
+        year="2026", release_date="2026-10-01", raw={"country": "JP"},
+    )
+    assert _prefers_latest_year(jp) is False

@@ -346,7 +346,7 @@ onMounted(() => {
       variant="tonal"
       density="compact"
       closable
-      class="mb-3"
+      class="sc-tip mb-2"
       :text="tip.text"
       @click:close="tip.show = false"
     />
@@ -911,6 +911,19 @@ onMounted(() => {
   padding: 16px;
   box-sizing: border-box;
   font-size: 13px;
+}
+
+/* 顶部提示条：必须「不参与 flex 分配」，否则会被拉高成一大块 */
+.sc-tip {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-height: 0;
+  height: auto;
+  font-size: 12px;
+}
+.sc-tip :deep(.v-alert__content) {
+  font-size: 12px;
+  padding: 0;
 }
 
 /* 顶部 */

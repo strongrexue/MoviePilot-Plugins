@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.9.8"
+    plugin_version = "0.9.9"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -608,12 +608,15 @@ class SubscribeCenter(_PluginBase):
         """发送运行摘要通知。
 
         .. important::
-           通知**只报一条结论**：真跑报「新增 N 条」、dry-run / 预览报
-           「会订 N 条（未写入）」。
+           标题统一为「胖虎订阅中心」；正文按模式分两种：
 
-           历史：早期版本把「拉取/跳过/待确认」都塞进通知，既冗长又容易误读
-           （预览报「新增 0」让人以为没找到东西）。详细数字留在「运行状态」
-           页面里看，通知只负责「有没有新增」。
+           - **dry-run / 预览**：给全量明细（会订 / 拉取 / 源内去重 / 跳过 / 待确认）
+             —— 调参时需要这些数字判断门槛是否合适。
+           - **真跑**：只报一行「新增 N 条」—— 日常只关心有没有新增，
+             细节去「运行详情」页看。
+
+           历史：早期版本真跑也报 5 行，太啰嗦；后来一度把 dry-run 也压成一行，
+           又导致调参时看不到明细。现在按模式分开。
         """
         data = summary.to_summary()
         dry = bool(summary.dry_run)
@@ -628,8 +631,15 @@ class SubscribeCenter(_PluginBase):
 
         if dry:
             label = "预览" if is_preview else "dry-run"
-            lines = [f"{label}：会订 {would_add} 条（未写入）"]
+            lines = [
+                f"{label}：会订 {would_add} 条（未写入）",
+                f"拉取：{data.get('fetched', 0)} 条",
+                f"源内去重：{data.get('deduped_out', 0)} 条",
+                f"跳过：{data.get('skipped', 0)} 条",
+                f"待确认：{data.get('pending_review', 0)} 条",
+            ]
         else:
+            # 真跑只报一行结论
             lines = [f"新增：{data.get('added', 0)} 条"]
 
         if data.get("failed_sources"):
@@ -638,9 +648,7 @@ class SubscribeCenter(_PluginBase):
             lines.append("已触达每日写入上限")
         try:
             self.post_message(
-                title=(
-                    "胖虎订阅中心 · 预览完成" if is_preview else "胖虎订阅中心 · 发现完成"
-                ),
+                title="胖虎订阅中心",
                 text="\n".join(lines),
             )
         except Exception as err:  # noqa: BLE001 - 通知失败不影响主流程

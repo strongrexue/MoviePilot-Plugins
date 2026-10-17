@@ -214,6 +214,40 @@ onUnmounted(() => {
       @click:close="tip.show = false"
     />
 
+    <!-- 顶部标题栏：标题在左、操作在右（对齐本仓库其他插件的详情页） -->
+    <div class="sc-top">
+      <div class="sc-top-left">
+        <div class="sc-logo">
+          <VIcon icon="mdi-movie-open-star-outline" size="20" />
+        </div>
+        <div class="sc-top-text">
+          <div class="sc-title">
+            胖虎订阅中心
+            <VChip size="x-small" variant="flat" color="primary" class="ml-2">
+              v{{ FRONTEND_VERSION }}
+            </VChip>
+          </div>
+          <div class="sc-subtitle">发现片源 → 解析身份 → 去重 → 写订阅</div>
+        </div>
+      </div>
+      <div class="sc-top-actions">
+        <VBtn
+          color="primary"
+          size="small"
+          variant="flat"
+          prepend-icon="mdi-radar"
+          :loading="busy === 'run'"
+          @click="runOnce"
+        >
+          立即运行一次
+        </VBtn>
+        <VBtn size="small" variant="text" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
+          刷新
+        </VBtn>
+        <VBtn size="small" variant="text" prepend-icon="mdi-cog" @click="emit('switch')">设置</VBtn>
+      </div>
+    </div>
+
     <!-- 顶部统计卡：一屏看清状态 -->
     <div class="sc-stat-grid">
       <div v-for="card in statCards" :key="card.label" class="sc-stat">
@@ -243,25 +277,6 @@ onUnmounted(() => {
         </div>
         <div v-if="s.last_error" class="sc-error">失败：{{ s.last_error }}</div>
       </div>
-    </div>
-
-    <div class="d-flex flex-wrap ga-2 my-3">
-      <VBtn
-        color="primary"
-        size="small"
-        prepend-icon="mdi-radar"
-        :loading="busy === 'run'"
-        @click="runOnce"
-      >
-        立即运行一次
-      </VBtn>
-      <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
-        刷新
-      </VBtn>
-      <VBtn size="small" variant="text" prepend-icon="mdi-cog" @click="emit('switch')">设置</VBtn>
-      <VBtn v-if="!appPage" size="small" variant="text" prepend-icon="mdi-close" @click="emit('close')">
-        关闭
-      </VBtn>
     </div>
 
     <!-- 发现流水：表格式，一眼看全 -->
@@ -350,6 +365,57 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   opacity: 0.8;
+}
+
+/* 顶部标题栏 */
+.sc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+  background: rgba(var(--v-theme-surface), 0.45);
+}
+.sc-top-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sc-logo {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 9px;
+  color: rgb(var(--v-theme-on-primary));
+  background: rgb(var(--v-theme-primary));
+}
+.sc-top-text {
+  min-width: 0;
+}
+.sc-title {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.sc-subtitle {
+  font-size: 12px;
+  opacity: 0.62;
+  line-height: 1.4;
+}
+.sc-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 /* 顶部统计卡 */

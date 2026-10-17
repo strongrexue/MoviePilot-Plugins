@@ -41,6 +41,7 @@ const DECISION_LABELS = {
   skipped_dry_run: 'dry-run',
   pending_review: '待确认',
   skipped_special: '特别篇',
+  skipped_finished: '已播完',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
   skipped_out_of_window: '超出窗口',

@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.6.5"
+PLUGIN_VERSION = "0.6.6"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -63,6 +63,8 @@ DECISION_SKIPPED_DAILY_LIMIT = "skipped_daily_limit"
 DECISION_PENDING_REVIEW = "pending_review"
 #: 特别篇 / OVA / 番外 / 学前篇等衍生内容 —— 不是「匹配失败」，是设计上不处理
 DECISION_SKIPPED_SPECIAL = "skipped_special"
+#: 匹配到的 TMDB 剧集已全部播完 —— 订了也搜不到未播资源
+DECISION_SKIPPED_FINISHED = "skipped_finished"
 DECISION_SKIPPED_SOURCE_DISABLED = "skipped_source_disabled"
 
 #: 身份解析级别

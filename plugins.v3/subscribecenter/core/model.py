@@ -88,6 +88,8 @@ class DiscoveredItem:
     review_score: Optional[float] = None
     #: 是否为特别篇 / OVA / 番外等衍生内容（这类内容 TMDB 通常没有独立条目）
     special: bool = False
+    #: 匹配到的 TMDB 剧集是否**已无未播出内容**（订了也没意义）
+    finished: bool = False
     #: 原始载荷（排查用，落流水时可截断）
     raw: Dict[str, Any] = field(default_factory=dict)
     discovered_at: str = ""

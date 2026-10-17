@@ -23,6 +23,7 @@ from .constants import (
     DECISION_SKIPPED_ALREADY_SUBSCRIBED,
     DECISION_SKIPPED_DAILY_LIMIT,
     DECISION_SKIPPED_DRY_RUN,
+    DECISION_SKIPPED_FINISHED,
     DECISION_SKIPPED_NOT_FUTURE,
     DECISION_SKIPPED_OUT_OF_WINDOW,
     DECISION_SKIPPED_SPECIAL,
@@ -212,6 +213,17 @@ class SubscriptionWriter:
                 item=item,
                 decision=DECISION_SKIPPED_SPECIAL,
                 reason="特别篇 / OVA / 番外等衍生内容，本插件不处理（需要可手动订阅）",
+            )
+
+        # ---- 匹配到的剧集已全部播完：订了也搜不到未播资源
+        #
+        # 真机事故：Bangumi《ゲルぴよ 第2期》开播 2026-10-21，但 TMDB 只有第 1 季
+        # （2026-01~03 全播完）。不传季号时宿主按第 1 季订阅，等于订了一部老番。
+        if getattr(item, "finished", False):
+            return WriteOutcome(
+                item=item,
+                decision=DECISION_SKIPPED_FINISHED,
+                reason="匹配到的 TMDB 剧集已无未播出内容（可能匹配到了旧季），跳过",
             )
 
         # ---- 身份可写性（L4 永不写入）

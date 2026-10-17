@@ -274,6 +274,36 @@ async def test_within_self_check_window_is_written():
     assert report.added_count == 1
 
 
+# --------------------------------------------------------------------- 已播完
+
+@pytest.mark.asyncio
+async def test_finished_series_gets_explicit_decision():
+    """匹配到已播完的剧集要明确跳过，不能订。
+
+    真机事故：Bangumi《ゲルぴよ 第2期》开播 2026-10-21，但匹配到的 TMDB
+    309774 只有第 1 季（10 集，2026-01~03 全播完）。不传季号时宿主按第 1 季
+    订阅 —— 等于订了一部 7 个月前就完结的番，只会去搜那 10 集老资源。
+    """
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    finished = item(finished=True)
+    report = await writer.write([finished], dry_run=False)
+
+    assert backend.add_calls == []
+    outcome = report.outcomes[0]
+    assert outcome.decision == C.DECISION_SKIPPED_FINISHED
+    assert "已无未播出内容" in outcome.reason
+
+
+@pytest.mark.asyncio
+async def test_unfinished_series_is_written():
+    """还有未播内容的剧集不受影响。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item(finished=False)], dry_run=False)
+    assert report.added_count == 1
+
+
 # --------------------------------------------------------------------- 特别篇
 
 @pytest.mark.asyncio

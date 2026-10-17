@@ -398,6 +398,7 @@ class IdentityResolver:
         if identity:
             item.resolved = identity
             self._remember(item, identity)
+            await self._verify_not_finished(item)
             return item
 
         # ---- L1b：可换算来源（Bangumi / 豆瓣 / Simkl 的原生 ID → TMDB）
@@ -405,12 +406,14 @@ class IdentityResolver:
         if identity:
             item.resolved = identity
             self._remember(item, identity)
+            await self._verify_not_finished(item)
             return item
 
         # ---- L2 缓存
         identity = self._resolve_from_cache(item)
         if identity:
             item.resolved = identity
+            await self._verify_not_finished(item)
             return item
 
         # ---- L3 精确搜索 + 年份硬校验
@@ -429,6 +432,7 @@ class IdentityResolver:
                 )
                 item.resolved = identity
                 self._remember(item, identity)
+                await self._verify_not_finished(item)
                 return item
 
             # ---- L4 模糊评分：只记录，永不写入
@@ -537,6 +541,27 @@ class IdentityResolver:
             )
         except Exception:  # noqa: BLE001 - 搜索失败等同「无候选」
             return ()
+
+    async def _verify_not_finished(self, item: DiscoveredItem) -> None:
+        """校验匹配到的剧集**是否还有未播出内容**，没有就标记 finished。
+
+        真机事故：Bangumi《ゲルぴよ 第2期》开播 2026-10-21，但匹配到的 TMDB
+        309774 只有第 1 季（10 集，2026-01~03 全播完）。不传季号时宿主按第 1 季
+        订阅，等于订了一部已完结的番，只会去搜老资源。
+
+        `TmdbResolver` 未实现该能力时跳过（向后兼容）。
+        """
+        if not item.resolved or not item.is_tv:
+            return
+        checker = getattr(self._tmdb, "has_upcoming_episodes", None)
+        if checker is None:
+            return
+        try:
+            upcoming = await checker(item.resolved.media_id, item.media_type)
+        except Exception:  # noqa: BLE001 - 校验失败 fail-open
+            return
+        if upcoming is False:
+            item.finished = True
 
     def _remember(self, item: DiscoveredItem, identity: ResolvedIdentity) -> None:
         """把确定性身份写入缓存（L4 不写）。"""

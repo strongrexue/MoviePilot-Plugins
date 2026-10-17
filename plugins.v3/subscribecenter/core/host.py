@@ -19,9 +19,9 @@
 """
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ..core.constants import MEDIA_TYPE_MOVIE
+from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV
 from ..core.identity import HOST_SOURCE_TMDB
-from ..core.window import parse_date
+from ..core.window import parse_date, today
 
 #: 单次查询的分页大小（宿主无参查询只返回第一页，必须显式翻页）
 QUERY_PAGE_SIZE = 200
@@ -159,6 +159,54 @@ class HostTmdbResolver:
             "season": season_number,
         }
 
+
+    async def has_upcoming_episodes(
+        self,
+        tmdb_id: str,
+        media_type: str,
+        tz_name: Optional[str] = None,
+    ) -> bool:
+        """判断匹配到的 TMDB 剧集是否**还有未播出内容**。
+
+        为什么必须有这道校验（真机事故）：Bangumi 的《ゲルぴよ 第2期》
+        开播日是 2026-10-21，但 TMDB 309774 只有第 1 季（10 集，2026-01~03
+        全部播完）。因为不传季号，宿主按第 1 季订阅 —— 等于订了一部 7 个月前
+        就完结的番，宿主会去搜那 10 集老资源。
+
+        规则：取**最高季**（排除第 0 季特别篇）的剧集列表，只要存在任意一集
+        `air_date >= 今天` 就认为还有未播内容。电影一律返回 True。
+
+        **失败时返回 True（fail-open）**：校验本身出错不应该拦掉正常内容，
+        宁可多订一条也不要因为一次 API 抖动静默丢条目。
+        """
+        if media_type != MEDIA_TYPE_TV:
+            return True
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+            from app.schemas.types import MediaType
+
+            api = TmdbApi()
+            info = await api.async_get_info(mtype=MediaType.TV, tmdbid=int(tmdb_id)) or {}
+            seasons = [
+                int(season.get("season_number") or 0)
+                for season in (info.get("seasons") or [])
+                if isinstance(season, dict)
+            ]
+            numbers = sorted({number for number in seasons if number > 0})
+            if not numbers:
+                return True
+            detail = await api.async_get_tv_season_detail(int(tmdb_id), numbers[-1]) or {}
+            episodes = detail.get("episodes") or []
+            start = today(tz_name)
+            for episode in episodes:
+                if not isinstance(episode, dict):
+                    continue
+                air = parse_date(episode.get("air_date"))
+                if air and air >= start:
+                    return True
+            return False
+        except Exception:  # noqa: BLE001 - 校验失败 fail-open
+            return True
 
     async def _search_without_year(
         self, title: str, media_type: str

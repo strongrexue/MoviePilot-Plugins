@@ -5,7 +5,7 @@
  * 展示运行状态、各数据源情况、最近流水，并提供「立即运行一次」。
  * 与仪表盘共用 /status 与 /history 接口。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { FRONTEND_VERSION } from './version'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 
@@ -234,35 +234,65 @@ function stateMeta(item) {
 /** 状态排序权重：暂停 → 待定 → 订阅中 → 未开始 → 完成。 */
 const STATE_ORDER = { R: 0, S: 1, P: 2, N: 3, D: 4 }
 
-/** 订阅列表：先按状态排序，同状态内按最近更新倒序。 */
-const overviewItems = computed(() => {
+/** 订阅列表（筛选 + 排序后的**全部**，未截断）。 */
+const overviewSorted = computed(() => {
   let items = overview.value.items || []
   if (overviewState.value) {
     items = items.filter((item) => stateMeta(item).code === overviewState.value)
   }
-  const sorted = [...items].sort((a, b) => {
+  return [...items].sort((a, b) => {
     const wa = STATE_ORDER[stateMeta(a).code] ?? 9
     const wb = STATE_ORDER[stateMeta(b).code] ?? 9
     if (wa !== wb) return wa - wb
     return String(b.last_update || '').localeCompare(String(a.last_update || ''))
   })
-  return sorted.slice(0, overviewLimit.value)
 })
 
+/** 实际渲染的条数（滚动加载，跟随页面滚动）。 */
+const overviewItems = computed(() => overviewSorted.value.slice(0, overviewLimit.value))
+
+/** 还有多少没显示。 */
+const overviewRemain = computed(() =>
+  Math.max(overviewSorted.value.length - overviewItems.value.length, 0),
+)
+
 /** 一次显示多少张（滚动加载）。 */
-const OVERVIEW_PAGE = 60
+const OVERVIEW_PAGE = 20
 const overviewLimit = ref(OVERVIEW_PAGE)
 
-/** 滚动到底加载更多。 */
-function loadMoreOverview(event) {
-  const el = event?.target
+/** 滚动到底加载更多。
+
+ 跟随**页面**滚动（订阅总览不再自己滚动），滚到本块底部附近就追加。
+ */
+let overviewLoadingMore = false
+function onPageScroll() {
+  if (!overviewOpen.value || overviewLoadingMore) return
+  if (overviewRemain.value <= 0) return
+  const el = document.querySelector('.sc-poster-grid')
   if (!el) return
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
-    if (overviewLimit.value < overviewItems.value.length) {
-      overviewLimit.value += OVERVIEW_PAGE
-    }
-  }
+  const rect = el.getBoundingClientRect()
+  // 视口底部越过网格底部 200px 内即加载
+  if (rect.bottom - window.innerHeight > 200) return
+  overviewLoadingMore = true
+  overviewLimit.value += OVERVIEW_PAGE
+  requestAnimationFrame(() => {
+    overviewLoadingMore = false
+  })
 }
+
+// 切换状态筛选 / 重新加载后，已显示条数回到首屏值
+watch(overviewState, () => {
+  overviewLimit.value = OVERVIEW_PAGE
+})
+watch(
+  () => overview.value.items.length,
+  () => {
+    overviewLimit.value = OVERVIEW_PAGE
+  },
+)
+
+onMounted(() => window.addEventListener('scroll', onPageScroll, { passive: true }))
+onUnmounted(() => window.removeEventListener('scroll', onPageScroll))
 
 /** 是否开启洗版（best_version / best_version_full）。 */
 function isBestVersion(item) {
@@ -539,10 +569,10 @@ onUnmounted(() => {
                 </button>
               </div>
               <div class="sc-overview-count">
-                显示 1–{{ overviewItems.length }} / {{ overviewState ? '当前筛选' : overview.total }}
-                <span v-if="overviewItems.length < overview.total"> · 滚动到底加载更多</span>
+                已显示 {{ overviewItems.length }} / {{ overviewSorted.length }}
+                <span v-if="overviewRemain > 0"> · 继续向下滚动自动加载</span>
               </div>
-              <div class="sc-poster-grid" @scroll.passive="loadMoreOverview">
+              <div class="sc-poster-grid">
                 <div
                   v-for="item in overviewItems"
                   :key="item.id"
@@ -1073,17 +1103,19 @@ onUnmounted(() => {
 }
 .sc-overview {
   margin-bottom: 10px;
-  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border: 1px solid rgba(var(--v-border-color), 0.22);
   border-radius: 10px;
-  overflow: hidden;
+  background: rgba(var(--v-border-color), 0.06);
 }
 .sc-overview-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   cursor: pointer;
   user-select: none;
+  min-height: 44px;
+  border-radius: 10px;
 }
 .sc-overview-spacer {
   flex: 1 1 auto;
@@ -1146,8 +1178,6 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: 8px;
-  max-height: 520px;
-  overflow: auto;
 }
 .sc-poster-card {
   border: 1px solid rgba(var(--v-border-color), 0.16);

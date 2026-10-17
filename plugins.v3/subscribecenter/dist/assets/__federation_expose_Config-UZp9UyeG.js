@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-BdspnKmw.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-DD5MUxzg.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -276,7 +276,12 @@ const overviewCards = computed(() => {
       icon: 'mdi-download-network-outline',
       label: '今日写入',
       value: written != null ? `${written}` : '—',
-      sub: limit ? `上限 ${limit} 条${Number(limit) <= 0 ? '（不限）' : ''}` : '上限未取到',
+      sub:
+        limit == null
+          ? '上限未取到'
+          : Number(limit) <= 0
+            ? '不限制写入条数'
+            : `上限 ${limit} 条`,
       color: 'primary',
     },
     {
@@ -690,7 +695,7 @@ return (_ctx, _cache) => {
                   disabled: !form.value.enable_douban_rss,
                   placeholder: "http://<RSSHub>:1200/douban/movie/coming"
                 }, null, 8, ["modelValue", "disabled"]),
-                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-353cc549><b data-v-353cc549>电影上映类</b>（<code data-v-353cc549>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-353cc549><b data-v-353cc549>剧集类</b>（<code data-v-353cc549>/douban/tv/coming</code>、<code data-v-353cc549>/douban/list/tv_*</code>、 <code data-v-353cc549>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-353cc549><b data-v-353cc549>电影榜单类</b>没有日期，会被跳过。<code data-v-353cc549>ustop250</code> 与 <code data-v-353cc549>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                _cache[38] || (_cache[38] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-a0666175><b data-v-a0666175>电影上映类</b>（<code data-v-a0666175>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-a0666175><b data-v-a0666175>剧集类</b>（<code data-v-a0666175>/douban/tv/coming</code>、<code data-v-a0666175>/douban/list/tv_*</code>、 <code data-v-a0666175>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-a0666175><b data-v-a0666175>电影榜单类</b>没有日期，会被跳过。<code data-v-a0666175>ustop250</code> 与 <code data-v-a0666175>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
               ])
             ], 64))
           : _createCommentVNode("", true),
@@ -1277,6 +1282,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-353cc549"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a0666175"]]);
 
 export { Config as default };

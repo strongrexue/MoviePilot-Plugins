@@ -17,6 +17,7 @@
 枚举                          ``app.schemas.types.MediaType`` / ``MediaSource``
 ============================  ==================================================
 """
+import asyncio
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV
@@ -52,20 +53,31 @@ def media_source_enum(value: Any) -> Any:
 
 # --------------------------------------------------------------------- TMDB 解析
 
+#: 豆瓣 API 的并发上限（真机：不限制会被限流，别名大量返回空）
+_DOUBAN_SEMAPHORE: Optional[Any] = None
+
+
+def _douban_semaphore() -> Any:
+    """懒加载一个模块级信号量（在事件循环里创建，避免跨循环复用）。"""
+    global _DOUBAN_SEMAPHORE
+    if _DOUBAN_SEMAPHORE is None:
+        _DOUBAN_SEMAPHORE = asyncio.Semaphore(2)
+    return _DOUBAN_SEMAPHORE
+
+
 class HostTmdbResolver:
     """用宿主识别引擎实现 :class:`~..core.identity.TmdbResolver`。
 
     **为什么复用宿主识别而不是自己拼 TMDB 请求**：
     ``TmdbChain`` 没有 search 方法；宿主模块层的 ``TheMovieDbModule`` 虽可调用，
-    但属于内部实现。而 ``MediaChain.async_recognize_by_meta`` 正是宿主自己
-    「标题 → TMDB 识别」的稳定入口，包含标题变体与年份匹配策略。
-
-    .. important::
-       宿主识别**可能**返回非精确匹配（它内部有模糊回退）。因此本适配器
-       把结果作为「候选」交给 :func:`~..core.identity.match_candidate_year`
-       做**年份硬校验** —— 校验不过就只进 L4 待确认列表，绝不写入。
-       Year 校验是我们加的那道闸门，宿主不提供。
+    但属于内部实现。而 ``MediaChain.async_recognize_media`` /
+    ``async_recognize_by_meta`` 正是宿主自己「标题 → 媒体信息」的稳定入口，
+    包含标题变体、跨源换算与年份匹配策略。
     """
+
+    def __init__(self) -> None:
+        """初始化按标题的豆瓣别名缓存（同一进程内复用，避免重复请求）。"""
+        self._alias_cache: Dict[str, List[str]] = {}
 
     async def search(
         self,
@@ -272,61 +284,81 @@ class HostTmdbResolver:
     ) -> List[str]:
         """用豆瓣 API 查该剧的「又名 / 原名」，用于 TMDB 搜索。
 
-        为什么必须这样（真机实测）：豆瓣与 TMDB 的中文译名经常不同，
-        而 TMDB 的搜索索引里**没有**豆瓣那个译名，直接搜命中率为 0：
+        .. important::
+           豆瓣译名与 TMDB 中文名经常不同，而 TMDB 的搜索索引里**没有**豆瓣
+           那个译名，直接搜命中率为 0::
 
-            豆瓣「闹鬼酒店」  -> TMDB 搜 0 条（TMDB 叫「酒店有鬼」）
-            豆瓣「虚无的十字架」-> TMDB 搜 0 条（TMDB 叫「空洞的十字架」）
-            豆瓣「人生交换」  -> TMDB 搜 0 条（TMDB 叫「交换人生」）
+               豆瓣「闹鬼酒店」  -> TMDB 搜 0 条（TMDB 叫「酒店有鬼」）
+               豆瓣「虚无的十字架」-> TMDB 搜 0 条（TMDB 叫「空洞的十字架」）
+               豆瓣「人生交换」  -> TMDB 搜 0 条（TMDB 叫「交换人生」）
 
-        但豆瓣条目的 `aka` 与 `original_title` 里带着 TMDB 认识的名字：
+           但豆瓣条目的 `aka` / `original_title` 里带着 TMDB 认识的名字
+           （「酒店有鬼2」「ライフトレード」「Haunted Hotel Season 2」），
+           所以拿它们再搜 TMDB 就能命中。
 
-            闹鬼酒店 第二季 -> aka ['酒店有鬼2', 'The Undervale']
-                            original 'Haunted Hotel Season 2'
-            虚无的十字架   -> original '虚ろな十字架'
-            老公要求我去出轨 -> aka ['丈夫请求我出轨']
-            人生交换      -> original 'ライフトレード'
-
-        所以拿这些名字再搜 TMDB 就能命中。
+        .. important::
+           **必须限流 + 重试**。真机事故：一次运行 371 条候选、8 路并发，
+           豆瓣在几十次请求后开始拒绝，`douban_aliases` 大量返回空 ——
+           于是「人生交换」这种只能靠别名命中的条目全部退化成待确认。
+           这里用信号量把豆瓣并发压到 2，失败重试一次，并按标题缓存结果。
 
         :return: 候选名字列表（已去重、已剔除与原名相同的）；查询失败返回空列表
         """
-        try:
-            from app.modules.douban import DoubanApi
+        cache_key = f"{media_type}:{title}:{year or ''}"
+        if cache_key in self._alias_cache:
+            return list(self._alias_cache[cache_key])
 
-            api = DoubanApi()
-            search = (
-                api.async_movie_search if media_type == MEDIA_TYPE_MOVIE else api.async_tv_search
-            )
-            detail_call = (
-                api.async_movie_detail if media_type == MEDIA_TYPE_MOVIE else api.async_tv_detail
-            )
+        semaphore = _douban_semaphore()
+        for attempt in (1, 2):
+            try:
+                async with semaphore:
+                    names = await self._fetch_douban_aliases(title, media_type, year)
+                self._alias_cache[cache_key] = list(names)
+                return names
+            except Exception:  # noqa: BLE001 - 豆瓣失败只是少一条兜底路径
+                if attempt == 1:
+                    await asyncio.sleep(0.6)
+                    continue
+                break
+        self._alias_cache[cache_key] = []
+        return []
 
-            result = await search(title, count=5)
-            subjects = _douban_subjects(result)
-            if not subjects:
-                return []
+    async def _fetch_douban_aliases(
+        self, title: str, media_type: str, year: Optional[str]
+    ) -> List[str]:
+        "真正去豆瓣查询并抽取候选名字。"
+        from app.modules.douban import DoubanApi
 
-            # 优先选标题最像、年份最接近的那条
-            subject = _pick_douban_subject(subjects, title, year)
-            subject_id = subject.get("id") or subject.get("target_id")
-            if not subject_id:
-                return []
+        api = DoubanApi()
+        search = (
+            api.async_movie_search if media_type == MEDIA_TYPE_MOVIE else api.async_tv_search
+        )
+        detail_call = (
+            api.async_movie_detail if media_type == MEDIA_TYPE_MOVIE else api.async_tv_detail
+        )
 
-            detail = await detail_call(str(subject_id)) or {}
-            names: List[str] = []
-            for value in (
-                detail.get("original_title"),
-                *(detail.get("aka") or []),
-                detail.get("title"),
-                subject.get("title"),
-            ):
-                text = str(value or "").strip()
-                if len(text) >= 2 and text not in names and text != title:
-                    names.append(text)
-            return names
-        except Exception:  # noqa: BLE001 - 豆瓣查询失败只是少一条兜底路径
+        result = await search(title, count=5)
+        subjects = _douban_subjects(result)
+        if not subjects:
             return []
+
+        subject = _pick_douban_subject(subjects, title, year)
+        subject_id = subject.get("id") or subject.get("target_id")
+        if not subject_id:
+            return []
+
+        detail = await detail_call(str(subject_id)) or {}
+        names: List[str] = []
+        for value in (
+            detail.get("original_title"),
+            *(detail.get("aka") or []),
+            detail.get("title"),
+            subject.get("title"),
+        ):
+            text = str(value or "").strip()
+            if len(text) >= 2 and text not in names and text != title:
+                names.append(text)
+        return names
 
     async def resolve_target_season(
         self,

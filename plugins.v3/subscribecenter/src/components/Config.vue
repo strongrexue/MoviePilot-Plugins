@@ -138,7 +138,12 @@ const overviewCards = computed(() => {
       icon: 'mdi-download-network-outline',
       label: '今日写入',
       value: written != null ? `${written}` : '—',
-      sub: limit ? `上限 ${limit} 条${Number(limit) <= 0 ? '（不限）' : ''}` : '上限未取到',
+      sub:
+        limit == null
+          ? '上限未取到'
+          : Number(limit) <= 0
+            ? '不限制写入条数'
+            : `上限 ${limit} 条`,
       color: 'primary',
     },
     {
@@ -928,10 +933,13 @@ onMounted(() => {
 }
 
 /* 主体布局 */
+/* 主体：固定高度，右侧内容独立滚动 —— 切换分区时整体高度不跳动 */
 .sc-body {
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  align-items: stretch;
+  min-height: 420px;
+  height: min(64vh, 620px);
 }
 .sc-nav {
   flex: 0 0 148px;
@@ -939,6 +947,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 2px;
   padding: 6px;
+  overflow-y: auto;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
 }
@@ -1137,6 +1146,13 @@ onMounted(() => {
 @media (max-width: 720px) {
   .sc-body {
     flex-direction: column;
+    height: auto;
+    min-height: 0;
+  }
+  .sc-content,
+  .sc-nav {
+    overflow-y: visible;
+    padding-right: 0;
   }
   .sc-nav {
     flex: 1 1 auto;

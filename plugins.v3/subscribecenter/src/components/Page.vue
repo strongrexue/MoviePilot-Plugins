@@ -42,6 +42,7 @@ const DECISION_LABELS = {
   skipped_already_completed: '已完成过',
   skipped_duplicate: '跨源重复',
   skipped_rating: '评分不足',
+  skipped_popularity: '关注度不足',
   skipped_out_of_window: '超出窗口',
   skipped_not_future: '定档已过',
   skipped_daily_limit: '触达上限',

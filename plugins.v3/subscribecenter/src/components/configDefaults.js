@@ -21,6 +21,7 @@ export const configDefaults = {
   min_rating_bangumi: 6.0,
   min_rating_douban: 6.0,
   min_rating_simkl: 6.0,
+  min_popularity: 10.0,
   // ---------------- 豆瓣 RSS 源列表
   douban_rss_sources: [],
   // ---------------- Simkl

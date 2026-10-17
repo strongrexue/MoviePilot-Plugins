@@ -13,6 +13,7 @@ from core.model import DiscoveredItem, ResolvedIdentity  # noqa: E402
 from core.pipeline import (  # noqa: E402
     dedupe_cross_source,
     dedupe_within_source,
+    filter_by_popularity,
     filter_by_rating,
     filter_by_window,
     select_items,
@@ -124,6 +125,60 @@ def test_filter_by_rating(rating, threshold, expected):
 def test_filter_by_rating_tolerates_bad_values():
     """评分字段异常时不拦截（不因脏数据丢条目）。"""
     assert filter_by_rating(item(rating="bad"), 6.0) is True
+
+
+# --------------------------------------------------------------------- 关注度过滤
+
+def test_filter_by_popularity_rejects_cold_titles():
+    """关注度过低拦截 —— 新片没评分时 popularity 是唯一可用的质量信号。
+
+    0.2.2 真实事故：写入的 29 条全是 Black Ink / Ghost Lake 这类 popularity<5
+    的同日上映冷门片，把每日 30 条额度吃光。
+    """
+    assert filter_by_popularity(item(popularity=3.0), 10.0) is False
+    assert filter_by_popularity(item(popularity=15.0), 10.0) is True
+    assert filter_by_popularity(item(popularity=10.0), 10.0) is True
+
+
+def test_filter_by_popularity_passes_missing_value():
+    """popularity 缺失时放行（不同源字段可用性不同，不能因此丢条目）。"""
+    assert filter_by_popularity(item(popularity=None), 10.0) is True
+
+
+def test_select_items_applies_popularity_floor():
+    """``min_popularity > 0`` 时低关注度条目被拦下并给出原因。"""
+    hot = item(source_id="hot", resolved=resolved("1"), popularity=88.0)
+    cold = item(source_id="cold", resolved=resolved("2"), popularity=2.0)
+    passed, rejected = select_items(
+        [hot, cold], future_days=30, min_rating=6.0, min_popularity=10.0, now=TODAY
+    )
+    assert [i.source_id for i in passed] == ["hot"]
+    assert rejected[0].decision == C.DECISION_SKIPPED_POPULARITY
+    assert "关注度" in rejected[0].reason
+
+
+def test_select_items_popularity_zero_disables_filter():
+    """``min_popularity=0`` 表示不过滤。"""
+    cold = item(source_id="cold", resolved=resolved("2"), popularity=0.5)
+    passed, _ = select_items(
+        [cold], future_days=30, min_rating=6.0, min_popularity=0.0, now=TODAY
+    )
+    assert len(passed) == 1
+
+
+def test_select_items_orders_by_popularity_desc():
+    """候选写入顺序按关注度降序 —— 额度先花在受关注的作品上。
+
+    原来按日期升序写，等于把每日额度先给「今天上映的冷门片」。
+    """
+    low = item(source_id="low", resolved=resolved("1"), popularity=5.0,
+               release_date=(TODAY + timedelta(days=1)).isoformat())
+    high = item(source_id="high", resolved=resolved("2"), popularity=90.0,
+                release_date=(TODAY + timedelta(days=20)).isoformat())
+    mid = item(source_id="mid", resolved=resolved("3"), popularity=30.0,
+               release_date=(TODAY + timedelta(days=10)).isoformat())
+    passed, _ = select_items([low, high, mid], future_days=30, min_rating=6.0, now=TODAY)
+    assert [i.source_id for i in passed] == ["high", "mid", "low"]
 
 
 # --------------------------------------------------------------------- 窗口过滤

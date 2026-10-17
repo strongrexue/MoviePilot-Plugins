@@ -273,11 +273,27 @@ onMounted(() => {
               class="mb-2"
             />
           </VCol>
+          <VCol cols="12" sm="6">
+            <VTextField
+              v-model.number="form.min_popularity"
+              label="最低关注度（popularity）"
+              type="number"
+              step="1"
+              min="0"
+              density="compact"
+              hide-details
+              class="mb-2"
+            />
+          </VCol>
         </VRow>
         <div class="sc-hint">
           TMDB 只保留「今天 ~ 今天 + N 天」内的定档条目。注意宿主 discover 不支持按地区过滤，
           结果会偏欧美。
         </div>
+        <div class="sc-hint mt-1">
+          <b>最低关注度</b>：新片还没人评分，popularity 是唯一可用的质量信号。
+          设 0 表示不过滤，会把同日上映的冷门片也订进来（观众级大片 100+、
+          院线片 10~50、冷门片 &lt;5）。</div>
       </VCardText>
     </VCard>
 

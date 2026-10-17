@@ -17,6 +17,7 @@ from .constants import (
     DECISION_SKIPPED_DUPLICATE,
     DECISION_SKIPPED_NOT_FUTURE,
     DECISION_SKIPPED_OUT_OF_WINDOW,
+    DECISION_SKIPPED_POPULARITY,
     DECISION_SKIPPED_RATING,
 )
 from .identity import IdentityResolver
@@ -179,7 +180,7 @@ def dedupe_cross_source(items: Sequence[DiscoveredItem]) -> Tuple[List[Discovere
 
 
 def filter_by_rating(item: DiscoveredItem, min_rating: float) -> bool:
-    """评分过滤：``None`` 视为「无评分」——不拦截（由窗口与身份把关）。
+    """评分过滤：``None`` 视为「无评分」——不拦截（由关注度与窗口把关）。
 
     只有**明确低于**阈值时才拦截，避免源缺评分字段就整批丢弃。
     """
@@ -189,6 +190,39 @@ def filter_by_rating(item: DiscoveredItem, min_rating: float) -> bool:
         return float(item.rating) >= float(min_rating)
     except (TypeError, ValueError):
         return True
+
+
+def filter_by_popularity(item: DiscoveredItem, min_popularity: float) -> bool:
+    """关注度过滤 —— 未来档期条目**唯一可用**的质量信号。
+
+    为什么必须有这一层：未来 30 天要上映的片子几乎都没有评分（``vote_average=0``），
+    而同一天上映的冷门片会挤满日期升序列表。0.2.2 真实事故：写入的 29 条全是
+    ``Black Ink`` / ``Ghost Lake`` / ``FLESH!`` 这类 popularity 个位数的片子，
+    把每日 30 条额度全吃掉了。
+
+    ``popularity`` 缺失（``None``）时**放行** —— 不同源字段可用性不同，
+    不能因为缺字段就丢弃；宁可由评分与窗口把关。
+    """
+    if item.popularity is None:
+        return True
+    try:
+        return float(item.popularity) >= float(min_popularity)
+    except (TypeError, ValueError):
+        return True
+
+
+def selection_sort_key(item: DiscoveredItem) -> tuple:
+    """候选写入顺序：**关注度降序**优先，其次定档日期升序。
+
+    原来按日期升序写，等于「先订今天上映的」——而被挤在最前面的恰恰是
+    冷门同日上映片。改成关注度优先后，额度会先花在真正受关注的作品上。
+    """
+    return (
+        -(item.popularity or 0.0),
+        item.release_date or "9999-99-99",
+        item.source,
+        item.title_year,
+    )
 
 
 def filter_by_window(
@@ -213,13 +247,16 @@ def select_items(
     *,
     future_days: int,
     min_rating: float,
+    min_popularity: float = 0.0,
     tz_name: Optional[str] = None,
     now: Any = None,
 ) -> Tuple[List[DiscoveredItem], List[WriteOutcome]]:
     """对（已解析身份的）条目做过滤，返回 ``(通过, 被拦下的带原因结果)``。
 
-    顺序：源内去重 → 跨源去重 → 评分 → 窗口。
+    顺序：源内去重 → 跨源去重 → 评分 → 关注度 → 窗口。
     被拦下的条目也返回，便于流水线写入「跳过原因」日志。
+
+    :param min_popularity: 最低关注度；``<=0`` 表示不过滤
     """
     within = dedupe_within_source(items)
     kept, dropped = dedupe_cross_source(within)
@@ -244,6 +281,15 @@ def select_items(
                 )
             )
             continue
+        if min_popularity > 0 and not filter_by_popularity(item, min_popularity):
+            rejected.append(
+                WriteOutcome(
+                    item=item,
+                    decision=DECISION_SKIPPED_POPULARITY,
+                    reason=f"关注度 {item.popularity} < {min_popularity}（冷门条目，避免占用写入额度）",
+                )
+            )
+            continue
         if not filter_by_window(item, future_days, tz_name=tz_name, now=now):
             release = parse_date(item.release_date, tz_name)
             if release is None:
@@ -259,6 +305,8 @@ def select_items(
             continue
         passed.append(item)
 
+    # 关注度降序优先，保证每日额度先花在真正受关注的作品上
+    passed.sort(key=selection_sort_key)
     return passed, rejected
 
 
@@ -293,6 +341,7 @@ async def run_pipeline(
     config: Dict[str, Any],
     future_days: int,
     min_rating: float,
+    min_popularity: float = 0.0,
     dry_run: bool,
     first_run: bool,
     already_written_today: int = 0,
@@ -335,6 +384,7 @@ async def run_pipeline(
         raw,
         future_days=future_days,
         min_rating=min_rating,
+        min_popularity=min_popularity,
         tz_name=tz_name,
         now=now,
     )

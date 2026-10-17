@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-BJogUCoJ.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-CvFbctZh.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -24,6 +24,7 @@ const configDefaults = {
   min_rating_bangumi: 6.0,
   min_rating_douban: 6.0,
   min_rating_simkl: 6.0,
+  min_popularity: 10.0,
   // ---------------- 豆瓣 RSS 源列表
   douban_rss_sources: [],
   // ---------------- Simkl
@@ -248,7 +249,7 @@ return (_ctx, _cache) => {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "d-flex align-center flex-wrap ga-2" }, {
           default: _withCtx(() => [
-            _cache[11] || (_cache[11] = _createElementVNode("span", null, "胖虎订阅中心", -1)),
+            _cache[12] || (_cache[12] = _createElementVNode("span", null, "胖虎订阅中心", -1)),
             _createVNode(_component_VChip, {
               size: "small",
               variant: "flat",
@@ -291,7 +292,7 @@ return (_ctx, _cache) => {
                   variant: "tonal",
                   color: "warning"
                 }, {
-                  default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+                  default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
                     _createTextVNode(" 首次运行将强制 dry-run ", -1)
                   ]))]),
                   _: 1
@@ -301,7 +302,7 @@ return (_ctx, _cache) => {
           _: 1
         }),
         _createVNode(_component_VCardText, { class: "sc-hint" }, {
-          default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+          default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
             _createTextVNode(" 只做三件事：发现 → 去重 → 写订阅。版本控制、洗版与下载优先级由 MoviePilot 后台订阅规则接管，本插件不介入。 ", -1)
           ]))]),
           _: 1
@@ -315,7 +316,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-          default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+          default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
             _createTextVNode("基础", -1)
           ]))]),
           _: 1
@@ -354,7 +355,7 @@ return (_ctx, _cache) => {
               density: "compact",
               "hide-details": ""
             }, null, 8, ["modelValue"]),
-            _cache[14] || (_cache[14] = _createElementVNode("div", { class: "sc-hint mt-2" }, " 首次运行无论此开关如何都会强制 dry-run 一次，确认结果后再按本开关执行。 ", -1))
+            _cache[15] || (_cache[15] = _createElementVNode("div", { class: "sc-hint mt-2" }, " 首次运行无论此开关如何都会强制 dry-run 一次，确认结果后再按本开关执行。 ", -1))
           ]),
           _: 1
         })
@@ -367,7 +368,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-          default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
             _createTextVNode("数据源", -1)
           ]))]),
           _: 1
@@ -406,7 +407,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+          default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
             _createTextVNode("发现窗口与阈值", -1)
           ]))]),
           _: 1
@@ -455,11 +456,35 @@ return (_ctx, _cache) => {
                     }, null, 8, ["modelValue"])
                   ]),
                   _: 1
+                }),
+                _createVNode(_component_VCol, {
+                  cols: "12",
+                  sm: "6"
+                }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_VTextField, {
+                      modelValue: form.value.min_popularity,
+                      "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.value.min_popularity) = $event)),
+                      modelModifiers: { number: true },
+                      label: "最低关注度（popularity）",
+                      type: "number",
+                      step: "1",
+                      min: "0",
+                      density: "compact",
+                      "hide-details": "",
+                      class: "mb-2"
+                    }, null, 8, ["modelValue"])
+                  ]),
+                  _: 1
                 })
               ]),
               _: 1
             }),
-            _cache[17] || (_cache[17] = _createElementVNode("div", { class: "sc-hint" }, " TMDB 只保留「今天 ~ 今天 + N 天」内的定档条目。注意宿主 discover 不支持按地区过滤， 结果会偏欧美。 ", -1))
+            _cache[18] || (_cache[18] = _createElementVNode("div", { class: "sc-hint" }, " TMDB 只保留「今天 ~ 今天 + N 天」内的定档条目。注意宿主 discover 不支持按地区过滤， 结果会偏欧美。 ", -1)),
+            _cache[19] || (_cache[19] = _createElementVNode("div", { class: "sc-hint mt-1" }, [
+              _createElementVNode("b", null, "最低关注度"),
+              _createTextVNode("：新片还没人评分，popularity 是唯一可用的质量信号。 设 0 表示不过滤，会把同日上映的冷门片也订进来（观众级大片 100+、 院线片 10~50、冷门片 <5）。")
+            ], -1))
           ]),
           _: 1
         })
@@ -472,7 +497,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
-          default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
+          default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
             _createTextVNode("写入与调度", -1)
           ]))]),
           _: 1
@@ -488,7 +513,7 @@ return (_ctx, _cache) => {
                   default: _withCtx(() => [
                     _createVNode(_component_VTextField, {
                       modelValue: form.value.daily_limit,
-                      "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.value.daily_limit) = $event)),
+                      "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.value.daily_limit) = $event)),
                       modelModifiers: { number: true },
                       label: "每日写入上限",
                       type: "number",
@@ -508,7 +533,7 @@ return (_ctx, _cache) => {
                   default: _withCtx(() => [
                     _createVNode(_component_VTextField, {
                       modelValue: form.value.cron,
-                      "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.value.cron) = $event)),
+                      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.value.cron) = $event)),
                       label: "执行时间（5 段式 cron）",
                       error: !cronValid(),
                       "error-messages": cronValid() ? [] : ['需要 5 段，例如 0 3 * * *'],
@@ -526,7 +551,7 @@ return (_ctx, _cache) => {
                   default: _withCtx(() => [
                     _createVNode(_component_VTextField, {
                       modelValue: form.value.timezone,
-                      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.value.timezone) = $event)),
+                      "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.value.timezone) = $event)),
                       label: "时区",
                       density: "compact",
                       "hide-details": "",
@@ -538,7 +563,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
-            _cache[19] || (_cache[19] = _createElementVNode("div", { class: "sc-hint" }, "修改 cron 后需要重新保存配置才会重建定时任务。", -1))
+            _cache[21] || (_cache[21] = _createElementVNode("div", { class: "sc-hint" }, "修改 cron 后需要重新保存配置才会重建定时任务。", -1))
           ]),
           _: 1
         })
@@ -553,7 +578,7 @@ return (_ctx, _cache) => {
         "prepend-icon": "mdi-content-save",
         onClick: save
       }, {
-        default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+        default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
           _createTextVNode(" 保存配置 ", -1)
         ]))]),
         _: 1
@@ -565,7 +590,7 @@ return (_ctx, _cache) => {
         "prepend-icon": "mdi-radar",
         onClick: runOnce
       }, {
-        default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+        default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
           _createTextVNode(" 立即运行一次 ", -1)
         ]))]),
         _: 1
@@ -573,20 +598,20 @@ return (_ctx, _cache) => {
       _createVNode(_component_VBtn, {
         variant: "text",
         "prepend-icon": "mdi-close",
-        onClick: _cache[9] || (_cache[9] = $event => (emit('close')))
+        onClick: _cache[10] || (_cache[10] = $event => (emit('close')))
       }, {
-        default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
+        default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
           _createTextVNode("关闭", -1)
         ]))]),
         _: 1
       })
     ]),
-    _cache[23] || (_cache[23] = _createElementVNode("div", { class: "sc-hint mt-3" }, " 「立即运行一次」会真实触发一次发现流程；首次仍会强制 dry-run，不会写入订阅。 ", -1))
+    _cache[25] || (_cache[25] = _createElementVNode("div", { class: "sc-hint mt-3" }, " 「立即运行一次」会真实触发一次发现流程；首次仍会强制 dry-run，不会写入订阅。 ", -1))
   ]))
 }
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5f02cba1"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d1ddf72c"]]);
 
 export { Config as default };

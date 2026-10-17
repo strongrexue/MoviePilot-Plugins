@@ -29,6 +29,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/status", plugin.api_status, ["GET"], "获取插件运行状态与各源情况"),
         ("/history", plugin.api_history, ["GET"], "分页查询发现/写入流水"),
         ("/run_once", plugin.api_run_once, ["POST"], "手动触发一次发现任务"),
+        ("/preview", plugin.api_preview, ["POST"], "只读预览：跑一次但不写入"),
         ("/mapping_cache", plugin.api_mapping_cache, ["GET"], "查看身份映射缓存"),
         ("/mapping_cache/fix", plugin.api_mapping_fix, ["POST"], "人工修正一条身份映射"),
     ]
@@ -93,6 +94,19 @@ async def api_run_once(plugin) -> Any:
         raise HTTPException(status_code=500, detail="手动运行失败") from err
 
 
+async def api_preview(plugin) -> Any:
+    """只读预览：跑完整流水线但不写入订阅，返回会订哪些。
+
+    与 `/run_once` 共用同一把互斥锁，但**不消耗每日写入额度**。
+    """
+    try:
+        result = await plugin.preview()
+        return schemas.Response(success=True, data=result)
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 预览失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="预览失败") from err
+
+
 async def api_mapping_cache(plugin) -> Any:
     """返回映射缓存内容。"""
     try:
@@ -121,6 +135,7 @@ async def api_mapping_fix(plugin, request: api_schemas.MappingFixRequest) -> Any
 __all__ = [
     "api_history",
     "api_mapping_cache",
+    "api_preview",
     "api_mapping_fix",
     "api_run_once",
     "api_status",

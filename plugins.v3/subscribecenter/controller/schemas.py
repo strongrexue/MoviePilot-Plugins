@@ -84,6 +84,35 @@ class RunOnceResult(BaseModel):
     summary: Dict[str, Any] = Field(default_factory=dict, description="运行汇总")
 
 
+# --------------------------------------------------------------------- 只读预览
+
+class PreviewItem(BaseModel):
+    """预览中的一条候选。"""
+
+    title: str = Field(description="标题")
+    year: Optional[str] = Field(default=None, description="年份")
+    media_type: str = Field(default="", description="movie / tv")
+    release_date: Optional[str] = Field(default=None, description="定档日期")
+    popularity: Optional[float] = Field(default=None, description="关注度")
+    rating: Optional[float] = Field(default=None, description="评分")
+    language: str = Field(default="", description="原始语言")
+    source: str = Field(default="", description="数据源")
+    confidence: str = Field(default="", description="身份置信度")
+    media_source: str = Field(default="", description="解析出的媒体来源")
+    media_id: str = Field(default="", description="解析出的媒体 ID")
+    decision: str = Field(default="", description="决策")
+    reason: str = Field(default="", description="原因")
+
+
+class PreviewResult(BaseModel):
+    """只读预览结果：会订哪些、被拦下多少、原因分布。"""
+
+    skipped: bool = Field(default=False, description="是否因已有运行而跳过")
+    summary: Dict[str, Any] = Field(default_factory=dict, description="运行汇总")
+    items: List[PreviewItem] = Field(default_factory=list, description="候选明细（按关注度降序）")
+    rejections: Dict[str, int] = Field(default_factory=dict, description="被拦下的原因分布")
+
+
 # --------------------------------------------------------------------- 映射缓存
 
 class MappingEntry(BaseModel):
@@ -123,6 +152,7 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
     "/run_once": RunOnceResult,
+    "/preview": PreviewResult,
     "/mapping_cache": MappingCacheView,
     "/mapping_cache/fix": MappingFixResult,
 }
@@ -137,6 +167,8 @@ __all__ = [
     "MappingFixRequest",
     "MappingFixResult",
     "PluginStatus",
+    "PreviewItem",
+    "PreviewResult",
     "RunOnceResult",
     "SourceState",
 ]

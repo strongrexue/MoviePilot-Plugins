@@ -41,6 +41,8 @@ export const configDefaults = {
   // ---------------- 测试辅助
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
+  // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
+  config_version: 2,
   // ---------------- 一次性执行
   onlyonce: false,
 }

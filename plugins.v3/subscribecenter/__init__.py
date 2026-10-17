@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.3.1"
+    plugin_version = "0.4.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -108,6 +108,11 @@ class SubscribeCenter(_PluginBase):
         merged.update(config or {})
         self._config = merged
 
+        # 存量配置迁移：把「改了默认值」的键推到老用户配置上。
+        # 不做这一步的话，用户库里的旧值会在 merge 后胜出 —— 改默认值等于白改
+        # （真机踩过：窗口从 30 改成 8 后，用户库里仍是 30）。
+        self._migrate_config()
+
         # 一次性开关：读取后立刻置回默认值，避免长期生效
         self._consume_one_shot_flags()
 
@@ -118,6 +123,29 @@ class SubscribeCenter(_PluginBase):
         daily_limit = self._int_config("daily_limit", C.DEFAULT_DAILY_LIMIT)
         self._writer = SubscriptionWriter(HostSubscribeBackend(), daily_limit=daily_limit)
         self._last_run = self._state().get("last_run")
+
+    def _migrate_config(self) -> None:
+        """把「改了默认值」的配置键推到存量配置上并落库。
+
+        背景：``init_plugin`` 是「默认值 merge 存量配置」，用户库里存着旧值时
+        旧值胜出，所以只改 ``default_config()`` 的默认值**对老用户无效**。
+        真机踩过：窗口默认 30 -> 8 后，用户库里仍是 30，白等一轮。
+
+        迁移规则登记在 ``core/constants.py`` 的 :func:`config_migrations`，
+        只覆盖「数值默认值调整」这类安全键，不动用户可能主动改过的开关。
+        """
+        try:
+            migrated, changed, changes = C.migrate_config(dict(self._config))
+            self._config = migrated
+            if not changed:
+                return
+            self.update_config(self._config)
+            logger.info(
+                "[SubscribeCenter] 存量配置已迁移到 v%s：%s"
+                % (C.CONFIG_VERSION, "；".join(changes))
+            )
+        except Exception as err:  # noqa: BLE001 - 迁移失败不应影响插件加载
+            logger.warning(f"[SubscribeCenter] 配置迁移失败：{err}")
 
     def _consume_one_shot_flags(self) -> None:
         """处理并复位一次性开关。
@@ -213,6 +241,10 @@ class SubscribeCenter(_PluginBase):
         """手动触发一次发现任务。"""
         return await api_controller.api_run_once(self)
 
+    async def api_preview(self) -> Any:
+        """只读预览：跑一次但不写入。"""
+        return await api_controller.api_preview(self)
+
     async def api_mapping_cache(self) -> Any:
         """查看身份映射缓存。"""
         return await api_controller.api_mapping_cache(self)
@@ -268,7 +300,9 @@ class SubscribeCenter(_PluginBase):
             return
         started = local_now_text(self._tz())
         logger.info(f"[SubscribeCenter] 定时发现开始（{started}）")
-        summary = self._bridge.run(self._pipeline_coroutine, timeout=600)
+        summary = self._bridge.run(
+            lambda: self._pipeline_coroutine(force_dry_run=False), timeout=600
+        )
         if summary is None:
             logger.info("[SubscribeCenter] 已有流水线在运行，本次定时发现跳过")
             return
@@ -279,14 +313,68 @@ class SubscribeCenter(_PluginBase):
 
         与定时任务共用同一把互斥锁；已在运行时返回 ``skipped=True``。
         """
-        summary = await self._bridge.run_async(self._pipeline_coroutine, timeout=600)
+        summary = await self._bridge.run_async(
+            lambda: self._pipeline_coroutine(force_dry_run=False), timeout=600
+        )
         if summary is None:
             return {"accepted": True, "skipped": True, "summary": self._last_summary}
         self._after_run(summary)
         return {"accepted": True, "skipped": False, "summary": summary.to_summary()}
 
-    async def _pipeline_coroutine(self) -> RunSummary:
-        """构造并执行一次流水线（两种入口共用的唯一实现）。"""
+    async def preview(self) -> Dict[str, Any]:
+        """**只读预览**：跑完整流水线但不写入，返回「会订哪些」。
+
+        这是调参的主要工具 —— 每次改门槛/窗口都真跑一次会消耗每日额度、
+        还要在真机上来回试。预览不写订阅、不计入额度，直接把候选列出来。
+
+        :return: ``{"skipped": bool, "summary": {...}, "items": [...], "rejections": {...}}``
+        """
+        summary = await self._bridge.run_async(
+            lambda: self._pipeline_coroutine(force_dry_run=True), timeout=600
+        )
+        if summary is None:
+            return {"skipped": True, "summary": self._last_summary, "items": []}
+
+        # 预览只留流水，不动今日计数
+        self._after_run(summary, is_preview=True)
+
+        items: List[Dict[str, Any]] = []
+        outcomes = summary.report.outcomes if summary.report else []
+        for outcome in outcomes:
+            item = outcome.item
+            identity = item.resolved
+            items.append(
+                {
+                    "title": item.title,
+                    "year": item.year,
+                    "media_type": item.media_type,
+                    "release_date": item.release_date,
+                    "popularity": item.popularity,
+                    "rating": item.rating,
+                    "language": str((item.raw or {}).get("original_language") or ""),
+                    "source": item.source,
+                    "confidence": item.confidence,
+                    "media_source": identity.media_source if identity else "",
+                    "media_id": identity.media_id if identity else "",
+                    "decision": outcome.decision,
+                    "reason": outcome.reason,
+                }
+            )
+        items.sort(key=lambda row: -(row.get("popularity") or 0.0))
+
+        data = summary.to_summary()
+        return {
+            "skipped": False,
+            "summary": data,
+            "items": items,
+            "rejections": data.get("rejected_reasons") or {},
+        }
+
+    async def _pipeline_coroutine(self, *, force_dry_run: bool = False) -> RunSummary:
+        """构造并执行一次流水线（三种入口共用的唯一实现）。
+
+        :param force_dry_run: 强制只读（预览用）。预览**不消耗**每日写入额度。
+        """
         resolver = self._resolver
         if resolver is None:
             # init_plugin 未跑过（例如直接调 API）：按需重建，避免 AttributeError
@@ -311,7 +399,7 @@ class SubscribeCenter(_PluginBase):
             future_days=self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS),
             min_rating=self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING),
             min_popularity=self._float_config("min_popularity", C.DEFAULT_MIN_POPULARITY),
-            dry_run=bool(self._config.get("dry_run")),
+            dry_run=bool(self._config.get("dry_run")) or force_dry_run,
             first_run=first_run,
             already_written_today=self._written_today(),
             tz_name=self._tz(),
@@ -358,8 +446,11 @@ class SubscribeCenter(_PluginBase):
 
     # ------------------------------------------------------------------ 运行后处理
 
-    def _after_run(self, summary: RunSummary) -> None:
-        """落流水、更新状态、记录日志、按需通知。"""
+    def _after_run(self, summary: RunSummary, *, is_preview: bool = False) -> None:
+        """落流水、更新状态、记录日志、按需通知。
+
+        :param is_preview: 只读预览。**不累加每日写入计数**，也不影响通知。
+        """
         data = summary.to_summary()
         self._last_summary = data
         self._last_run = summary.finished_at or local_now_text(self._tz())
@@ -378,8 +469,9 @@ class SubscribeCenter(_PluginBase):
         outcomes: List[WriteOutcome] = list(summary.prefiltered)
         if summary.report:
             outcomes.extend(summary.report.outcomes)
-            for _ in summary.report.added:
-                self._bump_daily_counter()
+            if not is_preview:
+                for _ in summary.report.added:
+                    self._bump_daily_counter()
 
         self._append_history(outcomes, run_at=self._last_run)
 

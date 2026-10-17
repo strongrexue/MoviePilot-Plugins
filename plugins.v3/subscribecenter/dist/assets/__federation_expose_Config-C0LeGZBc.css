@@ -1,0 +1,19 @@
+
+.sc-root[data-v-82b239ed] {
+  padding: 4px;
+}
+.sc-hint[data-v-82b239ed] {
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+.sc-preview-row[data-v-82b239ed] {
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
+}
+.sc-preview-row[data-v-82b239ed]:last-child {
+  border-bottom: none;
+}
+.sc-warn[data-v-82b239ed] {
+  color: rgb(var(--v-theme-warning));
+}

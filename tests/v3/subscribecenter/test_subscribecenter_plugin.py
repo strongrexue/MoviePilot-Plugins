@@ -226,6 +226,7 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/status",
         "/history",
         "/run_once",
+        "/preview",
         "/mapping_cache",
         "/mapping_cache/fix",
     }
@@ -242,7 +243,7 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
 
 def test_every_route_has_a_response_model():
     """路由与响应模型映射不得有缺口。"""
-    declared = {"/status", "/history", "/run_once", "/mapping_cache", "/mapping_cache/fix"}
+    declared = {"/status", "/history", "/run_once", "/preview", "/mapping_cache", "/mapping_cache/fix"}
     assert declared == set(api_schemas.API_RESPONSE_MODELS)
 
 

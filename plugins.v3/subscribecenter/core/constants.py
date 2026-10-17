@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.3.1"
+PLUGIN_VERSION = "0.4.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -99,6 +99,10 @@ IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB})
 
 # --------------------------------------------------------------------- 配置
 
+#: 当前配置结构版本。每次改了默认值且希望老用户跟着变，就 +1 并在 config_migrations 登记。
+CONFIG_VERSION = 2
+
+
 def default_config() -> Dict[str, Any]:
     """返回插件默认配置。
 
@@ -144,6 +148,8 @@ def default_config() -> Dict[str, Any]:
         #: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试。
         #: 用完自动置回 False（否则每日额度会永远失效）。
         "reset_daily_counter": False,
+        # ---------------- 配置结构版本（用于把默认值变更推给存量配置）
+        "config_version": CONFIG_VERSION,
         # ---------------- 一次性执行（不持久化语义，保存后由宿主清理）
         "onlyonce": False,
     }
@@ -151,6 +157,63 @@ def default_config() -> Dict[str, Any]:
 
 #: 一次性开关：读取后必须立刻置回默认值（避免长期生效）
 ONE_SHOT_FLAGS = frozenset({"reset_daily_counter", "onlyonce"})
+
+
+# --------------------------------------------------------------------- 配置迁移
+
+#: 当前配置结构版本。**每次改了默认值且希望老用户跟着变，就 +1 并在下面登记。**
+def config_migrations() -> Dict[int, Dict[str, Any]]:
+    """返回「从某版本升到下一版本时要覆盖的键值」。
+
+    背景：宿主 ``update_config()`` 保存的是**完整快照**，``init_plugin``
+    也是「默认值 merge 存量配置」。所以只改 `default_config()` 的默认值，
+    **老用户的存量配置不会跟着变** —— 他们库里存着旧值，merge 后旧值胜出。
+
+    真机踩过：把窗口默认值从 30 改成 8 后，用户的库里仍是
+    ``tmdb_future_days=30``，白等了一轮。
+
+    .. note::
+       这里只登记「改了默认值、且希望存量跟随」的键。
+       **凡是用户可能主动改过的键都要谨慎** —— 例如把开关从 True 改成 False
+       再覆盖，会把用户手动打开的开关关掉。
+       当前登记的都是「数值默认值调整」，覆盖是安全的（老用户几乎不可能
+       正好把它们设成旧默认值）。
+    """
+    return {
+        # v1 -> v2：窗口收紧 30 -> 8 天（8 天 = 8 次容错机会，且不订太早的片）
+        2: {"tmdb_future_days": DEFAULT_FUTURE_DAYS},
+    }
+
+
+def migrate_config(config: Dict[str, Any]) -> tuple:
+    """按 ``config_migrations`` 升级存量配置。
+
+    :param config: 已与默认值合并的配置字典
+    :return: ``(配置, 是否发生变更, 变更说明列表)``
+    """
+    stored = config.get("config_version")
+    try:
+        current = int(stored)
+    except (TypeError, ValueError):
+        # 老配置没有该键：视为版本 1（即「窗口 30 天」那一代）
+        current = 1
+
+    migrations = config_migrations()
+    changes: list = []
+    while current < CONFIG_VERSION:
+        next_version = current + 1
+        patch = migrations.get(next_version) or {}
+        for key, value in patch.items():
+            if config.get(key) != value:
+                config[key] = value
+                changes.append(f"{key}: -> {value}")
+        current = next_version
+
+    if stored != CONFIG_VERSION:
+        config["config_version"] = CONFIG_VERSION
+        if not changes:
+            changes.append(f"config_version -> {CONFIG_VERSION}")
+    return config, bool(changes), changes
 
 
 #: 不进前端表单、仅后端自管的状态键（前端整份回写时必须排除）

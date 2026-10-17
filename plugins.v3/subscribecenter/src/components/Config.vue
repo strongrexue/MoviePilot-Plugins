@@ -33,6 +33,22 @@ const loading = ref(false)
 const busy = ref('')
 const status = ref(null)
 const tip = ref({ show: false, ok: true, text: '' })
+const previewItems = ref([])
+
+/** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
+const DECISION_LABELS = {
+  added: '新增',
+  skipped_dry_run: 'dry-run',
+  pending_review: '待确认',
+  skipped_rating: '评分不足',
+  skipped_popularity: '关注度不足',
+  skipped_out_of_window: '超出窗口',
+  skipped_not_future: '档期已过',
+  skipped_duplicate: '重复',
+  skipped_daily_limit: '触达上限',
+  skipped_already_subscribed: '已订阅',
+  skipped_already_completed: '已完成过',
+}
 
 /** 后端版本号；与前端不一致时提示硬刷新。 */
 const backendVersion = computed(() => String(status.value?.plugin_version || ''))
@@ -142,6 +158,38 @@ async function runOnce() {
     await loadStatus()
   } catch (error) {
     setTip(error?.message || '运行失败', false)
+  } finally {
+    busy.value = ''
+  }
+}
+
+/**
+ * 只读预览：跑完整流水线但**不写订阅、不消耗每日额度**。
+ * 这是调参的主要工具 —— 改门槛/窗口后先预览，满意再真跑。
+ */
+async function preview() {
+  if (busy.value) return
+  busy.value = 'preview'
+  previewItems.value = []
+  try {
+    const result = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'preview', {}, { timeoutMs: 600000 }),
+    )
+    if (result?.skipped) {
+      setTip('已有发现任务正在运行，本次跳过')
+      return
+    }
+    previewItems.value = result?.items || []
+    const s = result?.summary || {}
+    const reasons = Object.entries(result?.rejections || {})
+      .map(([key, count]) => `${DECISION_LABELS[key] || key} ${count}`)
+      .join(' · ')
+    setTip(
+      `预览完成（未写入）：会订 ${previewItems.value.length} 条 / 拉取 ${s.fetched ?? 0} 条`
+        + (reasons ? `；被拦下：${reasons}` : ''),
+    )
+  } catch (error) {
+    setTip(error?.message || '预览失败', false)
   } finally {
     busy.value = ''
   }
@@ -384,6 +432,16 @@ onMounted(() => {
       </VBtn>
       <VBtn
         variant="tonal"
+        color="info"
+        :loading="busy === 'preview'"
+        :disabled="loading"
+        prepend-icon="mdi-eye-outline"
+        @click="preview"
+      >
+        预览（只看不订）
+      </VBtn>
+      <VBtn
+        variant="tonal"
         :loading="busy === 'run'"
         :disabled="loading"
         prepend-icon="mdi-radar"
@@ -395,8 +453,32 @@ onMounted(() => {
     </div>
 
     <div class="sc-hint mt-3">
-      「立即运行一次」会真实触发一次发现流程；首次仍会强制 dry-run，不会写入订阅。
+      「<b>预览</b>」跑完整流程但不写订阅、<b>不消耗每日额度</b> —— 调参时先用它看结果。
+      「立即运行一次」会真实写入（首次仍强制 dry-run）。
     </div>
+
+    <VCard v-if="previewItems.length" variant="outlined" class="mt-3">
+      <VCardTitle class="text-subtitle-1 d-flex align-center flex-wrap ga-2">
+        <span>预览结果</span>
+        <VChip size="x-small" variant="flat" color="info">会订 {{ previewItems.length }} 条</VChip>
+        <VChip size="x-small" variant="tonal">未写入、未消耗额度</VChip>
+      </VCardTitle>
+      <VCardText>
+        <div v-for="(row, index) in previewItems" :key="index" class="sc-preview-row">
+          <div class="d-flex align-center flex-wrap ga-2">
+            <VChip size="x-small" variant="flat" color="info">{{ row.media_type }}</VChip>
+            <b>{{ row.title }}</b>
+            <span v-if="row.year" class="sc-hint">({{ row.year }})</span>
+            <span v-if="row.release_date" class="sc-hint">放送 {{ row.release_date }}</span>
+            <VChip v-if="row.language" size="x-small" variant="text">{{ row.language }}</VChip>
+            <VChip size="x-small" variant="tonal" color="warning">
+              关注度 {{ row.popularity != null ? row.popularity.toFixed(1) : '—' }}
+            </VChip>
+            <span v-if="row.rating != null" class="sc-hint">评分 {{ row.rating }}</span>
+          </div>
+        </div>
+      </VCardText>
+    </VCard>
   </div>
 </template>
 
@@ -408,6 +490,13 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.5;
   opacity: 0.7;
+}
+.sc-preview-row {
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
+}
+.sc-preview-row:last-child {
+  border-bottom: none;
 }
 .sc-warn {
   color: rgb(var(--v-theme-warning));

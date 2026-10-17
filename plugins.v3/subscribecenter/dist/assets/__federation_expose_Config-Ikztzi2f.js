@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-DFsL7PC_.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-LX8yMAhC.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -44,6 +44,8 @@ const configDefaults = {
   // ---------------- 测试辅助
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
+  // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
+  config_version: 2,
   // ---------------- 一次性执行
   onlyonce: false,
 };
@@ -63,6 +65,19 @@ const _hoisted_3 = {
   class: "sc-warn"
 };
 const _hoisted_4 = { class: "d-flex flex-wrap ga-2" };
+const _hoisted_5 = { class: "d-flex align-center flex-wrap ga-2" };
+const _hoisted_6 = {
+  key: 0,
+  class: "sc-hint"
+};
+const _hoisted_7 = {
+  key: 1,
+  class: "sc-hint"
+};
+const _hoisted_8 = {
+  key: 3,
+  class: "sc-hint"
+};
 
 const {computed,onMounted,ref} = await importShared('vue');
 
@@ -96,6 +111,22 @@ const loading = ref(false);
 const busy = ref('');
 const status = ref(null);
 const tip = ref({ show: false, ok: true, text: '' });
+const previewItems = ref([]);
+
+/** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
+const DECISION_LABELS = {
+  added: '新增',
+  skipped_dry_run: 'dry-run',
+  pending_review: '待确认',
+  skipped_rating: '评分不足',
+  skipped_popularity: '关注度不足',
+  skipped_out_of_window: '超出窗口',
+  skipped_not_future: '档期已过',
+  skipped_duplicate: '重复',
+  skipped_daily_limit: '触达上限',
+  skipped_already_subscribed: '已订阅',
+  skipped_already_completed: '已完成过',
+};
 
 /** 后端版本号；与前端不一致时提示硬刷新。 */
 const backendVersion = computed(() => String(status.value?.plugin_version || ''));
@@ -205,6 +236,38 @@ async function runOnce() {
     await loadStatus();
   } catch (error) {
     setTip(error?.message || '运行失败', false);
+  } finally {
+    busy.value = '';
+  }
+}
+
+/**
+ * 只读预览：跑完整流水线但**不写订阅、不消耗每日额度**。
+ * 这是调参的主要工具 —— 改门槛/窗口后先预览，满意再真跑。
+ */
+async function preview() {
+  if (busy.value) return
+  busy.value = 'preview';
+  previewItems.value = [];
+  try {
+    const result = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'preview', {}, { timeoutMs: 600000 }),
+    );
+    if (result?.skipped) {
+      setTip('已有发现任务正在运行，本次跳过');
+      return
+    }
+    previewItems.value = result?.items || [];
+    const s = result?.summary || {};
+    const reasons = Object.entries(result?.rejections || {})
+      .map(([key, count]) => `${DECISION_LABELS[key] || key} ${count}`)
+      .join(' · ');
+    setTip(
+      `预览完成（未写入）：会订 ${previewItems.value.length} 条 / 拉取 ${s.fetched ?? 0} 条`
+        + (reasons ? `；被拦下：${reasons}` : ''),
+    );
+  } catch (error) {
+    setTip(error?.message || '预览失败', false);
   } finally {
     busy.value = '';
   }
@@ -624,12 +687,25 @@ return (_ctx, _cache) => {
       }, 8, ["loading", "disabled"]),
       _createVNode(_component_VBtn, {
         variant: "tonal",
+        color: "info",
+        loading: busy.value === 'preview',
+        disabled: loading.value,
+        "prepend-icon": "mdi-eye-outline",
+        onClick: preview
+      }, {
+        default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
+          _createTextVNode(" 预览（只看不订） ", -1)
+        ]))]),
+        _: 1
+      }, 8, ["loading", "disabled"]),
+      _createVNode(_component_VBtn, {
+        variant: "tonal",
         loading: busy.value === 'run',
         disabled: loading.value,
         "prepend-icon": "mdi-radar",
         onClick: runOnce
       }, {
-        default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
+        default: _withCtx(() => [...(_cache[29] || (_cache[29] = [
           _createTextVNode(" 立即运行一次 ", -1)
         ]))]),
         _: 1
@@ -639,18 +715,116 @@ return (_ctx, _cache) => {
         "prepend-icon": "mdi-close",
         onClick: _cache[13] || (_cache[13] = $event => (emit('close')))
       }, {
-        default: _withCtx(() => [...(_cache[29] || (_cache[29] = [
+        default: _withCtx(() => [...(_cache[30] || (_cache[30] = [
           _createTextVNode("关闭", -1)
         ]))]),
         _: 1
       })
     ]),
-    _cache[30] || (_cache[30] = _createElementVNode("div", { class: "sc-hint mt-3" }, " 「立即运行一次」会真实触发一次发现流程；首次仍会强制 dry-run，不会写入订阅。 ", -1))
+    _cache[33] || (_cache[33] = _createElementVNode("div", { class: "sc-hint mt-3" }, [
+      _createTextVNode(" 「"),
+      _createElementVNode("b", null, "预览"),
+      _createTextVNode("」跑完整流程但不写订阅、"),
+      _createElementVNode("b", null, "不消耗每日额度"),
+      _createTextVNode(" —— 调参时先用它看结果。 「立即运行一次」会真实写入（首次仍强制 dry-run）。 ")
+    ], -1)),
+    (previewItems.value.length)
+      ? (_openBlock(), _createBlock(_component_VCard, {
+          key: 2,
+          variant: "outlined",
+          class: "mt-3"
+        }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VCardTitle, { class: "text-subtitle-1 d-flex align-center flex-wrap ga-2" }, {
+              default: _withCtx(() => [
+                _cache[32] || (_cache[32] = _createElementVNode("span", null, "预览结果", -1)),
+                _createVNode(_component_VChip, {
+                  size: "x-small",
+                  variant: "flat",
+                  color: "info"
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode("会订 " + _toDisplayString(previewItems.value.length) + " 条", 1)
+                  ]),
+                  _: 1
+                }),
+                _createVNode(_component_VChip, {
+                  size: "x-small",
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => [...(_cache[31] || (_cache[31] = [
+                    _createTextVNode("未写入、未消耗额度", -1)
+                  ]))]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }),
+            _createVNode(_component_VCardText, null, {
+              default: _withCtx(() => [
+                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(previewItems.value, (row, index) => {
+                  return (_openBlock(), _createElementBlock("div", {
+                    key: index,
+                    class: "sc-preview-row"
+                  }, [
+                    _createElementVNode("div", _hoisted_5, [
+                      _createVNode(_component_VChip, {
+                        size: "x-small",
+                        variant: "flat",
+                        color: "info"
+                      }, {
+                        default: _withCtx(() => [
+                          _createTextVNode(_toDisplayString(row.media_type), 1)
+                        ]),
+                        _: 2
+                      }, 1024),
+                      _createElementVNode("b", null, _toDisplayString(row.title), 1),
+                      (row.year)
+                        ? (_openBlock(), _createElementBlock("span", _hoisted_6, "(" + _toDisplayString(row.year) + ")", 1))
+                        : _createCommentVNode("", true),
+                      (row.release_date)
+                        ? (_openBlock(), _createElementBlock("span", _hoisted_7, "放送 " + _toDisplayString(row.release_date), 1))
+                        : _createCommentVNode("", true),
+                      (row.language)
+                        ? (_openBlock(), _createBlock(_component_VChip, {
+                            key: 2,
+                            size: "x-small",
+                            variant: "text"
+                          }, {
+                            default: _withCtx(() => [
+                              _createTextVNode(_toDisplayString(row.language), 1)
+                            ]),
+                            _: 2
+                          }, 1024))
+                        : _createCommentVNode("", true),
+                      _createVNode(_component_VChip, {
+                        size: "x-small",
+                        variant: "tonal",
+                        color: "warning"
+                      }, {
+                        default: _withCtx(() => [
+                          _createTextVNode(" 关注度 " + _toDisplayString(row.popularity != null ? row.popularity.toFixed(1) : '—'), 1)
+                        ]),
+                        _: 2
+                      }, 1024),
+                      (row.rating != null)
+                        ? (_openBlock(), _createElementBlock("span", _hoisted_8, "评分 " + _toDisplayString(row.rating), 1))
+                        : _createCommentVNode("", true)
+                    ])
+                  ]))
+                }), 128))
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        }))
+      : _createCommentVNode("", true)
   ]))
 }
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5629096e"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-82b239ed"]]);
 
 export { Config as default };

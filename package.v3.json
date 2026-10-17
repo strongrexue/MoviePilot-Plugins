@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "0.2.1",
+        "version": "0.2.2",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v0.2.2": "修复 TMDB 源服务端评分过滤把新片全滤掉（0.2.1 真实事故）：未来 30 天内要上映的片子全都还没人评分（vote_average=0），而我给 discover 加了 vote_average.gte 下界，实测把 1708 部窗口内电影压到 4 部、229 部剧集压到 0 部——这正是「拉取 4 条」的来源。移除服务端评分过滤，评分只在流水线里排除「有评分且明确过低」的条目（未评分的新片一律保留）；窗口内条目改由 popularity.desc 排序保证关注度靠前的先入选。新增 2 项回归测试：请求参数里不得出现 vote_average.gte / vote_count.gte，未评分新片必须被保留。",
             "v0.2.1": "修复 TMDB 源日期窗口失效（0.2.0 真实事故）：宿主的 tmdb_discover 把过滤写死成 release_date.gte，而 TMDB 并不接受该参数作为过滤条件（它只是排序字段），下界被静默忽略；再叠加日期升序排序，TMDB 把 release_date 为空的条目当最小值排最前，结果拉回的全是 1926 年前后的默片，100 条全部落在窗口外。改为直接调用模块层 TmdbApi.async_discover_*，用主程序不暴露的正确参数 primary_release_date.gte/lte（电影）与 first_air_date.gte/lte（剧集），并叠加 popularity.desc 排序保证既有热门也有长尾；评分改为只在流水线里对「有评分且明确过低」的条目排除（TMDB 新片普遍 vote_average=0，服务端硬过滤会把新片全滤掉）。同时修复摘要口径：skipped 只统计了写入阶段，没算被预过滤拦下的条目，表现为「拉取 100 / 跳过 0」的假象；现在合并统计并给出 rejected_reasons 原因分布，界面和日志能直接看出为什么一条都没写。新增 12 项 TMDB 源回归测试（含「必须用 primary_release_date」的参数锁）。",
             "v0.2.0": "新增 Vue 联邦前端（配置页 / 详情页 / 仪表盘 / 发现页整页入口）：配置页落地所有配置项并支持保存（同时走宿主编排与自己 PUT 兜底，保证点了保存一定落库）、「立即运行一次」按钮、前后端版本不一致提示；详情页展示运行状态、各数据源情况与分页发现流水，支持按决策筛选；仪表盘紧凑展示今日写入进度与最近运行。修复 0.1.0 只有后端导致的「配置页无法加载组件、无法启用保存」问题。",
             "v0.1.0": "首个版本（P0+P1）：插件骨架与每日定时发现；TMDB 数据源（复用宿主 TmdbChain，按定档日期升序 + 本地窗口过滤，规避宿主 discover 无日期上界的限制）；身份分级解析 L1–L4（L4 模糊匹配永不写入，只进待确认）；订阅写入走 SubscribeChain.async_add（身份为 media_source + media_id 成对字段），写入前复查活跃订阅与订阅历史；每日写入上限、首次运行强制 dry-run、结构化日志与汇总通知；/status /history /run_once /mapping_cache /mapping_cache/fix 五个后端接口。Bangumi、豆瓣 RSS、Simkl 与 Vue 联邦前端尚未实现，配置中启用后会在日志中明确跳过。"

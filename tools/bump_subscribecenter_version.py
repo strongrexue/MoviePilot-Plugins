@@ -22,21 +22,22 @@ def main() -> int:
 
     import re
 
-    #: (文件, 匹配整行的正则, 替换模板) —— 只替换值，保留声明前缀
+    #: (文件, 匹配整行的正则, 替换模板) —— 只替换值，保留声明前缀。
+    #: 注意必须带 re.MULTILINE：``^`` 否则只匹配文件开头，版本行在中间就匹配不到。
     patterns = [
         (
             PLUGIN / "core" / "constants.py",
-            re.compile(r'^(PLUGIN_VERSION\s*=\s*)"[^"]*"'),
+            re.compile(r"^(PLUGIN_VERSION\s*=\s*)\"[^\"]*\"", re.MULTILINE),
             rf'\g<1>"{version}"',
         ),
         (
             PLUGIN / "__init__.py",
-            re.compile(r'^(\s*plugin_version\s*=\s*)"[^"]*"'),
+            re.compile(r"^(\s*plugin_version\s*=\s*)\"[^\"]*\"", re.MULTILINE),
             rf'\g<1>"{version}"',
         ),
         (
             PLUGIN / "src" / "components" / "version.js",
-            re.compile(r"^(export\s+const\s+FRONTEND_VERSION\s*=\s*)'[^']*'"),
+            re.compile(r"^(export\s+const\s+FRONTEND_VERSION\s*=\s*)'[^']*'", re.MULTILINE),
             rf"\g<1>'{version}'",
         ),
     ]

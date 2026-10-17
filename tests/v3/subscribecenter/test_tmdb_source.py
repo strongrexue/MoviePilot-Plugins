@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "plugins.v3"))
 from subscribecenter.core import constants as C  # noqa: E402
 from subscribecenter.sources.tmdb import TmdbSource  # noqa: E402
 
-
 TODAY = date.today()
 
 
@@ -118,6 +117,41 @@ async def test_window_bounds_match_configured_days():
     start = date.fromisoformat(params["primary_release_date.gte"])
     end = date.fromisoformat(params["primary_release_date.lte"])
     assert (end - start).days == 7
+
+
+@pytest.mark.asyncio
+async def test_never_sends_server_side_rating_filter():
+    """**不得发送任何 ``vote_average.gte`` 下界**。
+
+    未来 30 天内要上映的片子全都还没人评分（``vote_average=0``），
+    服务端评分下界会把它们整体滤掉 —— 实测 ``gte=5.0`` 把 1708 部电影压到 4 部、
+    229 部剧集压到 0 部（0.2.1 事故）。评分只在流水线里判断，
+    且只排除「有评分且明确过低」的条目。
+    """
+    api = FakeTmdbApi(
+        movies=[movie(1, "2026-11-01")],
+        tvs=[tv_show(2, "2026-10-25")],
+    )
+    await TmdbSource(api, max_pages=2).fetch({**CONFIG, "min_rating_tmdb": 6.0})
+
+    assert api.calls
+    for kind, params in api.calls:
+        assert "vote_average.gte" not in params, f"{kind} 请求里不该有服务端评分过滤"
+        assert "vote_count.gte" not in params
+
+
+@pytest.mark.asyncio
+async def test_keeps_unrated_upcoming_items():
+    """未评分（vote=0）的新片必须被保留 —— 那正是「即将上映」的主体。"""
+    api = FakeTmdbApi(movies=[
+        movie(1, "2026-11-01", vote=0.0),   # 还没人评分的新片
+        movie(2, "2026-11-02", vote=8.5),   # 已有点评
+    ])
+    items = await TmdbSource(api, max_pages=1).fetch(CONFIG)
+    assert {i.source_id for i in items} == {"1", "2"}
+    by_id = {i.source_id: i for i in items}
+    assert by_id["1"].rating is None   # 未评分 → None，不是 0 分
+    assert by_id["2"].rating == 8.5
 
 
 @pytest.mark.asyncio

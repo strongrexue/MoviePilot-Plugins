@@ -40,10 +40,6 @@ from ..core.window import today
 #: 每种媒体类型每种排序的最大拉取页数
 DEFAULT_MAX_PAGES = 3
 
-#: 服务端评分下界的松弛量。TMDB 的新片普遍 ``vote_average=0``（还没人评分），
-#: 因此服务端不按评分硬过滤，评分只作为流水线里「明确过低」的排除依据。
-RATING_RELAX = 1.0
-
 #: 电影上映类型：2=限定上映, 3=院线上映
 MOVIE_RELEASE_TYPES = "2|3"
 
@@ -111,7 +107,6 @@ class TmdbSource:
                     sort_by=sort_by,
                     start=start.isoformat(),
                     end=end.isoformat(),
-                    min_rating=min_rating,
                     page=page,
                 )
                 raw = await self._discover(media_type, params)
@@ -148,19 +143,24 @@ class TmdbSource:
         sort_by: str,
         start: str,
         end: str,
-        min_rating: float,
         page: int,
     ) -> Dict[str, Any]:
         """构造 TMDB discover 参数。
 
-        **关键**：日期过滤必须用 ``primary_release_date.gte/lte``（电影）或
-        ``first_air_date.gte/lte``（剧集）。用 ``release_date.gte`` 会被 TMDB 忽略。
+        两个**必须**遵守的实测结论：
+
+        1. 日期过滤用 ``primary_release_date.gte/lte``（电影）或
+           ``first_air_date.gte/lte``（剧集）。用 ``release_date.gte`` 会被 TMDB
+           静默忽略（0.2.0 事故）。
+        2. **不要加 ``vote_average.gte``**：未来 30 天内要上映的片子全都还没人评分
+           （``vote_average=0``），任何服务端评分下界都会把它们整体滤掉
+           —— 实测 ``vote_average.gte=5.0`` 把 1708 部电影压到 4 部、229 部剧集压到 0 部
+           （0.2.1 事故）。评分判断只在流水线里对「**有评分且明确过低**」的条目生效。
         """
         params: Dict[str, Any] = {
             "sort_by": sort_by,
             "include_adult": "false",
             "page": page,
-            "vote_average.gte": max(0.0, float(min_rating) - RATING_RELAX),
         }
         if media_type == MEDIA_TYPE_TV:
             params["first_air_date.gte"] = start

@@ -62,6 +62,13 @@ class HistoryRecord(BaseModel):
     media_source: Optional[str] = Field(default=None, description="解析出的来源")
     media_id: Optional[str] = Field(default=None, description="解析出的媒体 ID")
     review_score: Optional[float] = Field(default=None, description="L4 待确认相似度")
+    #: TMDB 海报路径（形如 ``/abc.jpg``）。前端据此走插件后端代理取图 ——
+    #: 浏览器直连 image.tmdb.org 在国内网络下不可用。
+    #:
+    #: **必须在这里声明**，否则 pydantic 会把库里记录的该字段直接丢弃，
+    #: 前端拿不到 poster、也就不会发出 /poster 请求（真机现象：F12 里
+    #: 完全看不到 poster 请求，一行 placeholder 图标）。
+    poster: Optional[str] = Field(default=None, description="海报路径")
     run_at: str = Field(default="", description="所属运行时间")
 
 

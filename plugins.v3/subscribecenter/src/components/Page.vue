@@ -522,13 +522,13 @@ onUnmounted(() => {
 /* 卡片网格：多列并排（对齐榜单页的观感） */
 .sc-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+  gap: 12px;
 }
 .sc-card-item {
   display: flex;
-  gap: 9px;
-  padding: 8px;
+  gap: 10px;
+  padding: 10px;
   border: 1px solid rgba(var(--v-border-color), 0.14);
   border-radius: 9px;
   background: rgba(var(--v-theme-surface), 0.35);
@@ -536,9 +536,9 @@ onUnmounted(() => {
 }
 .sc-card-poster {
   position: relative;
-  flex: 0 0 56px;
-  width: 56px;
-  height: 80px;
+  flex: 0 0 88px;
+  width: 88px;
+  height: 126px;
   border-radius: 7px;
   overflow: hidden;
   display: grid;
@@ -566,7 +566,8 @@ onUnmounted(() => {
   flex: 1 1 auto;
 }
 .sc-card-title {
-  font-size: 12.5px;
+  font-size: 13.5px;
+  font-weight: 600;
   line-height: 1.35;
   overflow: hidden;
   display: -webkit-box;
@@ -574,16 +575,16 @@ onUnmounted(() => {
   -webkit-box-orient: vertical;
 }
 .sc-card-meta {
-  margin-top: 2px;
+  margin-top: 4px;
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 11.5px;
   opacity: 0.6;
 }
 .sc-card-reason {
-  margin-top: 3px;
-  font-size: 11px;
+  margin-top: 5px;
+  font-size: 11.5px;
   line-height: 1.4;
   opacity: 0.55;
   display: -webkit-box;
@@ -653,7 +654,7 @@ onUnmounted(() => {
 
 @media (max-width: 900px) {
   .sc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   }
 }
 </style>

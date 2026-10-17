@@ -274,3 +274,34 @@ def test_history_keeps_one_record_per_title():
     assert len(records) == 1, "同一部作品应该只留一条"
     assert records[0]["run_at"] == "r2", "应保留最新状态"
     assert records[0]["decision"] == DECISION_SKIPPED_ALREADY_SUBSCRIBED
+
+
+# --------------------------------------------------------------------- 海报字段
+
+def test_history_record_keeps_poster():
+    """`poster` 必须能穿过 schema —— 否则前端拿不到、也不会请求 /poster。
+
+    真机事故：`HistoryRecord` 里没有声明 `poster`，pydantic 把库里记录的
+    该字段直接丢弃，前端 `item.poster` 永远是 undefined，于是：
+    卡片只见占位图标，F12 里连一条 `/poster` 请求都没有。
+    """
+    from subscribecenter.controller.schemas import HistoryRecord
+
+    record = HistoryRecord(
+        decision="added",
+        poster="/abc.jpg",
+        title="某番",
+    )
+    assert record.poster == "/abc.jpg"
+    assert record.model_dump()["poster"] == "/abc.jpg"
+
+
+def test_history_item_whitelist_includes_poster():
+    """`_history_item` 的可选字段白名单也要带上 poster。"""
+    import importlib
+
+    module = importlib.import_module("subscribecenter")
+    assert "poster" in module._HISTORY_OPTIONAL_FIELDS
+
+    item = module._history_item({"decision": "added", "poster": "/x.jpg", "title": "T"})
+    assert item["poster"] == "/x.jpg"

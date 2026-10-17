@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.9.2"
+    plugin_version = "0.9.3"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -547,7 +547,7 @@ class SubscribeCenter(_PluginBase):
 
         self._log_summary(summary)
         if self._config.get("notify"):
-            self._notify_summary(summary)
+            self._notify_summary(summary, is_preview=is_preview)
 
     def _log_summary(self, summary: RunSummary) -> None:
         """输出结构化摘要日志（开发文档 §12）。"""
@@ -595,23 +595,49 @@ class SubscribeCenter(_PluginBase):
             result.append(f"…另有 {len(added) - limit} 条")
         return result
 
-    def _notify_summary(self, summary: RunSummary) -> None:
-        """发送运行摘要通知。"""
+    def _notify_summary(self, summary: RunSummary, *, is_preview: bool = False) -> None:
+        """发送运行摘要通知。
+
+        .. important::
+           dry-run / 预览时**不能报「新增 0 条」** —— 那会让人以为插件什么都没找到。
+           真机踩过：预览显示「新增 0 / 跳过 341」，实际那 341 条里本来有 79 条可订，
+           只是被 dry-run 拦下记成了「跳过」。这里改报「会订 N 条（未写入）」。
+        """
         data = summary.to_summary()
-        lines = [
-            f"新增：{data.get('added', 0)} 条",
-            f"跳过：{data.get('skipped', 0)} 条",
-            f"待确认：{data.get('pending_review', 0)} 条",
-        ]
+        dry = bool(summary.dry_run)
+
+        would_add = 0
+        if summary.report:
+            would_add = sum(
+                1
+                for outcome in summary.report.outcomes
+                if outcome.decision == C.DECISION_SKIPPED_DRY_RUN
+            )
+
+        if dry:
+            label = "预览" if is_preview else "dry-run"
+            lines = [
+                f"{label}：会订 {would_add} 条（未写入）",
+                f"拉取：{data.get('fetched', 0)} 条",
+                f"跳过：{data.get('skipped', 0)} 条",
+                f"待确认：{data.get('pending_review', 0)} 条",
+            ]
+        else:
+            lines = [
+                f"新增：{data.get('added', 0)} 条",
+                f"跳过：{data.get('skipped', 0)} 条",
+                f"待确认：{data.get('pending_review', 0)} 条",
+            ]
+
         if data.get("failed_sources"):
             lines.append(f"失败源：{', '.join(data['failed_sources'])}")
         if data.get("limit_hit"):
             lines.append("已触达每日写入上限")
-        if summary.dry_run:
-            lines.append("本次为 dry-run，未写入订阅")
         try:
             self.post_message(
-                title="胖虎订阅中心 · 发现完成",
+                title=(
+                    "胖虎订阅中心 · 预览完成" if is_preview else "胖虎订阅中心 · 发现完成"
+                ),
                 text="\n".join(lines),
             )
         except Exception as err:  # noqa: BLE001 - 通知失败不影响主流程

@@ -936,14 +936,12 @@ onMounted(() => {
 }
 
 /* 主体布局 */
-/* 主体：固定高度，右侧内容独立滚动 —— 切换分区时整体高度不跳动 */
+/* 主体：不设固定高度（宿主容器高度不可控，固定高度会让滚动条落到可视区外），
+   改为右侧内容给 max-height，超出才内部滚动；左侧导航跟随滚动。 */
 .sc-body {
   display: flex;
   gap: 12px;
-  align-items: stretch;
-  min-height: 420px;
-  height: min(64vh, 620px);
-  overflow: hidden;
+  align-items: flex-start;
 }
 .sc-nav {
   flex: 0 0 148px;
@@ -951,8 +949,8 @@ onMounted(() => {
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  min-height: 0;
-  overflow-y: auto;
+  position: sticky;
+  top: 0;
   border: 1px solid rgba(var(--v-border-color), 0.16);
   border-radius: 10px;
 }
@@ -1157,11 +1155,12 @@ onMounted(() => {
 @media (max-width: 720px) {
   .sc-body {
     flex-direction: column;
-    height: auto;
-    min-height: 0;
   }
-  .sc-content,
   .sc-nav {
+    position: static;
+  }
+  .sc-content {
+    max-height: none;
     overflow-y: visible;
     padding-right: 0;
   }

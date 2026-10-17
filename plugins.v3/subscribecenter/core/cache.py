@@ -8,6 +8,7 @@
    只有**可写入的确定性身份**（L1/L2/L3）才允许进缓存；L4 模糊结果永不缓存，
    否则会污染后续运行的判定（开发文档 §6.2）。
 """
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Protocol
 
 from .identity import MappingCache, source_id_key, title_key
@@ -38,6 +39,8 @@ class MappingCacheStore(MappingCache):
 
     def __init__(self, store: Optional[CacheStore] = None) -> None:
         self._store = store
+        self._batch_depth = 0
+        self._dirty = False
         self._entries: Dict[str, Dict[str, Any]] = {}
         if store is not None:
             self._entries = self._decode(store.load())
@@ -65,7 +68,12 @@ class MappingCacheStore(MappingCache):
     # ------------------------------------------------------------------ 写
 
     def remember(self, key: str, identity: ResolvedIdentity) -> None:
-        """写入一条映射；不可写入的身份（L4）直接忽略。"""
+        """写入一条映射；不可写入的身份（L4）直接忽略。
+
+        .. note::
+           在 `batch()` 上下文里只标脏、不落盘 —— 真机一次运行可解析
+           200+ 条，逐条落盘等于 200+ 次数据库写入。
+        """
         if not identity.writable:
             return
         self._entries[key] = {
@@ -75,7 +83,9 @@ class MappingCacheStore(MappingCache):
             "reason": identity.reason,
         }
         self._evict()
-        self._flush()
+        self._dirty = True
+        if self._batch_depth == 0:
+            self._flush()
 
     def fix(self, key: str, media_source: str, media_id: str) -> bool:
         """人工修正/新增一条映射。
@@ -174,12 +184,25 @@ class MappingCacheStore(MappingCache):
         for key in list(self._entries)[:overflow]:
             self._entries.pop(key, None)
 
+    @contextmanager
+    def batch(self) -> Any:
+        """批量写入上下文：期间只标脏，退出时统一落盘一次。"""
+        self._batch_depth += 1
+        try:
+            yield self
+        finally:
+            self._batch_depth -= 1
+            if self._batch_depth == 0 and self._dirty:
+                self._flush()
+                self._dirty = False
+
     def _flush(self) -> None:
         """落盘；失败不抛（缓存只是加速层，不能影响主流程）。"""
         if self._store is None:
             return
         try:
             self._store.save({"entries": self._entries})
+            self._dirty = False
         except Exception:  # noqa: BLE001
             pass
 

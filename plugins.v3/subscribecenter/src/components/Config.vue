@@ -435,6 +435,31 @@ onMounted(() => {
           </VCol>
           <VCol cols="12" sm="6">
             <VTextField
+              v-model.number="form.douban_max_items_per_feed"
+              label="每个榜单最多取 N 条"
+              type="number"
+              min="1"
+              max="200"
+              density="compact"
+              hide-details
+              class="mb-2"
+              :disabled="!form.enable_douban_rss"
+            />
+          </VCol>
+          <VCol cols="12" sm="6">
+            <VTextField
+              v-model.number="form.resolve_concurrency"
+              label="身份解析并发数"
+              type="number"
+              min="1"
+              max="16"
+              density="compact"
+              hide-details
+              class="mb-2"
+            />
+          </VCol>
+          <VCol cols="12" sm="6">
+            <VTextField
               v-model.number="form.douban_min_want"
               label="豆瓣最低想看人数（0=不限）"
               type="number"
@@ -450,7 +475,10 @@ onMounted(() => {
         <div class="sc-hint mb-3">
           <b>豆瓣是独立配置</b>：窗口独立于 TMDB（豆瓣「即将上映」是策展列表，可以放宽些）。
           想看人数只有 coming 类路线提供（如「想看：27357」），榜单类没有该数据 ——
-          缺失时不拦。设 0 表示不按想看过滤。
+          缺失时不拦。设 0 表示不按想看过滤。<br />
+          <b>每个榜单最多取 N 条</b>：榜单按名次排列，取前 N 即最热的。
+          候选多不需要手动减 —— 身份解析是并发的（默认 8 路），
+          实测 260 条候选约 20~30 秒跑完。
         </div>
 
         <div class="sc-hint mb-3">

@@ -29,9 +29,10 @@ export const configDefaults = {
   tmdb_original_languages: 'zh,ja,ko,en',
   // ---------------- 豆瓣 RSS 源列表
   douban_rss_sources: [],
-  douban_max_items_per_feed: 10,
+  douban_max_items_per_feed: 30,
   douban_future_days: 3,
   douban_min_want: 0,
+  resolve_concurrency: 8,
   // ---------------- Simkl
   simkl_client_id: '',
   // ---------------- 写入

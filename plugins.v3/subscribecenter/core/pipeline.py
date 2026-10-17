@@ -394,6 +394,7 @@ async def run_pipeline(
     min_rating: float,
     min_popularity: float = 0.0,
     min_want: float = 0.0,
+    resolve_concurrency: int = 8,
     dry_run: bool,
     first_run: bool,
     already_written_today: int = 0,
@@ -425,13 +426,23 @@ async def run_pipeline(
     # ---- 2. 源内去重（提前做，减少后续网络调用）
     raw = dedupe_within_source(raw)
 
-    # ---- 3. 身份解析（按条目独立，单条失败不影响其余）
-    for item in raw:
-        try:
-            await resolver.resolve(item)
-        except Exception as err:  # noqa: BLE001
-            item.resolved = None
-            item.raw.setdefault("resolve_error", f"{type(err).__name__}: {err}")
+    # ---- 3. 身份解析（**并发**，单条失败不影响其余）
+    #
+    # 为什么必须并发：豆瓣榜单类来源一次能产出 200+ 条候选，每条要做
+    # 「TMDB 标题搜索 + 季/集查询」，实测串行约 0.7s/条 —— 260 条要 3 分钟，
+    # 会拖死 cron 与手动运行。并发 8 路实测降到约 20~30 秒。
+    width = max(1, int(resolve_concurrency or 1))
+    semaphore = asyncio.Semaphore(width)
+
+    async def _resolve_one(item: DiscoveredItem) -> None:
+        async with semaphore:
+            try:
+                await resolver.resolve(item)
+            except Exception as err:  # noqa: BLE001 - 单条失败不影响其余
+                item.resolved = None
+                item.raw.setdefault("resolve_error", f"{type(err).__name__}: {err}")
+
+    await asyncio.gather(*(_resolve_one(item) for item in raw))
 
     # ---- 4. 过滤（跨源去重 / 评分 / 窗口）
     summary.selected, summary.prefiltered = select_items(

@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "0.8.1"
+    plugin_version = "0.8.2"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -395,25 +395,29 @@ class SubscribeCenter(_PluginBase):
                 "确认结果后在前端「确认开始写入」再放开。"
             )
 
-        return await run_pipeline(
-            sources=self._build_sources(),
-            enabled=self._enabled_sources(),
-            resolver=resolver,
-            writer=self._writer,
-            config=self._config,
-            future_days=self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS),
-            min_rating=self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING),
-            min_popularity=self._float_config("min_popularity", C.DEFAULT_MIN_POPULARITY),
-            # 豆瓣「想看人数」门槛（独立于 TMDB popularity，量纲是人数）
-            min_want=self._float_config("douban_min_want", 0.0),
-            # 窗口与评分门槛**按源独立**：TMDB 与 Bangumi 的配置项不同，
-            # 共用一个值会把窗口更窄的源错误放行（真机踩过）。
-            future_days_by_source=self._future_days_by_source(),
-            min_rating_by_source=self._min_rating_by_source(),
-            dry_run=bool(self._config.get("dry_run")) or force_dry_run,
-            first_run=first_run,
-            already_written_today=self._written_today(),
-            tz_name=self._tz(),
+        # 映射缓存攒批落盘：一次运行可能解析 200+ 条，逐条落盘等于 200+ 次
+        # 数据库写入。batch() 期间只标脏，退出时统一写一次。
+        with self._cache.batch():
+            return await run_pipeline(
+                sources=self._build_sources(),
+                enabled=self._enabled_sources(),
+                resolver=resolver,
+                writer=self._writer,
+                config=self._config,
+                future_days=self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS),
+                min_rating=self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING),
+                min_popularity=self._float_config("min_popularity", C.DEFAULT_MIN_POPULARITY),
+                # 豆瓣「想看人数」门槛（独立于 TMDB popularity，量纲是人数）
+                min_want=self._float_config("douban_min_want", 0.0),
+                resolve_concurrency=self._int_config("resolve_concurrency", 8),
+                # 窗口与评分门槛**按源独立**：TMDB 与 Bangumi 的配置项不同，
+                # 共用一个值会把窗口更窄的源错误放行（真机踩过）。
+                future_days_by_source=self._future_days_by_source(),
+                min_rating_by_source=self._min_rating_by_source(),
+                dry_run=bool(self._config.get("dry_run")) or force_dry_run,
+                first_run=first_run,
+                already_written_today=self._written_today(),
+                tz_name=self._tz(),
         )
 
     def _future_days_by_source(self) -> Dict[str, int]:

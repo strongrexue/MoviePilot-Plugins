@@ -5,7 +5,7 @@
  * 展示运行状态、各数据源情况、最近流水，并提供「立即运行一次」。
  * 与仪表盘共用 /status 与 /history 接口。
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { FRONTEND_VERSION } from './version'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 
@@ -260,39 +260,71 @@ const overviewRemain = computed(() =>
 const OVERVIEW_PAGE = 20
 const overviewLimit = ref(OVERVIEW_PAGE)
 
-/** 滚动到底加载更多。
+/** 到底自动加载更多。
 
- 跟随**页面**滚动（订阅总览不再自己滚动），滚到本块底部附近就追加。
+ 用 **IntersectionObserver 观察网格底部哨兵**，而不是监听 window scroll ——
+ 插件页的滚动容器是宿主内部的 div，`window` 的 scroll 事件根本不触发
+ （真机：插件页滚不动，MP 自己的页面一滚就出）。
+ 观察器不关心谁在滚，只要哨兵进入视口就追加。
  */
-let overviewLoadingMore = false
-function onPageScroll() {
-  if (!overviewOpen.value || overviewLoadingMore) return
-  if (overviewRemain.value <= 0) return
-  const el = document.querySelector('.sc-poster-grid')
-  if (!el) return
+const overviewSentinel = ref(null)
+let overviewObserver = null
+
+/** 哨兵是否已进入视口（或接近）。 */
+function sentinelVisible() {
+  const el = overviewSentinel.value
+  if (!el) return false
   const rect = el.getBoundingClientRect()
-  // 视口底部越过网格底部 200px 内即加载
-  if (rect.bottom - window.innerHeight > 200) return
-  overviewLoadingMore = true
-  overviewLimit.value += OVERVIEW_PAGE
-  requestAnimationFrame(() => {
-    overviewLoadingMore = false
-  })
+  return rect.top < window.innerHeight + 200
 }
 
-// 切换状态筛选 / 重新加载后，已显示条数回到首屏值
-watch(overviewState, () => {
-  overviewLimit.value = OVERVIEW_PAGE
-})
-watch(
-  () => overview.value.items.length,
-  () => {
-    overviewLimit.value = OVERVIEW_PAGE
-  },
-)
+/** 追加一批，直到不再可见或没剩的（宽屏时一次 +20 可能仍停在原地）。 */
+async function growOverview() {
+  if (!overviewOpen.value) return
+  let guard = 0
+  while (overviewRemain.value > 0 && sentinelVisible() && guard < 20) {
+    overviewLimit.value += OVERVIEW_PAGE
+    guard += 1
+    await nextTick()
+  }
+}
 
-onMounted(() => window.addEventListener('scroll', onPageScroll, { passive: true }))
-onUnmounted(() => window.removeEventListener('scroll', onPageScroll))
+function ensureOverviewObserver() {
+  if (overviewObserver || !overviewSentinel.value) return
+  overviewObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) growOverview()
+    },
+    { rootMargin: '0px 0px 200px 0px' },
+  )
+  overviewObserver.observe(overviewSentinel.value)
+}
+
+/** 收起时销毁观察器：v-if 会重建哨兵节点，旧观察器会绑在已销毁的节点上。 */
+function dropOverviewObserver() {
+  if (overviewObserver) {
+    overviewObserver.disconnect()
+    overviewObserver = null
+  }
+}
+
+watch(overviewOpen, async (open) => {
+  if (!open) {
+    dropOverviewObserver()
+    return
+  }
+  await nextTick()
+  ensureOverviewObserver()
+  await growOverview()
+})
+
+onMounted(async () => {
+  if (overviewOpen.value) await loadOverview()
+  await nextTick()
+  ensureOverviewObserver()
+})
+
+onUnmounted(() => dropOverviewObserver())
 
 /** 是否开启洗版（best_version / best_version_full）。 */
 function isBestVersion(item) {
@@ -307,7 +339,21 @@ function episodeText(item) {
   return `${Math.max(total - lack, 0)}/${total}`
 }
 
-/** 展开时按需拉取一次。 */
+/** 拉一次订阅总览（已拉过就跳过）。 */
+async function loadOverview(force = false) {
+  if (overviewLoaded.value && !force) return
+  try {
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'subscriptions'))
+    overview.value = data || { total: 0, counts: {}, items: [] }
+    overviewLoaded.value = true
+    await nextTick()
+    await growOverview()
+  } catch (error) {
+    setTip(error?.message || '读取订阅总览失败', false)
+  }
+}
+
+/** 展开/收起；展开时按需拉数据。 */
 async function toggleOverview() {
   overviewOpen.value = !overviewOpen.value
   try {
@@ -315,14 +361,7 @@ async function toggleOverview() {
   } catch (error) {
     /* 隐私模式下忽略 */
   }
-  if (!overviewOpen.value || overviewLoaded.value) return
-  try {
-    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'subscriptions'))
-    overview.value = data || { total: 0, counts: {}, items: [] }
-    overviewLoaded.value = true
-  } catch (error) {
-    setTip(error?.message || '读取订阅总览失败', false)
-  }
+  if (overviewOpen.value) await loadOverview()
 }
 
 /** 「按源」tab：TMDB / AniList / 豆瓣，带条数。 */
@@ -537,7 +576,7 @@ onUnmounted(() => {
                 共 {{ overview.total }} 条订阅 · 已完成 {{ overview.counts.D || 0 }} · 待定
                 {{ overview.counts.P || 0 }}
               </template>
-              <template v-else>加载中…</template>
+              <template v-else>（尚未加载）</template>
             </span>
             <span class="sc-overview-spacer" />
             <span class="sc-overview-toggle">{{ overviewOpen ? '收起 ⌃' : '展开 ⌄' }}</span>
@@ -604,6 +643,7 @@ onUnmounted(() => {
                     <span v-if="episodeText(item)">{{ episodeText(item) }}</span>
                   </div>
                 </div>
+                <div ref="overviewSentinel" class="sc-overview-sentinel" />
               </div>
             </template>
           </div>
@@ -1123,6 +1163,9 @@ onUnmounted(() => {
 .sc-overview-toggle {
   font-size: 11.5px;
   opacity: 0.7;
+}
+.sc-overview-sentinel {
+  height: 1px;
 }
 .sc-overview-count {
   font-size: 11px;

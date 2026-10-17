@@ -280,11 +280,23 @@ function overviewScroller() {
  以前拿 `window.innerHeight` 判断 —— 网格改成内部滚动后，哨兵在裁剪区外
  但坐标仍在窗口内，于是循环一路加到 206 条（真机：展开直接全部加载）。
  */
+/** 网格当前是否真的在内部滚动（窄屏会取消高度上限，改成跟随页面滚）。 */
+function overviewScrollsInternally() {
+  const box = overviewScroller()
+  if (!box) return false
+  const style = window.getComputedStyle(box)
+  return style.overflowY === 'auto' || style.overflowY === 'scroll'
+}
+
 function sentinelVisible() {
   const el = overviewSentinel.value
   const box = overviewScroller()
-  if (!el || !box) return false
+  if (!el) return false
   const rect = el.getBoundingClientRect()
+  if (!box || !overviewScrollsInternally()) {
+    // 跟随页面滚动（含手机端）：按视口判断
+    return rect.top <= window.innerHeight + 120
+  }
   const view = box.getBoundingClientRect()
   return rect.top <= view.bottom + 120
 }
@@ -306,8 +318,12 @@ function ensureOverviewObserver() {
     (entries) => {
       if (entries.some((entry) => entry.isIntersecting)) growOverview()
     },
-    // root 必须是滚动容器本身：默认的视口在内部滚动时不会重新判定
-    { root: overviewScroller(), rootMargin: '0px 0px 120px 0px' },
+    // 有内部滚动时 root 必须是滚动容器本身（视口不会重新判定）；
+    // 窄屏取消高度上限后没有内部滚动，root 要回到视口。
+    {
+      root: overviewScrollsInternally() ? overviewScroller() : null,
+      rootMargin: '0px 0px 120px 0px',
+    },
   )
   overviewObserver.observe(overviewSentinel.value)
 }
@@ -1226,6 +1242,16 @@ onUnmounted(() => {
 }
 /* 固定列宽（而不是 1fr）：列宽恒定才能精确算「2 行」的高度，
    否则行高随窗口宽度变化，卡片会被切在中间。 */
+/* 窄屏（手机）：一格 132px 时 20 张会排成十几行，固定 492px 的内部滚动
+   在触屏上不好用，直接放开高度、跟随页面滚动。 */
+@media (max-width: 900px) {
+  .sc-poster-grid {
+    max-height: none;
+    overflow-y: visible;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  }
+}
+
 .sc-poster-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 132px);

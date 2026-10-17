@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Dkm0UtqI.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-HRzmF6nX.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,normalizeStyle:_normalizeStyle,vModelText:_vModelText,withKeys:_withKeys,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -379,11 +379,23 @@ function overviewScroller() {
  以前拿 `window.innerHeight` 判断 —— 网格改成内部滚动后，哨兵在裁剪区外
  但坐标仍在窗口内，于是循环一路加到 206 条（真机：展开直接全部加载）。
  */
+/** 网格当前是否真的在内部滚动（窄屏会取消高度上限，改成跟随页面滚）。 */
+function overviewScrollsInternally() {
+  const box = overviewScroller();
+  if (!box) return false
+  const style = window.getComputedStyle(box);
+  return style.overflowY === 'auto' || style.overflowY === 'scroll'
+}
+
 function sentinelVisible() {
   const el = overviewSentinel.value;
   const box = overviewScroller();
-  if (!el || !box) return false
+  if (!el) return false
   const rect = el.getBoundingClientRect();
+  if (!box || !overviewScrollsInternally()) {
+    // 跟随页面滚动（含手机端）：按视口判断
+    return rect.top <= window.innerHeight + 120
+  }
   const view = box.getBoundingClientRect();
   return rect.top <= view.bottom + 120
 }
@@ -405,8 +417,12 @@ function ensureOverviewObserver() {
     (entries) => {
       if (entries.some((entry) => entry.isIntersecting)) growOverview();
     },
-    // root 必须是滚动容器本身：默认的视口在内部滚动时不会重新判定
-    { root: overviewScroller(), rootMargin: '0px 0px 120px 0px' },
+    // 有内部滚动时 root 必须是滚动容器本身（视口不会重新判定）；
+    // 窄屏取消高度上限后没有内部滚动，root 要回到视口。
+    {
+      root: overviewScrollsInternally() ? overviewScroller() : null,
+      rootMargin: '0px 0px 120px 0px',
+    },
   );
   overviewObserver.observe(overviewSentinel.value);
 }
@@ -1063,6 +1079,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-05e89303"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-805d3122"]]);
 
 export { Page as default };

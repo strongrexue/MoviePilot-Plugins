@@ -103,7 +103,19 @@ class DiscoveredItem:
 
     @property
     def writable(self) -> bool:
-        """是否具备可写入的确定性身份。"""
+        """是否**真的**可以写入订阅。
+
+        这是唯一的「能不能写」判定，必须同时满足：
+
+        - 身份置信度在可写级别（L1~L3；L4 永不写入，见开发文档 §6.2）；
+        - 不是特别篇 / OVA / 番外（TMDB 通常没有独立条目）；
+        - 匹配到的剧集还有未播内容（否则会订到已完结的旧季）。
+
+        合并判断的原因：分散判断会形成多个真相来源 —— 真机事故正是
+        「身份看起来可写」但「内容已播完」，结果仍被写进了订阅。
+        """
+        if self.special or self.finished:
+            return False
         return bool(self.resolved and self.resolved.writable)
 
     @property

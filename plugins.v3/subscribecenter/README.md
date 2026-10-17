@@ -47,6 +47,80 @@ MoviePilot V3 插件。**只做三件事：发现 → 去重 → 写订阅。**
 
 ---
 
+## 数据源接入契约（新增源必须遵循）
+
+**这是 0.6.0~0.6.7 返工 6 次换来的教训，写在这里防止重犯。**
+
+### 核心原则：让 TMDB 裁决，不要让来源方的命名规则裁决
+
+同一个「第 N 期/第 N 季」，在不同来源里含义可能完全相反：
+
+| 内容类型 | Bangumi 写法 | TMDB 建模 | 正确做法 |
+|---|---|---|---|
+| 国产动画 | 牧神记5 | **单季多集**（第 1 季 110 集，第 105 集起） | 忽略「5」，订第 1 季 |
+| 日番 | 边缘行者 2 | **严格分季**（第 2 季才是新内容） | 订第 2 季 |
+
+任何解析标题决定季号的规则都必然在其中一半场景出错。正确做法是：
+**把来源标题里的季号当「提示」，问 TMDB「你哪一季还有未播集」，由数据裁决。**
+
+实现在 IdentityResolver._resolve_target_season +
+HostTmdbResolver.resolve_target_season：
+
+1. 列出 TMDB 所有季（排除第 0 季特别篇），找出**有未播集**的季；
+2. 一个都没有 → 不可订（匹配到旧季/已完结）；
+3. 提示季正好是其中之一 → 用它；
+4. 只有一个季有未播集 → 用它；
+5. 其余（多候选且提示对不上）→ 用默认季。
+
+### 新源只需要做「发现」，不要做「身份判定」
+
+新增一个源（豆瓣 RSS / Simkl / JustWatch …）只需实现
+sources/ 下的一个适配器，产出 DiscoveredItem：
+
+`python
+DiscoveredItem(
+    source=SOURCE_XXX,          # 源标识
+    source_id=str(native_id),   # 本源内 id
+    title=标题,                  # 用于搜索 TMDB
+    media_type=movie / tv,
+    release_date=YYYY-MM-DD,  # 窗口过滤的唯一依据
+    year=YYYY,
+    rating=评分或 None,          # 没有就 None，不要用别的字段冒充
+    popularity=关注度或 None,    # 没有就 None（缺失时自动跳过关注度门槛）
+    native_ids={xxx: native_id},  # 供宿主跨源换算
+    special=is_special(title),  # 特别篇/OVA/番外要标出来
+)
+`
+
+**以下一律不要自己做**，全部由源无关层统一处理：
+
+| 职责 | 归属 | 原因 |
+|---|---|---|
+| 媒体身份解析（L1~L4） | IdentityResolver | 各源自己判会不一致 |
+| 季号裁决 | 
+esolve_target_season | 见上：必须由 TMDB 数据裁决 |
+| 「是否已播完」判定 | 同上 | 订已完结的旧季纯属浪费 |
+| 订阅去重（含季号） | SubscriptionWriter | 多源共用 |
+| 每日上限 / dry-run | SubscriptionWriter | 多源共用 |
+| 特别篇处理 | writer 按 special 标记 | 统一给出明确原因 |
+
+### 三条硬性要求
+
+1. **失败要抛异常**，不要静默返回空列表 —— 让流水线把该源标记为「失败」，
+   而不是伪装成「今天没有新内容」。
+2. **缺失的数值就填 None**，不要拿别的字段凑（真机事故：把 Bangumi 的
+   
+ating.total（投票数，个位数）当 popularity，会被关注度门槛整体误杀，
+   等于该源静默失效）。
+3. **窗口天数用本源的键**（	mdb_future_days / angumi_future_days …），
+   流水线按源取窗口与评分门槛，不要共用一个值。
+
+### 唯一真相来源
+
+DiscoveredItem.writable 是「能不能写」的唯一判定，它同时校验
+身份置信度（L1~L3）、非特别篇、还有未播内容。不要在各处分散判断 ——
+真机事故正是「身份看起来可写」但「内容已播完」，结果仍被写入订阅。
+
 ## 工作方式
 
 1. **首次运行强制 dry-run。** 不管配置怎么设，第一次跑只记录不写入，并在流水里

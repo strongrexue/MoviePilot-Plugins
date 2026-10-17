@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.5.0"
+PLUGIN_VERSION = "0.6.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -93,8 +93,8 @@ ALL_SOURCES = (
     SOURCE_JUSTWATCH,
 )
 
-#: P1 已实现的数据源（其余源在配置页可开，但运行时会记录「未实现」并跳过）
-IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB})
+#: 已实现的数据源（其余源在配置页可开，但运行时会记录「未实现」并跳过）
+IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB, SOURCE_BANGUMI})
 
 
 # --------------------------------------------------------------------- 配置

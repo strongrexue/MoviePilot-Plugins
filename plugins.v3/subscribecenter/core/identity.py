@@ -17,7 +17,7 @@ L4 模糊评分    ``difflib`` 相似度                              ❌ 永不
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
 
 from .constants import (
     CONFIDENCE_L1,
@@ -79,8 +79,16 @@ class TmdbResolver(Protocol):
         media_source: str,
         media_id: str,
         media_type: str,
-    ) -> Optional[str]:
-        """跨源换算为 TMDB ID；无法换算返回 ``None``。"""
+    ) -> Optional[Dict[str, Any]]:
+        """跨源换算为 TMDB；无法换算返回 ``None``。
+
+        返回 ``{"tmdb_id": str, "year": str | None, "title": str | None}``。
+
+        .. important::
+           宿主的 Bangumi/豆瓣 → TMDB 换算**内部是标题+年份匹配**
+           （``_build_bangumi_tmdb_match``），不是 ID 直映。所以调用方必须
+           拿返回的 ``year`` 再做一次硬校验，否则可能把 A 番写成 B 番。
+        """
         ...
 
 
@@ -366,16 +374,37 @@ class IdentityResolver:
                 if not media_id:
                     continue
                 try:
-                    tmdb_id = await self._tmdb.convert_to_tmdb(source, media_id, item.media_type)
+                    payload = await self._tmdb.convert_to_tmdb(source, media_id, item.media_type)
                 except Exception:  # noqa: BLE001 - 单条换算失败不影响其余条目
                     return None
+                if not payload:
+                    return None
+                tmdb_id = payload.get("tmdb_id")
                 if not tmdb_id:
                     return None
+
+                # **年份硬校验**：宿主的跨源换算内部是标题匹配，不是 ID 直映，
+                # 必须用返回年份再核一次，否则可能把 A 番写成 B 番。
+                wanted = _year_of(item.year or item.release_date)
+                got = _year_of(payload.get("year"))
+                if wanted and got and wanted != got:
+                    return None
+
+                # 续作（第 N 期 / Season N）必须带上季号，否则宿主会按第 1 季订阅。
+                # 季号由宿主从 Bangumi 标题解析（其 MetaInfo 解析器比我们成熟）。
+                if item.season is None and payload.get("season"):
+                    try:
+                        item.season = int(payload["season"])
+                    except (TypeError, ValueError):
+                        pass
+
                 return ResolvedIdentity(
                     media_source=HOST_SOURCE_TMDB,
                     media_id=str(tmdb_id),
-                    confidence=CONFIDENCE_L1,
-                    reason=f"convert:{source}",
+                    # 标 L2 而不是 L1：这是「宿主按标题匹配确认的映射」，
+                    # 可信度低于源自带的确定性 ID。
+                    confidence=CONFIDENCE_L2,
+                    reason=f"convert:{source}" + (f"+year_match({got})" if got else ""),
                 )
         return None
 

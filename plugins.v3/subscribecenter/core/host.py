@@ -110,8 +110,13 @@ class HostTmdbResolver:
         media_source: str,
         media_id: str,
         media_type: str,
-    ) -> Optional[str]:
-        """跨源换算为 TMDB ID（Bangumi/豆瓣 → TMDB）。"""
+    ) -> Optional[Dict[str, Any]]:
+        """跨源换算为 TMDB（Bangumi/豆瓣 → TMDB）。
+
+        .. important::
+           宿主这条换算内部是**标题+年份匹配**（`_build_bangumi_tmdb_match`），
+           不是 ID 直映。因此返回结构里带上年份，供调用方做二次硬校验。
+        """
         from app.chain.media import MediaChain
 
         source_enum = media_source_enum(media_source)
@@ -128,8 +133,29 @@ class HostTmdbResolver:
             return None
         if not payload:
             return None
-        tmdb_id = payload.get("id") if isinstance(payload, dict) else getattr(payload, "id", None)
-        return str(tmdb_id) if tmdb_id else None
+        if isinstance(payload, dict):
+            tmdb_id = payload.get("id")
+            date = payload.get("release_date") or payload.get("first_air_date")
+            title = payload.get("title") or payload.get("name")
+            season = payload.get("season")
+        else:
+            tmdb_id = getattr(payload, "id", None)
+            date = getattr(payload, "release_date", None) or getattr(payload, "first_air_date", None)
+            title = getattr(payload, "title", None) or getattr(payload, "name", None)
+            season = getattr(payload, "season", None)
+        if not tmdb_id:
+            return None
+        try:
+            season_number = int(season) if season not in (None, "") else None
+        except (TypeError, ValueError):
+            season_number = None
+        return {
+            "tmdb_id": str(tmdb_id),
+            "year": str(date)[:4] if date else None,
+            "title": title,
+            #: 宿主从 Bangumi 标题解析出的季号；续作靠它才不会订错季
+            "season": season_number,
+        }
 
 
 def _build_metainfo(title: str, year: Optional[str], media_type: str) -> Any:

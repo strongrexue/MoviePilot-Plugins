@@ -244,15 +244,52 @@ async def test_resolver_prefers_l1_over_search():
 @pytest.mark.asyncio
 async def test_resolver_converts_bangumi_to_tmdb():
     """Bangumi 原生 ID 经宿主换算 → L1 确定性身份。"""
-    tmdb = FakeTmdb(converted={"bangumi:4567": "693134"})
+    tmdb = FakeTmdb(converted={"bangumi:4567": {"tmdb_id": "693134", "year": "2013"}})
     resolver = IdentityResolver(tmdb)
     item = await resolver.resolve(
         make_item(source=C.SOURCE_BANGUMI, source_id="4567", title="进击的巨人",
-                  native_ids={"bangumi": "4567"})
+                  year="2013", native_ids={"bangumi": "4567"})
     )
     assert item.resolved is not None
     assert item.resolved.media_id == "693134"
-    assert item.resolved.reason == "convert:bangumi"
+    assert item.resolved.confidence == C.CONFIDENCE_L2
+    assert item.resolved.reason.startswith("convert:bangumi")
+
+
+@pytest.mark.asyncio
+async def test_conversion_carries_season_for_sequels():
+    """续作必须带上季号，否则宿主会按第 1 季订阅（订错季）。"""
+
+    class _SeasonTmdb(FakeTmdb):
+        async def convert_to_tmdb(self, media_source, media_id, media_type):
+            return {"tmdb_id": "999", "year": "2026", "season": 2}
+
+    resolver = IdentityResolver(_SeasonTmdb())
+    item = await resolver.resolve(
+        make_item(source=C.SOURCE_BANGUMI, source_id="513878", title="边缘行者 2",
+                  year="2026", native_ids={"bangumi": "513878"})
+    )
+    assert item.resolved is not None
+    assert item.resolved.media_id == "999"
+    assert item.season == 2, "季号没有从换算结果带回条目"
+
+
+@pytest.mark.asyncio
+async def test_conversion_rejected_on_year_mismatch():
+    """换算返回的年份与条目不符时**不确认** —— 宿主的换算是标题匹配，
+    必须二次校验，否则会把 A 番写成 B 番。"""
+
+    class _WrongYearTmdb(FakeTmdb):
+        async def convert_to_tmdb(self, media_source, media_id, media_type):
+            return {"tmdb_id": "888", "year": "1999"}
+
+    resolver = IdentityResolver(_WrongYearTmdb())
+    item = await resolver.resolve(
+        make_item(source=C.SOURCE_BANGUMI, source_id="777", title="某番",
+                  year="2026", native_ids={"bangumi": "777"})
+    )
+    assert item.resolved is None
+    assert not item.writable
 
 
 @pytest.mark.asyncio

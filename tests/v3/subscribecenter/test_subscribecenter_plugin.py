@@ -444,3 +444,24 @@ def _extract_frontend_keys(source: str) -> set:
     block = re.search(r"configDefaults\s*=\s*\{(.*?)\n\}", source, re.DOTALL)
     scope = block.group(1) if block else source
     return set(re.findall(r"^\s{2}([A-Za-z_][A-Za-z0-9_]*)\s*:", scope, re.MULTILINE))
+
+
+def test_poster_route_allows_anonymous_access(plugin_cls):
+    """`/poster` 必须允许匿名 —— 否则 <img> 请求一律 401。
+
+    真机 F12：`/api/v1/plugin/SubscribeCenter/poster?path=...` 全部 401
+    Unauthorized。原因：`<img>` 发起的请求不会携带 axios 注入的 Bearer token，
+    而插件路由默认是 `auth: "bear"`。MP 支持用 `allow_anonymous` 跳过鉴权
+    （app/adapters/web/plugin/routes.py）。
+
+    安全性：该路由只代理 TMDB 海报，`_poster_path` 会拒绝非 TMDB 域名。
+    """
+    instance = plugin_cls()
+    instance.init_plugin({})
+    routes = {route["path"]: route for route in instance.get_api()}
+    assert routes["/poster"].get("allow_anonymous") is True
+    # 其余路由不应放开
+    for path, route in routes.items():
+        if path == "/poster":
+            continue
+        assert not route.get("allow_anonymous"), f"{path} 不应允许匿名"

@@ -43,6 +43,11 @@ def get_api(plugin) -> List[Dict[str, Any]]:
             "summary": summary,
             # /poster 直接返回图片字节，不能套 JSON envelope 模型
             "response_model": None if path == "/poster" else _response_model(path),
+            # **只有 /poster 允许匿名**：<img> 标签发起的请求不会携带 Bearer token，
+            # 走 auth 必然 401（真机 F12：/poster?... -> 401 Unauthorized）。
+            # 安全性可接受：该路由只代理 TMDB 海报，且 _poster_path 会拒绝非
+            # TMDB 域名的地址，不会被当成任意 URL 代理。
+            "allow_anonymous": path == "/poster",
         }
         for path, endpoint, methods, summary in definitions
     ]

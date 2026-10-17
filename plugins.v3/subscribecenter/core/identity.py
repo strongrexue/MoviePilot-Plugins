@@ -297,10 +297,21 @@ def match_candidate_year(
         candidate_title = normalize_title(candidate.get("title"))
         candidate_original = normalize_title(candidate.get("original_title"))
         exact = candidate_title == target_title or candidate_original == target_title
+
+        # 「基础名相等」：条目带季号尾巴、候选是基础名的情况。
+        #
+        # 真机确认：宿主识别 赛博朋克：边缘行者 2 会返回**基础名**
+        # 《赛博朋克：边缘行者》—— 条目名与候选名相差「 2」，
+        # 若只认「精确相等」会把宿主已经成功识别的结果拒掉（0.6.3 踩过）。
+        base_equiv = bool(candidate_title) and candidate_title in {
+            normalize_title(strip_season_suffix(item.title)),
+            normalize_title(strip_season_suffix(item.original_title)),
+        }
+
         contained = bool(candidate_title) and (
             target_title in candidate_title or candidate_title in target_title
         )
-        if not (exact or contained):
+        if not (exact or base_equiv or contained):
             continue
 
         candidate_year = _year_of(candidate.get("year") or candidate.get("release_date"))
@@ -308,9 +319,10 @@ def match_candidate_year(
             if wanted_year and candidate_year != wanted_year:
                 # 年份不符或缺年份 —— 电影不做任何「放宽」，直接不算命中
                 continue
-        elif not exact:
-            # 剧集不校验年份，但**必须标题精确相等**才认 ——
-            # 否则「包含」匹配 + 无年份约束会把同名前传之类错误配对放进来。
+        elif not (exact or base_equiv):
+            # 剧集不校验年份，但必须「标题精确相等」或「基础名相等」才认 ——
+            # 只认「包含」会把同名前传之类错误配对放进来（如
+            # 条目《牧神记》配上候选《牧神记外传》）。
             continue
 
         reason = "search:title_exact" if exact else "search:title_contained"

@@ -126,6 +126,46 @@ def test_movie_keeps_strict_year():
     assert match_candidate_year(candidates_ok, movie("沙丘", "2026"), strict_year=True) is not None
 
 
+def test_tv_accepts_host_base_title():
+    """**宿主识别返回基础名时必须接受**。
+
+    真机日志：
+      themoviedb - 赛博朋克：边缘行者 TMDB识别结果：电视剧 赛博朋克：边缘行者 (2022) 105248
+      recognition.py - 赛博朋克：边缘行者 2 识别到媒体信息：电视剧 赛博朋克：边缘行者 (2022)
+
+    宿主把条目名「赛博朋克：边缘行者 2」识别成了基础名《赛博朋克：边缘行者》，
+    两者相差「 2」。若只认「精确相等」就会把宿主已经成功识别的结果拒掉
+    （0.6.3 正是这样踩的）。
+    """
+    candidates = [
+        {"tmdb_id": 105248, "title": "赛博朋克：边缘行者", "year": "2022",
+         "media_type": "tv"},
+    ]
+    hit = match_candidate_year(
+        candidates, tv("赛博朋克：边缘行者 2"), strict_year=False
+    )
+    assert hit is not None
+    assert hit[0]["tmdb_id"] == 105248
+
+
+def test_tv_accepts_base_title_for_mu_shen_ji():
+    """牧神记5（2026）→ TMDB《牧神记》(2024) 同样是基础名相等。"""
+    candidates = [
+        {"tmdb_id": 236534, "title": "牧神记", "year": "2024", "media_type": "tv"},
+    ]
+    hit = match_candidate_year(candidates, tv("牧神记5"), strict_year=False)
+    assert hit is not None
+    assert hit[0]["tmdb_id"] == 236534
+
+
+def test_tv_rejects_contained_but_not_base_equal():
+    """「包含」但「基础名不相等」仍然拒绝（防同名前传错配）。"""
+    candidates = [
+        {"tmdb_id": 1, "title": "牧神记外传", "year": "2024", "media_type": "tv"},
+    ]
+    assert match_candidate_year(candidates, tv("牧神记"), strict_year=False) is None
+
+
 def test_strict_year_defaults_to_true():
     """默认必须是严格模式（调用方忘记传参时不能放松）。"""
     candidates = [

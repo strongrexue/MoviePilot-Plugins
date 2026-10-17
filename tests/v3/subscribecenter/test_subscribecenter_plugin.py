@@ -229,11 +229,17 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/preview",
         "/mapping_cache",
         "/mapping_cache/fix",
+        # 海报代理：浏览器直连 image.tmdb.org 在国内网络下常常不可用
+        "/poster",
     }
     for route in routes:
         assert route["path"].startswith("/")
         assert route["auth"] == "bear"
         assert callable(route["endpoint"])
+        if route["path"] == "/poster":
+            # 图片代理直接返回字节流，不能套 JSON envelope 模型
+            assert route["response_model"] is None
+            continue
         # 插件路由不进入宿主统一包装，必须自己声明一致的响应模型
         model = route["response_model"]
         assert model is not None

@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -264,6 +264,10 @@ class SubscribeCenter(_PluginBase):
     async def api_mapping_fix(self, request: api_schemas.MappingFixRequest) -> Any:
         """人工修正一条身份映射。"""
         return await api_controller.api_mapping_fix(self, request)
+
+    async def api_poster(self, path: str = "") -> Any:
+        """代理 TMDB 海报（浏览器不可直连 image.tmdb.org）。"""
+        return await api_controller.api_poster(self, path=path)
 
     def get_service(self) -> List[Dict[str, Any]]:
         """注册每日发现定时任务。
@@ -671,6 +675,16 @@ class SubscribeCenter(_PluginBase):
             logger.warning(f"[SubscribeCenter] 发送通知失败：{err}")
 
     # ------------------------------------------------------------------ 状态与流水
+
+    async def poster_bytes(self, path: str) -> Optional[tuple]:
+        """抓取 TMDB 海报字节（供 /poster 路由代理给浏览器）。
+
+        浏览器直连 ``image.tmdb.org`` 在国内网络下常常不可用，
+        所以图片也走服务端 + PROXY 设置。
+        """
+        from .core.host import fetch_poster_bytes
+
+        return await fetch_poster_bytes(path)
 
     def status_snapshot(self) -> api_schemas.PluginStatus:
         """组装状态接口所需数据。"""

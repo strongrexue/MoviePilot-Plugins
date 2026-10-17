@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 
 from app import schemas
 from app.sdk.logging import logger
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 
 from . import schemas as api_schemas
 
@@ -32,6 +32,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/preview", plugin.api_preview, ["POST"], "只读预览：跑一次但不写入"),
         ("/mapping_cache", plugin.api_mapping_cache, ["GET"], "查看身份映射缓存"),
         ("/mapping_cache/fix", plugin.api_mapping_fix, ["POST"], "人工修正一条身份映射"),
+        ("/poster", plugin.api_poster, ["GET"], "代理 TMDB 海报图片（浏览器不可直连）"),
     ]
     return [
         {
@@ -40,7 +41,8 @@ def get_api(plugin) -> List[Dict[str, Any]]:
             "methods": methods,
             "auth": "bear",
             "summary": summary,
-            "response_model": _response_model(path),
+            # /poster 直接返回图片字节，不能套 JSON envelope 模型
+            "response_model": None if path == "/poster" else _response_model(path),
         }
         for path, endpoint, methods, summary in definitions
     ]
@@ -141,3 +143,25 @@ __all__ = [
     "api_status",
     "get_api",
 ]
+
+
+async def api_poster(plugin, path: str = "") -> Any:
+    """代理 TMDB 海报。
+
+    ``path`` 是 TMDB 返回的 ``poster_path``（形如 ``/abc.jpg``）。
+    走插件后端抓取，浏览器只连 MoviePilot —— 否则国内网络下
+    ``image.tmdb.org`` 往往连不上，流水封面会整片空白。
+    """
+    try:
+        payload = await plugin.poster_bytes(path)
+    except Exception as err:  # noqa: BLE001
+        logger.warning(f"[SubscribeCenter] 抓取海报失败：{err}")
+        payload = None
+    if not payload:
+        raise HTTPException(status_code=404, detail="海报不存在")
+    content, content_type = payload
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

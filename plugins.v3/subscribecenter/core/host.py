@@ -68,6 +68,50 @@ def _douban_semaphore() -> Any:
     return _DOUBAN_SEMAPHORE
 
 
+#: 抓海报时的 UA（图片 CDN 会拒绝空 UA）
+IMAGE_USER_AGENT = "MoviePilot/SubscribeCenter"
+
+#: 海报图片缓存（path -> (bytes, content_type)）。海报是不可变资源，可长期复用。
+_IMAGE_CACHE: Dict[str, Any] = {}
+_IMAGE_CACHE_LIMIT = 400
+
+
+async def fetch_poster_bytes(path: str) -> Optional[tuple]:
+    """按 TMDB 的图片路径抓取海报字节，返回 ``(content, content_type)``。
+
+    .. important::
+       为什么必须由**后端**代理：TMDB 的 API 是服务器带的代理去访问的，
+       但海报图片是**浏览器直连** ``image.tmdb.org`` —— 国内网络下常常
+       根本连不上，于是流水里的封面全部空白（真机反馈）。
+       走插件后端代理后，浏览器只连 MoviePilot，图片由服务器绕代理取回。
+    """
+    key = str(path or "").strip()
+    if not key or not key.startswith("/"):
+        return None
+    cached = _IMAGE_CACHE.get(key)
+    if cached:
+        return cached
+
+    from app.runtime.settings import get_runtime_setting
+    from app.sdk.network import AsyncRequestUtils
+
+    url = f"https://image.tmdb.org/t/p/w185{key}"
+    utils = AsyncRequestUtils(
+        ua=IMAGE_USER_AGENT,
+        proxies=get_runtime_setting("PROXY") or None,
+        timeout=20,
+    )
+    response = await utils.get_res(url, raise_exception=True)
+    if not response or not getattr(response, "content", None):
+        return None
+    content_type = str(getattr(response, "headers", {}).get("content-type") or "image/jpeg")
+    payload = (bytes(response.content), content_type)
+    if len(_IMAGE_CACHE) >= _IMAGE_CACHE_LIMIT:
+        _IMAGE_CACHE.clear()
+    _IMAGE_CACHE[key] = payload
+    return payload
+
+
 class HostTmdbResolver:
     """用宿主识别引擎实现 :class:`~..core.identity.TmdbResolver`。
 

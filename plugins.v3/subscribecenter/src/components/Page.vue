@@ -54,14 +54,20 @@ const DECISION_LABELS = {
   skipped_source_disabled: '源未启用',
 }
 
-const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w185'
-
-/** 拼封面地址；没有海报路径时返回空串（前端显示占位图标）。 */
+/**
+ * 拼封面地址：**走插件后端代理**，不直连 image.tmdb.org。
+ *
+ * 原因：TMDB API 是服务器带代理访问的，但图片是浏览器直连 ——
+ * 国内网络下 image.tmdb.org 常常连不上，封面会整片空白（真机反馈）。
+ * 走 /poster 代理后浏览器只连 MoviePilot，图片由服务器绕代理取回。
+ */
 function posterUrl(item) {
   const path = item?.poster
   if (!path) return ''
   if (String(path).startsWith('http')) return String(path)
-  return TMDB_IMAGE_BASE + String(path)
+  const id = String(props.pluginId || 'SubscribeCenter')
+  // 插件路由固定挂在 /api/v1/plugin/<id> 下；<img> 用绝对路径，与 axios 的 baseURL 无关。
+  return `/api/v1/plugin/${id}/poster?path=${encodeURIComponent(path)}`
 }
 
 function decisionLabel(value) {

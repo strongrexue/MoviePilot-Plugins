@@ -308,10 +308,13 @@ class IdentityResolver:
         cache: Optional[MappingCache] = None,
         *,
         review_threshold: float = DEFAULT_REVIEW_THRESHOLD,
+        use_converted_season: bool = False,
     ) -> None:
         self._tmdb = tmdb
         self._cache = cache
         self._review_threshold = review_threshold
+        #: 是否采用跨源换算回来的季号。**默认关**（见 _resolve_by_conversion 注释）
+        self._use_converted_season = use_converted_season
 
     async def resolve(self, item: DiscoveredItem) -> DiscoveredItem:
         """就地解析条目身份并写回 ``resolved`` / ``review_score``。
@@ -397,15 +400,23 @@ class IdentityResolver:
                 if item.media_type == MEDIA_TYPE_MOVIE and wanted and got and wanted != got:
                     return None
 
-                # 续作（第 N 期 / Season N）必须带上季号，否则宿主会按第 1 季订阅。
-                # 季号由宿主从 Bangumi 标题解析（其 MetaInfo 解析器比我们成熟）。
-                if item.season is None and payload.get("season"):
+                # 季号：**默认不采用**换算回来的季号。
+                #
+                # 原因（真机确认）：国产动画在 TMDB 通常被建模成「单季多集」——
+                # 《牧神记》= 第 1 季 110 集，第 105 集 = 2026-10-18，正好对应
+                # Bangumi「牧神记5」的开播日。也就是说 Bangumi 的「第 N 期」
+                # 往往不是 TMDB 的第 N 季；传 season=N 会让宿主去找一个不存在的
+                # 季，结果什么都订不到。
+                #
+                # 关掉后按 TMDB 默认季订阅、由宿主按集追踪，才是正确行为。
+                # 需要严格按季拆分的媒体库可在配置里打开 bangumi_split_season。
+                returned_season = payload.get("season")
+                if self._use_converted_season and item.season is None and returned_season:
                     try:
-                        item.season = int(payload["season"])
+                        item.season = int(returned_season)
                     except (TypeError, ValueError):
                         pass
 
-                returned_season = payload.get("season")
                 return ResolvedIdentity(
                     media_source=HOST_SOURCE_TMDB,
                     media_id=str(tmdb_id),

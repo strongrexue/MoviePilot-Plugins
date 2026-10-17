@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.6.1"
+PLUGIN_VERSION = "0.6.2"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -128,6 +128,15 @@ def default_config() -> Dict[str, Any]:
         "min_rating_douban": DEFAULT_MIN_RATING,
         "min_rating_simkl": DEFAULT_MIN_RATING,
         "min_popularity": DEFAULT_MIN_POPULARITY,
+        #: Bangumi 是否「按季拆分」订阅。
+        #:
+        #: **默认关**。国产动画在 TMDB 通常被建模成「单季多集」
+        #: （实测《牧神记》= 第 1 季 110 集，第 105 集 = 2026-10-18，
+        #: 正好对应 Bangumi「牧神记5」的开播日）。此时 Bangumi 的
+        #: 「第 5 期」不是 TMDB 的第 5 季 —— 传 season=5 会让宿主去找
+        #: 一个不存在的季，什么都订不到。
+        #: 关掉后按 TMDB 默认季订阅，靠宿主按集追踪，才是正确行为。
+        "bangumi_split_season": False,
         #: 是否只保留指定原始语言的条目
         "filter_original_language": True,
         "tmdb_original_languages": DEFAULT_ORIGINAL_LANGUAGES,

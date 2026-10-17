@@ -264,6 +264,8 @@ async def test_conversion_carries_season_for_sequels():
         async def convert_to_tmdb(self, media_source, media_id, media_type):
             return {"tmdb_id": "999", "year": "2026", "season": 2}
 
+    # 默认：**不采用**换算回来的季号（国产动画多为 TMDB 单季多集，
+    # 传 season=N 会去找不存在的季，结果什么都订不到）
     resolver = IdentityResolver(_SeasonTmdb())
     item = await resolver.resolve(
         make_item(source=C.SOURCE_BANGUMI, source_id="513878", title="边缘行者 2",
@@ -271,7 +273,17 @@ async def test_conversion_carries_season_for_sequels():
     )
     assert item.resolved is not None
     assert item.resolved.media_id == "999"
-    assert item.season == 2, "季号没有从换算结果带回条目"
+    assert item.season is None, "默认不应按季拆分"
+    # 季号仍写进 reason 供排查
+    assert "season(2)" in item.resolved.reason
+
+    # 显式打开开关后才采用
+    explicit = IdentityResolver(_SeasonTmdb(), use_converted_season=True)
+    item2 = await explicit.resolve(
+        make_item(source=C.SOURCE_BANGUMI, source_id="513878", title="边缘行者 2",
+                  year="2026", native_ids={"bangumi": "513878"})
+    )
+    assert item2.season == 2
 
 
 @pytest.mark.asyncio

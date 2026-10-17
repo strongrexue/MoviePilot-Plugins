@@ -22,6 +22,8 @@ export const configDefaults = {
   min_rating_douban: 6.0,
   min_rating_simkl: 6.0,
   min_popularity: 15.0,
+  //: Bangumi 是否按季拆分订阅（默认关：国产动画多为单季多集）
+  bangumi_split_season: false,
   //: 是否只保留指定原始语言的条目
   filter_original_language: true,
   tmdb_original_languages: 'zh,ja,ko,en',

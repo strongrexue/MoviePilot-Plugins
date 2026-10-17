@@ -378,6 +378,20 @@ onMounted(() => {
             />
           </VCol>
         </VRow>
+        <VSwitch
+          v-model="form.bangumi_split_season"
+          label="Bangumi 按季拆分订阅"
+          density="compact"
+          hide-details
+          class="mt-1"
+        />
+        <div class="sc-hint mb-3">
+          <b>默认关闭</b>，建议保持关闭。国产动画在 TMDB 通常被建模成「单季多集」
+          （如《牧神记》是第 1 季 110 集，第 105 集正好对应 Bangumi「牧神记5」的开播日），
+          此时 Bangumi 的「第 N 期」并不是 TMDB 的第 N 季 —— 按季订会去找一个不存在的季，
+          什么都订不到。关闭后按 TMDB 默认季订阅、靠宿主的按集追踪，才是正确行为。
+        </div>
+
         <div class="sc-hint mb-3">
           Bangumi 是<b>独立配置</b>：番剧的窗口与评分门槛跟 TMDB 分开设 ——
           两边评分量纲不同（Bangumi 社区评分普遍偏高），共用门槛会误杀。

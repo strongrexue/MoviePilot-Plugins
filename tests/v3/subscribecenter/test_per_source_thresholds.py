@@ -145,7 +145,8 @@ async def test_tv_year_mismatch_is_accepted():
     assert resolved.resolved is not None, "剧集续作被年份校验误杀了"
     assert resolved.resolved.media_id == "105994"
     assert resolved.resolved.confidence == C.CONFIDENCE_L2
-    assert resolved.season == 2
+    # 默认不按季拆分（season 保持 None -> 宿主按默认季订阅）
+    assert resolved.season is None
     assert "season(2)" in resolved.resolved.reason
 
 
@@ -171,6 +172,27 @@ async def test_movie_year_mismatch_still_rejected():
 
 
 # --------------------------------------------------------------------- 前端一致性
+
+def test_bangumi_split_season_defaults_off():
+    """按季拆分必须**默认关**。
+
+    国产动画在 TMDB 通常是「单季多集」：《牧神记》= 第 1 季 110 集，
+    第 105 集 = 2026-10-18 正好对应 Bangumi「牧神记5」开播日。
+    传 season=5 会去找不存在的季，结果什么都订不到。
+    """
+    assert C.default_config()["bangumi_split_season"] is False
+
+
+def test_bangumi_split_season_exposed_in_ui():
+    """按季拆分开关必须能在界面上改（有人确实需要严格按季）。"""
+    source = (
+        Path(__file__).resolve().parents[3]
+        / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Config.vue"
+    )
+    if not source.exists():
+        pytest.skip("前端尚未构建")
+    assert "bangumi_split_season" in source.read_text(encoding="utf-8")
+
 
 def test_frontend_implemented_list_contains_bangumi():
     """前端「已实现」列表必须与后端 ``IMPLEMENTED_SOURCES`` 同步。

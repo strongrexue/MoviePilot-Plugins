@@ -110,7 +110,8 @@ async def test_writes_with_paired_identity_fields():
     assert isinstance(call["year"], str)
     assert call["title"] == "沙丘"
     # 逐条静默：汇总通知由插件在末尾发
-    assert call["message"] is False
+    # 默认让宿主发原生「新增订阅」通知（可用 notify_each_subscription 关闭）
+    assert call["message"] is True
     assert call["exist_ok"] is False
 
 

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-C-PA1uq1.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-CiE6ajys.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -276,6 +276,11 @@ const switchRows = [
     key: 'dry_run',
     label: 'dry-run（只记录不写入）',
     hint: '调参阶段建议开启：跑完整流程但不真的建订阅',
+  },
+  {
+    key: 'notify_each_subscription',
+    label: '每条新订阅都发 MP 原生通知',
+    hint: 'MP 自带的「新增订阅」消息；关闭后只有下面的运行摘要',
   },
   {
     key: 'notify',
@@ -848,7 +853,7 @@ return (_ctx, _cache) => {
                     ])
                   ], 2))
                 }), 128)),
-                _cache[42] || (_cache[42] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-0c9acbd5><b data-v-0c9acbd5>电影上映类</b>（<code data-v-0c9acbd5>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-0c9acbd5><b data-v-0c9acbd5>剧集类</b>（<code data-v-0c9acbd5>/douban/tv/coming</code>、<code data-v-0c9acbd5>/douban/list/tv_*</code>、 <code data-v-0c9acbd5>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-0c9acbd5><b data-v-0c9acbd5>电影榜单类</b>没有日期，会被跳过。<code data-v-0c9acbd5>ustop250</code> 与 <code data-v-0c9acbd5>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                _cache[42] || (_cache[42] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-d8574d15><b data-v-d8574d15>电影上映类</b>（<code data-v-d8574d15>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-d8574d15><b data-v-d8574d15>剧集类</b>（<code data-v-d8574d15>/douban/tv/coming</code>、<code data-v-d8574d15>/douban/list/tv_*</code>、 <code data-v-d8574d15>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-d8574d15><b data-v-d8574d15>电影榜单类</b>没有日期，会被跳过。<code data-v-d8574d15>ustop250</code> 与 <code data-v-d8574d15>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
               ])
             ], 64))
           : _createCommentVNode("", true),
@@ -1506,6 +1511,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0c9acbd5"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d8574d15"]]);
 
 export { Config as default };

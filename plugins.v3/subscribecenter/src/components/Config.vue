@@ -114,6 +114,11 @@ const switchRows = [
     hint: '调参阶段建议开启：跑完整流程但不真的建订阅',
   },
   {
+    key: 'notify_each_subscription',
+    label: '每条新订阅都发 MP 原生通知',
+    hint: 'MP 自带的「新增订阅」消息；关闭后只有下面的运行摘要',
+  },
+  {
     key: 'notify',
     label: '发送运行摘要通知',
     hint: '每次运行结束后推送一条汇总消息',

@@ -189,8 +189,11 @@ class SubscriptionWriter:
         *,
         daily_limit: int = 30,
         resubscribe_completed: bool = True,
+        notify_each: bool = True,
     ) -> None:
         self._backend = backend
+        #: 是否让宿主为每条新增订阅发原生通知（以前固定静默，只发插件汇总）
+        self._notify_each = bool(notify_each)
         self._daily_limit = daily_limit
         #: 是否允许重新订阅「已完成过」的条目（忽略 subscribehistory）
         self._resubscribe_completed = resubscribe_completed
@@ -371,7 +374,9 @@ class SubscriptionWriter:
                 # 被压成单季的番剧按 episode group 精确订阅
                 # （真机：《药屋少女的呢喃》1 季 60 集，第 3 季 = 第 49~60 集）
                 episode_group=item.episode_group,
-                message=False,  # 逐条静默，由插件在末尾发汇总通知
+                # 以前固定 False（逐条静默，只发插件汇总）；
+                # 用户反馈「MP 原生新增订阅通知一条都没有」，改成可配置、默认开启。
+                message=self._notify_each,
                 exist_ok=False,
             )
         except Exception as err:  # noqa: BLE001 - 单条失败不影响后续条目

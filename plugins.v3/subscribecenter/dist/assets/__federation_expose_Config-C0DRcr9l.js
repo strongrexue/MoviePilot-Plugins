@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-LX8yMAhC.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, g as getPluginConfig, u as unwrap, a as getPluginApi, s as savePluginConfig, p as postPluginApi } from './_plugin-vue_export-helper-DMSB7LWO.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -18,8 +18,8 @@ const configDefaults = {
   enable_simkl: false,
   enable_justwatch: false,
   // ---------------- 发现窗口与阈值
-  tmdb_future_days: 8,
-  bangumi_future_days: 8,
+  tmdb_future_days: 3,
+  bangumi_future_days: 3,
   min_rating_tmdb: 6.0,
   min_rating_bangumi: 6.0,
   min_rating_douban: 6.0,
@@ -45,7 +45,7 @@ const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 2,
+  config_version: 3,
   // ---------------- 一次性执行
   onlyonce: false,
 };

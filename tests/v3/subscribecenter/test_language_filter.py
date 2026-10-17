@@ -45,7 +45,7 @@ def movie(mid=1, rel=None):
 
 
 BASE = {
-    "tmdb_future_days": 8,
+    "tmdb_future_days": 3,
     "min_rating_tmdb": 6.0,
     "timezone": "Asia/Shanghai",
 }
@@ -117,20 +117,23 @@ async def test_language_applies_to_both_media_types():
 # --------------------------------------------------------------------- 窗口
 
 def test_default_window_is_8_days():
-    """默认窗口 8 天：8 次机会容错，且不会订到一个月后才上的片。"""
-    assert C.DEFAULT_FUTURE_DAYS == 8
-    assert C.default_config()["tmdb_future_days"] == 8
+    """默认窗口 3 天：PT 资源普遍上映后才有，提前订只是空转。
+
+    3 天窗口 = 上映前 3 天进窗口，仍有 4 次运行机会吸收单次失败。
+    """
+    assert C.DEFAULT_FUTURE_DAYS == 3
+    assert C.default_config()["tmdb_future_days"] == 3
 
 
 @pytest.mark.asyncio
 async def test_window_upper_bound_matches_config():
     """上界必须等于「今天 + 配置天数」。"""
     api = FakeApi(movies=[movie()])
-    await TmdbSource(api, max_pages=1).fetch({**BASE, "tmdb_future_days": 8})
+    await TmdbSource(api, max_pages=1).fetch({**BASE, "tmdb_future_days": 3})
     params = api.calls[0][1]
     start = date.fromisoformat(params["primary_release_date.gte"])
     end = date.fromisoformat(params["primary_release_date.lte"])
-    assert (end - start).days == 8
+    assert (end - start).days == 3
 
 
 # --------------------------------------------------------------------- 配置一致性

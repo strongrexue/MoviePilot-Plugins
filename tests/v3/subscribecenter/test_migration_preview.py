@@ -37,7 +37,7 @@ def test_migration_upgrades_stale_window():
     """
     config, changed, changes = C.migrate_config({"tmdb_future_days": 30})
     assert changed is True
-    assert config["tmdb_future_days"] == C.DEFAULT_FUTURE_DAYS == 8
+    assert config["tmdb_future_days"] == C.DEFAULT_FUTURE_DAYS == 3
     assert config["config_version"] == C.CONFIG_VERSION
     assert any("tmdb_future_days" in change for change in changes)
 
@@ -64,12 +64,34 @@ def test_migration_is_idempotent():
     assert changed is True
     second, changed_again, _ = C.migrate_config(dict(first))
     assert changed_again is False
-    assert second["tmdb_future_days"] == 8
+    assert second["tmdb_future_days"] == 3
 
 
 def test_migration_marks_version_for_fresh_install():
     """全新安装（无 config_version）也要被标成当前版本。"""
-    config, changed, _ = C.migrate_config(dict(C.default_config()) | {"config_version": None})
+    config, _changed, _changes = C.migrate_config(
+        dict(C.default_config()) | {"config_version": None}
+    )
+    assert config["config_version"] == C.CONFIG_VERSION
+
+
+def test_migration_chains_through_all_versions():
+    """v1 老配置要一路迁到当前版本（30 -> 8 -> 3）。
+
+    迁移是逐版本叠加的：只迁最新一档会让中途升级的用户停在错误的中间值。
+    """
+    config, changed, changes = C.migrate_config({"tmdb_future_days": 30})
+    assert changed is True
+    assert config["tmdb_future_days"] == C.DEFAULT_FUTURE_DAYS == 3
+    assert config["config_version"] == C.CONFIG_VERSION
+    assert changes
+
+
+def test_migration_from_v2_lands_on_latest():
+    """已经是 v2（8 天）的用户升级后要变成 3 天。"""
+    config, changed, _changes = C.migrate_config({"tmdb_future_days": 8, "config_version": 2})
+    assert changed is True
+    assert config["tmdb_future_days"] == 3
     assert config["config_version"] == C.CONFIG_VERSION
 
 

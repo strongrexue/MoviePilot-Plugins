@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.5.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -28,7 +28,7 @@ DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_CRON = "0 3 * * *"
 DEFAULT_DAILY_LIMIT = 30
 MAX_DAILY_LIMIT = 50
-DEFAULT_FUTURE_DAYS = 8
+DEFAULT_FUTURE_DAYS = 3
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
@@ -100,7 +100,7 @@ IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB})
 # --------------------------------------------------------------------- 配置
 
 #: 当前配置结构版本。每次改了默认值且希望老用户跟着变，就 +1 并在 config_migrations 登记。
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 
 def default_config() -> Dict[str, Any]:
@@ -180,8 +180,12 @@ def config_migrations() -> Dict[int, Dict[str, Any]]:
        正好把它们设成旧默认值）。
     """
     return {
-        # v1 -> v2：窗口收紧 30 -> 8 天（8 天 = 8 次容错机会，且不订太早的片）
-        2: {"tmdb_future_days": DEFAULT_FUTURE_DAYS},
+        # v1 -> v2：窗口收紧 30 -> 8 天
+        2: {"tmdb_future_days": 8},
+        # v2 -> v3：窗口再收到 3 天 —— PT 资源普遍上映后才有，提前订只是空转。
+        # 3 天窗口 = 上映前 3 天进窗口，共 4 次运行机会（进窗口当天 + 上映日及前后），
+        # 足以吸收单次运行失败；真机实测一周实际新增约 4 条，部分天为 0。
+        3: {"tmdb_future_days": DEFAULT_FUTURE_DAYS},
     }
 
 

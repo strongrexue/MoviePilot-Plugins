@@ -15,8 +15,8 @@ export const configDefaults = {
   enable_simkl: false,
   enable_justwatch: false,
   // ---------------- 发现窗口与阈值
-  tmdb_future_days: 8,
-  bangumi_future_days: 8,
+  tmdb_future_days: 3,
+  bangumi_future_days: 3,
   min_rating_tmdb: 6.0,
   min_rating_bangumi: 6.0,
   min_rating_douban: 6.0,
@@ -42,7 +42,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 2,
+  config_version: 3,
   // ---------------- 一次性执行
   onlyonce: false,
 }

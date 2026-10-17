@@ -130,15 +130,58 @@ function prevPage() {
 }
 
 function nextPage() {
-  /** 上次运行的详细数字（通知里只报新增，细节放这里看）。 */
-const lastSummary = computed(() => status.value?.last_summary || null)
-
-const total = Number(history.value.total) || 0
+  const total = Number(history.value.total) || 0
   const count = Number(history.value.count) || 20
   if (history.value.page * count >= total) return
   history.value.page += 1
   loadHistory()
 }
+
+/** 上次运行的详细数字（通知里只报新增，细节放这里看）。 */
+const lastSummary = computed(() => status.value?.last_summary || null)
+
+/** 顶部统计卡：状态一览。 */
+const statCards = computed(() => {
+  const s = status.value || {}
+  const summary = lastSummary.value || {}
+  const sources = s.sources || []
+  const enabledSources = sources.filter((row) => row.enabled)
+  return [
+    {
+      icon: 'mdi-download-network-outline',
+      label: '今日写入',
+      value: `${s.written_today ?? 0}`,
+      sub:
+        s.daily_limit == null
+          ? '上限未知'
+          : Number(s.daily_limit) <= 0
+            ? '不限条数'
+            : `上限 ${s.daily_limit} 条`,
+      color: 'primary',
+    },
+    {
+      icon: 'mdi-radar',
+      label: '数据源',
+      value: `${enabledSources.length}/${sources.length}`,
+      sub: s.enabled ? '插件已启用' : '插件未启用',
+      color: s.enabled ? 'success' : 'warning',
+    },
+    {
+      icon: 'mdi-plus-circle-outline',
+      label: '上次新增',
+      value: `${summary.added ?? 0}`,
+      sub: summary.fetched != null ? `拉取 ${summary.fetched} 条` : '尚无运行记录',
+      color: 'success',
+    },
+    {
+      icon: 'mdi-clock-outline',
+      label: '最近运行',
+      value: s.last_run ? String(s.last_run).slice(11) : '—',
+      sub: s.last_run ? String(s.last_run).slice(0, 10) : '从未运行',
+      color: 'info',
+    },
+  ]
+})
 
 onMounted(() => {
   refreshAll()
@@ -171,74 +214,36 @@ onUnmounted(() => {
       @click:close="tip.show = false"
     />
 
-    <VRow dense>
-      <VCol cols="12" md="4">
-        <VCard variant="tonal" class="h-100">
-          <VCardTitle class="text-subtitle-1">运行状态</VCardTitle>
-          <VCardText v-if="status">
-            <div class="sc-kv"><span>插件版本</span><b>v{{ status.plugin_version }}</b></div>
-            <div class="sc-kv">
-              <span>启用</span>
-              <VChip size="x-small" :color="status.enabled ? 'success' : 'default'" variant="flat">
-                {{ status.enabled ? '是' : '否' }}
-              </VChip>
-            </div>
-            <div class="sc-kv">
-              <span>dry-run</span>
-              <b>{{ status.dry_run ? '是（不写入）' : '否' }}</b>
-            </div>
-            <div class="sc-kv">
-              <span>首次试运行</span>
-              <b>{{ status.first_run_completed ? '已完成' : '未完成（下次强制 dry-run）' }}</b>
-            </div>
-            <div class="sc-kv"><span>今日写入</span><b>{{ status.written_today }} / {{ status.daily_limit }}</b></div>
-            <div class="sc-kv"><span>时区</span><b>{{ status.timezone }}</b></div>
-            <div class="sc-kv"><span>最近运行</span><b>{{ status.last_run || '—' }}</b></div>
-            <div class="sc-kv"><span>映射缓存</span><b>{{ status.mapping_cache_size }} 条</b></div>
-            <div v-if="lastSummary" class="sc-kv">
-              <span>上次运行</span>
-              <b class="sc-summary-line">
-                拉取 {{ lastSummary.fetched ?? 0 }}
-                · 新增 {{ lastSummary.added ?? 0 }}
-                · 跳过 {{ lastSummary.skipped ?? 0 }}
-                · 待确认 {{ lastSummary.pending_review ?? 0 }}
-                <span v-if="lastSummary.deduped_out" class="sc-hint">
-                  （源内去重 {{ lastSummary.deduped_out }}）
-                </span>
-              </b>
-            </div>
-            <div class="sc-kv">
-              <span>当前任务</span>
-              <VChip size="x-small" :color="status.busy ? 'warning' : 'default'" variant="flat">
-                {{ status.busy ? '运行中' : '空闲' }}
-              </VChip>
-            </div>
-          </VCardText>
-          <VCardText v-else class="sc-hint">状态加载中…</VCardText>
-        </VCard>
-      </VCol>
+    <!-- 顶部统计卡：一屏看清状态 -->
+    <div class="sc-stat-grid">
+      <div v-for="card in statCards" :key="card.label" class="sc-stat">
+        <div class="sc-stat-top">
+          <VIcon :icon="card.icon" size="17" :color="card.color" />
+          <span class="sc-stat-label">{{ card.label }}</span>
+        </div>
+        <div class="sc-stat-value">{{ card.value }}</div>
+        <div class="sc-stat-sub">{{ card.sub }}</div>
+      </div>
+    </div>
 
-      <VCol cols="12" md="8">
-        <VCard variant="outlined" class="h-100">
-          <VCardTitle class="text-subtitle-1">数据源</VCardTitle>
-          <VCardText>
-            <div v-for="s in (status?.sources || [])" :key="s.source" class="sc-source">
-              <div class="d-flex align-center ga-2 flex-wrap">
-                <b>{{ s.source }}</b>
-                <VChip size="x-small" variant="flat" :color="s.enabled ? 'success' : 'default'">
-                  {{ s.enabled ? '已启用' : '未启用' }}
-                </VChip>
-                <VChip v-if="!s.implemented" size="x-small" variant="flat" color="warning">
-                  当前版本未实现
-                </VChip>
-                <span class="sc-hint">最近 {{ s.last_count }} 条 · {{ s.last_run || '从未运行' }}</span>
-              </div>
-              <div v-if="s.last_error" class="sc-error">失败：{{ s.last_error }}</div>
-            </div>
-          </VCardText>
-        </VCard>
-      </VCol>
-    </VRow>
+    <!-- 数据源一览 -->
+    <div class="sc-sources">
+      <div v-for="s in (status?.sources || [])" :key="s.source" class="sc-source-chip">
+        <div class="sc-source-head">
+          <b>{{ s.source }}</b>
+          <VChip size="x-small" variant="flat" :color="s.enabled ? 'success' : 'default'">
+            {{ s.enabled ? '已启用' : '未启用' }}
+          </VChip>
+          <VChip v-if="!s.implemented" size="x-small" variant="flat" color="warning">
+            未实现
+          </VChip>
+        </div>
+        <div class="sc-source-sub">
+          最近 {{ s.last_count }} 条 · {{ s.last_run || '从未运行' }}
+        </div>
+        <div v-if="s.last_error" class="sc-error">失败：{{ s.last_error }}</div>
+      </div>
+    </div>
 
     <div class="d-flex flex-wrap ga-2 my-3">
       <VBtn
@@ -259,41 +264,57 @@ onUnmounted(() => {
       </VBtn>
     </div>
 
-    <VCard variant="outlined">
-      <VCardTitle class="d-flex align-center flex-wrap ga-2 text-subtitle-1">
-        <span>发现流水</span>
+    <!-- 发现流水：表格式，一眼看全 -->
+    <div class="sc-card">
+      <div class="sc-card-head">
+        <span class="sc-card-title">发现流水</span>
         <VSelect
           v-model="filter"
-          :items="[{ title: '全部', value: '' }, ...Object.entries(DECISION_LABELS).map(([value, title]) => ({ title, value }))]"
+          :items="[{ title: '全部状态', value: '' }, ...Object.entries(DECISION_LABELS).map(([value, title]) => ({ title, value }))]"
           density="compact"
           hide-details
-          style="max-width: 180px"
+          variant="outlined"
+          style="max-width: 190px"
           @update:model-value="history.page = 1; loadHistory()"
         />
         <VChip size="x-small" variant="tonal">共 {{ history.total }} 部作品</VChip>
-          <VChip size="x-small" variant="text">每部只显示最新状态</VChip>
-      </VCardTitle>
-      <VCardText>
-        <div v-if="!history.items.length" class="sc-hint">
-          还没有流水。插件启用后点「立即运行一次」即可看到发现结果。
+        <VChip size="x-small" variant="text">每部只显示最新状态</VChip>
+      </div>
+
+      <div v-if="!history.items.length" class="sc-empty">
+        还没有流水。点「立即运行一次」即可看到发现结果。
+      </div>
+
+      <div v-else class="sc-table">
+        <div class="sc-tr sc-tr-head">
+          <span>时间</span>
+          <span>来源</span>
+          <span>媒体</span>
+          <span>身份</span>
+          <span>决策</span>
+          <span>说明</span>
         </div>
-        <div v-for="(item, index) in history.items" :key="index" class="sc-row">
-          <div class="d-flex align-center flex-wrap ga-2">
+        <div v-for="(item, index) in history.items" :key="index" class="sc-tr">
+          <span class="sc-mono">{{ String(item.run_at || '').slice(5, 16) }}</span>
+          <span class="sc-dim">{{ item.source }}</span>
+          <span class="sc-media">
+            <b>{{ item.title }}</b>
+            <span v-if="item.year" class="sc-dim">({{ item.year }})</span>
+            <span v-if="item.media_type" class="sc-dim">{{ item.media_type }}</span>
+          </span>
+          <span class="sc-dim">{{ item.confidence || '—' }}</span>
+          <span>
             <VChip size="x-small" variant="flat" :color="decisionColor(item.decision)">
               {{ decisionLabel(item.decision) }}
             </VChip>
-            <b>{{ item.title }}</b>
-            <span v-if="item.year" class="sc-hint">({{ item.year }})</span>
-            <span class="sc-hint">{{ item.source }}</span>
-            <VChip v-if="item.confidence" size="x-small" variant="text">身份 {{ item.confidence }}</VChip>
-            <span v-if="item.release_date" class="sc-hint">放送 {{ item.release_date }}</span>
-          </div>
-          <div v-if="item.reason" class="sc-hint">{{ item.reason }}</div>
+          </span>
+          <span class="sc-dim sc-reason">{{ item.reason || '—' }}</span>
         </div>
-      </VCardText>
-      <VCardActions v-if="history.total > history.count" class="justify-center">
+      </div>
+
+      <div v-if="history.total > history.count" class="sc-pager">
         <VBtn size="small" variant="text" :disabled="history.page <= 1" @click="prevPage">上一页</VBtn>
-        <span class="sc-hint mx-2">第 {{ history.page }} 页 · 共 {{ history.total }} 部作品</span>
+        <span class="sc-hint">第 {{ history.page }} 页 · 共 {{ history.total }} 部作品</span>
         <VBtn
           size="small"
           variant="text"
@@ -302,14 +323,15 @@ onUnmounted(() => {
         >
           下一页
         </VBtn>
-      </VCardActions>
-    </VCard>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .sc-root {
   padding: 4px;
+  font-size: 13px;
 }
 .sc-hint {
   font-size: 12px;
@@ -320,25 +342,147 @@ onUnmounted(() => {
   color: rgb(var(--v-theme-error));
   margin-top: 4px;
 }
-.sc-kv {
+.sc-dim {
+  opacity: 0.65;
+  font-size: 12px;
+}
+.sc-mono {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* 顶部统计卡 */
+.sc-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.sc-stat {
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+  background: rgba(var(--v-theme-surface), 0.4);
+}
+.sc-stat-top {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.sc-stat-value {
+  margin-top: 3px;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.sc-stat-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* 数据源一览 */
+.sc-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.sc-source-chip {
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--v-border-color), 0.14);
+  border-radius: 8px;
+}
+.sc-source-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.sc-source-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* 卡片 */
+.sc-card {
+  padding: 12px;
+  border: 1px solid rgba(var(--v-border-color), 0.16);
+  border-radius: 10px;
+}
+.sc-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sc-card-title {
   font-size: 13px;
-  padding: 3px 0;
+  font-weight: 600;
 }
-.sc-source {
-  padding: 6px 0;
+.sc-empty {
+  padding: 20px 4px;
+  font-size: 12px;
+  text-align: center;
+  opacity: 0.6;
+}
+
+/* 流水表格 */
+.sc-table {
+  display: flex;
+  flex-direction: column;
+}
+.sc-tr {
+  display: grid;
+  grid-template-columns: 92px 82px minmax(180px, 1.6fr) 56px 96px minmax(160px, 2fr);
+  gap: 10px;
+  align-items: center;
+  padding: 7px 4px;
   border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
+  font-size: 12.5px;
 }
-.sc-source:last-child {
+.sc-tr:last-child {
   border-bottom: none;
 }
-.sc-row {
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
+.sc-tr-head {
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 0.55;
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.2);
 }
-.sc-row:last-child {
-  border-bottom: none;
+.sc-media {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.sc-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .sc-tr {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sc-tr-head {
+    display: none;
+  }
+  .sc-reason {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
 }
 </style>

@@ -483,6 +483,7 @@ onMounted(() => {
               v-model="doubanSourcesText"
               label="每行一个地址"
               rows="3"
+              auto-grow
               density="compact"
               hide-details
               variant="outlined"
@@ -904,8 +905,9 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(1120px, calc(100vw - 48px));
-  height: min(860px, calc(100dvh - 48px));
+  width: 100%;
+  max-width: 100%;
+  height: min(820px, calc(100dvh - 48px));
   padding: 16px;
   box-sizing: border-box;
   font-size: 13px;

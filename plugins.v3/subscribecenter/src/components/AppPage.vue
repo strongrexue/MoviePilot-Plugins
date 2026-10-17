@@ -39,7 +39,14 @@ function afterSave() {
       @switch="openSettings"
     />
 
-    <VDialog v-model="settingsDialog" max-width="760" scrollable>
+    <!-- 弹窗尺寸必须与插件管理页的「设置」看齐：
+     写死 760 会让发现页里的设置窗口明显偏小（真机反馈）。 -->
+    <VDialog
+      v-model="settingsDialog"
+      width="min(1120px, 94vw)"
+      max-width="min(1120px, 94vw)"
+      scrollable
+    >
       <VCard>
         <VCardTitle class="d-flex align-center">
           <span>胖虎订阅中心 · 设置</span>

@@ -314,6 +314,7 @@ onUnmounted(() => {
         <div class="sc-tr sc-tr-head">
           <span></span>
           <span>作品</span>
+          <span>说明</span>
           <span>决策 / 时间</span>
         </div>
         <div v-for="(item, index) in history.items" :key="index" class="sc-tr">
@@ -332,8 +333,11 @@ onUnmounted(() => {
               <span v-if="item.confidence" class="sc-dim">身份 {{ item.confidence }}</span>
               <span v-if="item.release_date" class="sc-dim">放送 {{ item.release_date }}</span>
             </div>
-            <div v-if="item.reason" class="sc-media-reason sc-dim">{{ item.reason }}</div>
           </span>
+          <span v-if="item.reason" class="sc-reason sc-dim" :title="item.reason">
+            {{ item.reason }}
+          </span>
+          <span v-else class="sc-dim">—</span>
           <span class="sc-decision">
             <VChip size="x-small" variant="flat" :color="decisionColor(item.decision)">
               {{ decisionLabel(item.decision) }}
@@ -520,7 +524,7 @@ onUnmounted(() => {
 }
 .sc-tr {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 130px;
+  grid-template-columns: 44px minmax(150px, 1fr) minmax(140px, 1.3fr) 128px;
   gap: 10px;
   align-items: center;
   padding: 7px 4px;
@@ -578,10 +582,15 @@ onUnmounted(() => {
   flex-wrap: wrap;
   margin-top: 2px;
 }
-.sc-media-reason {
-  margin-top: 3px;
+/* 说明单独成列：两行截断 + 悬浮看全文，避免长句把行高撑起来 */
+.sc-reason {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-size: 11.5px;
-  line-height: 1.4;
+  line-height: 1.45;
+  max-height: 2.9em;
 }
 .sc-decision {
   display: flex;
@@ -599,14 +608,13 @@ onUnmounted(() => {
 
 @media (max-width: 900px) {
   .sc-tr {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 44px 1fr 110px;
   }
   .sc-tr-head {
     display: none;
   }
   .sc-reason {
-    grid-column: 1 / -1;
-    white-space: normal;
+    display: none;
   }
 }
 </style>

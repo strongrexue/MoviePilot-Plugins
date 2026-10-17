@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-C8wHayc3.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-YKM_2cxK.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -50,17 +50,18 @@ const _hoisted_28 = {
   key: 2,
   class: "sc-dim"
 };
-const _hoisted_29 = {
-  key: 0,
-  class: "sc-media-reason sc-dim"
+const _hoisted_29 = ["title"];
+const _hoisted_30 = {
+  key: 1,
+  class: "sc-dim"
 };
-const _hoisted_30 = { class: "sc-decision" };
-const _hoisted_31 = { class: "sc-mono sc-dim" };
-const _hoisted_32 = {
+const _hoisted_31 = { class: "sc-decision" };
+const _hoisted_32 = { class: "sc-mono sc-dim" };
+const _hoisted_33 = {
   key: 2,
   class: "sc-pager"
 };
-const _hoisted_33 = { class: "sc-hint" };
+const _hoisted_34 = { class: "sc-hint" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -463,6 +464,7 @@ return (_ctx, _cache) => {
             _cache[12] || (_cache[12] = _createElementVNode("div", { class: "sc-tr sc-tr-head" }, [
               _createElementVNode("span"),
               _createElementVNode("span", null, "作品"),
+              _createElementVNode("span", null, "说明"),
               _createElementVNode("span", null, "决策 / 时间")
             ], -1)),
             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value.items, (item, index) => {
@@ -521,12 +523,16 @@ return (_ctx, _cache) => {
                     (item.release_date)
                       ? (_openBlock(), _createElementBlock("span", _hoisted_28, "放送 " + _toDisplayString(item.release_date), 1))
                       : _createCommentVNode("", true)
-                  ]),
-                  (item.reason)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_29, _toDisplayString(item.reason), 1))
-                    : _createCommentVNode("", true)
+                  ])
                 ]),
-                _createElementVNode("span", _hoisted_30, [
+                (item.reason)
+                  ? (_openBlock(), _createElementBlock("span", {
+                      key: 0,
+                      class: "sc-reason sc-dim",
+                      title: item.reason
+                    }, _toDisplayString(item.reason), 9, _hoisted_29))
+                  : (_openBlock(), _createElementBlock("span", _hoisted_30, "—")),
+                _createElementVNode("span", _hoisted_31, [
                   _createVNode(_component_VChip, {
                     size: "x-small",
                     variant: "flat",
@@ -537,13 +543,13 @@ return (_ctx, _cache) => {
                     ]),
                     _: 2
                   }, 1032, ["color"]),
-                  _createElementVNode("span", _hoisted_31, _toDisplayString(String(item.run_at || '').slice(5, 16)), 1)
+                  _createElementVNode("span", _hoisted_32, _toDisplayString(String(item.run_at || '').slice(5, 16)), 1)
                 ])
               ]))
             }), 128))
           ])),
       (history.value.total > history.value.count)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_32, [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_33, [
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
@@ -555,7 +561,7 @@ return (_ctx, _cache) => {
               ]))]),
               _: 1
             }, 8, ["disabled"]),
-            _createElementVNode("span", _hoisted_33, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
+            _createElementVNode("span", _hoisted_34, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
@@ -575,6 +581,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1d2283b9"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-45a9d7c4"]]);
 
 export { Page as default };

@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "1.0.1",
+        "version": "1.0.2",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.0.2": "发现页设置弹窗放大 + 流水四列布局 + 封面取用顺序修正（1.0.2）。[1] 用户反馈「发现页点设置进去的窗口过小」—— 根因在 AppPage.vue：设置弹窗写死 max-width=760，与插件管理页的弹窗不一致。改为 width/max-width = min(1120px, 94vw)，与插件页对齐。[2] 流水排版：说明文字单独成列（两行截断 + hover 看全文），网格从三列改为四列「封面 / 作品 / 说明 / 决策+时间」；窄屏（<900px）隐藏说明列。[3] 修一个真 bug：_attach_poster 原在宿主 resolve_target_season 之前调用，而 poster_path 是宿主裁决季号拉 TMDB 详情时才记下的 —— 顺序反了导致 TV 永远取不到顺带的海报、退化成每部剧多查一次 TMDB。现已改为裁决之后再取，电影仍走补查。注：库里 462 条历史记录是 1.0.0 写的、没有 poster 字段，下一轮运行会按身份去重覆盖成带封面的新记录。",
             "v1.0.1": "数据源列表去掉 Bangumi + 流水显示封面（1.0.1）。[1] 用户反馈：界面上还挂着「Bangumi 已启用·未实现」，数据源计数是 4/6 —— 因为 status_snapshot 与 ALL_SOURCES 仍保留 bangumi。Bangumi 自 1.0.0 起已降级为内部标题翻译层，不是发现源，已从两处移除：数据源列表变为 TMDB / AniList / 豆瓣 RSS / Simkl / JustWatch（5 个），启用计数 3/5。[2] 发现流水改为「封面 + 作品信息 + 决策」卡片式：左侧 40x56 海报，中间标题/年份/类型/来源/身份/放送日/原因，右侧决策标签与时间。海报来源三级：候选里的 poster_path（TMDB 搜索返回）→ 宿主 resolve_target_season 拉 TMDB 详情时顺带记下的 poster_path（零额外请求）→ 电影补查一次详情。没有海报时显示占位图标。历史记录 to_log_dict 增加 poster 字段。",
             "v1.0.0": "新增 AniList 源，Bangumi 降级为标题翻译层（1.0.0）。这是一次破坏性变更：数据源集合从 TMDB/Bangumi/豆瓣 改为 TMDB/AniList/豆瓣。[1] AniList 源（sources/anilist.py）：官方 GraphQL，实测必须用 POST + 浏览器 UA（默认 UA 403）。两条发现通道缺一不可 —— 新番按 startDate 落窗口（当季 + 下季已定档），连载中按 nextAiringEpisode.airingAt 落窗口。第二条是国漫的唯一入口：国漫多为长篇连载（遮天 2023 年开播 208 集），开播日永远在窗口外，用「开播日+窗口」永远抓不到，这不是识别问题而是窗口语义问题。国漫 countryOfOrigin=CN 且 title.native 就是中文原名，直接作为首选标题。[2] 为什么用 AniList 替代 Bangumi：实测 api.bgm.tv/calendar 当季 108 部里，6 个知名国漫只出现 1 个（牧神记5），凡人修仙传/斗破苍穹/遮天/吞噬星空/完美世界全不在；AniList 全部覆盖。但 Bangumi 的中文名对日番识别仍是最高质量兜底，因此不删除而是降级。[3] Bangumi 翻译层：HostTmdbResolver.bangumi_aliases 用 bgm.tv 搜索接口取 name_cn，接入 IdentityResolver 的重试链（日文原名 -> Bangumi 中文名 -> TMDB），带相似度校验防止错译把 A 番订成 B 番。[4] 按源热度门槛：新增 min_popularity_by_source —— TMDB 的 popularity 中位数约 3（15 算热门），AniList 冷门番也有上千，共用 15 等于对 AniList 完全不过滤。AniList 默认 1000。[5] 配置：新增 enable_anilist(默认开)/anilist_future_days(3)/anilist_min_popularity(1000)/anilist_include_donghua(默认开，用户要求)，CONFIG_VERSION 3->4 并登记迁移。[6] 前端：数据源列表换成 AniList，Bangumi 卡片替换为 AniList 卡片（窗口/热度/包含国漫三个控件），IMPLEMENTED 改为 tmdb/anilist/douban_rss。测试 404 项通过，含新增 8 项 AniList 源测试（双通道/中文标题/国漫开关/失败必抛/电影映射/季度换算）。",
             "v0.9.9": "详情页顶栏 + 提示条瘦身 + 通知分模式（0.9.9）。[1] 详情页：把操作按钮行（立即运行一次/刷新/设置）移到顶部标题栏右侧，对齐本仓库其他插件的版式；去掉「关闭」按钮（弹窗自带关闭）；顶栏含图标、名称、版本号与一句话简介。[2] 设置页提示条：给 VAlert 加 sc-tip 类并强制 flex:0 0 auto / min-height:0 / 字号 12px —— 因为根容器改为固定高度 flex 列后，提示条被拉成一大块（真机截图里占了近 200px 高），现在恢复成一行。[3] 通知按模式区分：dry-run/预览给全量明细（会订/拉取/源内去重/跳过/待确认），真跑只报「新增 N 条」；标题统一为「胖虎订阅中心」，不再带「· 预览完成 / · 发现完成」。",

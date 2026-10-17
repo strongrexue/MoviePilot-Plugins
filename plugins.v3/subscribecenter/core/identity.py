@@ -953,11 +953,12 @@ class IdentityResolver:
 
         `TmdbResolver` 未实现该能力时跳过（向后兼容）。
         """
-        await self._attach_poster(item)
-        if not item.resolved or not item.is_tv:
+        if not item.resolved:
             return
         resolver = getattr(self._tmdb, "resolve_target_season", None)
-        if resolver is None:
+        if not item.is_tv or resolver is None:
+            # 电影不走季号裁决，直接取海报（会额外查一次详情）
+            await self._attach_poster(item)
             return
         try:
             verdict = await resolver(
@@ -967,7 +968,12 @@ class IdentityResolver:
                 prefer_episode_group=self._prefer_episode_group,
             )
         except Exception:  # noqa: BLE001 - 校验失败 fail-open
+            await self._attach_poster(item)
             return
+        # 海报必须在**裁决之后**取：宿主裁决季号时会拉 TMDB 详情，
+        # poster_path 就在那份 JSON 里（零额外请求）。
+        # 顺序写反过一次，结果每部剧都多查了一次 TMDB。
+        await self._attach_poster(item)
         # 兼容二元组（早期实现）与三元组
         writable, season = verdict[0], verdict[1]
         episode_group = verdict[2] if len(verdict) > 2 else None

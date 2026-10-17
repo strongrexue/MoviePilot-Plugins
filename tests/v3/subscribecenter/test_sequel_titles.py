@@ -202,3 +202,85 @@ def test_strict_year_defaults_to_true():
         {"tmdb_id": 1, "title": "牧神记", "year": "2024", "media_type": "tv"},
     ]
     assert match_candidate_year(candidates, tv("牧神记")) is None
+
+
+# ------------------------------------------------------- 续作识别（1.0.4 真机事故）
+
+def test_english_season_suffix_is_parsed():
+    """英文/日式季号必须能解析：AniList 的日番标题大量使用这些写法。
+
+    真机：``Black Clover 2nd Season`` 原来 hint=None，季号提示缺失后
+    宿主的季号裁决只能取「该条目最大的在播季」，一旦条目认错就稳定订 S01。
+    """
+    from subscribecenter.core.identity import extract_season_hint, strip_season_suffix
+
+    assert extract_season_hint("Black Clover 2nd Season") == 2
+    assert extract_season_hint("Jobless Reincarnation Season 3") == 3
+    assert extract_season_hint("Overlord Part 2") == 2
+    assert extract_season_hint("呪術廻戦 第2クール") == 2
+    assert extract_season_hint("某番 第3部") == 3
+    assert strip_season_suffix("Black Clover 2nd Season") == "Black Clover"
+    assert strip_season_suffix("呪術廻戦 第2クール") == "呪術廻戦"
+
+
+def test_non_sequel_titles_are_not_flagged():
+    """普通片名不能被误判成续作（否则会被年份闸门误杀）。"""
+    from subscribecenter.core.identity import is_continuation_title
+
+    for title in ("沙丘", "1917", "斗罗大陆2绝世唐门", "BLEACH 千年血戦篇-禍進譚-", "Dune"):
+        assert is_continuation_title(title) is False, title
+
+
+def test_sequel_titles_are_flagged():
+    """带季号（>=2）的标题要识别为续作。"""
+    from subscribecenter.core.identity import is_continuation_title
+
+    for title in ("野生のラスボスが現れた！ 第2期", "Black Clover 2nd Season", "凡人修仙传 第四季"):
+        assert is_continuation_title(title) is True, title
+
+
+def test_season_one_suffix_is_not_continuation():
+    """「第1季」不算续作 —— 下限只对 >=2 生效，避免误杀翻拍/同名新作。"""
+    from subscribecenter.core.identity import is_continuation_title
+
+    assert is_continuation_title("某某 第1季") is False
+
+
+def test_continuation_rejects_older_candidate():
+    """续作条目必须拒绝「更旧年份」的候选。
+
+    真机事故：AniList「野生のラスボスが現れた！ 第2期」(2026) 搜日文命中 0，
+    退化成中文基础名后 TMDB 只返回 2025 那部（上一季）。TV 不做年份硬校验，
+    于是认成 2025 条目 —— 订阅结果是 S01，而不是最新季。
+    """
+    from subscribecenter.core.identity import match_candidate_year
+    from subscribecenter.core.model import DiscoveredItem
+
+    entity = DiscoveredItem(
+        source="anilist", source_id="1",
+        title="某番 第2期", media_type="tv", year="2026",
+        release_date="2026-10-20",
+    )
+    older = [{"tmdb_id": "111", "title": "某番", "year": "2025", "media_type": "tv"}]
+    assert match_candidate_year(older, entity, strict_year=False, min_year=2026) is None
+
+    same_year = [{"tmdb_id": "222", "title": "某番", "year": "2026", "media_type": "tv"}]
+    hit = match_candidate_year(same_year, entity, strict_year=False, min_year=2026)
+    assert hit is not None and hit[0]["tmdb_id"] == "222"
+
+
+def test_continuation_floor_only_applies_to_sequels():
+    """下限只对续作生效；普通作品返回 None（不限制）。"""
+    from subscribecenter.core.identity import _continuation_floor
+    from subscribecenter.core.model import DiscoveredItem
+
+    sequel = DiscoveredItem(
+        source="anilist", source_id="1", title="某番 第2期",
+        media_type="tv", year="2026", release_date="2026-10-20",
+    )
+    plain = DiscoveredItem(
+        source="tmdb", source_id="2", title="沙丘",
+        media_type="movie", year="2026", release_date="2026-11-01",
+    )
+    assert _continuation_floor(sequel) == 2026
+    assert _continuation_floor(plain) is None

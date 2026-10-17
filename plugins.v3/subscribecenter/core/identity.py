@@ -186,6 +186,24 @@ _SEASON_SUFFIX = re.compile(
     r"[\s:：·\-]*(?:第\s*)?([0-9]{1,2}|[一二三四五六七八九十]{1,2})\s*[期季部]?\s*$"
 )
 
+#: 英文 / 日式季号后缀（AniList 的日番标题大量使用这种写法）：
+#:
+#:   Black Clover 2nd Season  /  Season 2  /  第2クール  /  Part 2
+#:
+#: 真机教训：AniList 给的是日文原名，其中「第2期」我们的正则能识别，
+#: 但 ``2nd Season`` 这类**完全没覆盖** —— 季号提示缺失后，
+#: 宿主的季号裁决只能取「该条目最大的在播季」，一旦条目认错（认成上一季），
+#: 就会稳定订到 S01。
+_SEASON_SUFFIX_EN = re.compile(
+    r"[\s:：·\-,]*(?:"
+    r"(?:season|series|cour|part)\s*([0-9]{1,2})"
+    r"|([0-9]{1,2})\s*(?:st|nd|rd|th)\s*(?:season|cour|part)"
+    # 日式：第2クール / 第2クール目 / 第2部
+    r"|第\s*([0-9]{1,2}|[一二三四五六七八九十]{1,2})\s*(?:クール|部)"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
 
 #: 中文数字 -> 阿拉伯数字（季号用）
 _CN_DIGITS = {
@@ -234,6 +252,13 @@ def strip_season_suffix(title: Optional[str]) -> str:
     text = sanitize_title(title)
     if not text:
         return text
+    # 英文/日式季号（2nd Season / Season 2 / 第2クール / Part 2）先剥掉
+    english = _SEASON_SUFFIX_EN.search(text)
+    if english:
+        base_en = text[: english.start()].strip(" :：·-,")
+        number_en = _season_number(english.group(1) or english.group(2) or english.group(3) or "")
+        if len(base_en) >= 2 and number_en is not None and 2 <= number_en <= 30:
+            return base_en
     match = _SEASON_SUFFIX.search(text)
     if not match:
         return text
@@ -352,7 +377,7 @@ def match_by_unique_year(
 
 
 def extract_season_hint(title: Optional[str]) -> Optional[int]:
-    """从标题尾部提取季号提示（牧神记5 -> 5、第2期 -> 2）。
+    """从标题尾部提取季号提示（牧神记5 -> 5、第2期 -> 2、2nd Season -> 2）。
 
     只是**提示**，不直接用于订阅 —— TMDB 未必有同号季（真机：《牧神记5》
     在 TMDB 只有第 1 季）。真正的季号由宿主按「TMDB 哪个季有未播内容」
@@ -361,10 +386,42 @@ def extract_season_hint(title: Optional[str]) -> Optional[int]:
     text = sanitize_title(title)
     if not text or strip_season_suffix(text) == text:
         return None
+    # 英文/日式写法优先（2nd Season / Season 2 / 第2クール / Part 2）
+    english = _SEASON_SUFFIX_EN.search(text)
+    if english:
+        number = _season_number(english.group(1) or english.group(2) or english.group(3) or "")
+        if number and 2 <= number <= 30:
+            return number
     match = _SEASON_SUFFIX.search(text)
     if not match:
         return None
     return _season_number(match.group(1))
+
+
+def is_continuation_title(title: Optional[str]) -> bool:
+    """标题是否明显是**续作**（季号 >= 2）。
+
+    用途：续作条目绝不允许匹配到**更旧年份**的 TMDB 条目 ——
+    那几乎一定是「上一季那部」，订下去就是 S01（真机：2026 的续作被
+    匹配到 2025 的基础条目，然后在该条目里选了第 1 季）。
+    """
+    hint = extract_season_hint(title)
+    return bool(hint and hint >= 2)
+
+
+def _continuation_floor(item: DiscoveredItem) -> Optional[int]:
+    """续作条目的「年份下限」：``min_year`` 参数的取值。
+
+    只有续作（季号 >= 2）才设下限，普通作品返回 ``None`` 表示不限制 ——
+    否则「同名老片/翻拍」会被误杀。
+    """
+    if not is_continuation_title(item.title):
+        return None
+    year = _year_of(item.year or item.release_date)
+    try:
+        return int(year) if year else None
+    except (TypeError, ValueError):
+        return None
 
 
 def title_similarity(left: str, right: str) -> float:
@@ -424,6 +481,7 @@ def match_candidate_year(
     *,
     strict_year: bool = True,
     target_title: Optional[str] = None,
+    min_year: Optional[int] = None,
 ) -> Optional[Tuple[dict, str]]:
     """L3：在候选中按「标题精确 + 年份硬校验」选出唯一目标。
 
@@ -476,6 +534,14 @@ def match_candidate_year(
             continue
 
         candidate_year = _year_of(candidate.get("year") or candidate.get("release_date"))
+        # 续作闸门：标题带季号（>=2）时，**绝不接受比条目更旧的条目**。
+        #
+        # 真机：AniList 的「野生のラスボスが現れた！ 第2期」(2026) 搜日文命中 0，
+        # 退化成中文基础名「野生的最终BOSS出现了」后 TMDB 只返回 2025 那部
+        # （上一季）。TV 又不做年份硬校验，于是认成 2025 条目 → 订 S01。
+        # 这不是季号裁决错，是**条目认错**；这里把它挡在识别阶段。
+        if min_year and candidate_year and int(candidate_year) < int(min_year):
+            continue
         if strict_year:
             if wanted_year and candidate_year != wanted_year:
                 # 年份不符或缺年份 —— 电影不做任何「放宽」，直接不算命中
@@ -601,7 +667,10 @@ class IdentityResolver:
         candidates = await self._search(item)
         if candidates:
             hit = match_candidate_year(
-                candidates, item, strict_year=item.media_type == MEDIA_TYPE_MOVIE
+                candidates,
+                item,
+                strict_year=item.media_type == MEDIA_TYPE_MOVIE,
+                min_year=_continuation_floor(item),
             )
             if hit:
                 candidate, reason = hit
@@ -781,9 +850,16 @@ class IdentityResolver:
                 item,
                 strict_year=item.media_type == MEDIA_TYPE_MOVIE,
                 target_title=term,
+                min_year=_continuation_floor(item),
             )
             if not hit:
-                # 标题比对失败时用「唯一同年候选」兜底（豆瓣/TMDB 译名差异）
+                # 标题比对失败时用「唯一同年候选」兜底（豆瓣/TMDB 译名差异）。
+                #
+                # **但续作绝不能用这个兜底**：它的容差是 ±1 年，
+                # 而续作最典型的错误恰恰是「2026 的续作匹配到 2025 的上一季」
+                # —— 正好落在容差内，会把上面刚挡住的错误从后门放回来。
+                if is_continuation_title(item.title):
+                    continue
                 relaxed = match_by_unique_year(extra, item)
                 if not relaxed:
                     continue

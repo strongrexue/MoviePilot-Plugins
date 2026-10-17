@@ -81,6 +81,22 @@ def test_strip_season_suffix(raw, expected):
     assert strip_season_suffix(raw) == expected
 
 
+def test_strip_season_suffix_handles_chinese_numerals():
+    """中文数字季号必须能剥（真机：豆瓣「信号 第二季」「镀金时代 第四季」）。
+
+    原实现只做 `int()`，遇到「二」抛 ValueError 后放弃剥离，
+    导致基础名没取到、TMDB 搜不到 -> 误判成待确认。
+    """
+    from subscribecenter.core.identity import extract_season_hint
+
+    assert strip_season_suffix("信号 第二季") == "信号"
+    assert strip_season_suffix("镀金时代 第四季") == "镀金时代"
+    assert strip_season_suffix("某番 第十二季") == "某番"
+    assert extract_season_hint("信号 第二季") == 2
+    assert extract_season_hint("镀金时代 第四季") == 4
+    assert extract_season_hint("某番 第十二季") == 12
+
+
 # --------------------------------------------------------------------- 剧集放宽
 
 def test_tv_accepts_year_mismatch_when_title_exact():

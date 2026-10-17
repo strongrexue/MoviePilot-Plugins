@@ -36,6 +36,12 @@ from ..core.window import parse_date
 #: 请求超时（秒）
 TIMEOUT_SECONDS = 25
 
+#: 每个榜单默认只取前 N 条。
+#:
+#: 榜单按名次排列，取前 N 即取最热的。实测 /douban/list/tv_hot 有 241 条，
+#: 不限量会把每日写入额度一次吃光，也会让 TMDB 查询次数暴涨。
+DEFAULT_MAX_ITEMS_PER_FEED = 10
+
 #: User-Agent —— RSSHub 本身不限，但保持可识别
 USER_AGENT = "SubscribeCenter/0.7.0 (MoviePilot plugin; +https://github.com/strongrexue)"
 
@@ -75,6 +81,7 @@ class DoubanRssSource:
             )
 
         tz_name = config.get("timezone")
+        limit = _as_int(config.get("douban_max_items_per_feed"), DEFAULT_MAX_ITEMS_PER_FEED)
         items: List[DiscoveredItem] = []
         errors: List[str] = []
 
@@ -84,13 +91,14 @@ class DoubanRssSource:
             except Exception as exc:  # noqa: BLE001 - 单条 URL 失败不拖垮其余
                 errors.append(f"{url}: {type(exc).__name__}: {exc}")
                 continue
-            items.extend(self.parse(text, url, tz_name))
+            items.extend(self.parse(text, url, tz_name, limit))
 
         if not items and errors:
             # 全部失败才算该源失败（部分成功时保留已拿到的内容）
             raise RuntimeError("；".join(errors))
 
-        items.sort(key=lambda item: (item.release_date or "", item.title))
+        # 有日期的排前面（按日升序），无日期的排后面
+        items.sort(key=lambda item: (item.release_date is None, item.release_date or "", item.title))
         return _dedupe(items)
 
     # ------------------------------------------------------------------ 取数
@@ -120,14 +128,28 @@ class DoubanRssSource:
     # ------------------------------------------------------------------ 解析
 
     @staticmethod
-    def parse(text: str, url: str = "", tz_name: Optional[str] = None) -> List[DiscoveredItem]:
+    def parse(
+        text: str,
+        url: str = "",
+        tz_name: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[DiscoveredItem]:
         """把 RSS 原文解析为发现条目。
 
-        只保留**上映日期可解析**的条目 —— 没有日期就无法做窗口过滤，
-        留着只会在后面的环节被当成「无法判断是否即将开播」再丢一次。
+        两类路线都要支持（实测结构完全不同）：
+
+        - **上映类**（`/douban/movie/coming`）：description 里有
+          `上映日期：2026-10-23`，link 里有豆瓣 subject id。
+        - **榜单类**（`/douban/list/*`、`/douban/recommended/*`、
+          `/douban/tv/coming`）：**没有上映日期**，且 `/douban/list/*`
+          连 `<link>` 都是空的（没有豆瓣 id），只有 title 和
+          `<category>` 里的年份。
+
+        没有日期的条目不在这里丢弃，而是标记 `date_unknown=True`：
+        剧集交由「TMDB 是否还有未播集」决定，电影由流水线跳过。
         """
-        media_type = MEDIA_TYPE_TV if "/tv/" in url else MEDIA_TYPE_MOVIE
-        source_label = _channel_title(text)
+        media_type = _media_type_of(url)
+        feed_title = _channel_title(text)
 
         try:
             root = ElementTree.fromstring(text)
@@ -141,42 +163,40 @@ class DoubanRssSource:
                 continue
             description = html.unescape(node.findtext("description") or "")
             link = (node.findtext("link") or "").strip()
+            category = (node.findtext("category") or "").strip()
 
             subject_id = _extract(_SUBJECT_ID, link) or _extract(_SUBJECT_ID, description)
-            if not subject_id:
-                continue
-
-            release_text = _extract(_RELEASE_DATE, description)
-            release = parse_date(release_text, tz_name)
-            if release is None:
-                continue
-
+            release = parse_date(_extract(_RELEASE_DATE, description), tz_name)
+            year = _extract_year(category) or _extract_year(description)
             want = _extract(_WANT_COUNT, description)
-            genre = (node.findtext("category") or "").strip()
 
             items.append(
                 DiscoveredItem(
                     source=SOURCE_DOUBAN_RSS,
-                    source_id=subject_id,
+                    # 榜单类没有豆瓣 id -> 用标题造一个稳定 id（仅用于源内去重）
+                    source_id=subject_id or f"title:{title}",
                     title=title,
                     media_type=media_type,
-                    year=str(release.year),
-                    release_date=release.isoformat(),
-                    # 豆瓣「想看数」量纲与 TMDB popularity 完全不同，
-                    # 按接入契约不冒充 popularity，只留在 raw 里。
+                    year=year or (str(release.year) if release else None),
+                    release_date=release.isoformat() if release else None,
+                    # 豆瓣「想看数」量纲与 TMDB popularity 完全不同，按接入契约
+                    # 不冒充 popularity，只留在 raw 里。
                     popularity=None,
                     rating=None,
-                    native_ids={"douban": subject_id},
+                    native_ids={"douban": subject_id} if subject_id else {},
                     special=is_special(title),
+                    date_unknown=release is None,
                     raw={
                         "douban_id": subject_id,
                         "want": int(want.replace(",", "")) if want else None,
-                        "genre": genre,
-                        "feed": source_label,
+                        "genre": category,
+                        "feed": feed_title,
                         "url": url,
                     },
                 )
             )
+            if limit is not None and len(items) >= limit:
+                break
         return items
 
 
@@ -200,6 +220,65 @@ def parse_sources(value: Any) -> List[str]:
         if url and url not in urls:
             urls.append(url)
     return urls
+
+
+#: 行首四位年份（19xx / 20xx）
+_YEAR_LINE = re.compile(r"^\s*((?:19|20)\d{2})\s*(?:/|$)")
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _extract_year(text: str) -> Optional[str]:
+    """从 category / description 里取年份。
+
+    真实结构（实测）：
+
+    - `/douban/tv/coming`：`<category>2026 / 韩国 / 剧情 悬疑 犯罪 / …</category>`
+    - `/douban/list/*`：**没有 category**，年份在 description 里::
+
+          <p>嫁金钗</p><p>2026 / 中国大陆 / 剧情 爱情 古装 / 杨龙 / 田曦薇 闫桉</p>
+
+    因此先剥掉 HTML 标签，再要求年份出现在**行首**：
+
+    - 命中：`2026 / 中国大陆 / …`  -> 2026
+    - 不命中：`银翼杀手2099`（片名里的数字）、剧情简介里的年代
+    """
+    if not text:
+        return None
+    plain = _TAG.sub("\n", str(text))
+    for line in plain.splitlines():
+        match = _YEAR_LINE.match(line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _as_int(value: Any, default: int) -> int:
+    """宽松整型转换。"""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+def _media_type_of(url: str) -> str:
+    """按 RSSHub 路线名判断媒体类型。
+
+    实测路线形态（注意 `/list/tv_hot` 里并没有独立的 `/tv/` 段）::
+
+        /douban/movie/coming                  -> movie
+        /douban/list/movie_weekly_best        -> movie
+        /douban/tv/coming                     -> tv
+        /douban/list/tv_hot                   -> tv
+        /douban/recommended/tv                -> tv
+        /douban/list/show_domestic            -> tv（综艺按剧集处理）
+    """
+    lowered = str(url or "").lower()
+    if "movie" in lowered:
+        return MEDIA_TYPE_MOVIE
+    if "/tv" in lowered or "tv_" in lowered or "/show_" in lowered:
+        return MEDIA_TYPE_TV
+    return MEDIA_TYPE_MOVIE
 
 
 def _channel_title(text: str) -> str:
@@ -232,4 +311,10 @@ def _dedupe(items: Sequence[DiscoveredItem]) -> List[DiscoveredItem]:
     return result
 
 
-__all__ = ["DoubanRssSource", "parse_sources", "TIMEOUT_SECONDS", "USER_AGENT"]
+__all__ = [
+    "DEFAULT_MAX_ITEMS_PER_FEED",
+    "DoubanRssSource",
+    "TIMEOUT_SECONDS",
+    "USER_AGENT",
+    "parse_sources",
+]

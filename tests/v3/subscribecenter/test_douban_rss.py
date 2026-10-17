@@ -138,16 +138,35 @@ def test_popularity_must_stay_none():
     assert items[1].raw["want"] == 1234
 
 
-def test_parse_skips_items_without_release_date():
-    """没有上映日期的条目无法做窗口过滤，直接丢弃。"""
-    items = DoubanRssSource.parse(FEED)
-    assert "日期unknown" not in {item.title for item in items}
+def test_items_without_date_are_marked_date_unknown():
+    """没有上映日期的条目**保留但标记** date_unknown。
+
+    榜单类路线（/douban/list/*、/douban/tv/coming）实测**全部没有日期**，
+    若直接丢弃则这些路线产出为 0（用户配了 15 条榜单全废）。
+    正确做法：标记出来，剧集改用「TMDB 还有没有未播集」判定，
+    电影由流水线以「无上映日期」跳过。
+    """
+    items = {item.title: item for item in DoubanRssSource.parse(FEED)}
+    unknown = items["日期unknown"]
+    assert unknown.date_unknown is True
+    assert unknown.release_date is None
+    # 有日期的条目不受影响
+    assert items["生日快乐"].date_unknown is False
 
 
-def test_parse_skips_items_without_douban_id():
-    """没有豆瓣 id 就无法换算 TMDB，丢弃。"""
-    items = DoubanRssSource.parse(FEED)
-    assert "无豆瓣链接" not in {item.title for item in items}
+def test_items_without_douban_id_use_title_as_source_id():
+    """榜单类没有 `<link>`（实测 /douban/list/tv_hot 的 link 是空的）。
+
+    此时用标题造一个稳定的源内 id，且**不填 native_ids** ——
+    强制走标题搜索 TMDB 而不是跨源换算（实测榜单标题的精确匹配率很高：
+    tv_hot 15/15、tv_japanese 10/15）。
+    """
+    items = {item.title: item for item in DoubanRssSource.parse(FEED)}
+    no_id = items["无豆瓣链接"]
+    assert no_id.source_id == "title:无豆瓣链接"
+    assert no_id.native_ids == {}
+    # 有 id 的仍用豆瓣 id
+    assert items["生日快乐"].source_id == "37322586"
 
 
 def test_parse_keeps_genre_and_feed():
@@ -174,6 +193,71 @@ def test_special_titles_are_flagged():
     feed = FEED.replace("生日快乐", "某片 特别篇")
     items = DoubanRssSource.parse(feed)
     assert items[0].special is True
+
+
+# --------------------------------------------------------------------- 榜单结构
+
+#: 真实榜单条目结构（/douban/list/tv_hot 实测：link 为空、guid 是标题）
+LIST_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>豆瓣剧集-实时热门</title>
+  <item>
+    <title>嫁金钗</title>
+    <description>&lt;p&gt;嫁金钗&lt;/p&gt;&lt;p&gt;2026 / 中国大陆 / 剧情 爱情 古装 / 杨龙 / 田曦薇 闫桉&lt;/p&gt;</description>
+    <link/>
+    <guid isPermaLink="false">嫁金钗</guid>
+  </item>
+  <item>
+    <title>银翼杀手2099</title>
+    <description>&lt;p&gt;2026 / 美国 / 科幻&lt;/p&gt;</description>
+    <link/>
+  </item>
+</channel></rss>"""
+
+
+def test_list_feed_items_carry_year_from_category():
+    """榜单条目没有日期，但 category 里带了年份。
+
+    年份只取**开头**的四位年：像「银翼杀手2099」这种片名里的数字
+    绝不能被当成上映年份。
+    """
+    items = {item.title: item for item in DoubanRssSource.parse(LIST_FEED, "http://nas/douban/list/tv_hot")}
+    assert items["嫁金钗"].year == "2026"
+    assert items["银翼杀手2099"].year == "2026"  # 不是 2099
+    assert items["嫁金钗"].date_unknown is True
+    assert items["嫁金钗"].media_type == C.MEDIA_TYPE_TV
+
+
+def test_list_route_without_tv_is_movie():
+    """URL 不含 /tv/ 时按电影处理（榜单电影会被流水线按无日期跳过）。"""
+    items = DoubanRssSource.parse(LIST_FEED, "http://nas/douban/list/movie_weekly_best")
+    assert items[0].media_type == C.MEDIA_TYPE_MOVIE
+
+
+def test_show_route_is_tv():
+    """综艺类路线（/list/show_domestic）按剧集处理。"""
+    items = DoubanRssSource.parse(LIST_FEED, "http://nas/douban/list/show_domestic")
+    assert items[0].media_type == C.MEDIA_TYPE_TV
+
+
+def test_per_feed_limit_is_applied():
+    """每个榜单只取前 N 条（榜单按名次排列，取前 N 即最热的）。
+
+    实测 /douban/list/tv_hot 有 241 条，不限量会吃光每日额度。
+    """
+    full = DoubanRssSource.parse(LIST_FEED)
+    assert len(full) == 2
+    assert len(DoubanRssSource.parse(LIST_FEED, limit=1)) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_applies_configured_limit():
+    """配置里的 douban_max_items_per_feed 生效。"""
+    items = await DoubanRssSource(FakeClient()).fetch(
+        {**CONFIG, "douban_max_items_per_feed": 1}
+    )
+    # 只有一个 URL，每条 feed 只取 1 条
+    assert len(items) == 1
 
 
 # --------------------------------------------------------------------- 抓取
@@ -239,8 +323,11 @@ async def test_fetch_dedupes_across_feeds():
 async def test_fetch_sorts_by_release_date():
     """输出按上映日排序，便于预览阅读。"""
     items = await DoubanRssSource(FakeClient()).fetch(CONFIG)
-    dates = [item.release_date for item in items]
-    assert dates == sorted(dates)
+    # 有日期的排前面（升序），无日期的排后面
+    dated = [item.release_date for item in items if item.release_date]
+    assert dated == sorted(dated)
+    flags = [item.release_date is None for item in items]
+    assert flags == sorted(flags), "无日期条目应排在末尾"
 
 
 # --------------------------------------------------------------------- 接线

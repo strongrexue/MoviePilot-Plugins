@@ -255,3 +255,40 @@ def test_select_items_empty_input():
     """空输入不报错。"""
     passed, rejected = select_items([], future_days=30, min_rating=6.0, now=TODAY)
     assert passed == [] and rejected == []
+
+
+# --------------------------------------------------------- 无日期（榜单类来源）
+
+def test_date_unknown_tv_passes_window():
+    """无定档日期的**剧集**放行窗口过滤。
+
+    榜单类 RSS（/douban/list/*、/douban/tv/coming）实测全部没有日期；
+    正在连载的剧本来就没有「上映日」。是否值得订由「TMDB 还有没有未播集」
+    判定（在 IdentityResolver 里完成），比时间窗口更准。
+    """
+    show = item(
+        media_type=C.MEDIA_TYPE_TV,
+        release_date=None,
+        date_unknown=True,
+        resolved=ResolvedIdentity("themoviedb", "555"),
+    )
+    passed, rejected = select_items([show], future_days=3, min_rating=0.0, now=TODAY)
+    assert [i.source_id for i in passed] == [show.source_id]
+    assert not rejected
+
+
+def test_date_unknown_movie_is_skipped():
+    """无定档日期的**电影**跳过 —— 无从判断是否即将上映。
+
+    榜单里的电影往往是老片（重映/口碑榜），订了就是浪费每日额度。
+    """
+    film = item(
+        media_type=C.MEDIA_TYPE_MOVIE,
+        release_date=None,
+        date_unknown=True,
+        resolved=ResolvedIdentity("themoviedb", "666"),
+    )
+    passed, rejected = select_items([film], future_days=3, min_rating=0.0, now=TODAY)
+    assert not passed
+    assert rejected[0].decision == C.DECISION_SKIPPED_NO_DATE
+    assert "电影" in rejected[0].reason

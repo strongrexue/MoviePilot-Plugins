@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "0.7.0"
+PLUGIN_VERSION = "0.8.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -65,6 +65,8 @@ DECISION_PENDING_REVIEW = "pending_review"
 DECISION_SKIPPED_SPECIAL = "skipped_special"
 #: 匹配到的 TMDB 剧集已全部播完 —— 订了也搜不到未播资源
 DECISION_SKIPPED_FINISHED = "skipped_finished"
+#: 来源没有定档日期，且是电影 —— 无从判断是否即将上映
+DECISION_SKIPPED_NO_DATE = "skipped_no_date"
 DECISION_SKIPPED_SOURCE_DISABLED = "skipped_source_disabled"
 
 #: 身份解析级别
@@ -146,6 +148,9 @@ def default_config() -> Dict[str, Any]:
         "tmdb_original_languages": DEFAULT_ORIGINAL_LANGUAGES,
         # ---------------- 豆瓣 RSS 源列表
         "douban_rss_sources": [],
+        #: 每个榜单最多取前 N 条（榜单按名次排列，取前 N 即取最热的）。
+        #: 实测 /douban/list/tv_hot 有 241 条，不限量会把额度全吃掉。
+        "douban_max_items_per_feed": 10,
         # ---------------- Simkl
         "simkl_client_id": "",
         # ---------------- 写入

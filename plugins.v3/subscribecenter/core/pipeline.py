@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 from .constants import (
     DECISION_PENDING_REVIEW,
     DECISION_SKIPPED_DUPLICATE,
+    DECISION_SKIPPED_NO_DATE,
     DECISION_SKIPPED_NOT_FUTURE,
     DECISION_SKIPPED_OUT_OF_WINDOW,
     DECISION_SKIPPED_POPULARITY,
@@ -303,6 +304,26 @@ def select_items(
                 )
             )
             continue
+        if item.date_unknown:
+            # 来源没给定档日期（豆瓣榜单类 RSS 常见）。
+            #
+            # 剧集：放行 —— 它是否值得订由「TMDB 还有没有未播集」判定
+            # （在 IdentityResolver._resolve_target_season 里已完成），
+            # 这比时间窗口更准：正在连载的剧本来就没有「上映日」。
+            # 电影：跳过 —— 没有日期就无从判断是否即将上映，
+            # 榜单里的电影往往是老片，订了就是浪费额度。
+            if item.is_tv:
+                passed.append(item)
+            else:
+                rejected.append(
+                    WriteOutcome(
+                        item=item,
+                        decision=DECISION_SKIPPED_NO_DATE,
+                        reason="来源未提供上映日期（榜单类），电影无从判断是否即将上映",
+                    )
+                )
+            continue
+
         if not filter_by_window(item, window_days, tz_name=tz_name, now=now):
             release = parse_date(item.release_date, tz_name)
             if release is None:

@@ -163,6 +163,35 @@ _SEASON_SUFFIX = re.compile(
 )
 
 
+#: 中文数字 -> 阿拉伯数字（季号用）
+_CN_DIGITS = {
+    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9,
+}
+
+
+def _season_number(raw: str) -> Optional[int]:
+    """把季号文本转成整数，支持阿拉伯数字与中文数字。
+
+    真机踩过：豆瓣「信号 第二季」「镀金时代 第四季」这类标题，季号是中文数字，
+    原实现直接 `int("二")` 抛 ValueError 后放弃，导致基础名没剥出来、
+    TMDB 搜不到 -> 误判为待确认。
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    if text == "十":
+        return 10
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = _CN_DIGITS.get(left, 1) if left else 1
+        ones = _CN_DIGITS.get(right, 0) if right else 0
+        return tens * 10 + ones
+    return _CN_DIGITS.get(text)
+
+
 def strip_season_suffix(title: Optional[str]) -> str:
     """去掉标题尾部的季号，得到「基础剧名」。
 
@@ -199,12 +228,8 @@ def strip_season_suffix(title: Optional[str]) -> str:
     # 基础名不能是纯数字（否则 "12 12 12" 会被削成 "12 12"）
     if base.replace(" ", "").replace("-", "").isdigit():
         return text
-    raw = match.group(1)
-    try:
-        number = int(raw)
-    except ValueError:
-        return text
-    if not 2 <= number <= 30:
+    number = _season_number(match.group(1))
+    if number is None or not 2 <= number <= 30:
         return text
     return base
 
@@ -222,10 +247,7 @@ def extract_season_hint(title: Optional[str]) -> Optional[int]:
     match = _SEASON_SUFFIX.search(text)
     if not match:
         return None
-    try:
-        return int(match.group(1))
-    except ValueError:
-        return None
+    return _season_number(match.group(1))
 
 
 def title_similarity(left: str, right: str) -> float:

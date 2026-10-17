@@ -42,6 +42,7 @@ const DECISION_LABELS = {
   pending_review: '待确认',
   skipped_special: '特别篇',
   skipped_finished: '已播完',
+  skipped_no_date: '无日期',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
   skipped_out_of_window: '超出窗口',
@@ -418,12 +419,16 @@ onMounted(() => {
           :disabled="!form.enable_douban_rss"
         />
         <div class="sc-hint mb-3">
-          填 RSSHub 的豆瓣路线，例如
-          <code>http://192.168.50.134:1200/douban/movie/coming</code>（即将上映）。
-          实测可用：<code>/douban/movie/coming</code>、<code>/douban/movie/playing</code>、
-          <code>/douban/movie/weekly</code>；<code>ustop250</code> 与
-          <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
-          条目自带上映日期与豆瓣 ID，可精确匹配 TMDB。
+          填 RSSHub 的豆瓣路线，每行一个（如
+          <code>http://192.168.50.134:1200/douban/movie/coming</code>）。<br />
+          <b>三类路线的实测行为不同：</b><br />
+          • <b>电影上映类</b>（<code>/douban/movie/coming</code>）：<b>带精确上映日期</b>，
+          按窗口过滤，最准 —— 推荐。<br />
+          • <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
+          <code>/douban/recommended/tv</code>）：<b>没有日期</b>，按「TMDB 还有没有未播集」
+          判断，等效于追番。可配多条。<br />
+          • <b>电影榜单类</b>（<code>/douban/list/movie_*</code>）：没有日期，会被跳过（老片居多，订了浪费额度）。<br />
+          <code>ustop250</code> 与 <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
         </div>
 
         <div class="sc-hint mb-3">

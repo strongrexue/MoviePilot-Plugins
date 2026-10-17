@@ -110,6 +110,12 @@ class DiscoveredItem:
     special: bool = False
     #: 匹配到的 TMDB 剧集是否**已无未播出内容**（订了也没意义）
     finished: bool = False
+    #: 来源没有给出定档日期（榜单类 RSS 常见）。
+    #:
+    #: 这类条目无法做时间窗口过滤，**只对剧集放行** —— 改用「TMDB 是否还有
+    #: 未播集」来替代窗口判定（见 IdentityResolver._resolve_target_season）；
+    #: 电影没有日期就无从判断是否即将上映，直接跳过。
+    date_unknown: bool = False
     #: 原始载荷（排查用，落流水时可截断）
     raw: Dict[str, Any] = field(default_factory=dict)
     discovered_at: str = ""

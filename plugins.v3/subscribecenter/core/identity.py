@@ -1250,13 +1250,24 @@ class IdentityResolver:
         if not writable:
             item.finished = True
             return
-        # **国漫不按分季订**：TMDB 里国漫通常是「1 季 N 百集 + 分季版另建条目」，
-        # 按「第 4 季」订会和用户媒体库里的单季条目打架（真机：一念永恒
-        # 被订成 S04/35 集，而库里是 1 季 200 集）。国漫统一订默认季，
-        # 由宿主按集追踪 —— 与 bangumi_split_season 关闭的结论一致。
-        if str((item.raw or {}).get("country") or "").upper() == "CN":
-            item.season = None
-            item.episode_group = None
+        if _is_donghua(item):
+            # 国漫的季号处理分两种情况 —— 真机教训：
+            #
+            # ① **真实季存在**（诛仙有第 4 季、斗破苍穹有第 5 季）：
+            #    必须按季订。一律退回默认季会订成 S01，而库里 S01 已完结，
+            #    于是「立即完成」，新季度永远订不到。
+            # ② **只有剧集组**（一念永恒主条目只有 1 季 200 集，第四季只是
+            #    剧集组）：按季订会订成 S04/35 集，和库里的单季条目打架。
+            #
+            # 判据：解析结果里带 episode_group 就说明走的是「剧集组」路线。
+            if episode_group or season is None:
+                # 只有剧集组 / 没有季号 -> 订默认季
+                item.season = None
+                item.episode_group = None
+            else:
+                # 真实季存在 -> 按季订（诛仙 S04、斗破苍穹 S05 都走这里）
+                item.season = int(season)
+                item.episode_group = None
             return
         if season is not None and item.season is None:
             item.season = int(season)

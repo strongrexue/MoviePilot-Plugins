@@ -364,19 +364,23 @@ def test_history_merges_pending_and_added_records():
     assert records[0]["decision"] == "added"
 
 
-def test_donghua_ignores_season_split():
-    """国漫不按分季订：解析成功后不设置 season / episode_group。
+def test_donghua_season_rule():
+    """国漫季号规则：真实季按季订；只有剧集组才退回默认季。
 
-    真机：一念永恒被订成 S04/35 集，而用户库里是「1 季 200 集」。
-    国漫在 TMDB 通常是「1 季 N 百集」，按第 N 季订会和库里的单季条目打架。
+    真机教训（两例互相矛盾，必须以「是否是真实季」区分）：
+    - 诛仙 S04 / 斗破苍穹 S05 是**真实季** -> 必须按季订，
+      一律退默认季会订成 S01，而库里 S01 已完结 -> 立即完成，新季度永远订不到。
+    - 一念永恒第四季只是**剧集组**（主条目 1 季 200 集）-> 按季订会订成
+      S04/35 集，和库里的单季条目打架 -> 必须退回默认季。
     """
     import inspect
 
     from subscribecenter.core.identity import IdentityResolver
 
     source = inspect.getsource(IdentityResolver._resolve_target_season)
-    assert 'country") or "").upper() == "CN"' in source or "country" in source
-    assert "item.season = None" in source, "国漫应清掉季号，订默认季"
+    assert "episode_group or season is None" in source, "缺少「剧集组才退默认季」判据"
+    assert "item.season = int(season)" in source, "真实季必须按季订"
+    assert "item.season = None" in source, "剧集组情况应退回默认季"
 
 
 def test_collapse_history_keeps_best_record():

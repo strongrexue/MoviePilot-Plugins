@@ -415,9 +415,9 @@ def _prefers_latest_year(item: DiscoveredItem) -> bool:
     日番续作在 TMDB 通常是**独立条目**（年份本来就接近），取最大年份会
     误选到「下一季的新条目」；而国漫是「单条目多年」，最近的那条才是对的。
     """
-    if str((item.raw or {}).get("country") or "").upper() != "CN":
-        return False
-    return is_continuation_title(item.title)
+    # **所有国漫**都启用：TMDB 里国漫常有多条同名条目（遮天 2023 / 遮天 2025、
+    # 完美世界 2021 / 完美世界 2000），靠「年份最接近」才能选中对应那部。
+    return str((item.raw or {}).get("country") or "").upper() == "CN"
 
 
 def _continuation_floor(item: DiscoveredItem) -> Optional[int]:
@@ -582,6 +582,17 @@ def match_candidate_year(
     # 和「分季版」（331477，S1~S4）。两者标题都能匹配、年份都是 2020，
     # 季号裁决会挑「真有第 4 季」的分季版，于是订到了 S04/30 集而不是主条目。
     # 规则：多候选时优先不要带括号限定词的那条（分季/合集/总集篇/剧场版）。
+    if len(matched) > 1 and prefer_latest_year:
+        wanted = int(_year_of(item.year or item.release_date) or 0)
+
+        def _score(entry: Tuple[dict, str]) -> Tuple[int, int]:
+            """年份越接近条目年份越好；并列时取 tmdb_id 更小的主条目。"""
+            year = int(_year_of(entry[0].get("year") or entry[0].get("release_date")) or 0)
+            distance = abs(year - wanted) if (year and wanted) else 9999
+            return (distance, int(entry[0].get("tmdb_id") or 0))
+
+        return min(matched, key=_score)
+
     if len(matched) > 1 and prefer_latest_year:
         # 国漫续作：同名多条目时取**年份最大**的那个。
         #

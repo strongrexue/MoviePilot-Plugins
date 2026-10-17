@@ -378,3 +378,50 @@ def test_japanese_sequel_does_not_prefer_latest():
         year="2026", release_date="2026-10-01", raw={"country": "JP"},
     )
     assert _prefers_latest_year(jp) is False
+
+
+def test_donghua_picks_closest_year_not_latest():
+    """国漫同名多条目取「年份最接近」的，不是最新年份。
+
+    真机：遮天 在 TMDB 有 224839(2023) 和 278875(2025)；
+    AniList 条目年份 2023 -> 应选 2023 那条，而不是 2025。
+    完美世界 第七季(2026) -> 候选 2021/2000 -> 选 2021。
+    """
+    from subscribecenter.core.identity import match_candidate_year
+    from subscribecenter.core.model import DiscoveredItem
+
+    def make(title, year):
+        return DiscoveredItem(
+            source="anilist", source_id="1", title=title, media_type="tv",
+            year=year, release_date=f"{year}-01-01", raw={"country": "CN"},
+        )
+
+    zhitian = [
+        {"tmdb_id": "278875", "title": "遮天", "year": "2025", "media_type": "tv"},
+        {"tmdb_id": "224839", "title": "遮天", "year": "2023", "media_type": "tv"},
+    ]
+    hit = match_candidate_year(
+        zhitian, make("遮天", "2023"), strict_year=False, prefer_latest_year=True
+    )
+    assert hit is not None and hit[0]["tmdb_id"] == "224839"
+
+    wanmei = [
+        {"tmdb_id": "124003", "title": "完美世界", "year": "2021", "media_type": "tv"},
+        {"tmdb_id": "7120", "title": "完美世界", "year": "2000", "media_type": "tv"},
+    ]
+    hit2 = match_candidate_year(
+        wanmei, make("完美世界 第七季", "2026"), strict_year=False, prefer_latest_year=True
+    )
+    assert hit2 is not None and hit2[0]["tmdb_id"] == "124003"
+
+
+def test_all_donghua_use_closest_year_rule():
+    """不限于续作标题 —— 普通国漫（遮天）也要启用该规则。"""
+    from subscribecenter.core.identity import _prefers_latest_year
+    from subscribecenter.core.model import DiscoveredItem
+
+    plain = DiscoveredItem(
+        source="anilist", source_id="1", title="遮天", media_type="tv",
+        year="2023", release_date="2023-01-01", raw={"country": "CN"},
+    )
+    assert _prefers_latest_year(plain) is True

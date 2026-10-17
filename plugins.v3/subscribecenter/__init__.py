@@ -49,7 +49,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.2.6"
+    plugin_version = "1.2.7"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -800,10 +800,13 @@ class SubscribeCenter(_PluginBase):
             同一条目在未解析出身份时只有标题，解析成功后才有 media_id ——
             只按 media_id 去重会留下两条记录，界面上就出现「既待确认又已订阅」。
             """
-            return "w:{}:{}".format(
-                str(record.get("title") or ""),
-                str(record.get("year") or ""),
-            )
+            # 用**去掉季号/年份的归一化标题**做键：待确认常常是
+            # 「完美世界 第七季」，而订阅成功后记录可能写「完美世界」，
+            # 用原始标题会合不上（真机：已订阅却仍显示待确认）。
+            from .core.identity import normalize_title, strip_season_suffix
+
+            title = normalize_title(strip_season_suffix(str(record.get("title") or "")))
+            return f"w:{title}"
 
         def _key(record: Dict[str, Any]) -> str:
             media_source = str(record.get("media_source") or "")

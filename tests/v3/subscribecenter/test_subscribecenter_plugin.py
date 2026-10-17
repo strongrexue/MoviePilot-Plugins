@@ -628,3 +628,21 @@ def test_api_subscriptions_calls_through():
     assert getattr(result, "success", False) is True
     assert result.data.total == 1
     assert result.data.items[0].name == "测试剧"
+
+
+def test_overview_includes_best_version_fields():
+    """订阅总览明细要带洗版标记（MP 的 best_version / best_version_full）。
+
+    界面上右上角「洗版」角标靠这两个字段，漏了就不会显示。
+    """
+    import inspect
+
+    from subscribecenter import SubscribeCenter
+    from subscribecenter.controller import schemas
+
+    src = inspect.getsource(SubscribeCenter.subscription_overview)
+    assert '"best_version"' in src
+    assert '"best_version_full"' in src
+    row = schemas.SubscriptionRow(id=1, name="x", best_version=1, best_version_full=0)
+    assert row.best_version == 1
+    assert row.best_version_full == 0

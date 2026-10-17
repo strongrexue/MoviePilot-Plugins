@@ -192,8 +192,25 @@ function switchFilter(value) {
 /** 订阅总览：宿主订阅按状态分组（着色的卡片）。 */
 const overview = ref({ total: 0, counts: {}, items: [] })
 const overviewLoaded = ref(false)
-const overviewOpen = ref(false)
+const overviewOpen = ref(overviewOpenSaved())
 const overviewState = ref('')
+
+/** 数据源显示名。 */
+function sourceLabel(key) {
+  const map = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣榜单' }
+  return map[key] || key
+}
+
+/** 订阅总览展开状态：记住上次选择（默认展开）。 */
+const OVERVIEW_KEY = 'subscribecenter:overview-open'
+function overviewOpenSaved() {
+  try {
+    const raw = window.localStorage.getItem(OVERVIEW_KEY)
+    return raw === null ? true : raw === '1'
+  } catch (error) {
+    return true
+  }
+}
 
 /** 状态码 → 中文 + 颜色（与 MP 订阅页一致：未开始/订阅中/待定/暂停/完成）。 */
 const STATE_META = {
@@ -215,7 +232,7 @@ function stateMeta(item) {
 }
 
 /** 状态排序权重：暂停 → 待定 → 订阅中 → 未开始 → 完成。 */
-const STATE_ORDER = { S: 0, P: 1, R: 2, N: 3, D: 4 }
+const STATE_ORDER = { R: 0, S: 1, P: 2, N: 3, D: 4 }
 
 /** 订阅列表：先按状态排序，同状态内按最近更新倒序。 */
 const overviewItems = computed(() => {
@@ -223,13 +240,34 @@ const overviewItems = computed(() => {
   if (overviewState.value) {
     items = items.filter((item) => stateMeta(item).code === overviewState.value)
   }
-  return [...items].sort((a, b) => {
+  const sorted = [...items].sort((a, b) => {
     const wa = STATE_ORDER[stateMeta(a).code] ?? 9
     const wb = STATE_ORDER[stateMeta(b).code] ?? 9
     if (wa !== wb) return wa - wb
     return String(b.last_update || '').localeCompare(String(a.last_update || ''))
   })
+  return sorted.slice(0, overviewLimit.value)
 })
+
+/** 一次显示多少张（滚动加载）。 */
+const OVERVIEW_PAGE = 60
+const overviewLimit = ref(OVERVIEW_PAGE)
+
+/** 滚动到底加载更多。 */
+function loadMoreOverview(event) {
+  const el = event?.target
+  if (!el) return
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+    if (overviewLimit.value < overviewItems.value.length) {
+      overviewLimit.value += OVERVIEW_PAGE
+    }
+  }
+}
+
+/** 是否开启洗版（best_version / best_version_full）。 */
+function isBestVersion(item) {
+  return Boolean(Number(item.best_version || 0) || Number(item.best_version_full || 0))
+}
 
 /** 集数进度文本。 */
 function episodeText(item) {
@@ -242,6 +280,11 @@ function episodeText(item) {
 /** 展开时按需拉取一次。 */
 async function toggleOverview() {
   overviewOpen.value = !overviewOpen.value
+  try {
+    window.localStorage.setItem(OVERVIEW_KEY, overviewOpen.value ? '1' : '0')
+  } catch (error) {
+    /* 隐私模式下忽略 */
+  }
   if (!overviewOpen.value || overviewLoaded.value) return
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'subscriptions'))
@@ -439,7 +482,7 @@ onUnmounted(() => {
     <div class="sc-sources">
       <div v-for="s in (status?.sources || [])" :key="s.source" class="sc-source-chip">
         <div class="sc-source-head">
-          <b>{{ s.source }}</b>
+          <b>{{ sourceLabel(s.source) }}</b>
           <VChip size="x-small" variant="flat" :color="s.enabled ? 'success' : 'default'">
             {{ s.enabled ? '已启用' : '未启用' }}
           </VChip>
@@ -454,18 +497,20 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 发现流水：表格式，一眼看全 -->
-    <div class="sc-card">
-      <div class="sc-card-head">
-        <span class="sc-card-title">发现流水</span>
-        <!-- 状态 tab：点一下即筛选，比下拉框少一步操作 -->
-        <div class="sc-overview">
+    <!-- 订阅总览：三个源状态下方，默认展开 -->
+    <div class="sc-overview">
           <div class="sc-overview-head" @click="toggleOverview">
             <VIcon :icon="overviewOpen ? 'mdi-chevron-down' : 'mdi-chevron-right'" size="18" />
             <span class="sc-overview-title">订阅总览</span>
             <span class="sc-dim">
-              {{ overviewLoaded ? `共 ${overview.total} 条订阅` : '点击展开，按状态看颜色' }}
+              <template v-if="overviewLoaded">
+                共 {{ overview.total }} 条订阅 · 已完成 {{ overview.counts.D || 0 }} · 待定
+                {{ overview.counts.P || 0 }}
+              </template>
+              <template v-else>加载中…</template>
             </span>
+            <span class="sc-overview-spacer" />
+            <span class="sc-overview-toggle">{{ overviewOpen ? '收起 ⌃' : '展开 ⌄' }}</span>
           </div>
           <div v-if="overviewOpen" class="sc-overview-body">
             <div v-if="!overview.total" class="sc-hint">暂无订阅</div>
@@ -493,7 +538,11 @@ onUnmounted(() => {
                   <span class="sc-dim">{{ overview.counts[code] || 0 }}</span>
                 </button>
               </div>
-              <div class="sc-poster-grid">
+              <div class="sc-overview-count">
+                显示 1–{{ overviewItems.length }} / {{ overviewState ? '当前筛选' : overview.total }}
+                <span v-if="overviewItems.length < overview.total"> · 滚动到底加载更多</span>
+              </div>
+              <div class="sc-poster-grid" @scroll.passive="loadMoreOverview">
                 <div
                   v-for="item in overviewItems"
                   :key="item.id"
@@ -515,6 +564,7 @@ onUnmounted(() => {
                     <span class="sc-poster-state" :style="{ background: stateMeta(item).color }">
                       {{ stateMeta(item).label }}
                     </span>
+                    <span v-if="isBestVersion(item)" class="sc-poster-best">洗版</span>
                   </div>
                   <div class="sc-poster-name" :title="item.name">
                     {{ item.name }}<span v-if="item.season"> S{{ String(item.season).padStart(2, '0') }}</span>
@@ -528,6 +578,13 @@ onUnmounted(() => {
             </template>
           </div>
         </div>
+
+
+    <!-- 发现流水：表格式，一眼看全 -->
+    <div class="sc-card">
+      <div class="sc-card-head">
+        <span class="sc-card-title">发现流水</span>
+        <!-- 状态 tab：点一下即筛选，比下拉框少一步操作 -->
 
         <div class="sc-tabs sc-tabs-source">
           <span class="sc-tabs-label">数据源</span>
@@ -1027,6 +1084,29 @@ onUnmounted(() => {
   padding: 8px 12px;
   cursor: pointer;
   user-select: none;
+}
+.sc-overview-spacer {
+  flex: 1 1 auto;
+}
+.sc-overview-toggle {
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+.sc-overview-count {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+.sc-poster-best {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: #A855F7;
 }
 .sc-overview-title {
   font-size: 13px;

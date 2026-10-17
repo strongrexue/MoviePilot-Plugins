@@ -87,6 +87,9 @@ class SubscriptionRow(BaseModel):
     media_id: Optional[str] = Field(default=None, description="媒体 ID")
     poster: Optional[str] = Field(default=None, description="海报")
     last_update: Optional[str] = Field(default=None, description="最近更新")
+    #: 洗版标记：MP 订阅表的 best_version / best_version_full（0/1）
+    best_version: Optional[int] = Field(default=None, description="洗版（非完整）")
+    best_version_full: Optional[int] = Field(default=None, description="洗版（完整）")
 
 
 class SubscriptionOverview(BaseModel):

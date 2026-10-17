@@ -1,0 +1,644 @@
+"""胖虎订阅中心 - MoviePilot V3 插件主类（SubscribeCenter）。
+
+定位（开发文档 §1）：**只做三件事：发现 → 去重 → 写订阅。**
+版本控制、洗版、下载优先级全部由宿主订阅下载优先级规则接管，插件不介入。
+
+当前进度：**v0.1.0 / P0+P1** —— 骨架 + TMDB 源 + 订阅写入 + 身份 L1 直通。
+Bangumi / 豆瓣 RSS / Simkl / 前端联邦组件 尚未实现（见开发文档 §16）。
+
+关键宿主契约（MoviePilot v3.1.6，均已对源码核验）：
+
+- ``get_render_mode()`` 必须返回 ``("vue", "dist/assets")`` 元组；
+- ``get_service()`` 的 ``func`` 是同步可调用，由 apscheduler 在自己的线程里调用，
+  **不在事件循环内** → 必须经 :class:`~.core.bridge.PipelineBridge` 桥接；
+- ``get_sidebar_nav()`` 不是基类方法，而是契约钩子，由宿主 ``getattr`` 调用；
+- 写入订阅走 ``SubscribeChain().async_add()``，身份是 ``media_source``+``media_id``。
+"""
+from typing import Any, Dict, List, Optional, Tuple
+
+from app.sdk.logging import logger
+from app.sdk.plugin import _PluginBase
+
+from .controller import api as api_controller
+from .controller import schemas as api_schemas
+from .core import constants as C
+from .core.bridge import PipelineBridge
+from .core.cache import MappingCacheStore
+from .core.identity import IdentityResolver
+from .core.pipeline import RunSummary, SourceAdapter, run_pipeline
+from .core.window import local_now_text, today
+from .core.writer import SubscriptionWriter, WriteOutcome
+from .sources.tmdb import TmdbSource
+
+#: 插件数据键
+DATA_KEY_CACHE = "mapping_cache"
+DATA_KEY_STATE = "runtime_state"
+DATA_KEY_HISTORY = "run_history"
+
+#: 内存中保留的流水条数上限（落盘时会截断）
+MAX_HISTORY = 500
+
+
+class SubscribeCenter(_PluginBase):
+    """胖虎订阅中心插件入口。"""
+
+    plugin_name = C.PLUGIN_NAME
+    plugin_desc = C.PLUGIN_DESCRIPTION
+    plugin_icon = C.PLUGIN_ICON
+    plugin_color = C.PLUGIN_COLOR
+    #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
+    #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
+    #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
+    plugin_version = "0.1.0"
+    plugin_author = C.PLUGIN_AUTHOR
+    author_url = C.AUTHOR_URL
+    plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
+    plugin_order = C.PLUGIN_ORDER
+    auth_level = C.AUTH_LEVEL
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """建立实例独享的配置快照与模块容器。"""
+        super().__init__(*args, **kwargs)
+        self._config: Dict[str, Any] = {}
+        #: 身份映射缓存（存储经 save_data 注入）
+        self._cache = MappingCacheStore(_PluginCacheStore(self))
+        self._resolver: Optional[IdentityResolver] = None
+        self._writer: SubscriptionWriter = SubscriptionWriter(_NullSubscribeBackend(), daily_limit=0)
+        #: 调度 ↔ asyncio 桥接（互斥锁按插件实例隔离）
+        self._bridge = PipelineBridge(self.__class__.__name__)
+        #: 各源最近一次运行状态
+        self._source_state: Dict[str, Dict[str, Any]] = {}
+        self._last_summary: Dict[str, Any] = {}
+        self._last_run: Optional[str] = None
+
+    # ------------------------------------------------------------------ 配置快照
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        """返回当前生效配置。"""
+        return self._config
+
+    @staticmethod
+    def default_config() -> Dict[str, Any]:
+        """返回插件默认配置（键集合必须与前端 configDefaults 严格一致）。"""
+        return C.default_config()
+
+    def save_config(self, **patch: Any) -> None:
+        """合并写入配置。
+
+        宿主 ``update_config()`` 是**整份覆盖**，因此统一走本方法：先合并当前快照，
+        再整体写回，避免只写部分字段时丢掉其它配置。
+        """
+        merged = dict(self._config)
+        merged.update(patch)
+        self._config = merged
+        self.update_config(merged)
+
+    def _enabled(self) -> bool:
+        """当前配置是否已启用插件。"""
+        return bool(self._config.get("enabled"))
+
+    # ------------------------------------------------------------------ 生命周期
+
+    def init_plugin(self, config: Optional[dict] = None) -> None:
+        """读取配置、重建适配器；必须允许重复调用。"""
+        self.stop_service()
+
+        merged = self.default_config()
+        merged.update(config or {})
+        self._config = merged
+
+        # 宿主适配器延迟到运行时构造：模块导入期不得接触宿主内部（官方硬性要求）
+        from .core.host import HostSubscribeBackend, HostTmdbResolver
+
+        self._resolver = IdentityResolver(HostTmdbResolver(), self._cache)
+        daily_limit = self._int_config("daily_limit", C.DEFAULT_DAILY_LIMIT)
+        self._writer = SubscriptionWriter(HostSubscribeBackend(), daily_limit=daily_limit)
+        self._last_run = self._state().get("last_run")
+
+    def get_state(self) -> bool:
+        """返回插件当前是否启用。"""
+        return self._enabled()
+
+    @staticmethod
+    def get_render_mode() -> Tuple[str, Optional[str]]:
+        """声明 Vue 联邦渲染模式与构建产物目录。
+
+        .. important::
+           契约是 ``Tuple[str, Optional[str]]`` —— 必须返回元组，
+           只返回 ``"vue"`` 会让宿主找不到 ``remoteEntry.js``。
+       """
+        return "vue", "dist/assets"
+
+    def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
+        """Vue 模式下不返回 Vuetify 表单结构，只提供默认配置模型。"""
+        return None, self.default_config()
+
+    def get_page(self) -> Optional[List[dict]]:
+        """详情页由 Vue 远程组件渲染。"""
+        return None
+
+    def get_sidebar_nav(self) -> List[Dict[str, Any]]:
+        """MP 左侧「发现」分区的整页入口。
+
+        默认关闭：只有插件已启用、且用户打开配置页的「发现页」开关时才注册，
+        避免给不用的人凭空多一个导航项。
+        """
+        if not self._enabled() or not self._config.get("discovery_page_enabled"):
+            return []
+        return [
+            {
+                "nav_key": "main",
+                "title": self.plugin_name,
+                "icon": "mdi-radar",
+                "section": "discovery",
+                "permission": "discovery",
+                "order": C.PLUGIN_ORDER,
+            }
+        ]
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        """返回插件 API 路由声明。"""
+        return api_controller.get_api(self)
+
+    # ------------------------------------------------------------------ API 端点委托
+    #
+    # 宿主按「插件实例上的绑定方法」解析 endpoint，因此必须在主类上定义薄委托；
+    # 实现体统一放在 controller/api.py，主类不承载业务逻辑。
+
+    async def api_status(self) -> Any:
+        """返回插件运行状态与各源情况。"""
+        return await api_controller.api_status(self)
+
+    async def api_history(
+        self,
+        page: int = 1,
+        count: int = 20,
+        decision: str = "",
+        source: str = "",
+        keyword: str = "",
+    ) -> Any:
+        """分页查询发现/写入流水。"""
+        return await api_controller.api_history(
+            self, page=page, count=count, decision=decision, source=source, keyword=keyword
+        )
+
+    async def api_run_once(self) -> Any:
+        """手动触发一次发现任务。"""
+        return await api_controller.api_run_once(self)
+
+    async def api_mapping_cache(self) -> Any:
+        """查看身份映射缓存。"""
+        return await api_controller.api_mapping_cache(self)
+
+    async def api_mapping_fix(self, request: api_schemas.MappingFixRequest) -> Any:
+        """人工修正一条身份映射。"""
+        return await api_controller.api_mapping_fix(self, request)
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """注册每日发现定时任务。
+
+        :note: ``trigger`` 必须是 ``CronTrigger`` 对象；本方法整体兜底 ——
+            任何异常都只记日志并降级为空列表（注册异常会拖垮插件加载）。
+        :note: cron 在**注册时**读取，用户改配置后必须重新保存配置才会重建任务。
+        """
+        if not self._enabled():
+            return []
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+
+            cron = self._normalize_cron(self._config.get("cron"))
+            return [
+                {
+                    "id": "subscribecenter_discover",
+                    "name": "胖虎订阅中心 每日发现",
+                    "trigger": CronTrigger.from_crontab(cron),
+                    "func": self.run_scheduled,
+                }
+            ]
+        except Exception as err:  # pragma: no cover - 调度依赖缺失时降级
+            logger.warning(f"[SubscribeCenter] 注册定时任务失败：{err}")
+            return []
+
+    def stop_service(self) -> None:
+        """释放插件资源；必须可重复、安全调用。
+
+        v0.1.0 无自建线程/连接，只需清引用（流水线互斥锁是进程内的轻量状态，
+        保留可避免重载后出现两把锁）。
+        """
+        self._resolver = None
+        self._last_summary = {}
+
+    # ------------------------------------------------------------------ 运行入口
+
+    def run_scheduled(self) -> None:
+        """**同步**入口：由 apscheduler 在自己的线程里调用。
+
+        该线程没有事件循环，因此必须经 :class:`PipelineBridge` 桥接。
+        已有运行在跑时直接跳过（不排队）。
+        """
+        if not self._enabled():
+            logger.info("[SubscribeCenter] 插件未启用，跳过本次定时发现")
+            return
+        started = local_now_text(self._tz())
+        logger.info(f"[SubscribeCenter] 定时发现开始（{started}）")
+        summary = self._bridge.run(self._pipeline_coroutine, timeout=600)
+        if summary is None:
+            logger.info("[SubscribeCenter] 已有流水线在运行，本次定时发现跳过")
+            return
+        self._after_run(summary)
+
+    async def run_once(self) -> Dict[str, Any]:
+        """**异步**入口：供 ``POST /run_once`` 调用。
+
+        与定时任务共用同一把互斥锁；已在运行时返回 ``skipped=True``。
+        """
+        summary = await self._bridge.run_async(self._pipeline_coroutine, timeout=600)
+        if summary is None:
+            return {"accepted": True, "skipped": True, "summary": self._last_summary}
+        self._after_run(summary)
+        return {"accepted": True, "skipped": False, "summary": summary.to_summary()}
+
+    async def _pipeline_coroutine(self) -> RunSummary:
+        """构造并执行一次流水线（两种入口共用的唯一实现）。"""
+        resolver = self._resolver
+        if resolver is None:
+            # init_plugin 未跑过（例如直接调 API）：按需重建，避免 AttributeError
+            from .core.host import HostTmdbResolver
+
+            resolver = IdentityResolver(HostTmdbResolver(), self._cache)
+            self._resolver = resolver
+
+        first_run = not bool(self._state().get(C.STATE_FIRST_RUN_DONE))
+        if first_run:
+            logger.info(
+                "[SubscribeCenter] 首次运行：强制 dry-run，只记录不写入。"
+                "确认结果后在前端「确认开始写入」再放开。"
+            )
+
+        return await run_pipeline(
+            sources=self._build_sources(),
+            enabled=self._enabled_sources(),
+            resolver=resolver,
+            writer=self._writer,
+            config=self._config,
+            future_days=self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS),
+            min_rating=self._float_config("min_rating_tmdb", C.DEFAULT_MIN_RATING),
+            dry_run=bool(self._config.get("dry_run")),
+            first_run=first_run,
+            already_written_today=self._written_today(),
+            tz_name=self._tz(),
+        )
+
+    def _build_sources(self) -> List[SourceAdapter]:
+        """构造已实现的数据源适配器列表。"""
+        sources: List[SourceAdapter] = []
+        try:
+            from app.chain.tmdb import TmdbChain
+
+            sources.append(TmdbSource(TmdbChain()))
+        except Exception as err:  # noqa: BLE001 - 宿主缺链时该源不可用，不阻塞其他源
+            logger.warning(f"[SubscribeCenter] TMDB 源不可用：{err}")
+        return sources
+
+    def _enabled_sources(self) -> List[str]:
+        """返回配置中已启用**且已实现**的源标识。"""
+        mapping = {
+            C.SOURCE_TMDB: "enable_tmdb",
+            C.SOURCE_BANGUMI: "enable_bangumi",
+            C.SOURCE_DOUBAN_RSS: "enable_douban_rss",
+            C.SOURCE_SIMKL: "enable_simkl",
+            C.SOURCE_JUSTWATCH: "enable_justwatch",
+        }
+        enabled: List[str] = []
+        for source, key in mapping.items():
+            if not self._config.get(key):
+                continue
+            if source not in C.IMPLEMENTED_SOURCES:
+                logger.info(
+                    f"[SubscribeCenter] 数据源 {source} 已在配置中启用，但当前版本（"
+                    f"{C.PLUGIN_VERSION}）尚未实现，本次跳过"
+                )
+                continue
+            enabled.append(source)
+        return enabled
+
+    # ------------------------------------------------------------------ 运行后处理
+
+    def _after_run(self, summary: RunSummary) -> None:
+        """落流水、更新状态、记录日志、按需通知。"""
+        data = summary.to_summary()
+        self._last_summary = data
+        self._last_run = summary.finished_at or local_now_text(self._tz())
+
+        # 各源状态
+        for result in summary.sources:
+            self._source_state[result.source] = {
+                "enabled": result.source in self._enabled_sources(),
+                "implemented": result.source in C.IMPLEMENTED_SOURCES,
+                "last_run": self._last_run,
+                "last_count": len(result.items),
+                "last_error": result.error,
+            }
+
+        # 流水（写入结果 + 被过滤的条目）
+        outcomes: List[WriteOutcome] = list(summary.prefiltered)
+        if summary.report:
+            outcomes.extend(summary.report.outcomes)
+            for _ in summary.report.added:
+                self._bump_daily_counter()
+
+        self._append_history(outcomes, run_at=self._last_run)
+
+        # 首次运行标记：只有**真正跑完一次**才置位
+        state = self._state()
+        if summary.first_run:
+            state[C.STATE_FIRST_RUN_DONE] = True
+        state["last_run"] = self._last_run
+        state["last_summary"] = data
+        self._save_state(state)
+
+        self._log_summary(summary)
+        if self._config.get("notify"):
+            self._notify_summary(summary)
+
+    def _log_summary(self, summary: RunSummary) -> None:
+        """输出结构化摘要日志（开发文档 §12）。"""
+        added = summary.report.added if summary.report else []
+        for outcome in added:
+            item = outcome.item
+            resolved = item.resolved
+            identity = f"{resolved.media_source} {resolved.media_id}" if resolved else "—"
+            logger.info(
+                f"[新增] {item.title_year} ({identity}) 来源={item.source} "
+                f"放送={item.release_date} 身份={item.confidence} 订阅ID={outcome.subscribe_id}"
+            )
+        skipped = list(summary.prefiltered)
+        if summary.report:
+            skipped = [o for o in summary.report.outcomes if not o.added] + skipped
+        for outcome in skipped[:60]:
+            tag = "待确认" if outcome.decision == C.DECISION_PENDING_REVIEW else "跳过"
+            logger.info(
+                f"[{tag}] {outcome.item.title_year} 原因={outcome.reason or outcome.decision}"
+            )
+        if len(skipped) > 60:
+            logger.info(f"[跳过] 另有 {len(skipped) - 60} 条未逐条列出")
+        for name in summary.failed_sources:
+            logger.warning(f"[失败] 数据源 {name}")
+        data = summary.to_summary()
+        logger.info(
+            f"[SubscribeCenter] 本次运行完成：拉取 {data.get('fetched', 0)} 条 / "
+            f"新增 {data.get('added', 0)} 条 / 跳过 {data.get('skipped', 0)} 条 / "
+            f"待确认 {data.get('pending_review', 0)} 条"
+            + ("（dry-run，未写入）" if summary.dry_run else "")
+            + ("（触达每日上限）" if data.get("limit_hit") else "")
+        )
+
+    def _notify_summary(self, summary: RunSummary) -> None:
+        """发送运行摘要通知。"""
+        data = summary.to_summary()
+        lines = [
+            f"新增：{data.get('added', 0)} 条",
+            f"跳过：{data.get('skipped', 0)} 条",
+            f"待确认：{data.get('pending_review', 0)} 条",
+        ]
+        if data.get("failed_sources"):
+            lines.append(f"失败源：{', '.join(data['failed_sources'])}")
+        if data.get("limit_hit"):
+            lines.append("已触达每日写入上限")
+        if summary.dry_run:
+            lines.append("本次为 dry-run，未写入订阅")
+        try:
+            self.post_message(
+                title="胖虎订阅中心 · 发现完成",
+                text="\n".join(lines),
+            )
+        except Exception as err:  # noqa: BLE001 - 通知失败不影响主流程
+            logger.warning(f"[SubscribeCenter] 发送通知失败：{err}")
+
+    # ------------------------------------------------------------------ 状态与流水
+
+    def status_snapshot(self) -> api_schemas.PluginStatus:
+        """组装状态接口所需数据。"""
+        state = self._state()
+        sources = [
+            api_schemas.SourceState(
+                source=source,
+                enabled=bool(self._config.get(key)),
+                implemented=source in C.IMPLEMENTED_SOURCES,
+                last_run=(self._source_state.get(source) or {}).get("last_run"),
+                last_count=int((self._source_state.get(source) or {}).get("last_count") or 0),
+                last_error=str((self._source_state.get(source) or {}).get("last_error") or ""),
+            )
+            for source, key in (
+                (C.SOURCE_TMDB, "enable_tmdb"),
+                (C.SOURCE_BANGUMI, "enable_bangumi"),
+                (C.SOURCE_DOUBAN_RSS, "enable_douban_rss"),
+                (C.SOURCE_SIMKL, "enable_simkl"),
+                (C.SOURCE_JUSTWATCH, "enable_justwatch"),
+            )
+        ]
+        return api_schemas.PluginStatus(
+            plugin_version=self.plugin_version,
+            enabled=self._enabled(),
+            dry_run=bool(self._config.get("dry_run")),
+            first_run_completed=bool(state.get(C.STATE_FIRST_RUN_DONE)),
+            busy=self._bridge.busy,
+            today=today(self._tz()).isoformat(),
+            daily_limit=self._int_config("daily_limit", C.DEFAULT_DAILY_LIMIT),
+            written_today=self._written_today(),
+            last_run=self._last_run,
+            last_summary=self._last_summary,
+            sources=sources,
+            mapping_cache_size=self._cache.size,
+            timezone=self._tz(),
+        )
+
+    def history_page(
+        self,
+        *,
+        page: int = 1,
+        count: int = 20,
+        decision: str = "",
+        source: str = "",
+        keyword: str = "",
+    ) -> api_schemas.HistoryPage:
+        """分页返回流水，支持按决策/来源/关键词筛选。"""
+        records = list(reversed(self._history()))
+        if decision:
+            records = [r for r in records if r.get("decision") == decision]
+        if source:
+            records = [r for r in records if r.get("source") == source]
+        if keyword:
+            needle = str(keyword).strip().casefold()
+            records = [
+                r
+                for r in records
+                if needle in str(r.get("title") or "").casefold()
+                or needle in str(r.get("reason") or "").casefold()
+            ]
+        page = max(1, int(page or 1))
+        count = max(1, min(200, int(count or 20)))
+        start = (page - 1) * count
+        window = records[start : start + count]
+        return api_schemas.HistoryPage(
+            items=[api_schemas.HistoryRecord(**_history_item(r)) for r in window],
+            total=len(records),
+            page=page,
+            count=count,
+        )
+
+    def mapping_cache_view(self) -> api_schemas.MappingCacheView:
+        """返回映射缓存内容。"""
+        entries = [
+            api_schemas.MappingEntry(**entry) for entry in self._cache.snapshot()
+        ]
+        return api_schemas.MappingCacheView(size=self._cache.size, entries=entries)
+
+    def mapping_fix(self, *, key: str, media_source: str, media_id: str) -> Dict[str, Any]:
+        """人工修正一条映射。"""
+        ok = self._cache.fix(key, media_source, media_id)
+        return {"success": ok, "key": key}
+
+    # ------------------------------------------------------------------ 持久化
+
+    def _state(self) -> Dict[str, Any]:
+        """读取运行时状态（插件数据，不进配置）。"""
+        value = self.get_data(DATA_KEY_STATE)
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _save_state(self, state: Dict[str, Any]) -> None:
+        """写入运行时状态。"""
+        self.save_data(DATA_KEY_STATE, state)
+
+    def _history(self) -> List[Dict[str, Any]]:
+        """读取流水列表。"""
+        value = self.get_data(DATA_KEY_HISTORY)
+        return list(value) if isinstance(value, list) else []
+
+    def _append_history(self, outcomes: List[WriteOutcome], *, run_at: str) -> None:
+        """追加流水并截断到上限。"""
+        records = self._history()
+        for outcome in outcomes:
+            record = outcome.to_dict()
+            record["run_at"] = run_at
+            records.append(record)
+        if len(records) > MAX_HISTORY:
+            records = records[-MAX_HISTORY:]
+        self.save_data(DATA_KEY_HISTORY, records)
+
+    def _written_today(self) -> int:
+        """返回今日已写入条数（跨日自动归零）。"""
+        state = self._state()
+        if str(state.get(C.STATE_TODAY) or "") != today(self._tz()).isoformat():
+            return 0
+        try:
+            return max(0, int(state.get(C.STATE_DAILY_COUNT) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _bump_daily_counter(self) -> None:
+        """今日写入计数 +1（跨日重置）。"""
+        state = self._state()
+        current_day = today(self._tz()).isoformat()
+        if str(state.get(C.STATE_TODAY) or "") != current_day:
+            state[C.STATE_TODAY] = current_day
+            state[C.STATE_DAILY_COUNT] = 0
+        state[C.STATE_DAILY_COUNT] = self._written_today() + 1
+        self._save_state(state)
+
+    # ------------------------------------------------------------------ 工具
+
+    def _tz(self) -> str:
+        """插件时区名称。"""
+        return str(self._config.get("timezone") or C.DEFAULT_TIMEZONE)
+
+    def _int_config(self, key: str, default: int) -> int:
+        """宽松读取整型配置。"""
+        try:
+            return int(self._config.get(key))
+        except (TypeError, ValueError):
+            return default
+
+    def _float_config(self, key: str, default: float) -> float:
+        """宽松读取浮点配置。"""
+        try:
+            return float(self._config.get(key))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _normalize_cron(value: Any) -> str:
+        """校验 5 段式 cron；非法值回落默认，避免拖垮 ``get_service()``。"""
+        text = str(value or "").strip()
+        if len(text.split()) == 5:
+            return text
+        if text:
+            logger.warning(
+                f"[SubscribeCenter] cron 表达式非法（{text!r}），已回落默认 {C.DEFAULT_CRON}"
+            )
+        return C.DEFAULT_CRON
+
+
+# --------------------------------------------------------------------- 辅助实现
+
+class _PluginCacheStore:
+    """把插件数据接口适配成 :class:`~..core.cache.CacheStore`。"""
+
+    def __init__(self, plugin: SubscribeCenter) -> None:
+        self._plugin = plugin
+
+    def load(self) -> Any:
+        """读取缓存载荷。"""
+        return self._plugin.get_data(DATA_KEY_CACHE)
+
+    def save(self, payload: Any) -> None:
+        """写入缓存载荷。"""
+        self._plugin.save_data(DATA_KEY_CACHE, payload)
+
+
+class _NullSubscribeBackend:
+    """默认后端：未初始化时任何查询都视为「不存在」。
+
+    存在的意义是让 ``status_snapshot()`` 等只读接口在 ``init_plugin()`` 之前
+    被调用时不会崩（宿主可能先调 API 再初始化插件）。
+    """
+
+    async def add(self, *args: Any, **kwargs: Any) -> Tuple[None, str]:
+        """未初始化时拒绝写入。"""
+        return None, "插件尚未初始化"
+
+    async def subscription_exists(self, media_source: str, media_id: str) -> bool:
+        """未初始化时按「不存在」处理。"""
+        return False
+
+    async def history_exists(self, media_source: str, media_id: str) -> bool:
+        """未初始化时按「不存在」处理。"""
+        return False
+
+
+#: 流水记录中「缺失时按空值补齐」的字段（避免历史版本流水缺键导致校验失败）
+_HISTORY_TEXT_FIELDS = (
+    "decision", "message", "reason", "source", "source_id", "title",
+    "media_type", "confidence", "run_at",
+)
+_HISTORY_OPTIONAL_FIELDS = (
+    "subscribe_id", "year", "release_date", "season", "rating",
+    "media_source", "media_id", "review_score",
+)
+
+
+def _history_item(record: Dict[str, Any]) -> Dict[str, Any]:
+    """把流水记录裁剪成 :class:`~.controller.schemas.HistoryRecord` 的字段。
+
+    缺失的文本字段补空串、可选字段补 ``None`` —— 旧版本写入的流水可能没有新键，
+    不能因此让整个分页接口 500。
+    """
+    item: Dict[str, Any] = {key: str(record.get(key) or "") for key in _HISTORY_TEXT_FIELDS}
+    item["success"] = bool(record.get("success"))
+    for key in _HISTORY_OPTIONAL_FIELDS:
+        item[key] = record.get(key)
+    return item
+
+
+__all__ = ["SubscribeCenter"]

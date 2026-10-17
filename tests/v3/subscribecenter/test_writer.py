@@ -1,0 +1,289 @@
+"""订阅写入的回归测试（开发文档 §7.3 / §7.6）。
+
+覆盖三条最容易踩的宿主契约：
+
+1. ``add()`` 幂等 —— 靠 ``message`` 区分「新增」与「已存在」；
+2. **必须查 ``SubscribeHistory``** —— 宿主 ``async_add()`` 不做这个检查；
+3. 每日上限、dry-run、身份不可写三种情况都不得写入。
+"""
+import sys
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+
+PLUGIN_ID = "subscribecenter"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "plugins.v3" / PLUGIN_ID))
+
+from core import constants as C  # noqa: E402
+from core.model import DiscoveredItem, ResolvedIdentity  # noqa: E402
+from core.writer import (  # noqa: E402
+    MESSAGE_ADDED,
+    MESSAGE_EXISTS,
+    SubscriptionWriter,
+)
+
+#: 相对**真实今天**计算，避免测试与系统日期耦合（写死日期会随运行日漂移而失效）
+TODAY = date.today()
+
+
+class FakeBackend:
+    """可编程的宿主订阅替身。"""
+
+    def __init__(self, *, exists=False, history=False, add_result=None, raise_precheck=False,
+                 raise_add=False):
+        self._exists = exists
+        self._history = history
+        self._add_result = add_result
+        self._raise_precheck = raise_precheck
+        self._raise_add = raise_add
+        self.add_calls = []
+        self.precheck_calls = 0
+
+    async def add(self, title, year, media_source, media_id, media_type,
+                  season=None, *, message=False, exist_ok=False):
+        """记录调用并返回预设结果。"""
+        self.add_calls.append(
+            {
+                "title": title,
+                "year": year,
+                "media_source": media_source,
+                "media_id": media_id,
+                "media_type": media_type,
+                "season": season,
+                "message": message,
+                "exist_ok": exist_ok,
+            }
+        )
+        if self._raise_add:
+            raise RuntimeError("宿主抛错")
+        if self._add_result is not None:
+            return self._add_result
+        return 42, MESSAGE_ADDED
+
+    async def subscription_exists(self, media_source, media_id):
+        """活跃订阅查询。"""
+        self.precheck_calls += 1
+        if self._raise_precheck:
+            raise RuntimeError("查询失败")
+        return self._exists
+
+    async def history_exists(self, media_source, media_id):
+        """订阅历史查询。"""
+        if self._raise_precheck:
+            raise RuntimeError("查询失败")
+        return self._history
+
+
+def item(**overrides):
+    """构造一条带确定性身份的测试条目。"""
+    data = {
+        "source": C.SOURCE_TMDB,
+        "source_id": "1",
+        "title": "沙丘",
+        "media_type": C.MEDIA_TYPE_MOVIE,
+        "year": "2026",
+        "release_date": (TODAY + timedelta(days=5)).isoformat(),
+        "rating": 8.0,
+        "resolved": ResolvedIdentity("themoviedb", "693134", C.CONFIDENCE_L1, "native:tmdb"),
+    }
+    data.update(overrides)
+    return DiscoveredItem(**data)
+
+
+# --------------------------------------------------------------------- 正常写入
+
+@pytest.mark.asyncio
+async def test_writes_with_paired_identity_fields():
+    """写入必须用 ``media_source`` + ``media_id`` 成对字段，``year`` 是字符串。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 1
+    assert len(backend.add_calls) == 1
+    call = backend.add_calls[0]
+    assert call["media_source"] == "themoviedb"
+    assert call["media_id"] == "693134"
+    assert call["year"] == "2026"
+    assert isinstance(call["year"], str)
+    assert call["title"] == "沙丘"
+    # 逐条静默：汇总通知由插件在末尾发
+    assert call["message"] is False
+    assert call["exist_ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_idempotent_hit_is_not_counted_as_added():
+    """``message == 订阅已存在`` 时幂等命中，**不算新增**。"""
+    backend = FakeBackend(add_result=(99, MESSAGE_EXISTS))
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 0
+    outcome = report.outcomes[0]
+    assert outcome.decision == C.DECISION_SKIPPED_ALREADY_SUBSCRIBED
+    assert outcome.subscribe_id == 99
+
+
+@pytest.mark.asyncio
+async def test_zero_subscribe_id_is_not_a_success():
+    """宿主返回 ``sid=0/None`` 表示未写入成功。"""
+    backend = FakeBackend(add_result=(0, "新增订阅失败"))
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+    assert report.added_count == 0
+    assert report.outcomes[0].decision == C.DECISION_PENDING_REVIEW
+
+
+# --------------------------------------------------------------------- 写入前复查
+
+@pytest.mark.asyncio
+async def test_skips_when_active_subscription_exists():
+    """宿主已有活跃订阅 → 跳过，且**不调用 add()**。"""
+    backend = FakeBackend(exists=True)
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_ALREADY_SUBSCRIBED
+
+
+@pytest.mark.asyncio
+async def test_skips_when_subscription_history_exists():
+    """**宿主已完成过** → 跳过。
+
+    这是宿主 ``async_add()`` 不做的检查：订阅完成后记录移入
+    ``SubscribeHistory``，只查 ``Subscribe`` 会把已拿到过的片子当新片重订
+    （开发文档 §7.6）。
+    """
+    backend = FakeBackend(exists=False, history=True)
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_ALREADY_COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_precheck_failure_fails_open_and_still_writes():
+    """复查查询失败时 fail-open：仍交给 add()，由身份幂等兜底。"""
+    backend = FakeBackend(raise_precheck=True)
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+
+    assert len(backend.add_calls) == 1
+    assert report.added_count == 1
+
+
+@pytest.mark.asyncio
+async def test_add_failure_does_not_abort_batch():
+    """单条写入异常不影响后续条目。"""
+    backend = FakeBackend(raise_add=True)
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item(source_id="1"), item(source_id="2")], dry_run=False)
+
+    assert len(report.outcomes) == 2
+    assert report.added_count == 0
+    assert all(o.decision == C.DECISION_PENDING_REVIEW for o in report.outcomes)
+
+
+# --------------------------------------------------------------------- 安全闸门
+
+@pytest.mark.asyncio
+async def test_l4_identity_never_written():
+    """**L4 永不写入** —— 只进待确认列表。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    l4 = item(resolved=ResolvedIdentity("themoviedb", "999", C.CONFIDENCE_L4, "fuzzy"))
+    report = await writer.write([l4], dry_run=False)
+
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_PENDING_REVIEW
+    assert len(report.pending_review) == 1
+
+
+@pytest.mark.asyncio
+async def test_unresolved_item_never_written():
+    """完全没有身份的条目同样只进待确认。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item(resolved=None)], dry_run=False)
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_PENDING_REVIEW
+
+
+@pytest.mark.asyncio
+async def test_dry_run_never_writes():
+    """dry-run 只判定不写入。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=True)
+
+    assert backend.add_calls == []
+    assert report.dry_run is True
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_DRY_RUN
+    assert report.added_count == 0
+
+
+@pytest.mark.asyncio
+async def test_past_release_date_never_written():
+    """定档已过去的条目不得写入。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    past = item(release_date=(TODAY - timedelta(days=3)).isoformat())
+    report = await writer.write([past], dry_run=False, tz_name="Asia/Shanghai")
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_NOT_FUTURE
+
+
+# --------------------------------------------------------------------- 每日上限
+
+@pytest.mark.asyncio
+async def test_daily_limit_caps_writes():
+    """每日上限：超出的条目改写为上限跳过，且**不写入**。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=2)
+    items = [item(source_id=str(i), resolved=ResolvedIdentity("themoviedb", str(1000 + i)))
+             for i in range(5)]
+    report = await writer.write(items, dry_run=False)
+
+    assert report.added_count == 2
+    assert len(backend.add_calls) == 2
+    assert report.limit_hit is True
+    limited = [o for o in report.outcomes if o.decision == C.DECISION_SKIPPED_DAILY_LIMIT]
+    assert len(limited) == 3
+
+
+@pytest.mark.asyncio
+async def test_daily_limit_respects_already_written_today():
+    """今日已写入的条数要占用额度。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=3)
+    items = [item(source_id=str(i), resolved=ResolvedIdentity("themoviedb", str(2000 + i)))
+             for i in range(5)]
+    report = await writer.write(items, dry_run=False, already_written_today=3)
+
+    assert report.added_count == 0
+    assert backend.add_calls == []
+    assert report.limit_hit is True
+
+
+@pytest.mark.asyncio
+async def test_daily_limit_zero_means_unlimited():
+    """``daily_limit<=0`` 表示不限制。"""
+    backend = FakeBackend()
+    writer = SubscriptionWriter(backend, daily_limit=0)
+    items = [item(source_id=str(i), resolved=ResolvedIdentity("themoviedb", str(3000 + i)))
+             for i in range(3)]
+    report = await writer.write(items, dry_run=False)
+    assert report.added_count == 3
+
+
+def test_write_report_summary_shape():
+    """汇总字典字段齐全（供通知与状态接口复用）。"""
+    from core.writer import WriteReport
+
+    summary = WriteReport().to_summary()
+    for key in ("total", "added", "skipped", "pending_review", "limit_hit", "dry_run"):
+        assert key in summary

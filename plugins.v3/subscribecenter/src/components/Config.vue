@@ -598,7 +598,21 @@ onMounted(() => {
                   class="mb-2"
                 />
               </VCol>
-              <VCol cols="12" sm="4">
+              <VCol cols="12" sm="3">
+                <VTextField
+                  v-model.number="form.min_rating_anilist"
+                  label="最低评分"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="3">
                 <VTextField
                   v-model.number="form.anilist_min_popularity"
                   label="最低热度"
@@ -611,7 +625,7 @@ onMounted(() => {
                   class="mb-2"
                 />
               </VCol>
-              <VCol cols="12" sm="4" class="d-flex align-center">
+              <VCol cols="12" sm="3" class="d-flex align-center">
                 <VSwitch
                   v-model="form.anilist_include_donghua"
                   label="包含国漫"

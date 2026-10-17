@@ -26,6 +26,7 @@ export const configDefaults = {
   // ---------------- AniList（番剧 / 国漫）
   anilist_future_days: 3,
   //: AniList 的 popularity 量纲与 TMDB 完全不同（冷门番上千、主流番 2~5 万）
+  min_rating_anilist: 6.0,
   anilist_min_popularity: 1000.0,
   //: 是否包含国产动画（countryOfOrigin=CN），默认开
   anilist_include_donghua: true,

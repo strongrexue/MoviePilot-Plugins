@@ -10,7 +10,7 @@ from typing import Any, Dict
 PLUGIN_ID = "SubscribeCenter"
 PLUGIN_NAME = "胖虎订阅中心"
 PLUGIN_DESCRIPTION = "全自动开播 / 定档发现与订阅：从 TMDB、Bangumi、豆瓣 RSS、Simkl 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。版本控制、洗版与下载优先级由宿主规则接管。"
-PLUGIN_VERSION = "1.0.9"
+PLUGIN_VERSION = "1.0.10"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -147,6 +147,9 @@ def default_config() -> Dict[str, Any]:
         "anilist_future_days": DEFAULT_FUTURE_DAYS,
         #: 最低热度（AniList 的 popularity 量纲与 TMDB 完全不同：
         #: 冷门番约 500~2000，主流番 2 万~5 万，所以不能复用 TMDB 的 15）。
+        #: 最低评分（AniList averageScore/10：70≈7.0 分）。与 TMDB 量纲不同：
+        #: AniList 用的是站内加权分，普遍比 TMDB 低一档，所以单独设。
+        "min_rating_anilist": DEFAULT_MIN_RATING,
         "anilist_min_popularity": 1000.0,
         #: 是否包含国产动画（countryOfOrigin=CN）。
         #: **默认开** —— 国漫只有 AniList 能覆盖（Bangumi 的日历实测漏掉大半）。

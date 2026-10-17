@@ -138,3 +138,17 @@ def test_season_has_upcoming_callable_on_instance():
         return await resolver._season_has_upcoming(FakeApi(), 1, 1, date(2026, 1, 1))
 
     assert asyncio.run(run()) is True
+
+
+def test_async_poster_path_is_instance_method():
+    """sync_poster_path 必须是**实例方法**（它要用 self._poster_index）。
+
+    真机事故：它被误加了 @staticmethod 却保留 self 参数，调用直接
+    TypeError，而异常被 _attach_poster 的 try/except 吞掉 ——
+    结果**所有电影都没有海报**（119 条 movie 全空、TV 有 256 条）。
+    """
+    import inspect
+
+    attr = inspect.getattr_static(HostTmdbResolver, "async_poster_path")
+    assert not isinstance(attr, staticmethod), "async_poster_path 不应是 staticmethod"
+    assert "self" in inspect.signature(attr).parameters

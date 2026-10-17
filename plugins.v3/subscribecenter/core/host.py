@@ -625,21 +625,31 @@ class HostTmdbResolver:
         except Exception:  # noqa: BLE001 - 查询失败视为不存在
             return False
 
-    @staticmethod
     async def async_poster_path(
         self, tmdb_id: str, media_type: str
     ) -> Optional[str]:
         """获取海报路径：先查已抓到的，没有再查一次 TMDB 详情。
 
-        只有电影会走到「再查一次」—— 剧集的详情在季号裁决里已经拉过。
+        .. danger::
+           **不能加 `@staticmethod`** —— 它要用 `self._poster_index`。
+           之前它被误加了 staticmethod 却保留了 `self` 参数，调用直接
+           TypeError，而这个异常被 `_attach_poster` 的 try/except 吞掉，
+           结果**所有电影都没有海报**（真机：119 条 movie 全空，TV 有 256 条）。
+
+        只走 `TmdbApi.async_get_info`（宿主封装，鉴权与语言都正确）。
+        不走 `_tmdb_get`：后者用 `api_key` 拼原始请求，在只配了 v4 token
+        的环境里拿不到 `poster_path`（实测返回 None）。
         """
         cached = self._poster_index.get(str(tmdb_id))
         if cached:
             return cached
         try:
-            path = f"/3/{'movie' if media_type == MEDIA_TYPE_MOVIE else 'tv'}/{tmdb_id}"
-            payload = await self._tmdb_get(path)
-            poster = (payload or {}).get("poster_path")
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+            from app.schemas.types import MediaType
+
+            mtype = MediaType.MOVIE if media_type == MEDIA_TYPE_MOVIE else MediaType.TV
+            info = await TmdbApi().async_get_info(mtype=mtype, tmdbid=int(tmdb_id)) or {}
+            poster = info.get("poster_path")
             if poster:
                 self._poster_index[str(tmdb_id)] = str(poster)
                 return str(poster)

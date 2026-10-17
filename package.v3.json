@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。版本控制、洗版与下载优先级由宿主规则接管。",
         "labels": "订阅,工具",
-        "version": "1.0.10",
+        "version": "1.0.11",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.0.11": "评分控件全源可见 + 流水状态 tab + 弹窗内部滚动（1.0.11）。[1] 豆瓣「最低评分」控件补齐 —— 配置键 min_rating_douban 一直存在但界面没暴露，用户无法调整；现在豆瓣卡片有窗口/评分/最低想看/每榜条数/解析并发。至此三个源都有独立评分门槛：TMDB(min_rating_tmdb)、AniList(min_rating_anilist，1.0.10 新增)、豆瓣(min_rating_douban)。[2] 流水顶部状态 tab：接口 HistoryPage 新增 counts 字段（各决策条数，在应用 decision 筛选之前统计，否则点进某个 tab 后其他 tab 会变 0），前端用胶囊形 tab 替换原来的下拉框，显示「全部 N / 新增 24 / 待确认 30 / 已播完 121」等并按条数倒序，点一下即筛选。新增 1 项测试。[3] 插件管理页的详情弹窗原本整页滚动、翻页按钮被推到屏幕外：非 appPage 模式加 max-height: calc(100dvh - 160px)、overflow: hidden，最后一个卡片 flex:1 且网格内部滚动，翻页区始终可见。年份/国家筛选未做（需新增后端过滤逻辑），下一轮实现。",
             "v1.0.10": "电影海报全空 + AniList 评分门槛不可配（1.0.10）。[1] 电影海报：查库发现 119 条 movie 全部无 poster，而 tv 有 256/303。容器内复现报错 TypeError: async_poster_path() missing 1 required positional argument: 'media_type' —— 该方法被误加了 @staticmethod 却保留 self 参数，异常被 _attach_poster 的 try/except 吞掉，于是电影永远拿不到海报（TV 走 resolve_target_season 顺带取，所以不受影响）。已去掉错误的 @staticmethod，并把实现从 _tmdb_get 改为 TmdbApi.async_get_info —— 实测 _tmdb_get 用 api_key 拼原始请求，在只配 v4 token 的环境里返回的 poster_path 是 None。顺带加结构测试：async_poster_path 必须是实例方法且含 self。[2] AniList 评分门槛：代码里 _min_rating_by_source 读取 min_rating_anilist，但 default_config 里没有该键、前端也没有控件，所以永远回落 6.0 —— 用户看到的「评分 5.5 < 6.0（anilist 门槛）」就是这么来的且无处可改。现已补配置键 + AniList 卡片新增「最低评分」输入框（窗口/评分/热度/包含国漫 四个控件并排）。前后端配置键 38/38 一致。",
             "v1.0.9": "修复海报路由 401（1.0.9）。用户在 F12 里抓到决定性证据：/api/v1/plugin/SubscribeCenter/poster?path=... 全部返回 401 Unauthorized。根因：<img> 标签发起的请求不会携带 axios 客户端注入的 Bearer token，而插件路由默认声明 auth: bear（我们的 get_api 对所有路由都这么写）。MP 的插件路由注册器支持 allow_anonymous 字段（app/adapters/web/plugin/routes.py:126-136），置 True 即跳过 verify_token/verify_apikey 依赖。因此仅对 /poster 声明 allow_anonymous: True，其余路由保持不变。安全性：该路由只代理 TMDB 海报，且 _poster_path 会拒绝非 TMDB 域名（1.0.7 已加），不会被当作任意 URL 代理。新增 1 项测试：/poster 必须 allow_anonymous，其他路由必须不允许匿名。另 1.0.8 已把卡片尺寸对齐参考插件（minmax 360px、海报 128px、字号 15/12.5/12、grid-auto-rows 铺满、alt 置空避免失败时叠文本）。",
             "v1.0.8": "卡片尺寸对齐参考插件 + 图片失败不再叠 alt 文本（1.0.8）。用户指出两点我此前没做到：一是没读参考插件的出图逻辑（现已读 maoyandianying 的 HeatList.vue 编译产物 CSS：其网格是 repeat(auto-fill, minmax(390px,1fr))，海报 inline-size 8rem≈128px、≥768px 时 11rem、≥1280px 时 13rem），二是卡片仍太小、页面仍有大片空白。改动：[1] 网格 minmax 360px、海报 128px 宽（aspect-ratio 2/3），字号相应放大到 15/12.5/12；[2] grid-auto-rows: minmax(150px,1fr) + align-content: stretch，让卡片纵向铺满剩余空间，不再留空白；[3] 海报 img 改 alt=\" 并加 @error 处理器隐藏失败图片 —— 之前 alt=item.title 导致加载失败时整张卡片叠满标题文字（截图里那种重叠）。另：容器日志显示只有 status/history 请求、一条 /poster 都没有，说明后端未重启到含 poster 字段的版本（schema 在 1.0.6 才补），需要重启 MoviePilot 后 /poster 才会被请求。",

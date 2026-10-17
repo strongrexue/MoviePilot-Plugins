@@ -168,6 +168,23 @@ function nextPage() {
   loadHistory()
 }
 
+/** 顶部状态 tab：只列出确实有数据的决策，按条数倒序。 */
+const decisionTabs = computed(() => {
+  const counts = history.value?.counts || {}
+  return Object.entries(counts)
+    .filter(([, value]) => Number(value) > 0)
+    .map(([value, count]) => ({ value, count, label: decisionLabel(value) }))
+    .sort((a, b) => b.count - a.count)
+})
+
+/** 切换状态筛选（tab）。 */
+function switchFilter(value) {
+  if (filter.value === value) return
+  filter.value = value
+  history.value.page = 1
+  loadHistory()
+}
+
 /** 海报加载失败：隐藏 <img>，露出底下的占位图标（否则浏览器会画出 alt 文本）。 */
 function markPosterFailed(event) {
   const img = event?.target
@@ -320,15 +337,27 @@ onUnmounted(() => {
     <div class="sc-card">
       <div class="sc-card-head">
         <span class="sc-card-title">发现流水</span>
-        <VSelect
-          v-model="filter"
-          :items="[{ title: '全部状态', value: '' }, ...Object.entries(DECISION_LABELS).map(([value, title]) => ({ title, value }))]"
-          density="compact"
-          hide-details
-          variant="outlined"
-          style="max-width: 190px"
-          @update:model-value="history.page = 1; loadHistory()"
-        />
+        <!-- 状态 tab：点一下即筛选，比下拉框少一步操作 -->
+        <div class="sc-tabs">
+          <button
+            type="button"
+            class="sc-tab"
+            :class="{ 'sc-tab-active': !filter }"
+            @click="switchFilter('')"
+          >
+            全部 <span class="sc-tab-count">{{ history.total || 0 }}</span>
+          </button>
+          <button
+            v-for="tab in decisionTabs"
+            :key="tab.value"
+            type="button"
+            class="sc-tab"
+            :class="{ 'sc-tab-active': filter === tab.value }"
+            @click="switchFilter(tab.value)"
+          >
+            {{ tab.label }} <span class="sc-tab-count">{{ tab.count }}</span>
+          </button>
+        </div>
         <VChip size="x-small" variant="tonal">共 {{ history.total }} 部作品</VChip>
         <VChip size="x-small" variant="text">每部只显示最新状态</VChip>
       </div>
@@ -403,6 +432,24 @@ onUnmounted(() => {
    避免页面下方一大片空白。 */
 .sc-root-page {
   min-height: calc(100dvh - 150px);
+}
+/* 插件管理页的弹窗模式：同样固定高度 + 内部滚动，
+   否则整页跟着滚、翻页按钮被推到屏幕外。 */
+.sc-root:not(.sc-root-page) {
+  max-height: calc(100dvh - 160px);
+  min-height: 0;
+  overflow: hidden;
+}
+.sc-root:not(.sc-root-page) .sc-card:last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sc-root:not(.sc-root-page) .sc-card:last-child .sc-grid {
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
 }
 .sc-root-page .sc-card:last-child {
   flex: 1 1 auto;
@@ -693,6 +740,39 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+}
+.sc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid rgba(var(--v-border-color), 0.18);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: background 0.15s, opacity 0.15s;
+}
+.sc-tab:hover {
+  background: rgba(var(--v-theme-primary), 0.08);
+  opacity: 1;
+}
+.sc-tab-active {
+  background: rgba(var(--v-theme-primary), 0.16);
+  border-color: rgba(var(--v-theme-primary), 0.4);
+  opacity: 1;
+  font-weight: 600;
+}
+.sc-tab-count {
+  font-size: 11px;
+  opacity: 0.7;
 }
 .sc-pager {
   display: flex;

@@ -79,6 +79,9 @@ class HistoryPage(BaseModel):
     total: int = Field(default=0, description="总条数")
     page: int = Field(default=1, description="当前页")
     count: int = Field(default=20, description="每页条数")
+    #: 各决策的条数（不受 decision 筛选影响，只受 source/keyword 影响）。
+    #: 前端顶部 tab 直接用它显示「新增 24 / 待确认 30 …」，不必额外请求。
+    counts: Dict[str, int] = Field(default_factory=dict, description="按决策的条数")
 
 
 # --------------------------------------------------------------------- 手动运行

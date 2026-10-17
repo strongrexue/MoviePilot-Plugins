@@ -666,6 +666,21 @@ onMounted(() => {
               </VCol>
               <VCol cols="12" sm="6">
                 <VTextField
+                  v-model.number="form.min_rating_douban"
+                  label="最低评分"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
                   v-model.number="form.douban_min_want"
                   label="最低想看人数（0 = 不限）"
                   type="number"

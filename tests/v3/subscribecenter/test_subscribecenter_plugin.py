@@ -465,3 +465,19 @@ def test_poster_route_allows_anonymous_access(plugin_cls):
         if path == "/poster":
             continue
         assert not route.get("allow_anonymous"), f"{path} 不应允许匿名"
+
+
+def test_history_page_reports_decision_counts(plugin):
+    """流水接口要返回各决策条数（前端状态 tab 直接用它）。"""
+    plugin.save_data("run_history", [
+        {"decision": C.DECISION_ADDED, "source": "tmdb", "title": "A"},
+        {"decision": C.DECISION_ADDED, "source": "tmdb", "title": "B"},
+        {"decision": C.DECISION_PENDING_REVIEW, "source": "tmdb", "title": "C"},
+    ])
+    page = plugin.history_page()
+    assert page.counts.get(C.DECISION_ADDED) == 2
+    assert page.counts.get(C.DECISION_PENDING_REVIEW) == 1
+    # 过滤 decision 后 counts 仍是全量口径（tab 要在任何筛选下都显示真实数量）
+    filtered = plugin.history_page(decision=C.DECISION_ADDED)
+    assert filtered.total == 2
+    assert filtered.counts.get(C.DECISION_PENDING_REVIEW) == 1

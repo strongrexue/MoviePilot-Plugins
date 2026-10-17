@@ -225,6 +225,8 @@ class HostTmdbResolver:
                     "release_date": getattr(mediainfo, "release_date", None),
                     "media_type": media_type,
                     "poster_path": getattr(mediainfo, "poster_path", None),
+                    "genre_ids": list(getattr(mediainfo, "genre_ids", None) or []),
+                    "original_language": getattr(mediainfo, "original_language", None),
                     "via": source,
                 }
             )
@@ -797,6 +799,11 @@ class HostTmdbResolver:
                     "year": str(date_field)[:4] if date_field else None,
                     "release_date": date_field,
                     "media_type": media_type,
+                    # 用来区分「动画版」与「真人剧版」——真机：凡人修仙传 / 武神主宰 /
+                    # 万界独尊 / 紫川 都有两个 TMDB 条目，选错就订到真人剧。
+                    "genre_ids": list(record.get("genre_ids") or []),
+                    "original_language": record.get("original_language"),
+                    "origin_country": list(record.get("origin_country") or []),
                 }
             )
         return tuple(candidates)

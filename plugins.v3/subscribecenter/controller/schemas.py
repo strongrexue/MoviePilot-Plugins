@@ -131,7 +131,7 @@ class PreviewResult(BaseModel):
 class MappingEntry(BaseModel):
     """一条身份映射缓存。"""
 
-    key: str = Field(description="缓存键")
+    key: str = Field(default="", description="映射缓存键（可留空，由 title 生成）")
     media_source: str = Field(description="媒体来源")
     media_id: str = Field(description="媒体 ID")
     confidence: str = Field(default="", description="置信度级别")
@@ -148,9 +148,15 @@ class MappingCacheView(BaseModel):
 class MappingFixRequest(BaseModel):
     """人工修正映射请求。"""
 
-    key: str = Field(description="要修正/新增的缓存键")
+    #: 也可不传 key，直接用「标题 + 年份 + 类型」表达 —— 前端只需让用户填
+    #: TMDB ID，键由后端归一化生成（真机：国漫有动画版/真人版两条同名条目，
+    #: 自动区分需要 genre 数据，人工指定最可靠）。
+    title: Optional[str] = Field(default=None, description="标题（替代 key）")
+    year: Optional[str] = Field(default=None, description="年份")
+    media_type: str = Field(default="tv", description="movie / tv")
+    key: str = Field(default="", description="要修正/新增的缓存键")
     media_source: str = Field(default="themoviedb", description="媒体来源")
-    media_id: str = Field(description="媒体 ID")
+    media_id: str = Field(default="", description="媒体 ID")
 
 
 class MappingFixResult(BaseModel):

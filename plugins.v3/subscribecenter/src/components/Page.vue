@@ -200,6 +200,37 @@ const sourceTabs = computed(() => {
 })
 
 /** 切换数据源筛选。 */
+/** 手动修正映射：输入 TMDB ID，写入映射缓存（下次运行必定命中）。 */
+async function fixMapping(item) {
+  const input = window.prompt(
+    `手动指定「${item.title}」的 TMDB 条目 ID（从 TMDB 网址里取数字，如 /tv/12345）：`,
+    item.media_id || '',
+  )
+  if (!input) return
+  const id = String(input).trim().replace(/\D/g, '')
+  if (!id) {
+    setTip('请输入纯数字的 TMDB ID', false)
+    return
+  }
+  try {
+    const mediaType = item.media_type === 'movie' ? 'movie' : 'tv'
+    unwrap(
+      await postPluginApi(props.api, props.pluginId, 'mapping_cache/fix', {
+        key: '',
+        title: item.title,
+        year: item.year || '',
+        media_type: mediaType,
+        media_source: 'themoviedb',
+        media_id: id,
+      }),
+    )
+    setTip(`已修正：${item.title} -> themoviedb/${id}（下次运行生效）`)
+    await refreshAll()
+  } catch (error) {
+    setTip(error?.message || '修正失败', false)
+  }
+}
+
 function searchKeyword() {
   history.value.page = 1
   loadHistory()
@@ -464,6 +495,16 @@ onUnmounted(() => {
             </div>
             <div v-if="item.reason" class="sc-card-reason" :title="item.reason">
               {{ item.reason }}
+            </div>
+            <div class="sc-card-actions">
+              <VBtn
+                size="x-small"
+                variant="text"
+                prepend-icon="mdi-pencil-outline"
+                @click="fixMapping(item)"
+              >
+                修正映射
+              </VBtn>
             </div>
           </div>
         </div>
@@ -805,6 +846,11 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+}
+.sc-card-actions {
+  margin-top: 4px;
+  display: flex;
+  justify-content: flex-end;
 }
 .sc-tabs {
   display: flex;

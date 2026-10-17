@@ -126,8 +126,19 @@ async def api_mapping_cache(plugin) -> Any:
 async def api_mapping_fix(plugin, request: api_schemas.MappingFixRequest) -> Any:
     """人工修正一条身份映射。"""
     try:
+        key = request.key
+        if not key and request.title:
+            # 前端只让用户填 TMDB ID；键由后端按「归一化标题 + 年份 + 类型」生成，
+            # 与身份解析用的键完全一致，所以下一次运行必定命中。
+            from ..core.identity import normalize_title, strip_season_suffix, title_key
+
+            key = title_key(
+                normalize_title(strip_season_suffix(request.title)),
+                request.year,
+                request.media_type or "tv",
+            )
         data = plugin.mapping_fix(
-            key=request.key,
+            key=key,
             media_source=request.media_source,
             media_id=request.media_id,
         )

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-C90Xp5L2.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, p as postPluginApi, a as getPluginApi } from './_plugin-vue_export-helper-DOvpULpf.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,vModelText:_vModelText,withKeys:_withKeys,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -54,11 +54,12 @@ const _hoisted_37 = {
   class: "sc-card-meta"
 };
 const _hoisted_38 = ["title"];
-const _hoisted_39 = {
+const _hoisted_39 = { class: "sc-card-actions" };
+const _hoisted_40 = {
   key: 2,
   class: "sc-pager"
 };
-const _hoisted_40 = { class: "sc-hint" };
+const _hoisted_41 = { class: "sc-hint" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -266,6 +267,37 @@ const sourceTabs = computed(() => {
 });
 
 /** 切换数据源筛选。 */
+/** 手动修正映射：输入 TMDB ID，写入映射缓存（下次运行必定命中）。 */
+async function fixMapping(item) {
+  const input = window.prompt(
+    `手动指定「${item.title}」的 TMDB 条目 ID（从 TMDB 网址里取数字，如 /tv/12345）：`,
+    item.media_id || '',
+  );
+  if (!input) return
+  const id = String(input).trim().replace(/\D/g, '');
+  if (!id) {
+    setTip('请输入纯数字的 TMDB ID', false);
+    return
+  }
+  try {
+    const mediaType = item.media_type === 'movie' ? 'movie' : 'tv';
+    unwrap(
+      await postPluginApi(props.api, props.pluginId, 'mapping_cache/fix', {
+        key: '',
+        title: item.title,
+        year: item.year || '',
+        media_type: mediaType,
+        media_source: 'themoviedb',
+        media_id: id,
+      }),
+    );
+    setTip(`已修正：${item.title} -> themoviedb/${id}（下次运行生效）`);
+    await refreshAll();
+  } catch (error) {
+    setTip(error?.message || '修正失败', false);
+  }
+}
+
 function searchKeyword() {
   history.value.page = 1;
   loadHistory();
@@ -644,32 +676,45 @@ return (_ctx, _cache) => {
                         class: "sc-card-reason",
                         title: item.reason
                       }, _toDisplayString(item.reason), 9, _hoisted_38))
-                    : _createCommentVNode("", true)
+                    : _createCommentVNode("", true),
+                  _createElementVNode("div", _hoisted_39, [
+                    _createVNode(_component_VBtn, {
+                      size: "x-small",
+                      variant: "text",
+                      "prepend-icon": "mdi-pencil-outline",
+                      onClick: $event => (fixMapping(item))
+                    }, {
+                      default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+                        _createTextVNode(" 修正映射 ", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["onClick"])
+                  ])
                 ])
               ]))
             }), 128))
           ])),
       (history.value.total > history.value.count)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_39, [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_40, [
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
               disabled: history.value.page <= 1,
               onClick: prevPage
             }, {
-              default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
+              default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
                 _createTextVNode("上一页", -1)
               ]))]),
               _: 1
             }, 8, ["disabled"]),
-            _createElementVNode("span", _hoisted_40, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
+            _createElementVNode("span", _hoisted_41, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
             _createVNode(_component_VBtn, {
               size: "small",
               variant: "text",
               disabled: history.value.page * history.value.count >= history.value.total,
               onClick: nextPage
             }, {
-              default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
+              default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
                 _createTextVNode(" 下一页 ", -1)
               ]))]),
               _: 1
@@ -682,6 +727,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c7b8ef78"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-756e61b3"]]);
 
 export { Page as default };

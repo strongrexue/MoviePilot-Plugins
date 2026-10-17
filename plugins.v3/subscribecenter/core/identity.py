@@ -598,6 +598,16 @@ def match_candidate_year(
     # 和「分季版」（331477，S1~S4）。两者标题都能匹配、年份都是 2020，
     # 季号裁决会挑「真有第 4 季」的分季版，于是订到了 S04/30 集而不是主条目。
     # 规则：多候选时优先不要带括号限定词的那条（分季/合集/总集篇/剧场版）。
+    if prefer_latest_year and len(matched) > 1:
+        # **国漫优先动画类型条目**：TMDB 里很多国漫同时有「动画版」和「真人剧版」
+        # 两个同名条目（真机：凡人修仙传 / 武神主宰 / 万界独尊 / 紫川）。
+        # 选到真人剧版就会「已播完」→ 跳过，而动画版其实在更新。
+        animated = [
+            entry for entry in matched if 16 in (entry[0].get("genre_ids") or [])
+        ]
+        if animated:
+            matched = animated
+
     if len(matched) > 1 and prefer_latest_year:
         wanted = int(_year_of(item.year or item.release_date) or 0)
 

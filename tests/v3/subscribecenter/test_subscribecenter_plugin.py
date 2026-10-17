@@ -71,6 +71,44 @@ def test_render_mode_returns_tuple(plugin_cls):
     assert result == ("vue", "dist/assets")
 
 
+def test_vue_render_mode_requires_built_entry(plugin_cls):
+    """声明 vue 渲染模式时，**dist 产物必须存在**。
+
+    这是 0.1.0 真实事故的回归锁：只有后端、没有 dist 时，宿主去加载
+    ``dist/assets/remoteEntry.js`` 会 404，插件配置页是空的 ——
+    启用开关和保存按钮都不存在，用户根本无法保存配置，插件永远不会启用、
+    也永远不会注册定时任务。
+    """
+    entry = REPO_ROOT / "plugins.v3" / PLUGIN_ID / "dist" / "assets" / "remoteEntry.js"
+    assert entry.exists(), (
+        "get_render_mode() 声明了 vue，但 dist/assets/remoteEntry.js 不存在；"
+        "必须先在插件目录执行 npm run build 并提交 dist/"
+    )
+    assert entry.stat().st_size > 0
+
+
+def test_dist_exposes_all_four_modules(plugin_cls):
+    """remoteEntry.js 必须真的暴露四个约定入口（配置 / 详情 / 仪表盘 / 发现页）。"""
+    entry = REPO_ROOT / "plugins.v3" / PLUGIN_ID / "dist" / "assets" / "remoteEntry.js"
+    if not entry.exists():
+        pytest.skip("dist 尚未构建")
+    text = entry.read_text(encoding="utf-8")
+    for name in ("Config", "Page", "Dashboard", "AppPage"):
+        assert f"./{name}" in text, f"remoteEntry.js 未暴露 ./{name}"
+
+
+def test_dist_embeds_matching_frontend_version(plugin_cls):
+    """已构建产物里的版本号必须与后端一致（防 dist 过期仍指向旧组件）。"""
+    assets = REPO_ROOT / "plugins.v3" / PLUGIN_ID / "dist" / "assets"
+    if not assets.exists():
+        pytest.skip("dist 尚未构建")
+    version = plugin_cls.plugin_version
+    found = any(
+        f"'{version}'" in path.read_text(encoding="utf-8") for path in assets.glob("*.js")
+    )
+    assert found, f"dist 产物里没有版本号 {version}，dist 可能过期（需重新 npm run build）"
+
+
 def test_get_form_and_page_are_vue_mode(plugin):
     """Vue 模式下表单为 ``None``、详情页为 ``None``，只提供默认配置模型。"""
     form, default = plugin.get_form()

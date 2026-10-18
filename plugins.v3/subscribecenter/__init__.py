@@ -21,6 +21,7 @@ from app.sdk.plugin import _PluginBase
 
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
+from .core import card_theme
 from .core import constants as C
 from .core.bridge import PipelineBridge
 from .core.cache import MappingCacheStore
@@ -34,6 +35,7 @@ from .sources.tmdb import TmdbSource
 DATA_KEY_CACHE = "mapping_cache"
 DATA_KEY_STATE = "runtime_state"
 DATA_KEY_HISTORY = "run_history"
+DATA_KEY_CARD_THEME = "card_theme"
 
 #: 内存中保留的流水条数上限（落盘时会截断）
 MAX_HISTORY = 500
@@ -49,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.6.8"
+    plugin_version = "1.7.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -249,6 +251,14 @@ class SubscribeCenter(_PluginBase):
         return await api_controller.api_history(
             self, page=page, count=count, decision=decision, source=source, keyword=keyword
         )
+
+    async def api_card_theme(self) -> Any:
+        """读取订阅卡片配色。"""
+        return await api_controller.api_card_theme(self)
+
+    async def api_card_theme_save(self, request: Any) -> Any:
+        """保存订阅卡片配色（写入宿主自定义 CSS）。"""
+        return await api_controller.api_card_theme_save(self, request)
 
     async def api_subscriptions(self) -> Any:
         """订阅总览：宿主订阅按状态分组 + 明细。"""
@@ -718,6 +728,115 @@ class SubscribeCenter(_PluginBase):
             mapping_cache_size=self._cache.size,
             timezone=self._tz(),
         )
+
+    @staticmethod
+    async def _read_custom_css() -> str:
+        """读宿主的 ``UserCustomCSS``。
+
+        优先走宿主的系统配置服务；某些调用路径下该服务尚未装配，
+        再用 ORM 直接读 ``systemconfig`` 表兜底。
+        """
+        from app.schemas.types import SystemConfigKey
+
+        try:
+            from app.application.configuration import get_configured_system_config
+
+            return str(get_configured_system_config().get(SystemConfigKey.UserCustomCSS) or "")
+        except Exception:  # noqa: BLE001 - 服务未装配时走 ORM
+            pass
+
+        from app.db import async_session_scope
+        from app.db.models.systemconfig import SystemConfig
+        from sqlalchemy import select
+
+        async with async_session_scope() as session:
+            # 主键是自增 id，不是 key —— 必须按 key 过滤
+            row = (
+                await session.execute(
+                    select(SystemConfig).where(
+                        SystemConfig.key == SystemConfigKey.UserCustomCSS.value
+                    )
+                )
+            ).scalars().first()
+            return str(getattr(row, "value", "") or "") if row else ""
+
+    @staticmethod
+    async def _write_custom_css(value: Optional[str]) -> None:
+        """写宿主的 ``UserCustomCSS``（同样带 ORM 兜底）。"""
+        from app.schemas.types import SystemConfigKey
+
+        try:
+            from app.application.configuration import get_configured_system_config
+
+            await get_configured_system_config().async_set(
+                SystemConfigKey.UserCustomCSS, value
+            )
+            return
+        except Exception:  # noqa: BLE001 - 服务未装配时走 ORM
+            pass
+
+        from app.db import async_session_scope
+        from app.db.models.systemconfig import SystemConfig
+        from sqlalchemy import select
+
+        async with async_session_scope() as session:
+            row = (
+                await session.execute(
+                    select(SystemConfig).where(
+                        SystemConfig.key == SystemConfigKey.UserCustomCSS.value
+                    )
+                )
+            ).scalars().first()
+            if row is None:
+                session.add(
+                    SystemConfig(key=SystemConfigKey.UserCustomCSS.value, value=value)
+                )
+            else:
+                row.value = value
+            await session.commit()
+
+    def card_theme_config(self) -> Dict[str, Any]:
+        """当前配色设置（未设置时返回默认色）。"""
+        stored = self.get_data(DATA_KEY_CARD_THEME)
+        stored = stored if isinstance(stored, dict) else {}
+        return {
+            "colors": card_theme.normalize_colors(stored.get("colors")),
+            "best_version_outline": bool(stored.get("best_version_outline", False)),
+            "best_version_color": card_theme.BEST_VERSION_COLOR,
+            "applied": bool(stored.get("applied", False)),
+        }
+
+    async def apply_card_theme(
+        self, colors: Any = None, best_version_outline: bool = False
+    ) -> Dict[str, Any]:
+        """把状态配色写进宿主的自定义 CSS（``UserCustomCSS``）。
+
+        只在标记块内替换，**不动用户自己写的 CSS**；``colors`` 传 None
+        表示恢复默认（删掉我们那段）。
+        """
+        normalized = card_theme.normalize_colors(colors) if colors is not None else None
+        try:
+            current = await self._read_custom_css()
+            if normalized is None:
+                merged = card_theme.strip_block(current).rstrip()
+                if merged:
+                    merged += chr(10)
+            else:
+                merged = card_theme.merge_css(current, normalized, best_version_outline)
+            await self._write_custom_css(merged or None)
+        except Exception as err:  # noqa: BLE001 - 写设置失败要报给前端
+            logger.error(f"[SubscribeCenter] 写入卡片配色失败：{err}", exc_info=True)
+            return {"success": False, "error": str(err)}
+
+        self.save_data(
+            DATA_KEY_CARD_THEME,
+            {
+                "colors": normalized or card_theme.DEFAULT_COLORS,
+                "best_version_outline": bool(best_version_outline) if normalized else False,
+                "applied": normalized is not None,
+            },
+        )
+        return {"success": True, "error": ""}
 
     async def subscription_overview(self) -> Dict[str, Any]:
         """读取宿主订阅表，按状态统计并返回明细（供「订阅总览」标签页）。

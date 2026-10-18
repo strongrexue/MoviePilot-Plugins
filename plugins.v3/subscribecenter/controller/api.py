@@ -29,6 +29,8 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/status", plugin.api_status, ["GET"], "获取插件运行状态与各源情况"),
         ("/history", plugin.api_history, ["GET"], "分页查询发现/写入流水"),
         ("/subscriptions", plugin.api_subscriptions, ["GET"], "订阅总览：按状态分组"),
+        ("/card_theme", plugin.api_card_theme, ["GET"], "读取订阅卡片配色"),
+        ("/card_theme/save", plugin.api_card_theme_save, ["POST"], "保存订阅卡片配色"),
         ("/run_once", plugin.api_run_once, ["POST"], "手动触发一次发现任务"),
         ("/preview", plugin.api_preview, ["POST"], "只读预览：跑一次但不写入"),
         ("/mapping_cache", plugin.api_mapping_cache, ["GET"], "查看身份映射缓存"),
@@ -86,6 +88,27 @@ async def api_history(
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 查询流水失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="查询流水失败") from err
+
+
+async def api_card_theme(plugin) -> Any:
+    """读取订阅卡片配色。"""
+    return schemas.Response(success=True, data=api_schemas.CardTheme(**plugin.card_theme_config()))
+
+
+async def api_card_theme_save(plugin, request: api_schemas.CardThemeRequest) -> Any:
+    """保存订阅卡片配色并写入宿主自定义 CSS。"""
+    colors = None if request.reset else (request.colors or None)
+    data = await plugin.apply_card_theme(
+        colors=colors,
+        best_version_outline=bool(request.best_version_outline),
+    )
+    return schemas.Response(
+        success=bool(data.get("success")),
+        message=str(data.get("error") or ""),
+        data=api_schemas.CardThemeResult(
+            success=bool(data.get("success")), error=str(data.get("error") or "")
+        ),
+    )
 
 
 async def api_subscriptions(plugin) -> Any:

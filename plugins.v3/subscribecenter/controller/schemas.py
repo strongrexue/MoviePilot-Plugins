@@ -73,6 +73,30 @@ class HistoryRecord(BaseModel):
     run_at: str = Field(default="", description="所属运行时间")
 
 
+class CardThemeRequest(BaseModel):
+    """保存订阅卡片配色。"""
+
+    colors: Optional[Dict[str, str]] = Field(default=None, description="状态色；传 null 或 reset=true 表示恢复默认")
+    reset: bool = Field(default=False, description="恢复默认（删除插件写入的 CSS）")
+    best_version_outline: bool = Field(default=False, description="洗版是否额外描边")
+
+
+class CardThemeResult(BaseModel):
+    """配色写入结果。"""
+
+    success: bool = Field(description="是否写入成功")
+    error: str = Field(default="", description="失败原因")
+
+
+class CardTheme(BaseModel):
+    """当前订阅卡片配色。"""
+
+    colors: Dict[str, str] = Field(default_factory=dict, description="状态色")
+    best_version_outline: bool = Field(default=False, description="洗版描边")
+    best_version_color: str = Field(default="", description="洗版描边颜色")
+    applied: bool = Field(default=False, description="是否已写入宿主 CSS")
+
+
 class SubscriptionRow(BaseModel):
     """宿主订阅表的一行（只取界面要用的字段）。"""
 
@@ -198,6 +222,8 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
     "/subscriptions": SubscriptionOverview,
+    "/card_theme": CardTheme,
+    "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,
     "/preview": PreviewResult,
     "/mapping_cache": MappingCacheView,
@@ -208,6 +234,9 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
 __all__ = [
     "API_RESPONSE_MODELS",
     "HistoryPage",
+    "CardTheme",
+    "CardThemeRequest",
+    "CardThemeResult",
     "SubscriptionOverview",
     "SubscriptionRow",
     "HistoryRecord",

@@ -226,6 +226,8 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/status",
         "/history",
         "/subscriptions",
+        "/card_theme",
+        "/card_theme/save",
         "/run_once",
         "/preview",
         "/mapping_cache",
@@ -254,6 +256,8 @@ def test_every_route_has_a_response_model():
         "/status",
         "/history",
         "/subscriptions",
+        "/card_theme",
+        "/card_theme/save",
         "/run_once",
         "/preview",
         "/mapping_cache",
@@ -646,3 +650,43 @@ def test_overview_includes_best_version_fields():
     row = schemas.SubscriptionRow(id=1, name="x", best_version=1, best_version_full=0)
     assert row.best_version == 1
     assert row.best_version_full == 0
+
+
+def test_api_card_theme_calls_through():
+    """配色接口要能真正调到插件方法（防模块别名/未定义名这类错误）。"""
+    import asyncio
+
+    from subscribecenter.controller import api as api_module
+    from subscribecenter.controller import schemas as api_schemas
+
+    class _Fake:
+        def card_theme_config(self):
+            return {
+                "colors": {"subscribing": "#FFC107", "pending": "#F97316", "paused": "#9CA3AF"},
+                "best_version_outline": False,
+                "best_version_color": "#A855F7",
+                "applied": True,
+            }
+
+        async def apply_card_theme(self, colors=None, best_version_outline=False):
+            assert colors == {"subscribing": "#00FF00"} or colors is None
+            return {"success": True, "error": ""}
+
+    read = asyncio.run(api_module.api_card_theme(_Fake()))
+    assert read.success is True
+    assert read.data.colors["subscribing"] == "#FFC107"
+
+    saved = asyncio.run(
+        api_module.api_card_theme_save(
+            _Fake(),
+            api_schemas.CardThemeRequest(
+                colors={"subscribing": "#00FF00"}, best_version_outline=True
+            ),
+        )
+    )
+    assert saved.success is True
+
+    reset = asyncio.run(
+        api_module.api_card_theme_save(_Fake(), api_schemas.CardThemeRequest(reset=True))
+    )
+    assert reset.success is True

@@ -195,6 +195,67 @@ const overviewLoaded = ref(false)
 const overviewOpen = ref(overviewOpenSaved())
 const overviewState = ref('')
 
+/** 订阅卡片配色（写入宿主 UserCustomCSS，MP 订阅页跟着变色）。 */
+const themeOpen = ref(false)
+const themeSaving = ref(false)
+const theme = ref({
+  colors: { subscribing: '#FFC107', pending: '#F97316', paused: '#9CA3AF' },
+  best_version_outline: false,
+  best_version_color: '#A855F7',
+})
+
+const themeRows = [
+  { key: 'subscribing', label: '订阅中' },
+  { key: 'pending', label: '待定' },
+  { key: 'paused', label: '暂停' },
+]
+
+async function loadTheme() {
+  try {
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'card_theme'))
+    if (data) {
+      theme.value = {
+        colors: { ...theme.value.colors, ...(data.colors || {}) },
+        best_version_outline: Boolean(data.best_version_outline),
+        best_version_color: data.best_version_color || '#A855F7',
+      }
+    }
+  } catch (error) {
+    /* 配色读取失败不影响主功能 */
+  }
+}
+
+async function saveTheme() {
+  themeSaving.value = true
+  try {
+    unwrap(
+      await postPluginApi(props.api, props.pluginId, 'card_theme/save', {
+        colors: theme.value.colors,
+        best_version_outline: theme.value.best_version_outline,
+      }),
+    )
+    setTip('配色已保存：刷新 MoviePilot 页面后订阅卡片生效')
+  } catch (error) {
+    setTip(error?.message || '配色保存失败', false)
+  } finally {
+    themeSaving.value = false
+  }
+}
+
+async function resetTheme() {
+  themeSaving.value = true
+  try {
+    unwrap(
+      await postPluginApi(props.api, props.pluginId, 'card_theme/save', { reset: true }),
+    )
+    setTip('已恢复默认配色：刷新 MoviePilot 页面生效')
+  } catch (error) {
+    setTip(error?.message || '恢复默认失败', false)
+  } finally {
+    themeSaving.value = false
+  }
+}
+
 /** 数据源显示名。 */
 function sourceLabel(key) {
   const map = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣榜单' }
@@ -347,6 +408,7 @@ watch(overviewOpen, async (open) => {
 })
 
 onMounted(async () => {
+  await loadTheme()
   if (overviewOpen.value) await loadOverview()
   await nextTick()
   ensureOverviewObserver()
@@ -607,7 +669,34 @@ onUnmounted(() => {
               <template v-else>（尚未加载）</template>
             </span>
             <span class="sc-overview-spacer" />
+            <button
+              type="button"
+              class="sc-theme-btn"
+              :class="{ 'sc-theme-btn-active': themeOpen }"
+              @click.stop="themeOpen = !themeOpen"
+            >
+              配色
+            </button>
             <span class="sc-overview-toggle">{{ overviewOpen ? '收起 ⌃' : '展开 ⌄' }}</span>
+          </div>
+          <div v-if="themeOpen" class="sc-theme-panel" @click.stop>
+            <div class="sc-theme-row" v-for="row in themeRows" :key="row.key">
+              <span class="sc-theme-label">{{ row.label }}</span>
+              <input type="color" v-model="theme.colors[row.key]" class="sc-theme-color" />
+              <code class="sc-dim">{{ theme.colors[row.key] }}</code>
+            </div>
+            <label class="sc-theme-row sc-theme-check">
+              <input type="checkbox" v-model="theme.best_version_outline" />
+              <span class="sc-theme-label">洗版另加紫色外框</span>
+              <span class="sc-dim">{{ theme.best_version_color }}</span>
+            </label>
+            <div class="sc-theme-actions">
+              <VBtn size="x-small" color="primary" :loading="themeSaving" @click="saveTheme">保存</VBtn>
+              <VBtn size="x-small" variant="text" :disabled="themeSaving" @click="resetTheme">
+                恢复默认
+              </VBtn>
+              <span class="sc-dim sc-theme-hint">保存后需刷新 MP 页面生效</span>
+            </div>
           </div>
           <div v-if="overviewOpen" class="sc-overview-body">
             <div v-if="!overview.total" class="sc-hint">暂无订阅</div>
@@ -1179,6 +1268,54 @@ onUnmounted(() => {
   user-select: none;
   min-height: 44px;
   border-radius: 10px;
+}
+.sc-theme-btn {
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--v-border-color), 0.28);
+  background: transparent;
+  color: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.sc-theme-btn-active {
+  border-color: rgba(var(--v-theme-primary), 0.7);
+  background: rgba(var(--v-theme-primary), 0.16);
+}
+.sc-theme-panel {
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.14);
+}
+.sc-theme-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.sc-theme-label {
+  min-width: 52px;
+}
+.sc-theme-color {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(var(--v-border-color), 0.3);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.sc-theme-check {
+  cursor: pointer;
+}
+.sc-theme-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sc-theme-hint {
+  font-size: 11px;
 }
 .sc-overview-spacer {
   flex: 1 1 auto;

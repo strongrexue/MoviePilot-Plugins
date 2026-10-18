@@ -114,3 +114,16 @@ def test_build_month_works_inside_event_loop():
 
     data = asyncio.run(run())
     assert data["month"] == "2026-10"
+
+
+def test_movie_uses_release_date():
+    """电影（season=0）按上映日期进日历，缺集为 0 视为已入库。"""
+    rows = [_row(id=1, name="某电影", media_id="900", season=0, total_episode=0, lack_episode=0)]
+    index = {("900", cal.MOVIE_KEY): [(DAY, 0)]}
+    item = cal.build_today(rows, DAY, index)[0]
+    assert item["name"] == "某电影"
+    assert item["kind"] == cal.KIND_UPDATED
+
+    rows2 = [_row(id=2, name="未出资源", media_id="901", season=0, total_episode=0, lack_episode=1)]
+    index2 = {("901", cal.MOVIE_KEY): [(DAY, 0)]}
+    assert cal.build_today(rows2, DAY, index2)[0]["kind"] == cal.KIND_PENDING

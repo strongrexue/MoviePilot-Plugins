@@ -22,6 +22,9 @@
 from typing import Any, Dict, Iterable, List, Optional
 
 KIND_UPDATED = "updated"
+
+#: 电影在索引里的键（订阅没有季号）
+MOVIE_KEY = "movie"
 KIND_PENDING = "pending"
 
 #: 参与日历的订阅状态（N = 未开始，没有播出信息；完成态会移出订阅表）
@@ -87,14 +90,19 @@ def build_today(
     for row in rows:
         media_id = _text(getattr(row, "media_id", ""))
         season = _int(getattr(row, "season", 0))
-        air_eps = [number for air_date, number in index.get((media_id, season), []) if air_date == today]
+        key = (media_id, season) if season > 0 else (media_id, MOVIE_KEY)
+        air_eps = [number for air_date, number in index.get(key, []) if air_date == today]
         if not air_eps:
             continue
 
         downloaded = _int(getattr(row, "total_episode", 0)) - _int(
             getattr(row, "lack_episode", 0)
         )
-        done = downloaded > 0 and max(air_eps) <= downloaded
+        if season <= 0:
+            # 电影没有集号：订阅里缺集为 0 视为已入库
+            done = _int(getattr(row, "lack_episode", 0)) == 0
+        else:
+            done = downloaded > 0 and max(air_eps) <= downloaded
         item = _row_to_item(row, KIND_UPDATED if done else KIND_PENDING, today)
         item["episodes"] = sorted(air_eps)
         items.append(item)

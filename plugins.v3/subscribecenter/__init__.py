@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.11.8"
+    plugin_version = "1.11.9"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -424,6 +424,8 @@ class SubscribeCenter(_PluginBase):
         import asyncio
         import time
 
+        from .core import calendar as calendar_core
+
         cache = self.__dict__.setdefault("_season_cache", {})
         ttl = 6 * 3600
         now = time.time()
@@ -440,7 +442,14 @@ class SubscribeCenter(_PluginBase):
         for row in rows:
             media_id = str(getattr(row, "media_id", "") or "")
             season = int(getattr(row, "season", 0) or 0)
-            if not media_id.isdigit() or season <= 0:
+            if not media_id.isdigit():
+                continue
+            if season <= 0:
+                # 电影：按上映日期放进日历（MoviePilot 的原生日历也是这样做的）
+                key = (media_id, calendar_core.MOVIE_KEY)
+                if key in cache and now - cache[key][0] < ttl:
+                    continue
+                targets.append(key)
                 continue
             # 有剧集组时按组取（MoviePilot 日历也是带 episode_group 请求的）
             group = str(getattr(row, "episode_group", "") or "").strip()
@@ -453,6 +462,18 @@ class SubscribeCenter(_PluginBase):
 
         async def fetch(key: tuple) -> None:
             media_id, season_key = key
+            if season_key == calendar_core.MOVIE_KEY:
+                try:
+                    from app.schemas.types import MediaType
+
+                    info = await asyncio.to_thread(
+                        tmdb.get_info, MediaType.MOVIE, int(media_id)
+                    )
+                    release = str((info or {}).get("release_date") or "")[:10]
+                    cache[key] = (now, [(release, 0)] if release else [])
+                except Exception as err:  # noqa: BLE001
+                    logger.debug(f"[SubscribeCenter] 日历取电影失败 {key}：{err}")
+                return
             episodes: List[tuple] = []
             async with semaphore:
                 try:

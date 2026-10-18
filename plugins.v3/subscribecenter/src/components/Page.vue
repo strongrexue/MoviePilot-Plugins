@@ -371,6 +371,15 @@ onUnmounted(() => {
 <template>
   <div class="sc-root" :class="{ 'sc-root-page': appPage }">
     <VAlert
+      v-if="(status?.config_issues || []).length"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+      :title="`已自动关闭 ${status.config_issues.length} 个不会产出内容的数据源`"
+      :text="status.config_issues.join('；')"
+    />
+    <VAlert
       v-if="versionMismatch"
       type="warning"
       variant="tonal"

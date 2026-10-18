@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.9.1"
+    plugin_version = "1.9.2"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -118,6 +118,9 @@ class SubscribeCenter(_PluginBase):
         # 一次性开关：读取后立刻置回默认值，避免长期生效
         self._consume_one_shot_flags()
 
+        # 空转检测：启用了但没有任何监听内容的源自动关闭（借鉴自动订阅助手）
+        self._empty_spectrum_check()
+
         # 宿主适配器延迟到运行时构造：模块导入期不得接触宿主内部（官方硬性要求）
         from .core.host import HostSubscribeBackend, HostTmdbResolver
 
@@ -161,6 +164,62 @@ class SubscribeCenter(_PluginBase):
             )
         except Exception as err:  # noqa: BLE001 - 迁移失败不应影响插件加载
             logger.warning(f"[SubscribeCenter] 配置迁移失败：{err}")
+
+    def _empty_spectrum_check(self) -> List[str]:
+        """启用了却不可能产出任何内容的源 → 自动关闭，并记下原因给前端提示。
+
+        判定依据（各源不同）：
+
+        - **TMDB**：窗口天数 <= 0 → 永远筛不出条目
+        - **AniList**：窗口天数 <= 0 → 同上
+        - **豆瓣榜单**：没有一条「已启用且带地址」的榜单 → 抓不到任何 feed
+
+        纠正后写回配置（``update_config``），并把提示存进运行时状态，
+        由前端状态栏展示；同一份配置只纠正一次，避免与宿主重载互相触发。
+        """
+        config = dict(self._config)
+        issues: List[str] = []
+
+        def _int(key: str, default: int = 0) -> int:
+            try:
+                return int(config.get(key, default) or 0)
+            except (TypeError, ValueError):
+                return default
+
+        if config.get("enable_tmdb") and _int("tmdb_future_days") <= 0:
+            issues.append("TMDB：窗口天数为 0，永远不会产出条目 → 已自动关闭")
+            config["enable_tmdb"] = False
+        if config.get("enable_anilist") and _int("anilist_future_days") <= 0:
+            issues.append("AniList：窗口天数为 0，永远不会产出条目 → 已自动关闭")
+            config["enable_anilist"] = False
+        if config.get("enable_douban_rss"):
+            try:
+                from .sources.douban_rss import parse_sources
+
+                active = parse_sources(config.get("douban_rss_sources"))
+            except Exception:  # noqa: BLE001 - 解析失败按「没有榜单」处理
+                active = []
+            if not active:
+                issues.append(
+                    "豆瓣榜单：没有启用任何带地址的榜单 → 已自动关闭"
+                    "（去勾选内置榜单，或添加一条自定义 RSS 地址）"
+                )
+                config["enable_douban_rss"] = False
+
+        state = self._state()
+        if issues:
+            # 只纠正一次：写回后配置已变，下次 init 不会再命中这些分支
+            self._config = config
+            logger.warning(f"[SubscribeCenter] 空转检测：{'；'.join(issues)}")
+            try:
+                self.update_config(config)
+            except Exception as err:  # pragma: no cover - 写配置失败不影响运行
+                logger.warning(f"[SubscribeCenter] 空转检测写回配置失败：{err}")
+            state["config_issues"] = issues
+        else:
+            state.pop("config_issues", None)
+        self._save_state(state)
+        return issues
 
     def _consume_one_shot_flags(self) -> None:
         """处理并复位一次性开关。
@@ -801,6 +860,7 @@ class SubscribeCenter(_PluginBase):
             )
         ]
         return api_schemas.PluginStatus(
+            config_issues=[str(item) for item in (state.get("config_issues") or [])],
             plugin_version=self.plugin_version,
             enabled=self._enabled(),
             dry_run=bool(self._config.get("dry_run")),

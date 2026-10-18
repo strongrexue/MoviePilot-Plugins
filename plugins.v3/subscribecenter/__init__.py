@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.9.2"
+    plugin_version = "1.9.3"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -192,6 +192,11 @@ class SubscribeCenter(_PluginBase):
         if config.get("enable_anilist") and _int("anilist_future_days") <= 0:
             issues.append("AniList：窗口天数为 0，永远不会产出条目 → 已自动关闭")
             config["enable_anilist"] = False
+        if config.get("enable_hot_media"):
+            if not (config.get("hot_media_movie_enabled", True)
+                    or config.get("hot_media_tv_enabled", True)):
+                issues.append("热门媒体：电影与剧集都没有勾选 → 已自动关闭")
+                config["enable_hot_media"] = False
         if config.get("enable_douban_rss"):
             try:
                 from .sources.douban_rss import parse_sources
@@ -311,6 +316,80 @@ class SubscribeCenter(_PluginBase):
             self, page=page, count=count, decision=decision, source=source, keyword=keyword
         )
 
+    async def system_share(self) -> Dict[str, Any]:
+        """读取 / 写入宿主的「订阅数据共享」（SUBSCRIBE_STATISTIC_SHARE）。"""
+        enabled = await self._read_system_flag("SubscribeStatisticShare")
+        return {"enabled": enabled}
+
+    async def set_system_share(self, enabled: bool) -> Dict[str, Any]:
+        """一键开关「订阅数据共享」（热门媒体依赖它）。"""
+        await self._write_system_flag("SubscribeStatisticShare", bool(enabled))
+        logger.info(f"[SubscribeCenter] 订阅数据共享已设为 {bool(enabled)}")
+        return {"enabled": bool(enabled)}
+
+    async def api_system_share(self) -> Any:
+        """读取订阅数据共享状态。"""
+        return await api_controller.api_system_share(self)
+
+    async def api_system_share_save(self, request: Any = None) -> Any:
+        """设置订阅数据共享开关。"""
+        return await api_controller.api_system_share_save(self, request)
+
+    @staticmethod
+    async def _read_system_flag(name: str) -> bool:
+        """按 SystemConfigKey 名称读布尔型系统配置（带 ORM 兜底）。"""
+        from app.schemas.types import SystemConfigKey
+
+        key = getattr(SystemConfigKey, name)
+        try:
+            from app.application.configuration import get_configured_system_config
+
+            return bool(get_configured_system_config().get(key))
+        except Exception:  # noqa: BLE001 - 服务未装配时走 ORM
+            pass
+
+        from app.db import async_session_scope
+        from app.db.models.systemconfig import SystemConfig
+        from sqlalchemy import select
+
+        async with async_session_scope() as session:
+            row = (
+                await session.execute(
+                    select(SystemConfig).where(SystemConfig.key == key.value)
+                )
+            ).scalars().first()
+            return bool(getattr(row, "value", False)) if row else False
+
+    @staticmethod
+    async def _write_system_flag(name: str, value: bool) -> None:
+        """写布尔型系统配置（优先宿主服务，失败回落 ORM）。"""
+        from app.schemas.types import SystemConfigKey
+
+        key = getattr(SystemConfigKey, name)
+        try:
+            from app.application.configuration import get_configured_system_config
+
+            await get_configured_system_config().async_set(key, bool(value))
+            return
+        except Exception:  # noqa: BLE001 - 服务未装配时走 ORM
+            pass
+
+        from app.db import async_session_scope
+        from app.db.models.systemconfig import SystemConfig
+        from sqlalchemy import select
+
+        async with async_session_scope() as session:
+            row = (
+                await session.execute(
+                    select(SystemConfig).where(SystemConfig.key == key.value)
+                )
+            ).scalars().first()
+            if row is None:
+                session.add(SystemConfig(key=key.value, value=bool(value)))
+            else:
+                row.value = bool(value)
+            await session.commit()
+
     async def api_card_theme(self) -> Any:
         """读取订阅卡片配色。"""
         return await api_controller.api_card_theme(self)
@@ -403,6 +482,7 @@ class SubscribeCenter(_PluginBase):
             ("cron_tmdb", C.SOURCE_TMDB, "TMDB"),
             ("cron_anilist", C.SOURCE_ANILIST, "AniList"),
             ("cron_douban_rss", C.SOURCE_DOUBAN_RSS, "豆瓣榜单"),
+            ("cron_hot_media", C.SOURCE_HOT_MEDIA, "热门媒体"),
         ]
 
     def stop_service(self) -> None:
@@ -663,6 +743,13 @@ class SubscribeCenter(_PluginBase):
             logger.warning(f"[SubscribeCenter] AniList 源不可用：{err}")
 
         try:
+            from .sources.hot_media import HotMediaSource
+
+            sources.append(HotMediaSource())
+        except Exception as err:  # noqa: BLE001 - 单源构造失败不阻塞其他源
+            logger.warning(f"[SubscribeCenter] 热门媒体源不可用：{err}")
+
+        try:
             from .sources.douban_rss import DoubanRssSource
 
             sources.append(DoubanRssSource())
@@ -857,6 +944,7 @@ class SubscribeCenter(_PluginBase):
                 (C.SOURCE_TMDB, "enable_tmdb"),
                 (C.SOURCE_ANILIST, "enable_anilist"),
                 (C.SOURCE_DOUBAN_RSS, "enable_douban_rss"),
+                (C.SOURCE_HOT_MEDIA, "enable_hot_media"),
             )
         ]
         return api_schemas.PluginStatus(

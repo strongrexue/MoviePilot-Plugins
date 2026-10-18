@@ -8,7 +8,7 @@
  * 唯一能确认当前浏览器到底加载了哪一版的办法，就是在组件里把这个号显示出来、
  * 并与后端 `/status` 返回的 plugin_version 比对；不一致就提示硬刷新。
  */
-const FRONTEND_VERSION = '1.9.2';
+const FRONTEND_VERSION = '1.9.3';
 
 /**
  * 插件 API 封装。
@@ -161,4 +161,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { FRONTEND_VERSION as F, _export_sfc as _, getPluginApi as a, getPluginConfig as g, postPluginApi as p, savePluginConfig as s, unwrap as u };
+export { FRONTEND_VERSION as F, _export_sfc as _, getPluginConfig as a, getPluginApi as g, postPluginApi as p, savePluginConfig as s, unwrap as u };

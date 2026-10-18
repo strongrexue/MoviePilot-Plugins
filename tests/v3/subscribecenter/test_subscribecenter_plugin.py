@@ -230,6 +230,8 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/run_once",
         "/preview",
         "/test_source",
+        "/system_share",
+        "/system_share/save",
         "/mapping_cache",
         "/mapping_cache/fix",
         # 海报代理：浏览器直连 image.tmdb.org 在国内网络下常常不可用
@@ -260,6 +262,8 @@ def test_every_route_has_a_response_model():
         "/run_once",
         "/preview",
         "/test_source",
+        "/system_share",
+        "/system_share/save",
         "/mapping_cache",
         "/mapping_cache/fix",
     }

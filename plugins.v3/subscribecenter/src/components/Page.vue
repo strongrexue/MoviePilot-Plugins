@@ -242,7 +242,7 @@ async function resetTheme() {
 
 /** 数据源显示名。 */
 function sourceLabel(key) {
-  const map = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣榜单' }
+  const map = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣榜单', hot_media: '热门媒体' }
   return map[key] || key
 }
 
@@ -255,7 +255,7 @@ onMounted(async () => {
 /** 「按源」tab：TMDB / AniList / 豆瓣，带条数。 */
 const sourceTabs = computed(() => {
   const counts = history.value?.source_counts || {}
-  const labelOf = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣' }
+  const labelOf = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣', hot_media: '热门媒体' }
   return Object.entries(counts)
     .filter(([, value]) => Number(value) > 0)
     .map(([value, count]) => ({ value, count, label: labelOf[value] || value }))

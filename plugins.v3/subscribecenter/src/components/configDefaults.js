@@ -65,6 +65,7 @@ export const configDefaults = {
   cron_tmdb: '',
   cron_anilist: '',
   cron_douban_rss: '',
+  cron_hot_media: '',
   cron: '0 3 * * *',
   timezone: 'Asia/Shanghai',
   notify: false,

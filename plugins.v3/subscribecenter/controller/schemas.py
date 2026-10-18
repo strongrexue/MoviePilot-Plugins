@@ -108,6 +108,18 @@ class HistoryPage(BaseModel):
 
 # --------------------------------------------------------------------- 手动运行
 
+class SystemShareState(BaseModel):
+    """订阅数据共享开关状态。"""
+
+    enabled: bool = Field(default=False, description="是否开启")
+
+
+class SystemShareRequest(BaseModel):
+    """设置订阅数据共享。"""
+
+    enabled: bool = Field(default=False, description="是否开启")
+
+
 class SourceTestResult(BaseModel):
     """单源连通性测试结果。"""
 
@@ -204,6 +216,8 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/run_once": RunOnceResult,
     "/preview": PreviewResult,
     "/test_source": SourceTestResult,
+    "/system_share": SystemShareState,
+    "/system_share/save": SystemShareState,
     "/mapping_cache": MappingCacheView,
     "/mapping_cache/fix": MappingFixResult,
 }
@@ -224,6 +238,8 @@ __all__ = [
     "PreviewItem",
     "PreviewResult",
     "SourceTestResult",
+    "SystemShareState",
+    "SystemShareRequest",
     "RunOnceResult",
     "SourceState",
 ]

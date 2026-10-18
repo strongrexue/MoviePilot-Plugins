@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.9.2"
+PLUGIN_VERSION = "1.9.3"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -96,6 +96,9 @@ SOURCE_TMDB = "tmdb"
 SOURCE_ANILIST = "anilist"
 SOURCE_BANGUMI = "bangumi"
 SOURCE_DOUBAN_RSS = "douban_rss"
+
+#: 热门媒体：MoviePilot 官方热门订阅统计（需开启订阅数据共享）
+SOURCE_HOT_MEDIA = "hot_media"
 SOURCE_SIMKL = "simkl"
 SOURCE_JUSTWATCH = "justwatch"
 
@@ -108,10 +111,13 @@ ALL_SOURCES = (
     SOURCE_TMDB,
     SOURCE_ANILIST,
     SOURCE_DOUBAN_RSS,
+    SOURCE_HOT_MEDIA,
 )
 
 #: 已实现的数据源（其余源在配置页可开，但运行时会记录「未实现」并跳过）
-IMPLEMENTED_SOURCES = frozenset({SOURCE_TMDB, SOURCE_ANILIST, SOURCE_DOUBAN_RSS})
+IMPLEMENTED_SOURCES = frozenset(
+    {SOURCE_TMDB, SOURCE_ANILIST, SOURCE_DOUBAN_RSS, SOURCE_HOT_MEDIA}
+)
 
 
 # --------------------------------------------------------------------- 配置
@@ -337,6 +343,7 @@ def default_config() -> Dict[str, Any]:
         "cron_tmdb": "",
         "cron_anilist": "",
         "cron_douban_rss": "",
+        "cron_hot_media": "",
         "cron": DEFAULT_CRON,
         "timezone": DEFAULT_TIMEZONE,
         "notify": False,

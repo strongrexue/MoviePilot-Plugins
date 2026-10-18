@@ -70,7 +70,7 @@ const versionMismatch = computed(() => {
 })
 
 /** 已实现的数据源（其余源在当前版本会在日志里明确跳过）。 */
-const IMPLEMENTED = ['tmdb', 'anilist', 'douban_rss']
+const IMPLEMENTED = ['tmdb', 'anilist', 'douban_rss', 'hot_media']
 
 /** 豆瓣 RSS 地址：后端存字符串数组，界面用多行文本编辑。 */
 const doubanSourcesText = computed({
@@ -94,6 +94,7 @@ const sourceRows = [
     hint: '番剧 + 国漫；官方 GraphQL，自带开播日、在播状态与热度',
   },
   { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '经 RSSHub；上映日期与豆瓣 ID 均可解析' },
+  { key: 'enable_hot_media', label: '热门媒体', hint: '官方热门订阅统计；需开启「订阅数据共享」' },
 ]
 
 /** 基础开关：一行一个，左标题右开关。 */
@@ -240,6 +241,34 @@ function removeDoubanList(index) {
 const doubanEnabledCount = computed(
   () => doubanLists.value.filter((entry) => entry && entry.enabled).length,
 )
+
+/** 宿主的「订阅数据共享」开关（热门媒体依赖它）。 */
+const shareEnabled = ref(false)
+const shareSaving = ref(false)
+
+async function loadShare() {
+  try {
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'system_share'))
+    shareEnabled.value = Boolean(data?.enabled)
+  } catch (error) {
+    /* 读取失败不影响其它配置 */
+  }
+}
+
+async function toggleShare(value) {
+  shareSaving.value = true
+  try {
+    const data = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'system_share/save', { enabled: Boolean(value) }),
+    )
+    shareEnabled.value = Boolean(data?.enabled)
+    setTip(shareEnabled.value ? '已开启订阅数据共享' : '已关闭订阅数据共享')
+  } catch (error) {
+    setTip(error?.message || '设置失败', false)
+  } finally {
+    shareSaving.value = false
+  }
+}
 
 /** 每源运行状态（防抖：进行中禁用按钮）。 */
 const sourceBusy = ref({})
@@ -407,6 +436,7 @@ async function preview() {
 }
 
 onMounted(() => {
+  loadShare()
   loadConfig()
   loadStatus()
 })
@@ -567,6 +597,54 @@ onMounted(() => {
                 连通性测试
               </VBtn>
             </div>
+
+        <!-- 热门媒体 -->
+        <div class="sc-card">
+          <div class="sc-card-title">
+            <VSwitch v-model="form.enable_hot_media" density="compact" hide-details color="primary" class="mr-2" />
+            热门媒体（MoviePilot 官方热门订阅统计）
+          </div>
+          <div class="sc-hint">
+            大家都在订什么。**依赖宿主的「订阅数据共享」**：未开启时官方返回空数据。
+          </div>
+          <div class="sc-row sc-row-wrap">
+            <label class="sc-inline">
+              <input type="checkbox" v-model="form.hot_media_movie_enabled" /> 电影
+              <VTextField v-model.number="form.hot_media_movie_limit" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
+            </label>
+            <label class="sc-inline">
+              <input type="checkbox" v-model="form.hot_media_tv_enabled" /> 剧集
+              <VTextField v-model.number="form.hot_media_tv_limit" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
+            </label>
+            <label class="sc-inline">
+              订阅人次 ≥
+              <VTextField v-model.number="form.hot_media_min_count" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
+            </label>
+          </div>
+          <div class="sc-row">
+            <label class="sc-inline">
+              <input type="checkbox" :checked="shareEnabled" :disabled="shareSaving" @change="toggleShare($event.target.checked)" />
+              开启「订阅数据共享」（一键写入宿主系统设置）
+            </label>
+          </div>
+          <VTextField
+            v-model="form.cron_hot_media"
+            label="独立定时（留空=跟随全局）"
+            density="compact"
+            hide-details
+            variant="outlined"
+            placeholder="例：0 9 * * *"
+            class="mt-2 mb-1"
+          />
+          <div class="sc-source-actions">
+            <VBtn size="x-small" color="primary" :loading="!!sourceBusy['hot_media']" @click="runOneSource('hot_media', '热门媒体')">
+              立即运行一次
+            </VBtn>
+            <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['hot_media']" @click="testOneSource('hot_media', '热门媒体')">
+              连通性测试
+            </VBtn>
+          </div>
+        </div>
 
             <div class="sc-source-actions">
               <VBtn size="x-small" color="primary" :loading="!!sourceBusy['tmdb']" @click="runOneSource('tmdb', 'TMDB')">
@@ -1344,6 +1422,21 @@ onMounted(() => {
 .sc-list-params > * {
   flex: 1 1 0;
   min-width: 0;
+}
+
+
+.sc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.sc-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
 }
 
 /* 每个数据源底部的操作按钮 */

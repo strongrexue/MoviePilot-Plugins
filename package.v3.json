@@ -68,7 +68,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.9.2",
+        "version": "1.9.3",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -76,6 +76,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.9.3": "新增「热门媒体」数据源（1.9.3，借鉴第四步）。读取 MoviePilot 官方热门订阅统计（宿主 MoviePilotServerHelper.async_get_subscribe_statistic），内容与主程序「热门订阅」一致。[1] 新源 sources/hot_media.py：电影(MOV)/剧集(TV) 两组独立开关与条数，订阅人次下限过滤，按 media_source+media_id 生成原生 ID 便于直接命中宿主身份；官方返回空时明确报错提示需开启「订阅数据共享」而不是静默空跑。[2] 配置项 enable_hot_media / hot_media_movie_enabled / hot_media_tv_enabled / hot_media_movie_limit=20 / hot_media_tv_limit=20 / hot_media_min_count / cron_hot_media，前后端默认值同步；SOURCE_HOT_MEDIA 加入 ALL_SOURCES 与 IMPLEMENTED_SOURCES；状态接口、空转检测（两组都关时自动关闭该源）、独立定时任务表都已接入。[3] 一键开关宿主的「订阅数据共享」：_read/_write_system_flag 走宿主系统配置服务（ORM 兜底），API GET /system_share、POST /system_share/save，前端热门媒体卡片里一个复选框直接写入系统设置。[4] 前端新增热门媒体配置卡片（启用开关、电影/剧集条数、人次下限、订阅数据共享复选框、独立定时、立即运行/连通性测试）。前端源清单与标签同步。ruff 全绿、460 项测试通过、构建与门禁通过。",
             "v1.9.2": "保存时空转检测（1.9.2，借鉴第三步）。在 init_plugin 的配置迁移之后调用 _empty_spectrum_check：判定「启用了但不可能产出任何内容」的源并自动关闭 —— TMDB/AniList 窗口天数 <= 0、豆瓣榜单没有一条「已启用且带地址」的榜单。纠正后的配置写回（update_config）并同步内存 _config，同时把原因列表存进运行时状态 config_issues；/status 里新增 config_issues 字段，前端 Page.vue 顶部用警告横幅展示「已自动关闭 N 个不会产出内容的数据源」+ 具体原因。配置健康时清空该状态。新增 tests/v3/subscribecenter/test_config_issues.py 5 项测试（TMDB/AniList/豆瓣/健康配置/写回与状态持久化）。ruff 全绿、460 项测试通过、构建与 CSS 门禁通过。",
             "v1.9.1": "每源「立即运行一次」+ 单源连通性测试（1.9.1，借鉴第二步）。[1] run_once 支持 source 参数：只跑指定源（only_sources=[source]）；API /run_once?source=xxx。[2] 新增 GET /test_source?source=xxx：调用该源适配器的 fetch，返回 {ok, count, samples, error}，**不做身份解析、不写订阅、不写历史**，纯探活；未知源直接返回 ok=false。[3] 前端三个源卡片底部各加「立即运行一次」「连通性测试」两个按钮，带 sourceBusy 防抖（进行中禁用），测试成功提示「连通正常：抓到 N 条，示例：…」，失败显示原因。新增 SourceTestResult schema 与路由映射；路由测试期望补 /test_source。ruff 全绿、455 项测试通过、构建与门禁通过。",
             "v1.9.0": "每数据源独立定时（1.9.0，借鉴 automaticsubscriptionassistant 的第一步）。[1] 流水线支持 only_sources 参数：_pipeline_coroutine(only_sources=[...]) 会按适配器的 name 过滤源，run_scheduled(only_sources=...) 透传。[2] get_service 改为「全局任务 + 每源任务」：全局 cron 有值就注册「每日发现」；cron_tmdb / cron_anilist / cron_douban_rss 三个新配置项非空时，各注册一个独立任务（任务 id = subscribecenter_<source>，闭包绑定该源），留空表示跟随全局。[3] 前端三个源分区各加一张「独立定时」卡片（五位 cron 输入 + 说明），默认空。版本门禁、配置键一致性、ruff、455 项测试、构建均通过。",

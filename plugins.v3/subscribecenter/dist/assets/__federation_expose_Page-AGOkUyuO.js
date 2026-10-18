@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, a as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BeDP4lXW.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-ZvSwl8OK.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -316,7 +316,7 @@ async function resetTheme() {
 
 /** 数据源显示名。 */
 function sourceLabel(key) {
-  const map = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣榜单' };
+  const map = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣榜单', hot_media: '热门媒体' };
   return map[key] || key
 }
 
@@ -329,7 +329,7 @@ onMounted(async () => {
 /** 「按源」tab：TMDB / AniList / 豆瓣，带条数。 */
 const sourceTabs = computed(() => {
   const counts = history.value?.source_counts || {};
-  const labelOf = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣' };
+  const labelOf = { tmdb: 'TMDB', anilist: 'AniList', douban_rss: '豆瓣', hot_media: '热门媒体' };
   return Object.entries(counts)
     .filter(([, value]) => Number(value) > 0)
     .map(([value, count]) => ({ value, count, label: labelOf[value] || value }))
@@ -860,6 +860,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-07d46b0b"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cedbacfa"]]);
 
 export { Page as default };

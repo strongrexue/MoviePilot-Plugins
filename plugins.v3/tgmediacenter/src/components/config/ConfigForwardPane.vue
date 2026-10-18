@@ -347,149 +347,24 @@
       </VCardText>
     </VCard>
 
-    <!-- 转发流水 -->
-    <VCard flat class="fwd-card">
-      <VCardItem>
-        <VCardTitle class="text-subtitle-2">转发流水</VCardTitle>
-        <template #append>
-          <VSelect
-            v-model="decisionFilter"
-            :items="[{ value: '', title: '全部决策' }, ...decisions]"
-            item-title="title"
-            item-value="value"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="fwd-filter"
-            @update:model-value="onDecisionFilter"
-          />
-        </template>
-      </VCardItem>
-      <VCardText>
-        <div class="fwd-hits-tools">
-          <VTextField
-            v-model="hitKeyword"
-            placeholder="按片名 / 规则 / 说明搜索"
-            prepend-inner-icon="mdi-magnify"
-            density="compact"
-            variant="outlined"
-            hide-details
-            clearable
-            class="fwd-hits-search"
-          />
-          <VBtn
-            size="small"
-            variant="tonal"
-            color="error"
-            prepend-icon="mdi-delete-outline"
-            :disabled="!hitsTotal"
-            @click="askClear('filtered')"
-          >
-            删除筛选结果
-          </VBtn>
-          <VBtn
-            size="small"
-            variant="text"
-            color="error"
-            :disabled="!hitsTotal"
-            @click="askClear('all')"
-          >
-            清空本类流水
-          </VBtn>
-        </div>
-        <VTable density="compact" class="fwd-hits">
-          <thead>
-            <tr>
-              <th class="fwd-nowrap">时间</th>
-              <th class="fwd-nowrap">规则</th>
-              <th class="fwd-nowrap">来源</th>
-              <th>媒体</th>
-              <th class="fwd-nowrap">决策</th>
-              <th>说明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in hits" :key="item.id">
-              <td class="fwd-hits-time">{{ fmtTime(item.created_at) }}</td>
-              <td class="fwd-nowrap">{{ item.rule_name }}</td>
-              <td class="fwd-hits-source">{{ chatTitleMap[item.chat_id] || item.chat_id }}</td>
-              <td>
-                <span v-if="item.title">{{ mediaName(item) }}</span>
-                <span v-else class="fwd-hits-none">—</span>
-              </td>
-              <td class="fwd-nowrap">
-                <VChip size="x-small" variant="tonal" :color="decisionColor(item.decision)" label>
-                  {{ decisionLabel(item.decision) }}
-                </VChip>
-              </td>
-              <td class="fwd-hits-detail">{{ item.detail }}</td>
-            </tr>
-            <tr v-if="!hits.length">
-              <td colspan="6" class="fwd-hits-empty">暂无记录</td>
-            </tr>
-          </tbody>
-        </VTable>
-        <div class="fwd-pager">
-          <VBtn size="small" variant="text" :disabled="hitsPage <= 1" prepend-icon="mdi-chevron-left" @click="prevHits">
-            上一页
-          </VBtn>
-          <span class="fwd-pager-info">第 {{ hitsPage }} 页 · 共 {{ hitsTotal }} 条</span>
-          <VBtn
-            size="small"
-            variant="text"
-            :disabled="hitsPage * hitsPageSize >= hitsTotal"
-            append-icon="mdi-chevron-right"
-            @click="nextHits"
-          >
-            下一页
-          </VBtn>
-        </div>
-      </VCardText>
-    </VCard>
-
     <div class="fwd-hint">
       风控提示：TG 个人号转发有严格频率限制，插件按「聚合窗口 + 全局冷却 + FloodWait 退避」克制发送；
       转发目标建议用小号或私密频道，避免主号因高频转发被限制。
     </div>
-
-    <!-- 清理流水确认（删除不可恢复，必须二次确认） -->
-    <VDialog v-model="clearDialog" max-width="460">
-      <VCard>
-        <VCardTitle class="text-subtitle-1">
-          {{ clearTarget === 'all' ? '清空转发流水' : '删除筛选结果' }}
-        </VCardTitle>
-        <VCardText class="text-body-2">
-          <template v-if="hasFilter">
-            当前有筛选条件，将只删除筛选出的 <strong>{{ hitsTotal }}</strong> 条流水
-            <template v-if="filterText">（筛选：{{ filterText }}）</template>
-            ，删除后不可恢复；未筛选部分不受影响。如需清空全部，请先清除筛选条件。
-          </template>
-          <template v-else>
-            将删除本面板的<strong>全部转发流水</strong>（共 {{ hitsTotal }} 条），删除后不可恢复；
-            资源监控的流水不受影响。
-          </template>
-        </VCardText>
-        <VCardActions>
-          <VSpacer />
-          <VBtn variant="text" @click="clearDialog = false">取消</VBtn>
-          <VBtn color="error" :loading="clearing" @click="runClear">删除</VBtn>
-        </VCardActions>
-      </VCard>
-    </VDialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, putPluginApi, unwrap } from '../api'
-import { decisionLabel, decisionColor } from '../decision'
+import { decisionLabel } from '../decision'
 
 /**
  * ⑥ TG 通用转发面板。
  *
  * 规则存放在插件配置 `forward_rules`（随主表单保存），读写走 `/forward/rules`
  * 专用接口——保存即校验（缺目标会话直接 400）+ 归一（补 f 前缀规则 ID）+ 即时生效。
- * 转发流水与运行态只读。
+ * 运行态只读。
  *
  * 纪律（沿用全项目约定）：
  * - 模板/脚本用到的变量全部在 script setup 声明 ref；
@@ -505,18 +380,10 @@ const props = defineProps({
 const form = computed(() => props.config.form)
 
 const status = ref(null)
-// 会话 ID → 标题的映射来自监控状态（转发与监控共用同一条流水线的会话反查结果）
-const watchedDetail = ref([])
 const loading = ref(false)
 const busy = ref('')
 const message = ref('')
 const messageOk = ref(true)
-
-const decisions = ref([
-  { value: 'hit', title: '已转发' },
-  { value: 'skipped_keyword', title: '关键词未命中' },
-  { value: 'skipped_extension', title: '扩展名未命中' },
-])
 
 const rules = ref([])
 const dialogs = ref([])
@@ -529,25 +396,7 @@ const expandedRules = ref({})
 const testText = ref('')
 const testResult = ref(null)
 
-const hits = ref([])
-const hitsTotal = ref(0)
-const hitsPage = ref(1)
-const hitsPageSize = 20
-const decisionFilter = ref('')
-// 关键词用可写 computed 包一层：Vuetify 的 clearable 清除按钮会把模型置为 null，
-// 直接 ref('') 收 null 会让各处 .trim() 抛错（1.6.6 真机反馈：清空关键词后列表不刷新），
-// 这里在入口统一归一成字符串，模板与脚本就都不用到处防 null。
-const hitKeywordRaw = ref('')
-const hitKeyword = computed({
-  get: () => String(hitKeywordRaw.value ?? ''),
-  set: (value) => { hitKeywordRaw.value = value == null ? '' : String(value) },
-})
-const clearDialog = ref(false)
-const clearTarget = ref('filtered')
-const clearing = ref(false)
-
 let refreshTimer = null
-let keywordTimer = null
 
 function setMessage(text, ok = true) {
   message.value = text || ''
@@ -585,19 +434,11 @@ async function loadStatus() {
   } catch (err) {
     setMessage(err?.message || '读取转发状态失败', false)
   }
-  // 会话标题映射：转发与监控共用同一条流水线的会话反查结果，取不到就显示 ID
-  try {
-    const monitor = unwrap(await getPluginApi(props.api, props.pluginId, 'monitor/status', { timeoutMs: 15000 }))
-    watchedDetail.value = monitor?.pipeline?.watched_detail || []
-  } catch {
-    watchedDetail.value = []
-  }
 }
 
 async function loadRules() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'forward/rules', { timeoutMs: 15000 }))
-    if (data?.decisions?.length) decisions.value = data.decisions
     const list = Array.isArray(data?.rules) ? data.rules : []
     rules.value = list.map(rule => ({
       id: rule.id || newRuleId(),
@@ -637,75 +478,10 @@ async function loadDialogs() {
   }
 }
 
-async function loadHits() {
-  try {
-    const params = new URLSearchParams()
-    params.set('page', String(hitsPage.value))
-    params.set('page_size', String(hitsPageSize))
-    if (decisionFilter.value) params.set('decision', decisionFilter.value)
-    if (hitKeyword.value.trim()) params.set('keyword', hitKeyword.value.trim())
-    const data = unwrap(await getPluginApi(
-      props.api, props.pluginId, `forward/hits?${params.toString()}`, { timeoutMs: 15000 },
-    ))
-    hits.value = data?.items || []
-    hitsTotal.value = data?.total || 0
-  } catch (err) {
-    setMessage(err?.message || '读取转发流水失败', false)
-  }
-}
-
-// 关键词输入防抖 300ms：边打字边查会把后端打满
-watch(hitKeyword, () => {
-  clearTimeout(keywordTimer)
-  keywordTimer = setTimeout(() => {
-    hitsPage.value = 1
-    loadHits()
-  }, 300)
-})
-
-// 当前是否有筛选条件（删除对话框据此说明"删多少"，与后端删除口径严格一致）
-const hasFilter = computed(() => Boolean(decisionFilter.value || hitKeyword.value.trim()))
-const filterText = computed(() => [
-  decisionFilter.value ? `决策=${decisionLabel(decisionFilter.value)}` : '',
-  hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
-].filter(Boolean).join(' / '))
-
-function askClear(target) {
-  if (!hitsTotal.value) {
-    setMessage(target === 'all' ? '当前视图没有可清空的流水' : '当前筛选没有可删除的流水')
-    return
-  }
-  clearTarget.value = target
-  clearDialog.value = true
-}
-
-async function runClear() {
-  if (clearing.value) return
-  clearing.value = true
-  try {
-    // 无论点哪个删除按钮，都只删「当前视图」：带上决策与关键词筛选，
-    // 没有筛选才是清空本类全部（后端按 kind 隔离，不会碰到监控流水）。
-    // 1.6.6 真机反馈：原来「清空本类流水」忽略筛选直接删整个 kind，对话框却
-    // 显示筛选后的条数——用户确认「共 3 条」结果丢了全部流水。
-    const payload = { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() }
-    const data = unwrap(await postPluginApi(
-      props.api, props.pluginId, 'forward/hits/clear', payload, { timeoutMs: 30000 },
-    ))
-    setMessage(data?.message || '已清理流水')
-    clearDialog.value = false
-    hitsPage.value = 1
-    await Promise.all([loadHits(), loadStatus()])
-  } catch (err) {
-    setMessage(err?.message || '清理流水失败', false)
-  } finally {
-    clearing.value = false
-  }
-}
-
 async function refreshAll() {
   loading.value = true
   try {
-    await Promise.all([loadStatus(), loadRules(), loadHits(), loadDialogs()])
+    await Promise.all([loadStatus(), loadRules(), loadDialogs()])
     // 刷新成功不再弹蓝色 info 提示（load* 内部失败仍会显示 warning，错误提示保留）
   } finally {
     loading.value = false
@@ -841,25 +617,6 @@ async function runTest() {
   }
 }
 
-// ------------------------------------------------------------------ 流水分页
-
-function onDecisionFilter() {
-  hitsPage.value = 1
-  loadHits()
-}
-
-function prevHits() {
-  if (hitsPage.value <= 1) return
-  hitsPage.value -= 1
-  loadHits()
-}
-
-function nextHits() {
-  if (hitsPage.value * hitsPageSize >= hitsTotal.value) return
-  hitsPage.value += 1
-  loadHits()
-}
-
 // ------------------------------------------------------------------ 展示辅助
 
 const dialogOptions = computed(() =>
@@ -914,15 +671,6 @@ const targetItems = computed(() => {
   return items
 })
 
-// 来源会话 ID → 标题（来自监控状态卡的会话反查结果，取不到就显示 ID）
-const chatTitleMap = computed(() => {
-  const map = {}
-  for (const w of (watchedDetail.value || [])) {
-    if (w.resolved && w.title) map[w.chat_id] = w.title
-  }
-  return map
-})
-
 // 冷却间隔展示：0 表示未设限，其余按「N 秒」
 const gateIntervalText = computed(() => {
   const seconds = Number(status.value?.gate_interval ?? 0)
@@ -957,23 +705,6 @@ function ruleSummary(rule) {
   return tags
 }
 
-// 媒体列完整名：片名（年份）+ 电视剧 SxxExx
-function mediaName(item) {
-  if (!item.title) return ''
-  const year = item.year ? ` (${item.year})` : ''
-  let name = `${item.title}${year}`
-  if (item.season || item.episode) {
-    const s = String(item.season ?? 1).padStart(2, '0')
-    const e = String(item.episode ?? 0).padStart(2, '0')
-    name += ` S${s}E${e}`
-  }
-  return name
-}
-
-function fmtTime(value) {
-  return String(value || '').replace('T', ' ')
-}
-
 onMounted(async () => {
   await refreshAll()
   refreshTimer = window.setInterval(loadStatus, 15000)
@@ -983,10 +714,6 @@ onUnmounted(() => {
   if (refreshTimer) {
     window.clearInterval(refreshTimer)
     refreshTimer = null
-  }
-  if (keywordTimer) {
-    window.clearTimeout(keywordTimer)
-    keywordTimer = null
   }
 })
 </script>
@@ -1119,16 +846,4 @@ onUnmounted(() => {
 .fwd-test-name { font-size: 13px; }
 .fwd-test-off { margin-left: 6px; }
 .fwd-test-msg { font-size: 12px; opacity: 0.75; white-space: normal; word-break: break-all; }
-.fwd-filter { flex: 0 0 160px; max-width: 200px; }
-.fwd-hits { font-size: 12.5px; }
-.fwd-hits .fwd-nowrap { white-space: nowrap; }
-.fwd-hits-time { white-space: nowrap; opacity: 0.75; }
-.fwd-hits-source { white-space: nowrap; opacity: 0.8; }
-.fwd-hits-none { opacity: 0.4; }
-.fwd-hits-detail { opacity: 0.75; }
-.fwd-hits-empty { text-align: center; padding: 12px; opacity: 0.6; }
-.fwd-pager { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-.fwd-pager-info { font-size: 12px; opacity: 0.7; }
-.fwd-hits-tools { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
-.fwd-hits-search { flex: 1 1 220px; max-width: 320px; }
 </style>

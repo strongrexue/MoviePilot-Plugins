@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, d as decisionLabel, b as decisionColor, u as unwrap, a as getPluginApi, p as postPluginApi } from './decision-Cpnhqhp6.js';
+import { _ as _export_sfc, d as decisionLabel, c as decisionColor, u as unwrap, a as getPluginApi, p as postPluginApi } from './decision-D5HEJ5Fb.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,renderList:_renderList,unref:_unref} = await importShared('vue');
 
@@ -19,6 +19,7 @@ const _hoisted_9 = { class: "tg-dim" };
 const _hoisted_10 = { key: 0 };
 const _hoisted_11 = { class: "tg-pager" };
 const _hoisted_12 = { class: "tg-pager-info" };
+const _hoisted_13 = { class: "mb-2" };
 
 const {computed,onMounted,onUnmounted,ref,watch} = await importShared('vue');
 
@@ -237,6 +238,63 @@ watch(hitKeyword, () => {
   }, 300);
 });
 
+// ------------------------------------------------------------------ 流水清理（由设置页迁入）
+
+// 清理入口从设置页的「命中流水 / 转发流水」卡搬到这里：详情页已有 监控/转发 切换、
+// 决策筛选、关键词搜索与分页，用户在这里就能确认"当前视图删多少"。
+// clearTarget：'filtered' 删除筛选结果 / 'all' 清空本类流水。
+// 两个入口都只删「当前视图」——payload 带 decision + keyword（与设置页严格一致），
+// 后端按 kind 隔离，监控与转发流水互不影响。
+const clearDialog = ref(false);
+const clearTarget = ref('filtered');
+const clearing = ref(false);
+
+const clearKindLabel = computed(() => (hitTab.value === 'forward' ? '转发' : '监控'));
+const otherKindLabel = computed(() => (hitTab.value === 'forward' ? '监控' : '转发'));
+// 清理接口随当前分类走：monitor → monitor/hits/clear，forward → forward/hits/clear
+const clearPath = computed(() => (
+  hitTab.value === 'forward' ? 'forward/hits/clear' : 'monitor/hits/clear'
+));
+
+// 当前是否有筛选条件（对话框据此说明"删多少"，与后端删除口径严格一致）
+const hasFilter = computed(() => Boolean(decisionFilter.value || hitKeyword.value.trim()));
+const filterText = computed(() => [
+  decisionFilter.value ? `决策=${decisionLabel(decisionFilter.value)}` : '',
+  hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
+].filter(Boolean).join(' / '));
+
+function askClear(target) {
+  if (!hitsTotal.value) {
+    setMessage(target === 'all' ? '当前视图没有可清空的流水' : '当前筛选没有可删除的流水');
+    return
+  }
+  clearTarget.value = target;
+  clearDialog.value = true;
+}
+
+async function runClear() {
+  // 防重复点击：确认按钮同时置 loading，这里再加一道闸
+  if (clearing.value) return
+  clearing.value = true;
+  try {
+    // 无论点哪个按钮都只删「当前视图」：带动当前决策 + 关键词，没有筛选才是清空本类全部
+    const payload = { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() };
+    const response = unwrap(await postPluginApi(
+      props.api, props.pluginId, clearPath.value, payload, { timeoutMs: 30000 },
+    ));
+    // 先给成功提示再刷新：loadHits / loadOverview 只在失败时覆盖 message，
+    // 成功时保留这条提示（refreshAll 会先清空 message，故这里直接用 loadOverview）
+    clearDialog.value = false;
+    hitsPage.value = 1;
+    setMessage(response?.message || '已清理流水');
+    await Promise.all([loadHits(), loadOverview()]);
+  } catch (error) {
+    setMessage(error?.message || '清理流水失败', false);
+  } finally {
+    clearing.value = false;
+  }
+}
+
 // 来源会话 ID → 标题：合并监控与转发两个状态卡的 watched_detail（两 tab 共用一个映射）
 const chatTitleMap = computed(() => {
   const map = {};
@@ -344,6 +402,8 @@ return (_ctx, _cache) => {
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VTable = _resolveComponent("VTable");
+  const _component_VCardActions = _resolveComponent("VCardActions");
+  const _component_VDialog = _resolveComponent("VDialog");
 
   return (_openBlock(), _createBlock(_component_VCard, {
     flat: "",
@@ -366,7 +426,7 @@ return (_ctx, _cache) => {
             ]),
             _: 1
           }),
-          _cache[7] || (_cache[7] = _createElementVNode("div", { class: "tg-heading" }, [
+          _cache[11] || (_cache[11] = _createElementVNode("div", { class: "tg-heading" }, [
             _createElementVNode("div", { class: "text-h6" }, "胖虎媒体中心 · 运行详情"),
             _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, " TG 客户端 → 消息流水线 → 缓存 / 监控 / 转发 ")
           ], -1)),
@@ -393,7 +453,7 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-refresh",
             onClick: refreshAll
           }, {
-            default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+            default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
               _createTextVNode(" 刷新 ", -1)
             ]))]),
             _: 1
@@ -404,7 +464,7 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-cog-outline",
             onClick: _cache[0] || (_cache[0] = $event => (emit('switch')))
           }, {
-            default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+            default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
               _createTextVNode("设置", -1)
             ]))]),
             _: 1
@@ -479,7 +539,7 @@ return (_ctx, _cache) => {
                   ]),
                   default: _withCtx(() => [
                     _createVNode(_component_VCardTitle, { class: "text-subtitle-2" }, {
-                      default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
+                      default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
                         _createTextVNode("TG 客户端", -1)
                       ]))]),
                       _: 1
@@ -490,23 +550,23 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VCardText, { class: "tg-lines" }, {
                   default: _withCtx(() => [
                     _createElementVNode("div", null, [
-                      _cache[9] || (_cache[9] = _createElementVNode("span", { class: "tg-key" }, "账号", -1)),
+                      _cache[13] || (_cache[13] = _createElementVNode("span", { class: "tg-key" }, "账号", -1)),
                       _createElementVNode("span", null, _toDisplayString(tg.value.phone_masked || '未配置'), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[10] || (_cache[10] = _createElementVNode("span", { class: "tg-key" }, "监听会话", -1)),
+                      _cache[14] || (_cache[14] = _createElementVNode("span", { class: "tg-key" }, "监听会话", -1)),
                       _createElementVNode("span", null, _toDisplayString(tg.value.dialog_count ?? 0) + " 个", 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[11] || (_cache[11] = _createElementVNode("span", { class: "tg-key" }, "对话缓存", -1)),
+                      _cache[15] || (_cache[15] = _createElementVNode("span", { class: "tg-key" }, "对话缓存", -1)),
                       _createElementVNode("span", null, _toDisplayString(fmtTime(tg.value.dialogs_updated_at)), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[12] || (_cache[12] = _createElementVNode("span", { class: "tg-key" }, "全局冷却", -1)),
+                      _cache[16] || (_cache[16] = _createElementVNode("span", { class: "tg-key" }, "全局冷却", -1)),
                       _createElementVNode("span", null, _toDisplayString(tg.value.user_cooldown_seconds ?? 5) + " 秒 / 次", 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[13] || (_cache[13] = _createElementVNode("span", { class: "tg-key" }, "FloodWait", -1)),
+                      _cache[17] || (_cache[17] = _createElementVNode("span", { class: "tg-key" }, "FloodWait", -1)),
                       _createElementVNode("span", {
                         class: _normalizeClass({ 'tg-warn': (monitor.value.flood_remaining ?? 0) > 0 })
                       }, _toDisplayString((monitor.value.flood_remaining ?? 0) > 0 ? `退避中（约 ${monitor.value.flood_remaining} 秒）` : '无'), 3)
@@ -544,7 +604,7 @@ return (_ctx, _cache) => {
                   ]),
                   default: _withCtx(() => [
                     _createVNode(_component_VCardTitle, { class: "text-subtitle-2" }, {
-                      default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+                      default: _withCtx(() => [...(_cache[18] || (_cache[18] = [
                         _createTextVNode("115 网盘", -1)
                       ]))]),
                       _: 1
@@ -555,23 +615,23 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VCardText, { class: "tg-lines" }, {
                   default: _withCtx(() => [
                     _createElementVNode("div", null, [
-                      _cache[15] || (_cache[15] = _createElementVNode("span", { class: "tg-key" }, "账号", -1)),
+                      _cache[19] || (_cache[19] = _createElementVNode("span", { class: "tg-key" }, "账号", -1)),
                       _createElementVNode("span", null, _toDisplayString(pan115.value.account || '—'), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[16] || (_cache[16] = _createElementVNode("span", { class: "tg-key" }, "登录设备", -1)),
+                      _cache[20] || (_cache[20] = _createElementVNode("span", { class: "tg-key" }, "登录设备", -1)),
                       _createElementVNode("span", null, _toDisplayString(pan115.value.login_device || '—'), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[17] || (_cache[17] = _createElementVNode("span", { class: "tg-key" }, "空间", -1)),
+                      _cache[21] || (_cache[21] = _createElementVNode("span", { class: "tg-key" }, "空间", -1)),
                       _createElementVNode("span", null, _toDisplayString(spaceLine()), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[18] || (_cache[18] = _createElementVNode("span", { class: "tg-key" }, "转存目录", -1)),
+                      _cache[22] || (_cache[22] = _createElementVNode("span", { class: "tg-key" }, "转存目录", -1)),
                       _createElementVNode("span", _hoisted_2, _toDisplayString(pan115.value.target_cid || '默认根目录'), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[19] || (_cache[19] = _createElementVNode("span", { class: "tg-key" }, "上次检测", -1)),
+                      _cache[23] || (_cache[23] = _createElementVNode("span", { class: "tg-key" }, "上次检测", -1)),
                       _createElementVNode("span", null, _toDisplayString(fmtTime(pan115.value.last_check)), 1)
                     ])
                   ]),
@@ -607,7 +667,7 @@ return (_ctx, _cache) => {
                   ]),
                   default: _withCtx(() => [
                     _createVNode(_component_VCardTitle, { class: "text-subtitle-2" }, {
-                      default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+                      default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
                         _createTextVNode("消息缓存", -1)
                       ]))]),
                       _: 1
@@ -618,19 +678,19 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VCardText, { class: "tg-lines" }, {
                   default: _withCtx(() => [
                     _createElementVNode("div", null, [
-                      _cache[21] || (_cache[21] = _createElementVNode("span", { class: "tg-key" }, "缓存频道", -1)),
+                      _cache[25] || (_cache[25] = _createElementVNode("span", { class: "tg-key" }, "缓存频道", -1)),
                       _createElementVNode("span", null, _toDisplayString(cache.value.chats ?? 0) + " 个", 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[22] || (_cache[22] = _createElementVNode("span", { class: "tg-key" }, "消息总数", -1)),
+                      _cache[26] || (_cache[26] = _createElementVNode("span", { class: "tg-key" }, "消息总数", -1)),
                       _createElementVNode("span", null, _toDisplayString(cache.value.total ?? 0) + " 条", 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[23] || (_cache[23] = _createElementVNode("span", { class: "tg-key" }, "最近同步", -1)),
+                      _cache[27] || (_cache[27] = _createElementVNode("span", { class: "tg-key" }, "最近同步", -1)),
                       _createElementVNode("span", null, _toDisplayString(fmtTime(cache.value.sync?.finished_at || cache.value.sync?.started_at)), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[24] || (_cache[24] = _createElementVNode("span", { class: "tg-key" }, "订阅回搜", -1)),
+                      _cache[28] || (_cache[28] = _createElementVNode("span", { class: "tg-key" }, "订阅回搜", -1)),
                       _createElementVNode("span", null, [
                         _createTextVNode(_toDisplayString(cache.value.subscribe?.enabled === false ? '已关闭' : '已开启') + " ", 1),
                         (cache.value.subscribe?.last_check_at)
@@ -676,7 +736,7 @@ return (_ctx, _cache) => {
                   ]),
                   default: _withCtx(() => [
                     _createVNode(_component_VCardTitle, { class: "text-subtitle-2" }, {
-                      default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
+                      default: _withCtx(() => [...(_cache[29] || (_cache[29] = [
                         _createTextVNode("消息流水线", -1)
                       ]))]),
                       _: 1
@@ -687,19 +747,19 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VCardText, { class: "tg-lines" }, {
                   default: _withCtx(() => [
                     _createElementVNode("div", null, [
-                      _cache[26] || (_cache[26] = _createElementVNode("span", { class: "tg-key" }, "监控规则", -1)),
+                      _cache[30] || (_cache[30] = _createElementVNode("span", { class: "tg-key" }, "监控规则", -1)),
                       _createElementVNode("span", null, _toDisplayString(monitor.value.rules_count ?? 0) + " 条（关心 " + _toDisplayString(monitor.value.watched_chats ?? 0) + " 个会话）", 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[27] || (_cache[27] = _createElementVNode("span", { class: "tg-key" }, "转发规则", -1)),
+                      _cache[31] || (_cache[31] = _createElementVNode("span", { class: "tg-key" }, "转发规则", -1)),
                       _createElementVNode("span", null, _toDisplayString(forward.value.rules_count ?? 0) + " 条（关心 " + _toDisplayString(forward.value.watched_chats ?? 0) + " 个会话）", 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[28] || (_cache[28] = _createElementVNode("span", { class: "tg-key" }, "累计处理", -1)),
+                      _cache[32] || (_cache[32] = _createElementVNode("span", { class: "tg-key" }, "累计处理", -1)),
                       _createElementVNode("span", null, _toDisplayString(pipeline.value.processed ?? 0) + " 条 · 监控命中 " + _toDisplayString(pipeline.value.hit ?? 0) + " · 转发命中 " + _toDisplayString(pipeline.value.forward_hit ?? 0), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[29] || (_cache[29] = _createElementVNode("span", { class: "tg-key" }, "推送队列", -1)),
+                      _cache[33] || (_cache[33] = _createElementVNode("span", { class: "tg-key" }, "推送队列", -1)),
                       _createElementVNode("span", null, [
                         _createTextVNode("待处理 " + _toDisplayString(pipeline.value.push_pending ?? 0) + " · 成功 " + _toDisplayString(pipeline.value.push_done ?? 0) + " · 失败 ", 1),
                         _createElementVNode("span", {
@@ -708,7 +768,7 @@ return (_ctx, _cache) => {
                       ])
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[30] || (_cache[30] = _createElementVNode("span", { class: "tg-key" }, "最近事件", -1)),
+                      _cache[34] || (_cache[34] = _createElementVNode("span", { class: "tg-key" }, "最近事件", -1)),
                       _createElementVNode("span", null, _toDisplayString(fmtTime(pipeline.value.last_event_at)), 1)
                     ])
                   ]),
@@ -726,7 +786,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-connection",
               onClick: connectTg
             }, {
-              default: _withCtx(() => [...(_cache[31] || (_cache[31] = [
+              default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
                 _createTextVNode(" 连接 TG ", -1)
               ]))]),
               _: 1
@@ -738,7 +798,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-account-multiple-outline",
               onClick: refreshDialogs
             }, {
-              default: _withCtx(() => [...(_cache[32] || (_cache[32] = [
+              default: _withCtx(() => [...(_cache[36] || (_cache[36] = [
                 _createTextVNode(" 刷新对话列表 ", -1)
               ]))]),
               _: 1
@@ -750,7 +810,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-cloud-check-outline",
               onClick: checkPan115
             }, {
-              default: _withCtx(() => [...(_cache[33] || (_cache[33] = [
+              default: _withCtx(() => [...(_cache[37] || (_cache[37] = [
                 _createTextVNode(" 检测 115 ", -1)
               ]))]),
               _: 1
@@ -762,7 +822,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-sync",
               onClick: syncCache
             }, {
-              default: _withCtx(() => [...(_cache[34] || (_cache[34] = [
+              default: _withCtx(() => [...(_cache[38] || (_cache[38] = [
                 _createTextVNode(" 同步缓存 ", -1)
               ]))]),
               _: 1
@@ -775,7 +835,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-refresh-circle",
               onClick: startBackfill
             }, {
-              default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
+              default: _withCtx(() => [...(_cache[39] || (_cache[39] = [
                 _createTextVNode(" 立即增量补扫 ", -1)
               ]))]),
               _: 1
@@ -804,7 +864,7 @@ return (_ctx, _cache) => {
                         value: "monitor",
                         size: "small"
                       }, {
-                        default: _withCtx(() => [...(_cache[37] || (_cache[37] = [
+                        default: _withCtx(() => [...(_cache[41] || (_cache[41] = [
                           _createTextVNode("监控", -1)
                         ]))]),
                         _: 1
@@ -813,7 +873,7 @@ return (_ctx, _cache) => {
                         value: "forward",
                         size: "small"
                       }, {
-                        default: _withCtx(() => [...(_cache[38] || (_cache[38] = [
+                        default: _withCtx(() => [...(_cache[42] || (_cache[42] = [
                           _createTextVNode("转发", -1)
                         ]))]),
                         _: 1
@@ -824,7 +884,7 @@ return (_ctx, _cache) => {
                 ]),
                 default: _withCtx(() => [
                   _createVNode(_component_VCardTitle, { class: "text-subtitle-2" }, {
-                    default: _withCtx(() => [...(_cache[36] || (_cache[36] = [
+                    default: _withCtx(() => [...(_cache[40] || (_cache[40] = [
                       _createTextVNode("最近流水", -1)
                     ]))]),
                     _: 1
@@ -859,14 +919,40 @@ return (_ctx, _cache) => {
                       "hide-details": "",
                       clearable: "",
                       class: "tg-hits-search"
-                    }, null, 8, ["modelValue"])
+                    }, null, 8, ["modelValue"]),
+                    _createVNode(_component_VSpacer),
+                    _createVNode(_component_VBtn, {
+                      size: "small",
+                      variant: "tonal",
+                      color: "error",
+                      "prepend-icon": "mdi-delete-sweep-outline",
+                      disabled: !hitsTotal.value || clearing.value,
+                      onClick: _cache[5] || (_cache[5] = $event => (askClear('filtered')))
+                    }, {
+                      default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
+                        _createTextVNode(" 删除筛选结果 ", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["disabled"]),
+                    _createVNode(_component_VBtn, {
+                      size: "small",
+                      variant: "text",
+                      color: "error",
+                      disabled: !hitsTotal.value || clearing.value,
+                      onClick: _cache[6] || (_cache[6] = $event => (askClear('all')))
+                    }, {
+                      default: _withCtx(() => [...(_cache[44] || (_cache[44] = [
+                        _createTextVNode(" 清空本类流水 ", -1)
+                      ]))]),
+                      _: 1
+                    }, 8, ["disabled"])
                   ]),
                   _createVNode(_component_VTable, {
                     density: "compact",
                     class: "tg-hits"
                   }, {
                     default: _withCtx(() => [
-                      _cache[40] || (_cache[40] = _createElementVNode("thead", null, [
+                      _cache[46] || (_cache[46] = _createElementVNode("thead", null, [
                         _createElementVNode("tr", null, [
                           _createElementVNode("th", { class: "tg-nowrap" }, "时间"),
                           _createElementVNode("th", null, "规则"),
@@ -902,7 +988,7 @@ return (_ctx, _cache) => {
                           ]))
                         }), 128)),
                         (!hits.value.length)
-                          ? (_openBlock(), _createElementBlock("tr", _hoisted_10, [...(_cache[39] || (_cache[39] = [
+                          ? (_openBlock(), _createElementBlock("tr", _hoisted_10, [...(_cache[45] || (_cache[45] = [
                               _createElementVNode("td", {
                                 colspan: "6",
                                 class: "tg-empty"
@@ -921,7 +1007,7 @@ return (_ctx, _cache) => {
                       "prepend-icon": "mdi-chevron-left",
                       onClick: prevHits
                     }, {
-                      default: _withCtx(() => [...(_cache[41] || (_cache[41] = [
+                      default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
                         _createTextVNode(" 上一页 ", -1)
                       ]))]),
                       _: 1
@@ -934,19 +1020,95 @@ return (_ctx, _cache) => {
                       "append-icon": "mdi-chevron-right",
                       onClick: nextHits
                     }, {
-                      default: _withCtx(() => [...(_cache[42] || (_cache[42] = [
+                      default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
                         _createTextVNode(" 下一页 ", -1)
                       ]))]),
                       _: 1
                     }, 8, ["disabled"])
                   ]),
-                  _cache[43] || (_cache[43] = _createElementVNode("div", { class: "tg-note" }, " 「来源」列与资源监控流水同口径：监听会话 ID 反查标题；完整流水与筛选在对应设置面板查看。 ", -1))
+                  _cache[49] || (_cache[49] = _createElementVNode("div", { class: "tg-note" }, " 「来源」列与资源监控流水同口径：监听会话 ID 反查标题；清理流水用上方 「删除筛选结果 / 清空本类流水」，两者都只作用于当前视图。 ", -1))
                 ]),
                 _: 1
               })
             ]),
             _: 1
-          })
+          }),
+          _createVNode(_component_VDialog, {
+            modelValue: clearDialog.value,
+            "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((clearDialog).value = $event)),
+            "max-width": "460"
+          }, {
+            default: _withCtx(() => [
+              _createVNode(_component_VCard, null, {
+                default: _withCtx(() => [
+                  _createVNode(_component_VCardTitle, { class: "text-subtitle-1" }, {
+                    default: _withCtx(() => [
+                      _createTextVNode(_toDisplayString(clearTarget.value === 'all' ? '清空本类流水' : '删除筛选结果'), 1)
+                    ]),
+                    _: 1
+                  }),
+                  _createVNode(_component_VCardText, { class: "text-body-2" }, {
+                    default: _withCtx(() => [
+                      _createElementVNode("div", _hoisted_13, [
+                        _createTextVNode(" 删除范围：当前视图（" + _toDisplayString(clearKindLabel.value) + "分类", 1),
+                        (filterText.value)
+                          ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
+                              _createTextVNode(" · " + _toDisplayString(filterText.value), 1)
+                            ], 64))
+                          : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
+                              _createTextVNode(" · 无筛选条件")
+                            ], 64)),
+                        _cache[50] || (_cache[50] = _createTextVNode("），共 ", -1)),
+                        _createElementVNode("strong", null, _toDisplayString(hitsTotal.value), 1),
+                        _cache[51] || (_cache[51] = _createTextVNode(" 条。 ", -1))
+                      ]),
+                      (hasFilter.value)
+                        ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
+                            _cache[52] || (_cache[52] = _createTextVNode(" 当前有筛选条件，将只删除筛选出的 ", -1)),
+                            _createElementVNode("strong", null, _toDisplayString(hitsTotal.value), 1),
+                            _cache[53] || (_cache[53] = _createTextVNode(" 条流水，删除后不可恢复； 未筛选部分不受影响。如需清空本类全部，请先清除筛选条件。 ", -1))
+                          ], 64))
+                        : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
+                            _cache[54] || (_cache[54] = _createTextVNode(" 将删除本类的", -1)),
+                            _createElementVNode("strong", null, "全部" + _toDisplayString(clearKindLabel.value) + "流水", 1),
+                            _createTextVNode("（共 " + _toDisplayString(hitsTotal.value) + " 条），删除后不可恢复； " + _toDisplayString(otherKindLabel.value) + "流水不受影响。 ", 1)
+                          ], 64))
+                    ]),
+                    _: 1
+                  }),
+                  _createVNode(_component_VCardActions, null, {
+                    default: _withCtx(() => [
+                      _createVNode(_component_VSpacer),
+                      _createVNode(_component_VBtn, {
+                        variant: "text",
+                        disabled: clearing.value,
+                        onClick: _cache[7] || (_cache[7] = $event => (clearDialog.value = false))
+                      }, {
+                        default: _withCtx(() => [...(_cache[55] || (_cache[55] = [
+                          _createTextVNode("取消", -1)
+                        ]))]),
+                        _: 1
+                      }, 8, ["disabled"]),
+                      _createVNode(_component_VBtn, {
+                        color: "error",
+                        loading: clearing.value,
+                        disabled: clearing.value,
+                        onClick: runClear
+                      }, {
+                        default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
+                          _createTextVNode("删除", -1)
+                        ]))]),
+                        _: 1
+                      }, 8, ["loading", "disabled"])
+                    ]),
+                    _: 1
+                  })
+                ]),
+                _: 1
+              })
+            ]),
+            _: 1
+          }, 8, ["modelValue"])
         ]),
         _: 1
       })
@@ -957,6 +1119,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d7fb2648"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-929eedac"]]);
 
 export { Page as default };

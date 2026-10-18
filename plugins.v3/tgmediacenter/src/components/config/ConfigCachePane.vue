@@ -208,43 +208,7 @@
           </div>
         </div>
 
-        <!-- 存量补扫：一行三格——左侧「存量补扫」小标题 + 开关（附一行小字），右侧两个 cron 并排
-             （增量同步定时已移入「缓存管理」卡，这里不再占位） -->
-        <div class="cache-backfill-row">
-          <div class="cache-toggle-panel">
-            <div class="cache-toggle-head">
-              <span class="cache-toggle-title">存量补扫</span>
-              <VSwitch
-                v-model="settings.backfill_enabled"
-                color="primary"
-                density="compact"
-                hide-details
-                inset
-                @update:model-value="syncSettingsToForm"
-              />
-            </div>
-            <div class="cache-toggle-desc">定时反扫缓存补缺集（按命中流水去重，推过的不会再推）</div>
-          </div>
-          <div class="cache-cron-pair">
-            <VTextField
-              v-model="settings.subscribe_cron"
-              label="订阅兜底检查定时（cron）"
-              density="compact"
-              variant="outlined"
-              hide-details
-              @update:model-value="syncSettingsToForm"
-            />
-            <VTextField
-              v-model="settings.backfill_cron"
-              label="存量补扫定时（cron）"
-              density="compact"
-              variant="outlined"
-              hide-details
-              @update:model-value="syncSettingsToForm"
-            />
-          </div>
-        </div>
-
+        <!-- 存量补扫开关与两个 cron 已各归其卡（缓存管理 / 订阅回搜 / 存量补扫），此处只留保存动作 -->
         <div class="cache-actions">
           <VBtn
             color="primary"
@@ -294,24 +258,19 @@
             >
               清空缓存
             </VBtn>
+            <!-- 增量同步定时并入按钮行（同一行、垂直居中，窄屏自动换行堆叠） -->
+            <VTextField
+              v-model="settings.cron"
+              label="增量同步定时（cron）"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="cache-cron-input"
+              @update:model-value="syncSettingsToForm"
+            />
           </div>
           <div class="cache-hint">
             回溯同步在后台线程执行，界面可随时刷新查看进度；清空只删缓存与同步位点，下次回溯会重新拉取。
-          </div>
-        </div>
-
-        <!-- 增量同步定时：从上方「缓存频道与范围」移来，按钮行下方、频道表格上方，一行一个字段 -->
-        <div class="cache-field">
-          <VTextField
-            v-model="settings.cron"
-            label="增量同步定时（cron）"
-            density="compact"
-            variant="outlined"
-            hide-details
-            @update:model-value="syncSettingsToForm"
-          />
-          <div class="cache-note">
-            增量定时不是「拉新消息」（实时通道已在写），而是补齐插件离线/掉线/限流期间漏掉的窗口并刷新同步位点；改完需重新启用插件生效。
           </div>
         </div>
 
@@ -450,6 +409,16 @@
           >
             立即检查新增订阅
           </VBtn>
+          <!-- 订阅兜底检查定时：与按钮同一行右侧（垂直居中，窄屏换行堆叠） -->
+          <VTextField
+            v-model="settings.subscribe_cron"
+            label="订阅兜底检查定时（cron）"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="cache-cron-input"
+            @update:model-value="syncSettingsToForm"
+          />
           <span v-if="checkResult" class="cache-hint">{{ checkResult }}</span>
         </div>
         <div class="cache-hint">
@@ -511,7 +480,18 @@
             停止补扫
           </VBtn>
         </div>
-        <div class="cache-actions">
+        <!-- 存量补扫开关 + 两个触发按钮 + 存量补扫 cron 同一行：开关在最左（gap 8px），cron 在按钮右侧 -->
+        <div class="cache-backfill-actions">
+          <VSwitch
+            v-model="settings.backfill_enabled"
+            label="存量补扫"
+            color="primary"
+            density="compact"
+            hide-details
+            inset
+            class="cache-switch-inline"
+            @update:model-value="syncSettingsToForm"
+          />
           <VBtn
             variant="tonal"
             prepend-icon="mdi-refresh-circle"
@@ -530,6 +510,15 @@
           >
             全量补扫一次
           </VBtn>
+          <VTextField
+            v-model="settings.backfill_cron"
+            label="存量补扫定时（cron）"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="cache-cron-input"
+            @update:model-value="syncSettingsToForm"
+          />
         </div>
         <div v-if="backfillSummary" class="cache-hint">{{ backfillSummary }}</div>
       </VCardText>
@@ -1055,24 +1044,20 @@ onUnmounted(() => {
   line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
-/* 存量补扫：一行三格——左侧小标题 + 开关（+ 一行小字），右侧两个 cron 并排；窄屏收成单列 */
-.cache-backfill-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+/* 存量补扫按钮行：开关（最左）+ 两个触发按钮 + cron 输入同一行、垂直居中；窄屏自动换行堆叠 */
+.cache-backfill-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  align-items: start;
-}
-@media (max-width: 760px) {
-  .cache-backfill-row { grid-template-columns: 1fr; }
-}
-.cache-cron-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  flex-wrap: wrap;
   min-width: 0;
 }
-@media (max-width: 600px) {
-  .cache-cron-pair { grid-template-columns: 1fr; }
+/* 开关本身不加外边距，与左侧贴齐，间距由父级 gap 统一控制 */
+.cache-switch-inline { flex: 0 0 auto; }
+/* 按钮行里的 cron 输入：约 200px 宽、垂直居中；窄屏换行时独占一行而不是被压扁 */
+.cache-cron-input { flex: 0 0 200px; width: 200px; min-width: 0; }
+@media (max-width: 760px) {
+  .cache-cron-input { flex: 1 1 200px; width: auto; }
 }
 /* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
 .cache-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

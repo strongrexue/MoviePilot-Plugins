@@ -393,16 +393,18 @@ onUnmounted(qrStopPolling)
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">任务设置</VCardTitle>
       <VCardText class="p115-body">
-        <VRow dense>
-          <VCol cols="12" md="8">
+        <!-- 一行三件：CID 自适应占满剩余宽度 + 校验按钮 + 固定的单批数量（约 140px），
+             三者按 align-items:center 垂直对齐；窄屏（<640px）换行成两行：CID + 校验按钮 / 单批数量 -->
+        <div class="p115-task-row">
+          <div class="p115-task-cid">
             <VTextField v-model="form.pan115_target_cid" label="转存文件夹 CID" density="compact" variant="outlined" hide-details />
-          </VCol>
-          <VCol cols="12" md="4" class="d-flex align-center">
+          </div>
+          <div class="p115-task-verify">
             <VBtn size="small" variant="tonal" :loading="busy === 'dir'" prepend-icon="mdi-folder-check-outline" @click="verifyDir">
               校验目录
             </VBtn>
-          </VCol>
-          <VCol cols="12" md="4">
+          </div>
+          <div class="p115-task-batch">
             <VTextField
               v-model.number="form.pan115_batch_max_size"
               type="number"
@@ -411,8 +413,8 @@ onUnmounted(qrStopPolling)
               variant="outlined"
               hide-details
             />
-          </VCol>
-        </VRow>
+          </div>
+        </div>
         <div class="p115-hint">
           转存与离线下载都保存到该 CID（在 115 里打开目标文件夹，地址栏 <code>cid=</code> 后面就是）。
           单批上限用于分批提交，避免一次提交过多被 115 拒绝。
@@ -550,6 +552,18 @@ onUnmounted(qrStopPolling)
 .p115-sep { opacity: 0.4; }
 .p115-updated { margin-left: auto; font-size: 12px; opacity: 0.6; }
 .p115-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* 任务设置单行：CID 自适应 + 校验按钮 + 固定 140px 的单批数量，三者垂直居中对齐。
+   窄屏（<640px）换行：第一行 CID 与校验按钮，第二行单批数量（占满整行） */
+.p115-task-row { display: flex; flex-direction: row; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.p115-task-cid { flex: 1 1 auto; min-width: 0; }
+.p115-task-verify { flex: 0 0 auto; display: flex; align-items: center; }
+.p115-task-batch { flex: 0 0 140px; max-width: 140px; }
+@media (max-width: 639.98px) {
+  .p115-task-row { flex-wrap: wrap; }
+  /* basis 0 让 CID 始终与校验按钮同处第一行，只把单批数量挤到第二行 */
+  .p115-task-cid { flex: 1 1 0; }
+  .p115-task-batch { flex: 1 1 100%; max-width: none; }
+}
 /* 登录向导盒子：内边距收紧到 10px，内部纵向堆叠 8px，与外层间距交给父级 gap */
 .p115-qr { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: rgba(var(--v-theme-on-surface), 0.03); }
 .p115-qr-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

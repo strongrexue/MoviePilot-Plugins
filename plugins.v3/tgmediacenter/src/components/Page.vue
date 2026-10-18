@@ -211,6 +211,63 @@ watch(hitKeyword, () => {
   }, 300)
 })
 
+// ------------------------------------------------------------------ 流水清理（由设置页迁入）
+
+// 清理入口从设置页的「命中流水 / 转发流水」卡搬到这里：详情页已有 监控/转发 切换、
+// 决策筛选、关键词搜索与分页，用户在这里就能确认"当前视图删多少"。
+// clearTarget：'filtered' 删除筛选结果 / 'all' 清空本类流水。
+// 两个入口都只删「当前视图」——payload 带 decision + keyword（与设置页严格一致），
+// 后端按 kind 隔离，监控与转发流水互不影响。
+const clearDialog = ref(false)
+const clearTarget = ref('filtered')
+const clearing = ref(false)
+
+const clearKindLabel = computed(() => (hitTab.value === 'forward' ? '转发' : '监控'))
+const otherKindLabel = computed(() => (hitTab.value === 'forward' ? '监控' : '转发'))
+// 清理接口随当前分类走：monitor → monitor/hits/clear，forward → forward/hits/clear
+const clearPath = computed(() => (
+  hitTab.value === 'forward' ? 'forward/hits/clear' : 'monitor/hits/clear'
+))
+
+// 当前是否有筛选条件（对话框据此说明"删多少"，与后端删除口径严格一致）
+const hasFilter = computed(() => Boolean(decisionFilter.value || hitKeyword.value.trim()))
+const filterText = computed(() => [
+  decisionFilter.value ? `决策=${decisionLabel(decisionFilter.value)}` : '',
+  hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
+].filter(Boolean).join(' / '))
+
+function askClear(target) {
+  if (!hitsTotal.value) {
+    setMessage(target === 'all' ? '当前视图没有可清空的流水' : '当前筛选没有可删除的流水')
+    return
+  }
+  clearTarget.value = target
+  clearDialog.value = true
+}
+
+async function runClear() {
+  // 防重复点击：确认按钮同时置 loading，这里再加一道闸
+  if (clearing.value) return
+  clearing.value = true
+  try {
+    // 无论点哪个按钮都只删「当前视图」：带动当前决策 + 关键词，没有筛选才是清空本类全部
+    const payload = { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() }
+    const response = unwrap(await postPluginApi(
+      props.api, props.pluginId, clearPath.value, payload, { timeoutMs: 30000 },
+    ))
+    // 先给成功提示再刷新：loadHits / loadOverview 只在失败时覆盖 message，
+    // 成功时保留这条提示（refreshAll 会先清空 message，故这里直接用 loadOverview）
+    clearDialog.value = false
+    hitsPage.value = 1
+    setMessage(response?.message || '已清理流水')
+    await Promise.all([loadHits(), loadOverview()])
+  } catch (error) {
+    setMessage(error?.message || '清理流水失败', false)
+  } finally {
+    clearing.value = false
+  }
+}
+
 // 来源会话 ID → 标题：合并监控与转发两个状态卡的 watched_detail（两 tab 共用一个映射）
 const chatTitleMap = computed(() => {
   const map = {}
@@ -494,6 +551,27 @@ onUnmounted(() => {
               clearable
               class="tg-hits-search"
             />
+            <!-- 清理入口（从设置页迁入）：只作用于当前视图，无流水时禁用 -->
+            <VSpacer />
+            <VBtn
+              size="small"
+              variant="tonal"
+              color="error"
+              prepend-icon="mdi-delete-sweep-outline"
+              :disabled="!hitsTotal || clearing"
+              @click="askClear('filtered')"
+            >
+              删除筛选结果
+            </VBtn>
+            <VBtn
+              size="small"
+              variant="text"
+              color="error"
+              :disabled="!hitsTotal || clearing"
+              @click="askClear('all')"
+            >
+              清空本类流水
+            </VBtn>
           </div>
           <VTable density="compact" class="tg-hits">
             <thead>
@@ -546,10 +624,39 @@ onUnmounted(() => {
             </VBtn>
           </div>
           <div class="tg-note">
-            「来源」列与资源监控流水同口径：监听会话 ID 反查标题；完整流水与筛选在对应设置面板查看。
+            「来源」列与资源监控流水同口径：监听会话 ID 反查标题；清理流水用上方
+            「删除筛选结果 / 清空本类流水」，两者都只作用于当前视图。
           </div>
         </VCardText>
       </VCard>
+
+      <!-- 清理流水确认（删除不可恢复，必须二次确认） -->
+      <VDialog v-model="clearDialog" max-width="460">
+        <VCard>
+          <VCardTitle class="text-subtitle-1">
+            {{ clearTarget === 'all' ? '清空本类流水' : '删除筛选结果' }}
+          </VCardTitle>
+          <VCardText class="text-body-2">
+            <div class="mb-2">
+              删除范围：当前视图（{{ clearKindLabel }}分类<template v-if="filterText"> · {{ filterText }}</template><template v-else> · 无筛选条件</template>），共
+              <strong>{{ hitsTotal }}</strong> 条。
+            </div>
+            <template v-if="hasFilter">
+              当前有筛选条件，将只删除筛选出的 <strong>{{ hitsTotal }}</strong> 条流水，删除后不可恢复；
+              未筛选部分不受影响。如需清空本类全部，请先清除筛选条件。
+            </template>
+            <template v-else>
+              将删除本类的<strong>全部{{ clearKindLabel }}流水</strong>（共 {{ hitsTotal }} 条），删除后不可恢复；
+              {{ otherKindLabel }}流水不受影响。
+            </template>
+          </VCardText>
+          <VCardActions>
+            <VSpacer />
+            <VBtn variant="text" :disabled="clearing" @click="clearDialog = false">取消</VBtn>
+            <VBtn color="error" :loading="clearing" :disabled="clearing" @click="runClear">删除</VBtn>
+          </VCardActions>
+        </VCard>
+      </VDialog>
     </VCardText>
   </VCard>
 </template>

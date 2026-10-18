@@ -233,4 +233,4 @@ function decisionColor(value) {
   return 'primary'
 }
 
-export { _export_sfc as _, getPluginApi as a, decisionColor as b, putPluginApi as c, decisionLabel as d, getPluginConfig as g, postPluginApi as p, savePluginConfig as s, unwrap as u };
+export { _export_sfc as _, getPluginApi as a, putPluginApi as b, decisionColor as c, decisionLabel as d, getPluginConfig as g, postPluginApi as p, savePluginConfig as s, unwrap as u };

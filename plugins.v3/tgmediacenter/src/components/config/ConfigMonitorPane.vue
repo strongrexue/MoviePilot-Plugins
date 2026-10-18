@@ -167,7 +167,7 @@
                  用 v-show 而不是 v-if：输入框实例始终挂载，
                  展开/折叠不会丢表单绑定（折叠/展开逻辑与 payload 一律未改动） -->
             <div v-show="isExpanded(rule)" class="mon-rule-body">
-              <!-- ① 基础：名称 + 仅缺失开关，2 列网格 -->
+              <!-- ① 基础：名称 + （仅缺失开关 + 关键词过滤开关），2 列网格 -->
               <div class="mon-group">
                 <div class="mon-group-head">基础</div>
                 <div class="mon-group-fields">
@@ -186,29 +186,33 @@
                     </VSwitch>
                     <!-- 行内说明：不另起一行，避免组内文字挤在一起 -->
                     <span class="mon-group-note">无法判断时跳过</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- ②③ 关键词过滤 + 排除关键词：同一行两列，两列等宽、gap 8px；
-                   左列标题行带总开关，右列无开关；两组的 11px 提示合并成一行放在两列下方。
-                   v-model 与多值（multiple + chips）逻辑保持原样 -->
-              <div class="mon-kw-wrap">
-                <div class="mon-kw-row">
-                  <!-- 左：关键词过滤 -->
-                  <div class="mon-group mon-kw-col">
-                    <div class="mon-group-head">
-                      <span>关键词过滤</span>
+                    <!-- 关键词过滤总开关：从「关键词过滤」组标题行移到这里（紧跟仅缺失、间距 8px），
+                         绑定仍是同一个 match_custom_keywords，不新增字段 -->
+                    <div class="mon-kw-switch">
                       <VSwitch
                         v-model="rule.match_custom_keywords"
                         color="primary"
                         hide-details
                         inset
                         density="compact"
-                        class="mon-group-switch"
                         title="开启后只有命中关键词的消息才会推送"
                       />
+                      <!-- 11px 灰字小标签：区分两个并排开关各自的含义 -->
+                      <span class="mon-kw-switch-label">关键词过滤</span>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ②③ 关键词过滤 + 排除关键词：同一行两列，两列等宽、gap 8px；
+                   两组标题行都只放标题文字（关键词过滤的开关已移到「基础」组），
+                   两组的 11px 提示合并成一行放在两列下方。
+                   v-model 与多值（multiple + chips）逻辑保持原样 -->
+              <div class="mon-kw-wrap">
+                <div class="mon-kw-row">
+                  <!-- 左：关键词过滤（开关在「基础」组，这里只有标题 + 多值输入） -->
+                  <div class="mon-group mon-kw-col">
+                    <div class="mon-group-head">关键词过滤</div>
                     <VCombobox
                       v-model="rule.custom_keywords"
                       multiple
@@ -327,152 +331,28 @@
       </VCardText>
     </VCard>
 
-    <!-- 命中流水 -->
-    <VCard flat class="mon-card">
-      <VCardItem>
-        <VCardTitle class="text-subtitle-2">命中流水</VCardTitle>
-        <template #append>
-          <VSelect
-            v-model="decisionFilter"
-            :items="[{ value: '', title: '全部决策' }, ...decisions]"
-            item-title="title"
-            item-value="value"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="mon-filter"
-            @update:model-value="onDecisionFilter"
-          />
-        </template>
-      </VCardItem>
-      <VCardText>
-        <div class="mon-hits-tools">
-          <VTextField
-            v-model="hitKeyword"
-            placeholder="按片名 / 规则 / 说明搜索"
-            prepend-inner-icon="mdi-magnify"
-            density="compact"
-            variant="outlined"
-            hide-details
-            clearable
-            class="mon-hits-search"
-          />
-          <VBtn
-            size="small"
-            variant="tonal"
-            color="error"
-            prepend-icon="mdi-delete-outline"
-            :disabled="!hitsTotal"
-            @click="askClear('filtered')"
-          >
-            删除筛选结果
-          </VBtn>
-          <VBtn
-            size="small"
-            variant="text"
-            color="error"
-            :disabled="!hitsTotal"
-            @click="askClear('all')"
-          >
-            清空本类流水
-          </VBtn>
-        </div>
-        <VTable density="compact" class="mon-hits">
-          <thead>
-            <tr>
-              <th class="mon-nowrap">时间</th>
-              <th class="mon-nowrap">规则</th>
-              <th class="mon-nowrap">来源</th>
-              <th>媒体</th>
-              <th class="mon-nowrap">决策</th>
-              <th>说明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in hits" :key="item.id">
-              <td class="mon-hits-time">{{ fmtTime(item.created_at) }}</td>
-              <td class="mon-nowrap">{{ item.rule_name }}</td>
-              <td class="mon-hits-source">
-                {{ chatTitleMap[item.chat_id] || item.chat_id }}
-              </td>
-              <td>
-                <span v-if="item.title">{{ mediaName(item) }}</span>
-                <span v-else class="mon-hits-none">—</span>
-              </td>
-              <td class="mon-nowrap">
-                <VChip size="x-small" variant="tonal" :color="decisionColor(item.decision)" label>
-                  {{ decisionLabel(item.decision) }}
-                </VChip>
-              </td>
-              <td class="mon-hits-detail">{{ item.detail }}</td>
-            </tr>
-            <tr v-if="!hits.length">
-              <td colspan="6" class="mon-hits-empty">暂无记录</td>
-            </tr>
-          </tbody>
-        </VTable>
-        <div class="mon-pager">
-          <VBtn size="small" variant="text" :disabled="hitsPage <= 1" prepend-icon="mdi-chevron-left" @click="prevHits">
-            上一页
-          </VBtn>
-          <span class="mon-pager-info">第 {{ hitsPage }} 页 · 共 {{ hitsTotal }} 条</span>
-          <VBtn
-            size="small"
-            variant="text"
-            :disabled="hitsPage * hitsPageSize >= hitsTotal"
-            append-icon="mdi-chevron-right"
-            @click="nextHits"
-          >
-            下一页
-          </VBtn>
-        </div>
-      </VCardText>
-    </VCard>
-
     <div class="mon-hint">
       风控提示：TG 个人号对外操作有频率限制，插件按「聚合窗口 + 全局冷却 + FloodWait 退避」克制发送；
       长时间大流量监控请适当调大「TG 凭证」页的个人号冷却秒数。
     </div>
-
-    <!-- 清理流水确认（删除不可恢复，必须二次确认） -->
-    <VDialog v-model="clearDialog" max-width="460">
-      <VCard>
-        <VCardTitle class="text-subtitle-1">
-          {{ clearTarget === 'all' ? '清空监控流水' : '删除筛选结果' }}
-        </VCardTitle>
-        <VCardText class="text-body-2">
-          <template v-if="hasFilter">
-            当前有筛选条件，将只删除筛选出的 <strong>{{ hitsTotal }}</strong> 条流水
-            <template v-if="filterText">（筛选：{{ filterText }}）</template>
-            ，删除后不可恢复；未筛选部分不受影响。如需清空全部，请先清除筛选条件。
-          </template>
-          <template v-else>
-            将删除本面板的<strong>全部监控流水</strong>（共 {{ hitsTotal }} 条），删除后不可恢复；
-            通用转发的流水不受影响。
-          </template>
-        </VCardText>
-        <VCardActions>
-          <VSpacer />
-          <VBtn variant="text" @click="clearDialog = false">取消</VBtn>
-          <VBtn color="error" :loading="clearing" @click="runClear">删除</VBtn>
-        </VCardActions>
-      </VCard>
-    </VDialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, putPluginApi, unwrap } from '../api'
-// 流水「决策」文案与详情页 / 仪表盘共用同一份映射（避免同一决策在不同页面文案不一致）
-import { decisionLabel, decisionColor } from '../decision'
+// 规则测试的「决策」文案与详情页 / 仪表盘共用同一份映射（避免同一决策在不同页面文案不一致）
+import { decisionLabel } from '../decision'
 
 /**
  * ④ TG 资源监控面板。
  *
  * 数据流：规则存放在插件配置 `monitor_rules`（随主表单保存），但读写走
  * `/monitor/rules` 专用接口——保存即归一（补规则 ID）、即时生效（ensure_started），
- * 不必等插件重载。命中流水与运行态只读。
+ * 不必等插件重载。运行态只读。
+ *
+ * 命中流水卡已整体移除（流水入口挪到「运行详情页」，由另一个文件负责），
+ * 本面板只保留：运行状态、规则编辑、规则测试。
  *
  * 纪律（沿用全项目约定）：
  * - 模板/脚本用到的变量全部在 script setup 声明 ref（P1 踩过未声明引用的坑）；
@@ -494,6 +374,8 @@ const message = ref('')
 const messageOk = ref(true)
 // 推送目标固定为 115 网盘：规则里不再暴露「推送目标」，保存时一律发 pan115（后端 DESTINATION_VALUES 合法值）
 const FIXED_DESTINATION = 'pan115'
+// 决策枚举：仍由 loadRules 从 /monitor/rules 的返回里同步（loadRules 按约定未改动），
+// 本面板已不再消费（原「命中流水」的决策筛选卡已删除）。
 const decisions = ref([
   { value: 'hit', title: '已推送' },
   { value: 'skipped_not_missing', title: '不缺（已存在）' },
@@ -513,25 +395,7 @@ const dialogs = ref([])
 const testText = ref('')
 const testResult = ref(null)
 
-const hits = ref([])
-const hitsTotal = ref(0)
-const hitsPage = ref(1)
-const hitsPageSize = 20
-const decisionFilter = ref('')
-// 关键词用可写 computed 包一层：Vuetify 的 clearable 清除按钮会把模型置为 null，
-// 直接 ref('') 收 null 会让各处 .trim() 抛错（1.6.6 真机反馈：清空关键词后列表不刷新），
-// 这里在入口统一归一成字符串，模板与脚本就都不用到处防 null。
-const hitKeywordRaw = ref('')
-const hitKeyword = computed({
-  get: () => String(hitKeywordRaw.value ?? ''),
-  set: (value) => { hitKeywordRaw.value = value == null ? '' : String(value) },
-})
-const clearDialog = ref(false)
-const clearTarget = ref('filtered')
-const clearing = ref(false)
-
 let refreshTimer = null
-let keywordTimer = null
 
 function setMessage(text, ok = true) {
   message.value = text || ''
@@ -627,77 +491,14 @@ async function loadDialogs() {
   }
 }
 
-async function loadHits() {
-  try {
-    const params = new URLSearchParams()
-    params.set('page', String(hitsPage.value))
-    params.set('page_size', String(hitsPageSize))
-    if (decisionFilter.value) params.set('decision', decisionFilter.value)
-    if (hitKeyword.value.trim()) params.set('keyword', hitKeyword.value.trim())
-    const data = unwrap(await getPluginApi(
-      props.api, props.pluginId, `monitor/hits?${params.toString()}`, { timeoutMs: 15000 },
-    ))
-    hits.value = data?.items || []
-    hitsTotal.value = data?.total || 0
-  } catch (err) {
-    setMessage(err?.message || '读取命中流水失败', false)
-  }
-}
-
-// 关键词输入防抖 300ms：边打字边查会把后端打满（流水表可能上万行）
-watch(hitKeyword, () => {
-  clearTimeout(keywordTimer)
-  keywordTimer = setTimeout(() => {
-    hitsPage.value = 1
-    loadHits()
-  }, 300)
-})
-
-// 当前是否有筛选条件（删除对话框据此说明"删多少"，与后端删除口径严格一致）
-const hasFilter = computed(() => Boolean(decisionFilter.value || hitKeyword.value.trim()))
-const filterText = computed(() => [
-  decisionFilter.value ? `决策=${decisionLabel(decisionFilter.value)}` : '',
-  hitKeyword.value.trim() ? `关键词=${hitKeyword.value.trim()}` : '',
-].filter(Boolean).join(' / '))
-
-function askClear(target) {
-  if (!hitsTotal.value) {
-    setMessage(target === 'all' ? '当前视图没有可清空的流水' : '当前筛选没有可删除的流水')
-    return
-  }
-  clearTarget.value = target
-  clearDialog.value = true
-}
-
-async function runClear() {
-  if (clearing.value) return
-  clearing.value = true
-  try {
-    // 无论点哪个删除按钮，都只删「当前视图」：带上决策与关键词筛选，
-    // 没有筛选才是清空本类全部（后端按 kind 隔离，不会碰到转发流水）。
-    // 1.6.6 真机反馈：原来「清空本类流水」忽略筛选直接删整个 kind，对话框却
-    // 显示筛选后的条数——用户确认「共 3 条」结果丢了全部流水。
-    const payload = { decision: decisionFilter.value || '', keyword: hitKeyword.value.trim() }
-    const data = unwrap(await postPluginApi(
-      props.api, props.pluginId, 'monitor/hits/clear', payload, { timeoutMs: 30000 },
-    ))
-    setMessage(data?.message || '已清理流水')
-    clearDialog.value = false
-    hitsPage.value = 1
-    await Promise.all([loadHits(), loadStatus()])
-  } catch (err) {
-    setMessage(err?.message || '清理流水失败', false)
-  } finally {
-    clearing.value = false
-  }
-}
-
+// 流水卡已移除（入口挪到运行详情页）：不再拉取流水接口，
+// 刷新只保留运行状态 / 规则 / 会话列表三个数据源。
 async function refreshAll() {
   loading.value = true
   try {
     // 刷新成功不再弹「状态已刷新」这类提示（页面数据本身已更新）；失败仍由各 load* 里的
     // setMessage(..., false) 报错，这里不吞异常、也不再覆盖成功文案
-    await Promise.all([loadStatus(), loadRules(), loadHits(), loadDialogs()])
+    await Promise.all([loadStatus(), loadRules(), loadDialogs()])
   } finally {
     loading.value = false
   }
@@ -781,25 +582,6 @@ async function runTest() {
   }
 }
 
-// ------------------------------------------------------------------ 命中流水分页
-
-function onDecisionFilter() {
-  hitsPage.value = 1
-  loadHits()
-}
-
-function prevHits() {
-  if (hitsPage.value <= 1) return
-  hitsPage.value -= 1
-  loadHits()
-}
-
-function nextHits() {
-  if (hitsPage.value * hitsPageSize >= hitsTotal.value) return
-  hitsPage.value += 1
-  loadHits()
-}
-
 // ------------------------------------------------------------------ 展示辅助
 
 const dialogOptions = computed(() =>
@@ -825,42 +607,9 @@ const selectItems = computed(() => {
   return items
 })
 
-// 监听会话 ID → 反查标题（来自状态卡 watched_detail），命中流水「来源」列展示用
-const chatTitleMap = computed(() => {
-  const map = {}
-  for (const w of (status.value?.pipeline?.watched_detail || [])) {
-    if (w.resolved && w.title) map[w.chat_id] = w.title
-  }
-  return map
-})
-
-// 媒体列完整名：片名（年份）+ 电视剧 SxxExx（如「青与碧 (2026) S01E02」；
-// 多集区间拼 S01E05-E06）
-function mediaName(item) {
-  if (!item.title) return ''
-  const year = item.year ? ` (${item.year})` : ''
-  let name = `${item.title}${year}`
-  if (item.season || item.episode) {
-    const s = String(item.season ?? 1).padStart(2, '0')
-    const e = String(item.episode ?? 0).padStart(2, '0')
-    const end = Number(item.episode_end ?? 0)
-    if (end > (item.episode ?? 0)) {
-      name += ` S${s}E${e}-E${String(end).padStart(2, '0')}`
-    } else {
-      name += ` S${s}E${e}`
-    }
-  }
-  return name
-}
-
-// 流水时间去掉 ISO 的 T 分隔（2026-10-13T11:01:08 → 2026-10-13 11:01:08）
-function fmtTime(value) {
-  return String(value || '').replace('T', ' ')
-}
-
 onMounted(async () => {
   await refreshAll()
-  // 轻量轮询：监控是长驻进程，状态卡保持新鲜（命中流水变化慢，不轮询）
+  // 轻量轮询：监控是长驻进程，状态卡保持新鲜
   refreshTimer = window.setInterval(loadStatus, 15000)
 })
 
@@ -868,10 +617,6 @@ onUnmounted(() => {
   if (refreshTimer) {
     window.clearInterval(refreshTimer)
     refreshTimer = null
-  }
-  if (keywordTimer) {
-    window.clearTimeout(keywordTimer)
-    keywordTimer = null
   }
 })
 </script>
@@ -980,8 +725,6 @@ onUnmounted(() => {
   min-width: 0;
 }
 .mon-group-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
-/* 组标题行右侧的开关：推到最右，与标题基线对齐 */
-.mon-group-switch { margin-left: auto; }
 .mon-group-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 @media (max-width: 700px) { .mon-group-fields { grid-template-columns: 1fr; } }
 /* 关键词过滤 / 排除关键词：同一行两列（等宽、gap 8px），窄屏（<700px）回落单列；
@@ -989,8 +732,11 @@ onUnmounted(() => {
 .mon-kw-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .mon-kw-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 700px) { .mon-kw-row { grid-template-columns: 1fr; } }
-/* 左列标题行带 VSwitch、右列是纯文字：给同高下限，两列输入框才不会错位 */
+/* 两列标题行都只剩标题文字：给同高下限，两列输入框才不会错位 */
 .mon-kw-col > .mon-group-head { min-height: 24px; }
+/* 移动进「基础」组的关键词过滤开关：紧跟「仅缺失时推送」，开关与 11px 灰字标签之间 8px */
+.mon-kw-switch { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mon-kw-switch-label { font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.55); white-space: nowrap; }
 /* 组内 11px 灰提示：贴着对应输入框，不再堆成一片 */
 .mon-group-hint { font-size: 11px; line-height: 1.45; color: rgba(var(--v-theme-on-surface), 0.55); }
 .mon-group-note { font-size: 11px; line-height: 1.45; color: rgba(var(--v-theme-on-surface), 0.5); }
@@ -1017,17 +763,4 @@ onUnmounted(() => {
 .mon-test-name { font-size: 13px; }
 .mon-test-off { margin-left: 6px; }
 .mon-test-msg { font-size: 12px; opacity: 0.75; }
-.mon-filter { flex: 0 0 160px; max-width: 200px; }
-.mon-hits { font-size: 12.5px; }
-.mon-hits .mon-nowrap { white-space: nowrap; }
-.mon-hits-time { white-space: nowrap; opacity: 0.75; }
-.mon-hits-source { white-space: nowrap; opacity: 0.8; }
-.mon-hits-se { margin-left: 6px; opacity: 0.75; }
-.mon-hits-none { opacity: 0.4; }
-.mon-hits-detail { opacity: 0.75; }
-.mon-hits-empty { text-align: center; padding: 16px; opacity: 0.6; }
-.mon-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.mon-pager-info { font-size: 12px; opacity: 0.7; }
-.mon-hits-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-.mon-hits-search { flex: 1 1 220px; max-width: 320px; }
 </style>

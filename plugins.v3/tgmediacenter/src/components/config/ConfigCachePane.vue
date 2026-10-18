@@ -31,7 +31,7 @@
           </VBtn>
         </template>
       </VCardItem>
-      <VCardText>
+      <VCardText class="pt-0 cache-body">
         <div class="cache-status">
           <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
             缓存{{ status?.enabled ? '已启用' : '未启用' }}
@@ -83,7 +83,6 @@
             variant="tonal"
             :color="status?.subscribe?.event_listener ? 'success' : 'warning'"
             label
-            class="ml-2"
             :title="status?.subscribe?.event_listener ? '已监听宿主新增订阅事件，新增订阅秒级回搜' : '宿主事件总线不可用，仅按定时检查（默认每 5 分钟）'"
           >
             {{ status?.subscribe?.event_listener ? '实时回搜已启用' : '仅定时检查' }}
@@ -106,9 +105,10 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">缓存频道与范围</VCardTitle>
       </VCardItem>
-      <VCardText>
-        <div class="cache-grid">
-          <div class="cache-chats">
+      <VCardText class="pt-0 cache-body">
+        <!-- 频道 / 范围 / 天数条数 / 开关同一网格：同一行控件等高，窄屏自动单列 -->
+        <div class="cache-fields">
+          <div class="cache-field">
             <VSelect
               v-model="settings.chat_ids"
               :items="selectItems"
@@ -123,13 +123,9 @@
               hide-details
               @update:model-value="syncSettingsToForm"
             />
-            <div class="cache-hint">
-              与「资源监控」的监听频道互相独立：只缓存不监控、或两者重叠都可以。
-              看不到想要的会话，先到「TG 凭证」页刷新对话列表再点「刷新状态」。
-            </div>
           </div>
 
-          <div class="cache-range">
+          <div class="cache-field">
             <VSelect
               v-model="settings.sync_mode"
               :items="syncModes"
@@ -141,8 +137,10 @@
               hide-details
               @update:model-value="syncSettingsToForm"
             />
+          </div>
+
+          <div v-if="settings.sync_mode === 'relative'" class="cache-field">
             <VTextField
-              v-if="settings.sync_mode === 'relative'"
               v-model="settings.sync_days"
               label="回溯天数"
               type="number"
@@ -152,7 +150,10 @@
               hide-details
               @update:model-value="syncSettingsToForm"
             />
-            <div v-if="settings.sync_mode === 'absolute'" class="cache-dates">
+          </div>
+
+          <div v-if="settings.sync_mode === 'absolute'" class="cache-field">
+            <div class="cache-dates">
               <VTextField
                 v-model="settings.start_date"
                 label="起始日期"
@@ -172,24 +173,9 @@
                 @update:model-value="syncSettingsToForm"
               />
             </div>
-            <div class="cache-hint">
-              首次建议「最近 30 天」：全量拉几万条容易触发 TG 限流（FloodWait），插件会退避重试但耗时会拉长。
-              同步按消息位点推进，重复执行只补新消息。
-            </div>
           </div>
 
-          <div class="cache-options">
-            <VSelect
-              v-model="settings.destination"
-              :items="destinations"
-              item-title="title"
-              item-value="value"
-              label="命中推送目标"
-              density="compact"
-              variant="outlined"
-              hide-details
-              @update:model-value="syncSettingsToForm"
-            />
+          <div class="cache-field">
             <VTextField
               v-model="settings.batch_size"
               label="每批拉取条数"
@@ -199,55 +185,64 @@
               hide-details
               @update:model-value="syncSettingsToForm"
             />
-            <VSwitch
-              v-model="settings.subscribe_enabled"
-              color="primary"
-              hide-details
-              inset
-              @update:model-value="syncSettingsToForm"
-            >
-              <template #label><span class="cache-switch-label">订阅新增时回搜缓存</span></template>
-            </VSwitch>
-            <VSwitch
-              v-model="settings.backfill_enabled"
-              color="primary"
-              hide-details
-              inset
-              @update:model-value="syncSettingsToForm"
-            >
-              <template #label><span class="cache-switch-label">存量补扫（定时反扫缓存补缺集）</span></template>
-            </VSwitch>
-            <div class="cache-hint">
-              推送目标决定「回搜命中」时怎么送：智能（115 可用则转存，否则仅记录）/ 115 / TG 转发 / 仅记录。
+          </div>
+
+          <div class="cache-field">
+            <div class="cache-switch-row">
+              <VSwitch
+                v-model="settings.subscribe_enabled"
+                color="primary"
+                hide-details
+                inset
+                @update:model-value="syncSettingsToForm"
+              >
+                <template #label><span class="cache-switch-label">订阅新增时回搜缓存</span></template>
+              </VSwitch>
+            </div>
+          </div>
+
+          <div class="cache-field">
+            <div class="cache-switch-row">
+              <VSwitch
+                v-model="settings.backfill_enabled"
+                color="primary"
+                hide-details
+                inset
+                @update:model-value="syncSettingsToForm"
+              >
+                <template #label><span class="cache-switch-label">存量补扫（定时反扫缓存补缺集）</span></template>
+              </VSwitch>
             </div>
           </div>
         </div>
 
-        <div class="cache-grid cache-grid-cron">
-          <VTextField
-            v-model="settings.cron"
-            label="增量同步定时（cron）"
-            density="compact"
-            variant="outlined"
-            hide-details
-            @update:model-value="syncSettingsToForm"
-          />
-          <VTextField
-            v-model="settings.subscribe_cron"
-            label="订阅兜底检查定时（cron）"
-            density="compact"
-            variant="outlined"
-            hide-details
-            @update:model-value="syncSettingsToForm"
-          />
-          <VTextField
-            v-model="settings.backfill_cron"
-            label="存量补扫定时（cron）"
-            density="compact"
-            variant="outlined"
-            hide-details
-            @update:model-value="syncSettingsToForm"
-          />
+        <div class="cache-field">
+          <div class="cache-fields">
+            <VTextField
+              v-model="settings.cron"
+              label="增量同步定时（cron）"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="syncSettingsToForm"
+            />
+            <VTextField
+              v-model="settings.subscribe_cron"
+              label="订阅兜底检查定时（cron）"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="syncSettingsToForm"
+            />
+            <VTextField
+              v-model="settings.backfill_cron"
+              label="存量补扫定时（cron）"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="syncSettingsToForm"
+            />
+          </div>
           <div class="cache-hint">
             增量定时的作用不是「拉新消息」（实时通道已在写），而是补齐插件离线/掉线/限流期间漏掉的窗口，
             并刷新同步位点。改完需重新启用插件生效。
@@ -274,37 +269,39 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">缓存管理</VCardTitle>
       </VCardItem>
-      <VCardText>
-        <div class="cache-actions">
-          <VBtn
-            variant="tonal"
-            prepend-icon="mdi-database-arrow-down-outline"
-            :loading="busy === 'sync'"
-            :disabled="!status?.enabled || Boolean(status?.sync?.running)"
-            @click="startSync"
-          >
-            开始回溯同步
-          </VBtn>
-          <VBtn
-            variant="tonal"
-            prepend-icon="mdi-stop-circle-outline"
-            :disabled="!status?.sync?.running"
-            @click="cancelSync"
-          >
-            停止同步
-          </VBtn>
-          <VBtn
-            variant="tonal"
-            color="error"
-            prepend-icon="mdi-database-remove-outline"
-            :disabled="!status?.enabled || !(status?.chats > 0)"
-            @click="clearDialog = true"
-          >
-            清空缓存
-          </VBtn>
-        </div>
-        <div class="cache-hint">
-          回溯同步在后台线程执行，界面可随时刷新查看进度；清空只删缓存与同步位点，下次回溯会重新拉取。
+      <VCardText class="pt-0 cache-body">
+        <div class="cache-field">
+          <div class="cache-actions">
+            <VBtn
+              variant="tonal"
+              prepend-icon="mdi-database-arrow-down-outline"
+              :loading="busy === 'sync'"
+              :disabled="!status?.enabled || Boolean(status?.sync?.running)"
+              @click="startSync"
+            >
+              开始回溯同步
+            </VBtn>
+            <VBtn
+              variant="tonal"
+              prepend-icon="mdi-stop-circle-outline"
+              :disabled="!status?.sync?.running"
+              @click="cancelSync"
+            >
+              停止同步
+            </VBtn>
+            <VBtn
+              variant="tonal"
+              color="error"
+              prepend-icon="mdi-database-remove-outline"
+              :disabled="!status?.enabled || !(status?.chats > 0)"
+              @click="clearDialog = true"
+            >
+              清空缓存
+            </VBtn>
+          </div>
+          <div class="cache-hint">
+            回溯同步在后台线程执行，界面可随时刷新查看进度；清空只删缓存与同步位点，下次回溯会重新拉取。
+          </div>
         </div>
 
         <VTable density="compact" class="cache-table">
@@ -338,24 +335,26 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">缓存检索</VCardTitle>
       </VCardItem>
-      <VCardText>
-        <div class="cache-search">
-          <VTextField
-            v-model="keyword"
-            label="片名关键词"
-            placeholder="青与碧"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="cache-search-input"
-            @keyup.enter="doSearch"
-          />
-          <VBtn variant="tonal" prepend-icon="mdi-magnify" :loading="busy === 'search'" @click="doSearch">
-            检索
-          </VBtn>
-        </div>
-        <div class="cache-hint">
-          检索本地缓存（不访问 TG）：先按归一标题匹配，再退回全文模糊；用于验证「订阅回搜能不能命中」。
+      <VCardText class="pt-0 cache-body">
+        <div class="cache-field">
+          <div class="cache-search">
+            <VTextField
+              v-model="keyword"
+              label="片名关键词"
+              placeholder="青与碧"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="cache-search-input"
+              @keyup.enter="doSearch"
+            />
+            <VBtn variant="tonal" prepend-icon="mdi-magnify" :loading="busy === 'search'" @click="doSearch">
+              检索
+            </VBtn>
+          </div>
+          <div class="cache-hint">
+            检索本地缓存（不访问 TG）：先按归一标题匹配，再退回全文模糊；用于验证「订阅回搜能不能命中」。
+          </div>
         </div>
 
         <VTable v-if="searchItems.length" density="compact" class="cache-table">
@@ -393,7 +392,7 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">订阅回搜</VCardTitle>
       </VCardItem>
-      <VCardText>
+      <VCardText class="pt-0 cache-body">
         <div class="cache-hint">
           实时路径：MoviePilot 新增订阅 → 插件收到订阅事件 → 防抖后<strong>按该订阅</strong>回搜缓存（删除后重新添加同样回搜，
           已推过的由命中流水拦掉，不会重复推送）。兜底路径：定时对比订阅快照（默认每 30 分钟，
@@ -448,7 +447,7 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">存量补扫</VCardTitle>
       </VCardItem>
-      <VCardText>
+      <VCardText class="pt-0 cache-body">
         <div class="cache-hint">
           反扫缓存补缺集：定时捞出<strong>水位之后新入库</strong>的缓存消息，逐条判缺失
           （已订阅 + 媒体库缺，与监控同款判定）→ 过前向闸门（PT 在途不抢）→ 入队推送。
@@ -536,9 +535,10 @@ import { getPluginApi, postPluginApi, putPluginApi, unwrap } from '../api'
 /**
  * ⑤ 历史消息缓存面板。
  *
- * 数据流：缓存设置（频道 / 目标 / 范围 / cron）走 `/cache/settings` 专用接口，
+ * 数据流：缓存设置（频道 / 范围 / cron）走 `/cache/settings` 专用接口，
  * 保存即归一、即时生效；但与「资源监控」一致，这些键**同时写回主表单**
  * （宿主「保存配置」是整份覆盖，表单里没有的键会被清掉）。
+ * 推送目标固定 115 网盘（与「资源监控」同一口径），界面上不再提供选择。
  * 状态 / 统计 / 检索只读，回溯同步与订阅检查是触发型接口。
  *
  * 纪律（沿用全项目约定）：
@@ -561,9 +561,11 @@ const message = ref('')
 const messageOk = ref(true)
 const dialogs = ref([])
 
+// 推送目标固定为 115 网盘：不再暴露「命中推送目标」下拉，保存时一律发 pan115（后端 DESTINATION_VALUES 合法值）
+const FIXED_DESTINATION = 'pan115'
+
 const settings = ref({
   chat_ids: [],
-  destination: 'smart',
   sync_mode: 'relative',
   sync_days: 30,
   start_date: '',
@@ -575,12 +577,6 @@ const settings = ref({
   cron: '0 */6 * * *',
   subscribe_cron: '*/5 * * * *',
 })
-const destinations = ref([
-  { value: 'smart', title: '智能（115 可用则转存，否则仅记录）' },
-  { value: 'pan115', title: '115 网盘（分享转存 / 磁力 eD2k 离线）' },
-  { value: 'tg_forward', title: 'TG 转发（转发原消息到目标会话）' },
-  { value: 'none', title: '仅记录（不推送）' },
-])
 const syncModes = ref([
   { value: 'all', title: '所有消息（全量）' },
   { value: 'relative', title: '最近 N 天' },
@@ -607,7 +603,7 @@ function setMessage(text, ok = true) {
 function syncSettingsToForm() {
   // 这些键必须留在主表单里：宿主「保存配置」整份覆盖，表单没有的字段会被清空
   form.value.cache_chat_ids = (settings.value.chat_ids || []).map(Number).filter(Boolean)
-  form.value.cache_destination = settings.value.destination
+  form.value.cache_destination = FIXED_DESTINATION
   form.value.cache_sync_mode = settings.value.sync_mode
   form.value.cache_sync_days = Number(settings.value.sync_days) || 30
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200
@@ -622,7 +618,6 @@ function applySettings(data) {
   const source = data && typeof data === 'object' ? data : {}
   settings.value = {
     chat_ids: Array.isArray(source.chat_ids) ? source.chat_ids.map(Number).filter(Boolean) : [],
-    destination: source.destination || 'smart',
     sync_mode: source.sync_mode || 'relative',
     sync_days: Number(source.sync_days) || 30,
     start_date: '',
@@ -634,7 +629,6 @@ function applySettings(data) {
     cron: source.cron || '0 */6 * * *',
     subscribe_cron: source.subscribe_cron || '*/5 * * * *',
   }
-  if (Array.isArray(source.destinations) && source.destinations.length) destinations.value = source.destinations
   if (Array.isArray(source.sync_modes) && source.sync_modes.length) syncModes.value = source.sync_modes
   syncSettingsToForm()
 }
@@ -687,7 +681,8 @@ async function saveSettings() {
     const payload = {
       enabled: Boolean(form.value.cache_enabled),
       chat_ids: (settings.value.chat_ids || []).map(Number).filter(Boolean),
-      destination: settings.value.destination,
+      // 推送目标固定 115 网盘，不再跟随界面（后端 destination 合法值：smart/pan115/tg_forward/none）
+      destination: FIXED_DESTINATION,
       sync_mode: settings.value.sync_mode,
       sync_days: Number(settings.value.sync_days) || 30,
       batch_size: Number(settings.value.batch_size) || 200,
@@ -935,36 +930,40 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.cache-pane { display: flex; flex-direction: column; gap: 12px; }
+.cache-pane { display: flex; flex-direction: column; gap: 8px; }
 .cache-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
 .cache-message { font-size: 13px; }
+/* 卡片内容：纵向堆叠统一 8px（配合 VCardText 的 pt-0 收紧标题下间距） */
+.cache-body { display: flex; flex-direction: column; gap: 8px; }
 .cache-status { display: flex; gap: 6px; flex-wrap: wrap; }
 .cache-status-sub {
   display: flex;
-  gap: 12px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
   font-size: 12px;
+  line-height: 1.5;
   opacity: 0.7;
 }
-.cache-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; }
-.cache-grid-cron { grid-template-columns: 1fr 1fr; margin-top: 12px; }
-@media (max-width: 900px) {
-  .cache-grid, .cache-grid-cron { grid-template-columns: 1fr; }
+/* 频道 / 范围 / 天数条数 / 开关：等宽自适应列，窄屏自动单列（与「资源监控」同一网格口径） */
+.cache-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
 }
-.cache-chats { display: flex; flex-direction: column; gap: 8px; }
-.cache-range { display: flex; flex-direction: column; gap: 8px; }
-.cache-dates { display: flex; gap: 8px; }
-.cache-options { display: flex; flex-direction: column; gap: 8px; }
+/* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
+.cache-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* 开关行与同排输入框（compact + outlined，40px）高度对齐 */
+.cache-switch-row { display: flex; align-items: center; min-height: 40px; }
+.cache-dates { display: flex; gap: 6px; min-width: 0; }
+.cache-dates > * { flex: 1 1 0; min-width: 0; }
 .cache-switch-label { font-size: 13px; }
 .cache-hint {
-  margin-top: 6px;
   font-size: 12px;
+  line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.6);
-  line-height: 1.6;
 }
-.cache-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-.cache-table { font-size: 12.5px; margin-top: 12px; }
+.cache-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cache-table { font-size: 12.5px; }
 .cache-table .cache-nowrap { white-space: nowrap; }
 .cache-mono { font-family: monospace; }
 .cache-dim { opacity: 0.7; }
@@ -976,9 +975,9 @@ onUnmounted(() => {
   font-size: 11.5px;
 }
 .cache-empty { text-align: center; padding: 16px; opacity: 0.6; }
-.cache-search { display: flex; gap: 8px; align-items: center; }
+.cache-search { display: flex; gap: 6px; align-items: center; }
 .cache-search-input { flex: 1 1 auto; }
-.cache-details { margin-top: 10px; font-size: 12px; }
+.cache-details { font-size: 12px; }
 .cache-detail { opacity: 0.75; line-height: 1.7; }
 .cache-dialog-text { font-size: 13px; line-height: 1.7; }
 </style>

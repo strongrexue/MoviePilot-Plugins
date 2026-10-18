@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "tgmediacenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "胖虎媒体中心"
-    assert TgMediaCenter.plugin_version == "1.13.8"
+    assert TgMediaCenter.plugin_version == "1.13.9"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 
@@ -50,7 +50,8 @@ def test_default_config_shape():
                 "tg_user_cooldown_seconds", "tg_keep_alive_seconds",
                 "tg_aggregation_window_seconds"):
         assert key in config
-    assert config["cache_destination"] == "smart"
+    # 1.13.9：命中推送目标固定 115 网盘（界面不再提供选择）
+    assert config["cache_destination"] == "pan115"
     assert config["tg_user_cooldown_seconds"] == 5
     # 1.8.0：发现页入口默认关（不开的人不该凭空多一个导航项）
     assert config["discovery_page_enabled"] is False

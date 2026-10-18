@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getPluginApi, postPluginApi, unwrap } from '../api'
 import { FRONTEND_VERSION } from '../version'
 import SecretField from './SecretField.vue'
-import TgDialogList from './TgDialogList.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -301,6 +300,17 @@ const chips = computed(() => {
   ]
 })
 
+/**
+ * 对话列表的下拉框选项。
+ *
+ * 原实现用整块 VCard + VList 展示，占掉页面一大片高度；改成下拉框内部滑动后，
+ * 只渲染展开时可见的条目。type / name 缺失时用「其他」/「名称未知」兜底。
+ */
+const dialogItems = computed(() => (dialogs.value || []).map((item) => ({
+  title: `${item?.type || '其他'} · ${item?.name || '名称未知'}（${item?.id ?? ''}）`,
+  value: item?.id ?? null,
+})))
+
 /** 会话已保存但客户端没连上：提示自愈路径，避免误以为"登录丢了"。 */
 const needsReconnect = computed(() => {
   const info = status.value || {}
@@ -362,7 +372,7 @@ onUnmounted(() => {
 
     <VCard flat class="tg-card">
       <VCardTitle class="text-subtitle-2">API 凭证</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0">
         <VRow dense>
           <VCol cols="12" md="6">
             <SecretField v-model="form.tg_api_id" label="API ID" />
@@ -414,7 +424,7 @@ onUnmounted(() => {
 
     <VCard flat class="tg-card">
       <VCardTitle class="text-subtitle-2">登录向导</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0">
         <!-- 已授权：收起验证码输入与登录按钮，只保留状态与操作（对齐 MA 的"已授权"形态） -->
         <template v-if="status?.authorized">
           <div class="tg-authorized">
@@ -539,24 +549,42 @@ onUnmounted(() => {
       </VCardText>
     </VCard>
 
-    <TgDialogList :dialogs="dialogs" :updated-at="dialogsUpdatedAt" />
+    <!-- 对话列表：只读下拉框，展开后在菜单内滑动查看 / 搜索，不再整块铺开 -->
+    <div class="tg-dialogs">
+      <VAutocomplete
+        :items="dialogItems"
+        :model-value="null"
+        :label="`对话列表（${dialogs.length} 个）`"
+        density="compact"
+        variant="outlined"
+        hide-details
+        :menu-props="{ maxHeight: 320 }"
+        :no-data-text="dialogs.length ? '没有匹配的对话' : '暂无缓存：登录后点「刷新对话列表」拉取'"
+      />
+      <div class="tg-hint">
+        <template v-if="dialogsUpdatedAt">更新于 {{ dialogsUpdatedAt }}。 </template>
+        展开下拉框可滑动查看全部对话，也可直接输入关键词搜索；点「刷新对话列表」重新拉取。
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.tg-pane { display: flex; flex-direction: column; gap: 12px; }
-.tg-status-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.tg-pane { display: flex; flex-direction: column; gap: 8px; }
+.tg-status-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
 .tg-status-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.tg-status-actions { display: flex; gap: 4px; flex-wrap: wrap; }
-.tg-authorized { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tg-status-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tg-authorized { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tg-authorized-name { font-size: 13px; color: rgba(var(--v-theme-on-surface), 0.75); }
 .tg-account,
 .tg-message { font-size: 13px; }
 .tg-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
-.tg-wizard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-.tg-wizard-password { margin-top: 8px; }
+.tg-wizard { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.tg-wizard-password { margin-top: 6px; }
 .tg-wizard-input { flex: 1 1 200px; min-width: 160px; }
-.tg-wizard-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.tg-hint { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6; }
+.tg-wizard-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.tg-dialogs { display: flex; flex-direction: column; gap: 6px; }
+.tg-dialogs .tg-hint { margin-top: 0; }
+.tg-hint { margin-top: 4px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
 .tg-secret { cursor: pointer; user-select: none; }
 </style>

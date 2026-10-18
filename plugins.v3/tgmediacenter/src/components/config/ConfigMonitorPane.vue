@@ -178,7 +178,7 @@
       </VCardItem>
       <VCardText>
         <div v-if="!rules.length" class="mon-empty">
-          还没有规则。点「添加规则」创建第一条：选择监听频道、推送目标，保存后立即生效。
+          还没有规则。点「添加规则」创建第一条：选择监听频道，保存后立即生效。
         </div>
 
         <VCard
@@ -187,15 +187,22 @@
           flat
           class="mon-rule"
         >
-          <VCardText>
+          <VCardText class="pt-0">
+            <!-- 头部一行：左侧监听频道，右侧启用开关与删除，窄屏自动换行 -->
             <div class="mon-rule-head">
-              <VTextField
-                v-model="rule.name"
-                label="规则名称"
+              <VSelect
+                v-model="rule.source_ids"
+                :items="selectItems"
+                item-title="title"
+                item-value="value"
+                label="监听频道 / 群组"
+                multiple
+                chips
+                closable-chips
                 density="compact"
                 variant="outlined"
                 hide-details
-                class="mon-rule-name"
+                class="mon-rule-chats"
               />
               <div
                 class="mon-rule-switch"
@@ -215,72 +222,37 @@
               </VBtn>
             </div>
 
+            <!-- 正文网格：名称 / 缺失判断 / 关键词 / 排除词 四组，窄屏自动单列 -->
             <div class="mon-rule-grid">
-              <div class="mon-chats">
-                <VSelect
-                  v-model="rule.source_ids"
-                  :items="selectItems"
-                  item-title="title"
-                  item-value="value"
-                  label="监听频道 / 群组"
-                  multiple
-                  chips
-                  closable-chips
+              <div class="mon-field">
+                <VTextField
+                  v-model="rule.name"
+                  label="规则名称"
                   density="compact"
                   variant="outlined"
                   hide-details
                 />
-                <div class="mon-hint">
-                  下拉项来自「TG 凭证」页的对话列表缓存；看不到想要的会话，先到「TG 凭证」页刷新对话列表再点「刷新状态」。
-                </div>
               </div>
 
-              <div class="mon-target">
-                <VSelect
-                  v-model="rule.destination"
-                  :items="destinations"
-                  item-title="title"
-                  item-value="value"
-                  label="推送目标"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-                <VSelect
-                  v-if="rule.destination === 'tg_forward'"
-                  v-model="rule.target_id"
-                  :items="targetItems"
-                  item-title="title"
-                  item-value="value"
-                  label="转发目标频道 / 群组"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  class="mon-target-id"
-                />
-                <div v-if="rule.destination === 'smart'" class="mon-hint">
-                  智能：115 已启用且已登录时转存到 115，否则仅记录。
+              <div class="mon-field">
+                <div class="mon-switch-row">
+                  <VSwitch v-model="rule.match_only_if_missing" color="primary" hide-details inset density="compact">
+                    <template #label>
+                      <span class="mon-switch-label">仅缺失时推送</span>
+                    </template>
+                  </VSwitch>
                 </div>
-                <div v-if="rule.destination === 'pan115'" class="mon-hint">
-                  推送到 115（分享转存 / 磁力 / eD2k 离线），需在「115 网盘」页完成扫码登录。
-                </div>
-                <div v-if="rule.destination === 'tg_forward'" class="mon-hint">
-                  转发原消息到所选会话；目标必须是当前账号能看到的会话。
-                </div>
-              </div>
-
-              <div class="mon-match">
-                <VSwitch v-model="rule.match_only_if_missing" color="primary" hide-details inset>
-                  <template #label>
-                    <span class="mon-switch-label">仅缺失时推送</span>
-                  </template>
-                </VSwitch>
                 <div class="mon-hint">按 MP 媒体服务器与订阅状态判断；无法判断时命中会跳过。</div>
-                <VSwitch v-model="rule.match_custom_keywords" color="primary" hide-details inset>
-                  <template #label>
-                    <span class="mon-switch-label">自定义关键词过滤</span>
-                  </template>
-                </VSwitch>
+              </div>
+
+              <div class="mon-field">
+                <div class="mon-switch-row">
+                  <VSwitch v-model="rule.match_custom_keywords" color="primary" hide-details inset density="compact">
+                    <template #label>
+                      <span class="mon-switch-label">自定义关键词过滤</span>
+                    </template>
+                  </VSwitch>
+                </div>
                 <VCombobox
                   v-if="rule.match_custom_keywords"
                   v-model="rule.custom_keywords"
@@ -291,18 +263,19 @@
                   density="compact"
                   variant="outlined"
                   hide-details
-                  class="mon-keywords"
                 />
+              </div>
+
+              <div class="mon-field">
                 <VCombobox
                   v-model="rule.exclude_keywords"
                   multiple
                   chips
                   closable-chips
-                  label="排除关键词（任一命中即不推送，优先于上方关键词）"
+                  label="排除关键词（任一命中即不推送）"
                   density="compact"
                   variant="outlined"
                   hide-details
-                  class="mon-keywords"
                 />
                 <div class="mon-hint">
                   排除词对整条消息做子串匹配（标题、题材、分类行都算），如「加更」「花絮」「预告」；
@@ -556,12 +529,8 @@ const loading = ref(false)
 const busy = ref('')
 const message = ref('')
 const messageOk = ref(true)
-const destinations = ref([
-  { value: 'smart', title: '智能（115 可用则转存，否则仅记录）' },
-  { value: 'pan115', title: '115 网盘（分享转存 / 磁力 eD2k 离线）' },
-  { value: 'tg_forward', title: 'TG 转发（转发原消息到目标会话）' },
-  { value: 'none', title: '仅记录（不推送）' },
-])
+// 推送目标固定为 115 网盘：规则里不再暴露「推送目标」，保存时一律发 pan115（后端 DESTINATION_VALUES 合法值）
+const FIXED_DESTINATION = 'pan115'
 const decisions = ref([
   { value: 'hit', title: '已推送' },
   { value: 'skipped_not_missing', title: '不缺（已存在）' },
@@ -612,8 +581,7 @@ function blankRule() {
     id: newRuleId(),
     name: '',
     source_ids: [],
-    destination: 'smart',
-    target_id: '',
+    destination: FIXED_DESTINATION,
     match_only_if_missing: true,
     match_custom_keywords: false,
     custom_keywords: [],
@@ -637,15 +605,14 @@ async function loadStatus() {
 async function loadRules() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'monitor/rules', { timeoutMs: 15000 }))
-    if (data?.destinations?.length) destinations.value = data.destinations
     if (data?.decisions?.length) decisions.value = data.decisions
     const list = Array.isArray(data?.rules) ? data.rules : []
     rules.value = list.map(rule => ({
       id: rule.id || newRuleId(),
       name: rule.name || '',
       source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(Number) : [],
-      destination: rule.destination || 'smart',
-      target_id: rule.target_id || '',
+      // 推送目标不再可选，历史规则的其他取值也一并归一到 115
+      destination: FIXED_DESTINATION,
       match_only_if_missing: rule.match_only_if_missing !== false,
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
@@ -771,8 +738,9 @@ async function saveRules() {
       id: rule.id,
       name: String(rule.name || '').trim() || '未命名规则',
       source_ids: rule.source_ids,
-      destination: rule.destination,
-      target_id: String(rule.target_id || '').trim(),
+      // 固定走 115 网盘，不再接受前端选项；target_id 留空（仅 TG 转发才需要）
+      destination: FIXED_DESTINATION,
+      target_id: '',
       match_only_if_missing: Boolean(rule.match_only_if_missing),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: (rule.custom_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
@@ -859,20 +827,6 @@ const selectItems = computed(() => {
   return items
 })
 
-// 转发目标下拉（推送目标 = TG 转发时）：同一份对话缓存 + 已保存的目标值兜底
-const targetItems = computed(() => {
-  const items = dialogOptions.value.slice()
-  const known = new Set(items.map(item => item.value))
-  for (const rule of rules.value) {
-    const id = Number(rule.target_id)
-    if (id && !known.has(id)) {
-      items.push({ title: String(id), value: id })
-      known.add(id)
-    }
-  }
-  return items
-})
-
 // 关心会话的用途标注（监控 / 缓存 / 两者）
 function purposeLabel(purposes) {
   const list = Array.isArray(purposes) ? purposes : []
@@ -944,11 +898,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.mon-pane { display: flex; flex-direction: column; gap: 12px; }
+.mon-pane { display: flex; flex-direction: column; gap: 8px; }
 .mon-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
 .mon-message { font-size: 13px; }
 .mon-status { display: flex; gap: 6px; flex-wrap: wrap; }
-.mon-status-sub { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; opacity: 0.7; }
+.mon-status-sub { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; opacity: 0.7; }
 .mon-events { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
 .mon-events-title { opacity: 0.7; }
 .mon-events-last { opacity: 0.6; }
@@ -957,34 +911,37 @@ onUnmounted(() => {
 .mon-id-chip { font-family: monospace; }
 .mon-id-purpose { opacity: 0.75; }
 .mon-flood { color: rgb(var(--v-theme-warning)); }
-.mon-matcher { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; }
+.mon-matcher { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
 .mon-matcher-chip { margin-left: 0; }
 .mon-matcher-warn { color: rgb(var(--v-theme-warning)); line-height: 1.6; }
-.mon-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-.mon-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-bottom: 10px; }
-.mon-rule-head { display: flex; gap: 10px; align-items: center; }
-.mon-rule-name { flex: 1 1 auto; }
+.mon-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.mon-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-top: 8px; }
+/* 头部一行：监听频道（自适应）+ 启用开关 + 删除，窄屏自动换行 */
+.mon-rule-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mon-rule-chats { flex: 1 1 260px; min-width: 0; }
 .mon-rule-switch { display: flex; align-items: center; gap: 2px; }
 .mon-switch-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.7); white-space: nowrap; }
-.mon-rule-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; margin-top: 10px; }
-@media (max-width: 900px) {
-  .mon-rule-grid { grid-template-columns: 1fr; }
+/* 正文网格：等宽自适应列，窄屏自动降为单列 */
+.mon-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
 }
-.mon-target { display: flex; flex-direction: column; gap: 8px; }
-.mon-target-id { margin-top: 0; }
-.mon-match { display: flex; flex-direction: column; gap: 4px; }
-.mon-switch-label { font-size: 13px; }
-.mon-keywords { margin-top: 4px; }
-.mon-hint { margin-top: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6; }
+/* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
+.mon-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* 开关行与同排输入框（compact + outlined，40px）高度对齐 */
+.mon-switch-row { display: flex; align-items: center; min-height: 40px; }
+.mon-hint { margin-top: 0; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
 .mon-empty {
-  padding: 18px 12px;
+  padding: 12px;
   text-align: center;
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 10px;
 }
-.mon-test-result { margin-top: 12px; }
+.mon-test-result { margin-top: 8px; }
 .mon-test-line { font-size: 13px; margin-bottom: 4px; }
 .mon-test-none { opacity: 0.7; }
 .mon-test-list {
@@ -1007,6 +964,6 @@ onUnmounted(() => {
 .mon-hits-empty { text-align: center; padding: 16px; opacity: 0.6; }
 .mon-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .mon-pager-info { font-size: 12px; opacity: 0.7; }
-.mon-hits-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.mon-hits-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .mon-hits-search { flex: 1 1 220px; max-width: 320px; }
 </style>

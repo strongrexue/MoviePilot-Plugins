@@ -275,8 +275,9 @@ class CacheModule:
         return bool(self._cfg("cache_enabled"))
 
     def destination(self) -> str:
-        value = str(self._cfg("cache_destination", "smart") or "smart").strip().lower()
-        return value if value in DESTINATION_VALUES else "smart"
+        """命中推送目标：1.13.9 起固定走 115（界面不再提供选择）。"""
+        value = str(self._cfg("cache_destination", "pan115") or "pan115").strip().lower()
+        return value if value in DESTINATION_VALUES else "pan115"
 
     def chat_ids(self) -> List[int]:
         """归一后的缓存频道列表。"""

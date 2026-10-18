@@ -30,7 +30,7 @@ export const configDefaults = {
   // ⑤ 历史消息缓存（设置由 /cache/settings 归一，这里保证「保存配置」不丢字段）
   cache_enabled: false,
   cache_chat_ids: [],
-  cache_destination: 'smart',
+  cache_destination: 'pan115',
   cache_sync_mode: 'relative',
   cache_sync_days: 30,
   cache_batch_size: 200,

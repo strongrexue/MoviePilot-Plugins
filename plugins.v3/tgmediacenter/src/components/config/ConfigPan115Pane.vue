@@ -292,7 +292,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">账号与授权</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0 p115-body">
         <div class="p115-status">
           <span class="p115-account">{{ accountLine }}</span>
           <span class="p115-sep">|</span>
@@ -392,7 +392,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">任务设置</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0 p115-body">
         <VRow dense>
           <VCol cols="12" md="8">
             <VTextField v-model="form.pan115_target_cid" label="转存文件夹 CID" density="compact" variant="outlined" hide-details />
@@ -422,7 +422,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">通知</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0 p115-body">
         <div class="p115-notify">
           <VSwitch v-model="form.notify_on_hit" color="primary" hide-details inset>
             <template #label><span class="p115-switch-label">转存成功后通知我</span></template>
@@ -447,7 +447,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">推送测试</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0 p115-body">
         <VTextarea
           v-model="pushText"
           label="粘贴链接（115 分享链接 / 磁力 / ed2k，可多行多条）"
@@ -498,7 +498,7 @@ onUnmounted(qrStopPolling)
           实际推送需要已保存的 Cookie 与目标目录 CID。
         </div>
 
-        <VSwitch v-model="form.interactive_push" color="primary" hide-details inset class="p115-switch">
+        <VSwitch v-model="form.interactive_push" color="primary" hide-details inset>
           <template #label><span class="p115-switch-label">允许私聊机器人发链接直接转存 115</span></template>
         </VSwitch>
         <div class="p115-hint">
@@ -507,7 +507,7 @@ onUnmounted(qrStopPolling)
           回执与其余通知一样走宿主的「通知」渠道。
         </div>
 
-        <VSwitch v-model="form.interactive_dedup" color="primary" hide-details inset class="p115-switch">
+        <VSwitch v-model="form.interactive_dedup" color="primary" hide-details inset>
           <template #label><span class="p115-switch-label">私聊转存查重（已转存过的链接不重复转存）</span></template>
         </VSwitch>
         <div class="p115-hint">
@@ -521,35 +521,41 @@ onUnmounted(qrStopPolling)
 </template>
 
 <style scoped>
-.p115-pane { display: flex; flex-direction: column; gap: 12px; }
+/* 分区根容器：卡片之间统一 8px */
+.p115-pane { display: flex; flex-direction: column; gap: 8px; }
 .p115-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
+/* 卡片正文：纵向堆叠统一 8px，顶部内边距由模板上的 pt-0 收掉 */
+.p115-body { display: flex; flex-direction: column; gap: 8px; }
 .p115-message { font-size: 13px; }
-.p115-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+/* 同一行内横向元素统一 6px */
+.p115-status { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
 .p115-account { color: rgb(var(--v-theme-primary)); font-weight: 500; }
 .p115-sep { opacity: 0.4; }
 .p115-updated { margin-left: auto; font-size: 12px; opacity: 0.6; }
-.p115-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-.p115-qr { margin-top: 12px; padding: 12px; border-radius: 10px; background: rgba(var(--v-theme-on-surface), 0.03); }
-.p115-qr-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.p115-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* 登录向导盒子：内边距收紧到 10px，内部纵向堆叠 8px，与外层间距交给父级 gap */
+.p115-qr { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: rgba(var(--v-theme-on-surface), 0.03); }
+.p115-qr-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .p115-qr-app { flex: 0 0 260px; max-width: 100%; }
-.p115-qr-body { display: flex; gap: 16px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.p115-qr-body { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .p115-qr-img { width: 168px; height: 168px; border-radius: 8px; background: #fff; padding: 6px; }
-.p115-qr-meta { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+.p115-qr-meta { display: flex; flex-direction: column; gap: 8px; min-width: 180px; }
 .p115-qr-state { font-size: 14px; font-weight: 500; color: rgb(var(--v-theme-primary)); }
-.p115-qr-tip { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.65); line-height: 1.6; }
-.p115-sub { margin-top: 14px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); }
-.p115-hint { margin-top: 10px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.7; }
-.p115-notify { display: flex; gap: 24px; flex-wrap: wrap; }
+.p115-qr-tip { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.65); line-height: 1.5; }
+/* 说明文字：12px / 1.5，与上方控件净间距 4px（父级 gap 8px，用 -4px 抵消） */
+.p115-hint { margin-top: -4px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
+/* 通知开关纵向堆叠，间距与其它区块一致 8px */
+.p115-notify { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .p115-switch-label { font-size: 13px; }
-.p115-switch { margin-top: 12px; }
 .p115-hint code {
   padding: 1px 4px;
   border-radius: 4px;
   background: rgba(var(--v-theme-on-surface), 0.08);
   font-size: 11px;
 }
-.p115-result { margin-top: 12px; }
-.p115-result-head { font-size: 13px; margin-bottom: 4px; }
+/* 推送结果：标题与列表纵向 8px */
+.p115-result { display: flex; flex-direction: column; gap: 8px; }
+.p115-result-head { font-size: 13px; }
 .p115-result-list {
   max-height: 220px;
   overflow-y: auto;
@@ -564,7 +570,6 @@ onUnmounted(qrStopPolling)
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
   padding: 5px 5px 5px 12px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 10px;

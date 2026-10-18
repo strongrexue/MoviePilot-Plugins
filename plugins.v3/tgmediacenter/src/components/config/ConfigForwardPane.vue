@@ -25,7 +25,7 @@
     <!-- 运行状态 -->
     <VCard flat class="fwd-card">
       <VCardTitle class="text-subtitle-2">运行状态</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0">
         <div class="fwd-status">
           <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
             转发{{ status?.enabled ? '已启用' : '未启用' }}
@@ -65,7 +65,7 @@
           <VBtn size="small" variant="tonal" prepend-icon="mdi-plus" @click="addRule">添加规则</VBtn>
         </template>
       </VCardItem>
-      <VCardText>
+      <VCardText class="pt-0">
         <div v-if="!rules.length" class="fwd-empty">
           还没有规则。点「添加规则」创建第一条：选择来源频道与转发目标，保存后立即生效。
         </div>
@@ -76,55 +76,56 @@
           flat
           class="fwd-rule"
         >
-          <VCardText>
+          <!-- 规则卡片：顶部留 8px，避免 outlined 控件贴住卡片描边 -->
+          <VCardText class="pt-2 pb-2 px-3">
+            <!-- 卡片头：左侧「来源频道」下拉，右侧「启用」开关与删除按钮，窄屏自动换行 -->
             <div class="fwd-rule-head">
-              <VTextField
-                v-model="rule.name"
-                label="规则名称"
+              <VSelect
+                v-model="rule.source_ids"
+                :items="selectItems"
+                item-title="title"
+                item-value="value"
+                label="来源频道 / 群组"
+                multiple
+                chips
+                closable-chips
                 density="compact"
                 variant="outlined"
                 hide-details
-                class="fwd-rule-name"
+                class="fwd-rule-source"
               />
-              <div
-                class="fwd-rule-switch"
-                title="规则总开关：关闭后这条转发规则不生效（不转发、也不会有通知）；改动随底部「保存配置」生效。"
-              >
-                <VSwitch v-model="rule.enabled" color="success" hide-details inset density="compact" />
-                <span class="fwd-switch-label">启用规则</span>
+              <div class="fwd-rule-tools">
+                <div
+                  class="fwd-rule-switch"
+                  title="规则总开关：关闭后这条转发规则不生效（不转发、也不会有通知）；改动随底部「保存配置」生效。"
+                >
+                  <VSwitch v-model="rule.enabled" color="success" hide-details inset density="compact" />
+                  <span class="fwd-switch-label">启用</span>
+                </div>
+                <VBtn
+                  size="small"
+                  variant="text"
+                  color="error"
+                  prepend-icon="mdi-delete-outline"
+                  @click="removeRule(index)"
+                >
+                  删除
+                </VBtn>
               </div>
-              <VBtn
-                size="small"
-                variant="text"
-                color="error"
-                prepend-icon="mdi-delete-outline"
-                @click="removeRule(index)"
-              >
-                删除
-              </VBtn>
             </div>
 
+            <!-- 正文网格：转发 / 关键词 / 扩展名 / 转换 四组，每格最小 220px，窄屏自动换行 -->
             <div class="fwd-rule-grid">
-              <div class="fwd-chats">
-                <VSelect
-                  v-model="rule.source_ids"
-                  :items="selectItems"
-                  item-title="title"
-                  item-value="value"
-                  label="来源频道 / 群组"
-                  multiple
-                  chips
-                  closable-chips
+              <!-- 组一：转发（规则名 + 目标 + 置顶） -->
+              <div class="fwd-group">
+                <div class="fwd-group-title">转发</div>
+                <VTextField
+                  v-model="rule.name"
+                  label="规则名称"
                   density="compact"
                   variant="outlined"
                   hide-details
                 />
-                <div class="fwd-hint">
-                  下拉项来自「TG 凭证」页的对话列表缓存；看不到想要的会话，先到「TG 凭证」页刷新对话列表再点「刷新状态」。
-                </div>
-              </div>
-
-              <div class="fwd-target">
                 <VSelect
                   v-model="rule.target_id"
                   :items="targetItems"
@@ -135,121 +136,95 @@
                   variant="outlined"
                   hide-details
                 />
+                <VSwitch v-model="rule.pin_links_enabled" color="primary" hide-details inset density="compact">
+                  <template #label><span class="fwd-switch-label">转发后置顶</span></template>
+                </VSwitch>
+                <VCombobox
+                  v-if="rule.pin_links_enabled"
+                  v-model="rule.pin_link_keywords"
+                  multiple
+                  chips
+                  closable-chips
+                  label="仅命中这些关键词时置顶（留空=有链接就置顶）"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                />
+                <div v-else class="fwd-hint">置顶以链接为对象：没有链接的消息不置顶。</div>
+              </div>
+
+              <!-- 组二：关键词（自定义关键词 + 排除词） -->
+              <div class="fwd-group">
+                <div class="fwd-group-title">关键词</div>
+                <VSwitch v-model="rule.match_custom_keywords" color="primary" hide-details inset density="compact">
+                  <template #label><span class="fwd-switch-label">自定义关键词</span></template>
+                </VSwitch>
+                <VCombobox
+                  v-if="rule.match_custom_keywords"
+                  v-model="rule.custom_keywords"
+                  multiple
+                  chips
+                  closable-chips
+                  label="关键词"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                />
+                <div v-else class="fwd-hint">启用后只有命中关键词的消息才转发；不启用 = 该级不设限。</div>
+                <VCombobox
+                  v-model="rule.exclude_keywords"
+                  multiple
+                  chips
+                  closable-chips
+                  label="排除关键词（任一命中即不转发，优先于上面两级）"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                />
+                <div class="fwd-hint">对整条消息做子串匹配，如「加更」「花絮」「预告」；即使命中关键词，含排除词也不转发。</div>
+              </div>
+
+              <!-- 组三：扩展名 -->
+              <div class="fwd-group">
+                <div class="fwd-group-title">文件扩展名</div>
+                <VSwitch v-model="rule.match_file_extensions" color="primary" hide-details inset density="compact">
+                  <template #label><span class="fwd-switch-label">按扩展名过滤</span></template>
+                </VSwitch>
+                <VCombobox
+                  v-if="rule.match_file_extensions"
+                  v-model="rule.file_extensions_to_match"
+                  multiple
+                  chips
+                  closable-chips
+                  label="扩展名"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                />
+                <div class="fwd-hint">消息中出现指定扩展名（如 .mkv / [mp4]）才算命中。</div>
                 <div class="fwd-hint">
-                  转发到该会话（受全局冷却与 FloodWait 退避约束）。目标必须是当前账号能看到的会话，否则转发会失败并重试。
+                  逻辑一（关键词）与逻辑二（扩展名）<strong>恒为 AND</strong>：两者都启用时必须同时满足。
                 </div>
               </div>
-            </div>
 
-            <!-- 逻辑一：自定义关键词 -->
-            <div class="fwd-logic">
-              <div class="fwd-logic-title">逻辑一（关键词）</div>
-              <div class="fwd-logic-grid fwd-logic-grid-one">
-                <div>
-                  <VSwitch v-model="rule.match_custom_keywords" color="primary" hide-details inset>
-                    <template #label><span class="fwd-switch-label">自定义关键词</span></template>
-                  </VSwitch>
-                  <VCombobox
-                    v-if="rule.match_custom_keywords"
-                    v-model="rule.custom_keywords"
-                    multiple
-                    chips
-                    closable-chips
-                    label="关键词"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    class="fwd-keywords"
-                  />
-                  <div v-else class="fwd-hint">启用后只有命中关键词的消息才转发；不启用 = 该级不设限。</div>
-                  <VCombobox
-                    v-model="rule.exclude_keywords"
-                    multiple
-                    chips
-                    closable-chips
-                    label="排除关键词（任一命中即不转发，优先于上面两级）"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    class="fwd-keywords"
-                  />
-                  <div class="fwd-hint">对整条消息做子串匹配，如「加更」「花絮」「预告」；即使命中关键词，含排除词也不转发。</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 逻辑二：扩展名 -->
-            <div class="fwd-logic">
-              <div class="fwd-logic-title">逻辑二（文件扩展名）</div>
-              <div class="fwd-logic-grid">
-                <div>
-                  <VSwitch v-model="rule.match_file_extensions" color="primary" hide-details inset>
-                    <template #label><span class="fwd-switch-label">按扩展名过滤</span></template>
-                  </VSwitch>
-                  <div class="fwd-hint">消息中出现指定扩展名（如 .mkv / [mp4]）才算命中。</div>
-                </div>
-                <div>
-                  <VCombobox
-                    v-if="rule.match_file_extensions"
-                    v-model="rule.file_extensions_to_match"
-                    multiple
-                    chips
-                    closable-chips
-                    label="扩展名"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    class="fwd-keywords"
-                  />
-                </div>
-                <div class="fwd-hint fwd-logic-note">
-                  逻辑一与逻辑二之间<strong>恒为 AND</strong>：两者都启用时必须同时满足。
-                </div>
-              </div>
-            </div>
-
-            <!-- 置顶与转换 -->
-            <div class="fwd-logic">
-              <div class="fwd-logic-title">置顶与内容转换</div>
-              <div class="fwd-logic-grid">
-                <div>
-                  <VSwitch v-model="rule.pin_links_enabled" color="primary" hide-details inset>
-                    <template #label><span class="fwd-switch-label">转发后置顶</span></template>
-                  </VSwitch>
-                  <VCombobox
-                    v-if="rule.pin_links_enabled"
-                    v-model="rule.pin_link_keywords"
-                    multiple
-                    chips
-                    closable-chips
-                    label="仅命中这些关键词时置顶（留空=有链接就置顶）"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    class="fwd-keywords"
-                  />
-                  <div v-else class="fwd-hint">置顶以链接为对象：没有链接的消息不置顶。</div>
-                </div>
-                <div>
-                  <VSwitch v-model="rule.enable_transform" color="primary" hide-details inset>
-                    <template #label><span class="fwd-switch-label">内容转换</span></template>
-                  </VSwitch>
-                  <div class="fwd-hint">转换后以新内容发送（不改动原消息）。</div>
-                </div>
-                <div>
-                  <VTextarea
-                    v-if="rule.enable_transform"
-                    v-model="transformText[rule.id || index]"
-                    label="转换规则（每行一条：原文 -> 替换文，支持正则）"
-                    placeholder="广告词.*-> &#10;@\w+ -> "
-                    rows="3"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    class="fwd-transform"
-                    @update:model-value="syncTransform(rule, index)"
-                  />
-                </div>
+              <!-- 组四：内容转换 -->
+              <div class="fwd-group">
+                <div class="fwd-group-title">内容转换</div>
+                <VSwitch v-model="rule.enable_transform" color="primary" hide-details inset density="compact">
+                  <template #label><span class="fwd-switch-label">内容转换</span></template>
+                </VSwitch>
+                <VTextarea
+                  v-if="rule.enable_transform"
+                  v-model="transformText[rule.id || index]"
+                  label="转换规则（每行一条：原文 -> 替换文，支持正则）"
+                  placeholder="广告词.*-> &#10;@\w+ -> "
+                  rows="3"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  @update:model-value="syncTransform(rule, index)"
+                />
+                <div class="fwd-hint">转换后以新内容发送（不改动原消息）。</div>
               </div>
             </div>
           </VCardText>
@@ -273,7 +248,7 @@
     <!-- 规则测试 -->
     <VCard flat class="fwd-card">
       <VCardTitle class="text-subtitle-2">规则测试</VCardTitle>
-      <VCardText>
+      <VCardText class="pt-0">
         <VTextarea
           v-model="testText"
           label="粘贴一条来源频道消息原文"
@@ -345,7 +320,7 @@
           />
         </template>
       </VCardItem>
-      <VCardText>
+      <VCardText class="pt-0">
         <div class="fwd-hits-tools">
           <VTextField
             v-model="hitKeyword"
@@ -915,42 +890,37 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.fwd-pane { display: flex; flex-direction: column; gap: 12px; }
+.fwd-pane { display: flex; flex-direction: column; gap: 8px; }
 .fwd-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
 .fwd-message { font-size: 13px; }
 .fwd-status { display: flex; gap: 6px; flex-wrap: wrap; }
-.fwd-status-sub { margin-top: 8px; font-size: 12px; opacity: 0.75; line-height: 1.7; }
+.fwd-status-sub { margin-top: 6px; font-size: 12px; opacity: 0.75; line-height: 1.5; }
 .fwd-warn { color: rgb(var(--v-theme-warning)); }
-.fwd-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-.fwd-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-bottom: 10px; }
-.fwd-rule-head { display: flex; gap: 10px; align-items: center; }
-.fwd-rule-name { flex: 1 1 auto; }
-.fwd-rule-switch { display: flex; align-items: center; gap: 2px; }
+.fwd-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.fwd-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-bottom: 8px; }
+.fwd-rule:last-child { margin-bottom: 0; }
+/* 卡片头：来源下拉占满剩余宽度，开关与删除靠右，窄屏整体换行 */
+.fwd-rule-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fwd-rule-source { flex: 1 1 260px; min-width: 200px; }
+.fwd-rule-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.fwd-rule-switch { display: flex; align-items: center; gap: 4px; }
 .fwd-switch-label { font-size: 13px; color: rgba(var(--v-theme-on-surface), 0.7); white-space: nowrap; }
-.fwd-rule-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-top: 10px; }
-.fwd-logic { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); }
-.fwd-logic-title { font-size: 12.5px; font-weight: 600; opacity: 0.8; margin-bottom: 6px; }
-.fwd-logic-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-.fwd-logic-grid-one { grid-template-columns: 1fr; }
-.fwd-logic-note { align-self: end; }
-@media (max-width: 900px) {
-  .fwd-rule-grid { grid-template-columns: 1fr; }
-  .fwd-logic-grid { grid-template-columns: 1fr; }
-}
-.fwd-target { display: flex; flex-direction: column; gap: 6px; }
-.fwd-switch-label { font-size: 13px; }
-.fwd-keywords { margin-top: 6px; }
-.fwd-transform { margin-top: 6px; }
-.fwd-hint { margin-top: 6px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.6; }
+/* 正文网格：每格 220px 起自适应换行，同一行由 grid 自动等高对齐 */
+.fwd-rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-top: 8px; }
+.fwd-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fwd-group-title { font-size: 12.5px; font-weight: 600; opacity: 0.8; }
+.fwd-hint { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
+/* 组内纵向 gap 为 6px，提示文字再上提 2px，与上方控件净间距正好 4px */
+.fwd-group > .fwd-hint { margin-top: -2px; }
 .fwd-empty {
-  padding: 18px 12px;
+  padding: 12px;
   text-align: center;
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 10px;
 }
-.fwd-test-result { margin-top: 12px; }
+.fwd-test-result { margin-top: 6px; }
 .fwd-test-line { font-size: 13px; margin-bottom: 4px; }
 .fwd-test-none { opacity: 0.7; }
 .fwd-test-list {
@@ -969,9 +939,9 @@ onUnmounted(() => {
 .fwd-hits-source { white-space: nowrap; opacity: 0.8; }
 .fwd-hits-none { opacity: 0.4; }
 .fwd-hits-detail { opacity: 0.75; }
-.fwd-hits-empty { text-align: center; padding: 16px; opacity: 0.6; }
-.fwd-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.fwd-hits-empty { text-align: center; padding: 12px; opacity: 0.6; }
+.fwd-pager { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .fwd-pager-info { font-size: 12px; opacity: 0.7; }
-.fwd-hits-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.fwd-hits-tools { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 .fwd-hits-search { flex: 1 1 220px; max-width: 320px; }
 </style>

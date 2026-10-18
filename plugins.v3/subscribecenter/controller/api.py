@@ -32,6 +32,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/card_theme/save", plugin.api_card_theme_save, ["POST"], "保存订阅卡片配色"),
         ("/run_once", plugin.api_run_once, ["POST"], "手动触发一次发现任务"),
         ("/preview", plugin.api_preview, ["POST"], "只读预览：跑一次但不写入"),
+        ("/test_source", plugin.api_test_source, ["GET"], "单源连通性测试（不订阅）"),
         ("/mapping_cache", plugin.api_mapping_cache, ["GET"], "查看身份映射缓存"),
         ("/mapping_cache/fix", plugin.api_mapping_fix, ["POST"], "人工修正一条身份映射"),
         ("/poster", plugin.api_poster, ["GET"], "代理 TMDB 海报图片（浏览器不可直连）"),
@@ -107,7 +108,7 @@ async def api_card_theme_save(plugin, request: api_schemas.CardThemeRequest) -> 
     )
 
 
-async def api_run_once(plugin) -> Any:
+async def api_run_once(plugin, source: str = "") -> Any:
     """手动触发一次发现任务。
 
     与定时任务共用同一把互斥锁（开发文档 §7.2）：已有运行在跑时返回
@@ -119,6 +120,12 @@ async def api_run_once(plugin) -> Any:
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 手动运行失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="手动运行失败") from err
+
+
+async def api_test_source(plugin, source: str = "") -> Any:
+    """单源连通性测试：只抓取，不识别、不订阅、不写历史。"""
+    data = await plugin.test_source(source)
+    return schemas.Response(success=bool(data.get("ok")), data=data)
 
 
 async def api_preview(plugin) -> Any:

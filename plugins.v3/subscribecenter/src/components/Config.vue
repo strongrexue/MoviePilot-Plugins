@@ -241,6 +241,45 @@ const doubanEnabledCount = computed(
   () => doubanLists.value.filter((entry) => entry && entry.enabled).length,
 )
 
+/** 每源运行状态（防抖：进行中禁用按钮）。 */
+const sourceBusy = ref({})
+
+/** 只跑指定数据源一次。 */
+async function runOneSource(source, label) {
+  if (sourceBusy.value[source]) return
+  sourceBusy.value = { ...sourceBusy.value, [source]: true }
+  try {
+    const data = unwrap(
+      await postPluginApi(props.api, props.pluginId, `run_once?source=${source}`, {}, { timeoutMs: 600000 }),
+    )
+    const summary = data?.summary || {}
+    setTip(`${label} 已运行：新增 ${summary.added_count || 0} 条`)
+  } catch (error) {
+    setTip(error?.message || `${label} 运行失败`, false)
+  } finally {
+    sourceBusy.value = { ...sourceBusy.value, [source]: false }
+  }
+}
+
+/** 单源连通性测试：只抓取，不订阅、不写历史。 */
+async function testOneSource(source, label) {
+  if (sourceBusy.value[source]) return
+  sourceBusy.value = { ...sourceBusy.value, [source]: true }
+  try {
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, `test_source?source=${source}`))
+    if (data?.ok) {
+      const sample = (data.samples || []).slice(0, 3).join('、')
+      setTip(`${label} 连通正常：抓到 ${data.count} 条${sample ? `，示例：${sample}` : ''}`)
+    } else {
+      setTip(`${label} 测试失败：${data?.error || '未知原因'}`, false)
+    }
+  } catch (error) {
+    setTip(error?.message || `${label} 测试失败`, false)
+  } finally {
+    sourceBusy.value = { ...sourceBusy.value, [source]: false }
+  }
+}
+
 function setTip(text, ok = true) {
   tip.value = { show: true, ok, text }
 }
@@ -511,6 +550,33 @@ onMounted(() => {
               class="mb-1"
             />
             <div class="sc-hint">留空则跟随「写入与调度」里的全局 cron；填了就会单独按这个时间跑该源。</div>
+            <div class="sc-source-actions">
+              <VBtn size="x-small" color="primary" :loading="!!sourceBusy['douban_rss']" @click="runOneSource('douban_rss', '豆瓣榜单')">
+                立即运行一次
+              </VBtn>
+              <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['douban_rss']" @click="testOneSource('douban_rss', '豆瓣榜单')">
+                连通性测试
+              </VBtn>
+            </div>
+
+            <div class="sc-source-actions">
+              <VBtn size="x-small" color="primary" :loading="!!sourceBusy['anilist']" @click="runOneSource('anilist', 'AniList')">
+                立即运行一次
+              </VBtn>
+              <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['anilist']" @click="testOneSource('anilist', 'AniList')">
+                连通性测试
+              </VBtn>
+            </div>
+
+            <div class="sc-source-actions">
+              <VBtn size="x-small" color="primary" :loading="!!sourceBusy['tmdb']" @click="runOneSource('tmdb', 'TMDB')">
+                立即运行一次
+              </VBtn>
+              <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['tmdb']" @click="testOneSource('tmdb', 'TMDB')">
+                连通性测试
+              </VBtn>
+            </div>
+
           </div>
 
           <div class="sc-card">
@@ -1278,6 +1344,13 @@ onMounted(() => {
 .sc-list-params > * {
   flex: 1 1 0;
   min-width: 0;
+}
+
+/* 每个数据源底部的操作按钮 */
+.sc-source-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* 卡片 */

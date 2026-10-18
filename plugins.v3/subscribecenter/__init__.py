@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.9.0"
+    plugin_version = "1.9.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -260,9 +260,13 @@ class SubscribeCenter(_PluginBase):
         """保存订阅卡片配色（写入宿主自定义 CSS）。"""
         return await api_controller.api_card_theme_save(self, request)
 
-    async def api_run_once(self) -> Any:
-        """手动触发一次发现任务。"""
-        return await api_controller.api_run_once(self)
+    async def api_run_once(self, source: str = "") -> Any:
+        """手动触发一次发现任务（可只跑某个源）。"""
+        return await api_controller.api_run_once(self, source=source)
+
+    async def api_test_source(self, source: str = "") -> Any:
+        """单源连通性测试：只抓取，不识别、不订阅、不写历史。"""
+        return await api_controller.api_test_source(self, source=source)
 
     async def api_preview(self) -> Any:
         """只读预览：跑一次但不写入。"""
@@ -376,13 +380,15 @@ class SubscribeCenter(_PluginBase):
             return
         self._after_run(summary)
 
-    async def run_once(self) -> Dict[str, Any]:
+    async def run_once(self, source: str = "") -> Dict[str, Any]:
         """**异步**入口：供 ``POST /run_once`` 调用。
 
         与定时任务共用同一把互斥锁；已在运行时返回 ``skipped=True``。
         """
+        only = [source] if source else None
         summary = await self._bridge.run_async(
-            lambda: self._pipeline_coroutine(force_dry_run=False), timeout=600
+            lambda: self._pipeline_coroutine(force_dry_run=False, only_sources=only),
+            timeout=600,
         )
         if summary is None:
             return {"accepted": True, "skipped": True, "summary": self._last_summary}
@@ -445,6 +451,41 @@ class SubscribeCenter(_PluginBase):
             "summary": data,
             "items": items,
             "rejections": data.get("rejected_reasons") or {},
+        }
+
+    async def test_source(self, source: str) -> Dict[str, Any]:
+        """连通性测试：只跑该源的 ``fetch``，返回条数与样例标题。
+
+        **不做**身份解析、不写订阅、不写历史 —— 纯探活。
+        """
+        adapters = {adapter.name: adapter for adapter in self._build_sources()}
+        adapter = adapters.get(source)
+        if adapter is None:
+            return {
+                "source": source,
+                "ok": False,
+                "count": 0,
+                "samples": [],
+                "error": f"未知或不可用的数据源：{source}",
+            }
+        try:
+            items = await adapter.fetch(self._config)
+        except Exception as err:  # noqa: BLE001 - 测试失败要回给前端
+            logger.warning(f"[SubscribeCenter] {source} 连通性测试失败：{err}")
+            return {
+                "source": source,
+                "ok": False,
+                "count": 0,
+                "samples": [],
+                "error": f"{type(err).__name__}: {err}",
+            }
+        samples = [str(getattr(item, "title", "") or "") for item in items[:5]]
+        return {
+            "source": source,
+            "ok": True,
+            "count": len(items),
+            "samples": [text for text in samples if text],
+            "error": "",
         }
 
     async def _pipeline_coroutine(

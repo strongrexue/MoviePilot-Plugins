@@ -108,6 +108,16 @@ class HistoryPage(BaseModel):
 
 # --------------------------------------------------------------------- 手动运行
 
+class SourceTestResult(BaseModel):
+    """单源连通性测试结果。"""
+
+    source: str = Field(description="数据源标识")
+    ok: bool = Field(description="是否成功取到数据")
+    count: int = Field(default=0, description="抓到的条数")
+    samples: List[str] = Field(default_factory=list, description="样例标题")
+    error: str = Field(default="", description="失败原因")
+
+
 class RunOnceResult(BaseModel):
     """手动触发一次发现的结果。"""
 
@@ -193,6 +203,7 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,
     "/preview": PreviewResult,
+    "/test_source": SourceTestResult,
     "/mapping_cache": MappingCacheView,
     "/mapping_cache/fix": MappingFixResult,
 }
@@ -212,6 +223,7 @@ __all__ = [
     "PluginStatus",
     "PreviewItem",
     "PreviewResult",
+    "SourceTestResult",
     "RunOnceResult",
     "SourceState",
 ]

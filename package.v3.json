@@ -78,7 +78,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.11.9",
+        "version": "1.12.0",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -86,6 +86,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.12.0": "不再自己造轮子：日历直接走 MP 接口背后的同一套链（1.12.0）。用户质问「为什么自己取数据，直接把原生日历搬过来」。查清 MP 前端 calendar-*.js 的 ce()：电影走 /media/{id}（识别媒体拿 release_date），剧集走 /tmdb/{id}/{season}[?episode_group]。这两个接口的实现是 MediaChain().async_recognize_media(...) 与 TmdbChain().async_tmdb_episodes(tmdbid, season, episode_group)。我此前用 TmdbApi.get_tv_season_detail / get_tv_group_seasons / get_info，绕开了宿主链，语义可能与接口不同（缓存、剧集组重编号、字段归一）。现改为直接调用这两个链方法：剧集 async_tmdb_episodes（剧集组时传 season=0 + episode_group），电影 async_recognize_media 取 release_date（缺失时该片不进日历）。索引键仍为 (media_id, season) / (media_id, movie)，缓存 6 小时、并发 6 不变。ruff 全绿、485 项测试通过、构建与门禁通过。",
             "v1.11.9": "照搬 MP 原生日历逻辑：电影也进日历（1.11.9）。用户要求不要自己造轮子。我读了前端 calendar-*.js 的核心函数 ce()：它先 get(subscribe/)（**不筛状态**），再逐条 Promise.allSettled 处理 ——【电影】走 media/{id}?media_source&type_name 取 release_date，建成单日事件；【剧集】若 media_source 非 themoviedb 先用 media/{id} 解析 tmdb_id，再 get(tmdb/{id}/{season}[, {episode_group}]) 按 air_date 铺开。我此前只处理 season>0 的剧集，**电影全部漏掉**（这就是 19/21/31 等日差 1~2 条的原因之一）。已补：core/calendar 增加 MOVIE_KEY，season<=0 的订阅按 (media_id,movie) 命中，已入库判定用 lack_episode==0；插件 _episode_air_index 对 season<=0 调 TmdbApi.get_info(MediaType.MOVIE) 取 release_date 入索引（并发/缓存同前）。新增电影测试（缺集 0 → 已入库；缺集 1 → 待播）。ruff 全绿、485 项测试通过、构建与门禁通过。",
             "v1.11.8": "修日历数量暴涨：改用「只用 TMDB 播出日」口径（1.11.8）。用户对比指出 10/17、10/18、10/21、10/23、10/31 与 11/4、11/6 数量不对，并要求直接进站点核对。我用容器内脚本登录 MP API 拉全量 212 条订阅、逐条请求 /tmdb/{id}/{season}（带 episode_group）统计 air_date，再与插件 /calendar 对比，同时打印我方 10-17 的明细：共 200 条、唯一 id 200、episodes 全为空 —— 说明这些条目根本不是来自播出日，而是来自「last_update 等于那天」。last_update 是最后一次搜索/刷新时间，批量刷新会把上百条订阅刷成同一天。MP 日历完全不用 last_update/date，只用 TMDB 每季 air_date + 集号判断入库。已重写 build_today：只按 episode_index 命中 air_date，命中后 downloaded = total - lack，max(episodes) <= downloaded 才算已入库；彻底移除 last_update 与 date 两条兜底（正是它们造成 200 条/天）。测试重写为 12 项（只认 air_date、忽略 last_update、忽略 date、集号判入库、无已下载算待播、同日多集、排序、月不截断、空索引、事件循环内可用）。ruff 全绿、484 项测试通过、构建与门禁通过。",
             "v1.11.7": "对齐 MP 日历口径（1.11.7）。[1] 数量仍差：MP 的日历对带「剧集组」的订阅会带 episode_group 请求（前端 calendar-*.js 里 e.episode_group ? {episode_group} : 无），我们之前只按 season 取季，这类剧的播出日会漏。现在 _episode_air_index 支持剧集组：订阅有 episode_group 时调宿主 TmdbApi.get_tv_group_seasons(group_id) 展开该组所有季的 episodes[].air_date，缓存键区分 g:<group>，同时按 (media_id, season) 再登记一份供 build_today 命中。 [2] 高亮固定 18 号：前端用 new Date().toISOString()（UTC）算今天，服务器本地已是 19 号，差一天。CalendarMonth 新增 today 字段（服务器本地日期，由 build_month 写入），前端 todayText 优先用它，其次 status.today，最后才回退浏览器日期。[3] 交互按 MP 修正：取消「点日期格子跳转」，只保留 +N 原位展开/收起；格子高度改 fit-content 让展开后不被压缩。ruff 全绿、484 项测试通过、构建与门禁通过。数量若仍有差，下一步用容器内脚本逐剧对比 air_date 找出漏项。",

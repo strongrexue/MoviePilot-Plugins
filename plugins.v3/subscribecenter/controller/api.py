@@ -174,14 +174,17 @@ __all__ = [
 ]
 
 
-async def api_calendar(plugin, date: str = "", month: str = "") -> Any:
-    """日历：``month=YYYY-MM`` 返回整月；否则按 ``date``（空=今天）返回单日。"""
+async def api_calendar(plugin, month: str = "") -> Any:
+    """日历（整月）：``month=YYYY-MM``，留空=本月。
+
+    .. note::
+       这里**只返回一种模型**（CalendarMonth）。之前同一路径既能返回单日
+       又能返回整月，宿主按 ``API_RESPONSE_MODELS`` 校验时对不上，前端只拿到
+       「未知错误」，月历全是空格子。
+    """
     try:
-        if month:
-            data = await plugin.calendar_month(month_text=month)
-            return schemas.Response(success=True, data=api_schemas.CalendarMonth(**data))
-        data = await plugin.calendar_today(date_text=date)
-        return schemas.Response(success=True, data=api_schemas.CalendarView(**data))
+        data = await plugin.calendar_month(month_text=month)
+        return schemas.Response(success=True, data=api_schemas.CalendarMonth(**data))
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 读取日历失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="读取日历失败") from err

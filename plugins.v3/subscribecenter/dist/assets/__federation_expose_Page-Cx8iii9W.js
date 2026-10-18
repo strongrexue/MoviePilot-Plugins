@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-q5rUqZEu.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DpJkQ8vs.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -131,12 +131,13 @@ const calendarLoading = ref(false);
 async function loadCalendar() {
   calendarLoading.value = true;
   try {
-    const query = calMonth.value ? `calendar?month=${calMonth.value}` : 'calendar?month=';
+    const query = `calendar?month=${calMonth.value || ''}`;
     const data = unwrap(await getPluginApi(props.api, props.pluginId, query));
     calendar.value = data;
     calMonth.value = data?.month || calMonth.value;
   } catch (error) {
     calendar.value = { month: '', days: {}, total: 0, per_day_limit: 5 };
+    setTip(error?.message || '读取日历失败', false);
   } finally {
     calendarLoading.value = false;
   }
@@ -1182,6 +1183,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c53793ec"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3e51058d"]]);
 
 export { Page as default };

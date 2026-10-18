@@ -244,7 +244,7 @@ class MappingFixResult(BaseModel):
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
-    "/calendar": CalendarView,
+    "/calendar": CalendarMonth,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,

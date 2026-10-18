@@ -142,9 +142,12 @@ def build_month(
         items = build_today(rows, day, episode_index)
         if items:
             days[day] = items
+    # 单天最多回 20 条：整月 30 天 × 20 条已经够 UI（每格显示 5 条 + N 展开），
+    # 不设上限的话一天 100+ 部连载会把响应撑到几 MB。
+    capped = {day: items[:20] for day, items in days.items()}
     return {
         "month": month,
-        "days": days,
+        "days": capped,
         "total": sum(len(items) for items in days.values()),
         "per_day_limit": 5,
     }

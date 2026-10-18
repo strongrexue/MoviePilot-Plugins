@@ -78,7 +78,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.11.1",
+        "version": "1.11.2",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -86,6 +86,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.11.2": "修「未知错误」+ 月历空白（1.11.2）。根因（容器日志证据）：/calendar 同一路径既能返回单日 CalendarView 又能返回整月 CalendarMonth，而 API_RESPONSE_MODELS 只登记了一个模型，宿主按模型校验失败 → 前端只拿到「未知错误」，月历整片空白（本月 0 条、格子全空）。[1] 接口统一：GET /calendar?month=YYYY-MM 只返回 CalendarMonth（留空=本月），单日接口从路由层移除（core 的 calendar_today 保留给测试/内部）；API_RESPONSE_MODELS[/calendar] 改为 CalendarMonth。[2] 前端：loadCalendar 只发整月请求；失败时把错误文案弹出来（不再静默空白）。[3] 响应体瘦身：单天最多回 20 条（此前一天 100+ 部连载会让整月响应膨胀到数 MB），total 仍按真实条数统计。[4] 日志已确认数据本身是对的：2026-11 每天都有几十条（air_date 来自 TMDB 每季），只是被模型校验挡在门口。ruff 全绿、480 项测试通过、构建与门禁通过。",
             "v1.11.1": "日历改为复刻 MoviePilot 日历页（1.11.1）。用户明确要求「复刻日历功能，不要自己设计方案」。[1] 后端新增整月视图：core/calendar.py 增加 month_bounds/build_month（按天调 build_today，只保留有内容的天），插件 calendar_month(month_text) 复用 _episode_air_index（TMDB 每季 air_date 索引，缓存 6 小时），GET /calendar?month=YYYY-MM 返回 {month,total,per_day_limit=5,days:{日期:[条目]}}；CalendarMonth schema。[2] 前端整块重写为月历网格：月份标题 + 上/下月 + 本月 + 本月条数；周一到周日 7 列 weekhead；每周一行、每天一格（日期数字右上、今天高亮、空格子保留），格内条目复刻 MP 样式：30x42 海报 + 剧名（两行截断）+ 「第 N 集」（用当天播出集号）+ 已入库/未入库 (x/y) 配色 + 时间；超过每格上限 5 条显示「+N」按钮展开/收起。手机端隐藏海报缩略图、降低格子高度。[3] 验证：SSR 渲染注入 6 条假数据（同日 6 条），断言 weekhead/格子/「2026年10月」/「第 5 集」/未入库/已入库/+1 展开按钮全部存在，error=none warnings=0；UI 契约测试改为断言 7 列网格、+N、整月接口与 shiftMonth。ruff 全绿、480 项测试通过、构建与门禁通过。",
             "v1.11.0": "日历接入 TMDB 播出日期，历史与未来可查（1.11.0）。用户指出：之前只看订阅的 last_update/date，查过去全空，而 MP 自带日历有数据。核实 MP 前端 calendar-*.js 的做法：它按 tmdb/{id}/{season} 拉每季 episodes[].air_date 铺开日历 —— 这是唯一能覆盖任意日期的数据源。[1] core/calendar.py：build_today 增加 episode_index 参数 {(media_id, season): [(air_date, episode_number)]}，命中当天播出的集数即算条目，并把集号写进 episodes 字段；已入库仍优先。[2] 插件 _episode_air_index：按订阅的 media_id/season 调宿主 TmdbApi.get_tv_season_detail（asyncio.to_thread），并发 6、每季结果缓存 6 小时、单部失败只影响自己；无 TMDB 时退化为只看订阅字段。[3] schema/前端：CalendarItem 增加 episodes，卡片集号优先显示当天播出集（第 5、6 集），否则退回原推算；日期选择器仍默认今天。[4] 测试：新增两条（播出索引让历史/未来都出条目且集号正确、别的日期不会串）。ruff 全绿、479 项测试通过、构建与门禁通过。",
             "v1.10.4": "日历支持选择日期（1.10.4）。用户要求：日期可选、默认今天，可查历史与未来。[1] 后端：GET /calendar 增加 date 参数（YYYY-MM-DD，正则校验，非法或缺省回落为今天）；calendar_today(date_text=...) 用所选日期作为比较基准，build_today 语义不变 —— 过去日期命中 last_update（已入库）、未来日期命中 date（待播），返回体里的 today 字段回填所选日期。[2] 前端：标题行改为「日期 + 原生 <input type=date> + 今天按钮」，选择后立即重查；首次加载不传日期（后端回填今天），随后把回填值写回输入框；「今天」按钮只在非今天时出现；顶部提示改为「可选日期 · 默认今天」；空态文案改为「这一天没有需要处理的更新」并提示换日期。[3] 新增 test_calendar.py::test_other_dates_supported（历史/未来分别命中不同 kind）。ruff 全绿、477 项测试通过、构建与门禁通过。",

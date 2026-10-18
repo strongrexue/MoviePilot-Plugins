@@ -35,12 +35,13 @@ const calendarLoading = ref(false)
 async function loadCalendar() {
   calendarLoading.value = true
   try {
-    const query = calMonth.value ? `calendar?month=${calMonth.value}` : 'calendar?month='
+    const query = `calendar?month=${calMonth.value || ''}`
     const data = unwrap(await getPluginApi(props.api, props.pluginId, query))
     calendar.value = data
     calMonth.value = data?.month || calMonth.value
   } catch (error) {
     calendar.value = { month: '', days: {}, total: 0, per_day_limit: 5 }
+    setTip(error?.message || '读取日历失败', false)
   } finally {
     calendarLoading.value = false
   }

@@ -649,7 +649,8 @@ onUnmounted(() => {
             </div>
             <div class="sc-cal-title" :title="item.name">{{ item.name }}</div>
             <div class="sc-cal-sub">
-              第 {{ item.start_episode + Math.max(item.total_episode - item.lack_episode - item.start_episode, 0) }} 集
+              <template v-if="(item.episodes || []).length">第 {{ item.episodes.join('、') }} 集</template>
+              <template v-else>第 {{ item.start_episode + Math.max(item.total_episode - item.lack_episode - item.start_episode, 0) }} 集</template>
               <span v-if="item.air_time"> · {{ item.air_time }}</span>
             </div>
             <div class="sc-cal-meta">

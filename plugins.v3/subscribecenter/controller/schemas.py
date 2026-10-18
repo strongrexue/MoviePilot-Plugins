@@ -107,6 +107,7 @@ class CalendarItem(BaseModel):
     state: str = Field(default="", description="订阅状态")
     best_version: bool = Field(default=False, description="是否洗版")
     kind: str = Field(default="updated", description="updated=今日已入库 / pending=今日待播")
+    episodes: List[int] = Field(default_factory=list, description="当天播出的集号")
     air_time: str = Field(default="", description="播出时间 HH:MM")
     air_date: str = Field(default="", description="播出日期")
     today: str = Field(default="", description="今天的日期")

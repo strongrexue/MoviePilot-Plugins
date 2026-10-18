@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Cvn_kIbC.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-JQBD9vrQ.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -51,7 +51,7 @@ const _hoisted_32 = { class: "sc-cal-poster" };
 const _hoisted_33 = ["src"];
 const _hoisted_34 = ["title"];
 const _hoisted_35 = { class: "sc-cal-sub" };
-const _hoisted_36 = { key: 0 };
+const _hoisted_36 = { key: 2 };
 const _hoisted_37 = { class: "sc-cal-meta" };
 const _hoisted_38 = { key: 0 };
 const _hoisted_39 = {
@@ -864,7 +864,13 @@ return (_ctx, _cache) => {
                         title: item.name
                       }, _toDisplayString(item.name), 9, _hoisted_34),
                       _createElementVNode("div", _hoisted_35, [
-                        _createTextVNode(" 第 " + _toDisplayString(item.start_episode + Math.max(item.total_episode - item.lack_episode - item.start_episode, 0)) + " 集 ", 1),
+                        ((item.episodes || []).length)
+                          ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
+                              _createTextVNode("第 " + _toDisplayString(item.episodes.join('、')) + " 集", 1)
+                            ], 64))
+                          : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
+                              _createTextVNode("第 " + _toDisplayString(item.start_episode + Math.max(item.total_episode - item.lack_episode - item.start_episode, 0)) + " 集", 1)
+                            ], 64)),
                         (item.air_time)
                           ? (_openBlock(), _createElementBlock("span", _hoisted_36, " · " + _toDisplayString(item.air_time), 1))
                           : _createCommentVNode("", true)
@@ -1084,6 +1090,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ef7615b7"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-788c2ad7"]]);
 
 export { Page as default };

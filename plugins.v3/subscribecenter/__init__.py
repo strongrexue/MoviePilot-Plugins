@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.10.4"
+    plugin_version = "1.11.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -377,13 +377,78 @@ class SubscribeCenter(_PluginBase):
                 )
             ).scalars().all()
 
-        items = calendar_core.build_today(rows, today_text)
+        episode_index = await self._episode_air_index(rows, today_text)
+        items = calendar_core.build_today(rows, today_text, episode_index)
         summary = calendar_core.summarize(items)
         return {
             "today": today_text,
             **summary,
             "items": items,
         }
+
+    async def _episode_air_index(self, rows: Any, date_text: str) -> Dict[Any, List[Any]]:
+        """按 TMDB 每季的 ``episodes[].air_date`` 建「播出索引」。
+
+        宿主自己的日历页就是这么做的（前端 ``calendar-*.js`` 调
+        ``tmdb/{id}/{season}``）：只有这样才能查**历史与未来**，
+        光看订阅的 ``date`` / ``last_update`` 只有「下一次」。
+
+        每季结果缓存 6 小时，最多并发 6 个请求；任何一部失败只影响它自己。
+        """
+        import asyncio
+        import time
+
+        cache = self.__dict__.setdefault("_season_cache", {})
+        ttl = 6 * 3600
+        now = time.time()
+
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+
+            tmdb = TmdbApi()
+        except Exception as err:  # noqa: BLE001 - 宿主缺 TMDB 时退化为只看订阅字段
+            logger.debug(f"[SubscribeCenter] 日历取不到 TMDB：{err}")
+            return {}
+
+        targets: List[tuple] = []
+        for row in rows:
+            media_id = str(getattr(row, "media_id", "") or "")
+            season = int(getattr(row, "season", 0) or 0)
+            if not media_id.isdigit() or season <= 0:
+                continue
+            key = (media_id, season)
+            if key in cache and now - cache[key][0] < ttl:
+                continue
+            targets.append(key)
+
+        semaphore = asyncio.Semaphore(6)
+
+        async def fetch(key: tuple) -> None:
+            media_id, season = key
+            async with semaphore:
+                try:
+                    detail = await asyncio.to_thread(
+                        tmdb.get_tv_season_detail, int(media_id), season
+                    )
+                except Exception as err:  # noqa: BLE001 - 单部失败不影响整体
+                    logger.debug(f"[SubscribeCenter] 日历取季失败 {key}：{err}")
+                    return
+            episodes = [
+                (str(ep.get("air_date") or "")[:10], int(ep.get("episode_number") or 0))
+                for ep in (detail or {}).get("episodes", [])
+                if ep.get("air_date")
+            ]
+            cache[key] = (now, episodes)
+
+        if targets:
+            await asyncio.gather(*(fetch(key) for key in targets))
+
+        index: Dict[Any, List[Any]] = {}
+        for row in rows:
+            key = (str(getattr(row, "media_id", "") or ""), int(getattr(row, "season", 0) or 0))
+            if key in cache:
+                index[key] = cache[key][1]
+        return index
 
     async def api_calendar(self, date: str = "") -> Any:
         """日历接口（date 可空，默认今天）。"""

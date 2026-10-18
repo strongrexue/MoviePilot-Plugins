@@ -84,3 +84,21 @@ def test_other_dates_supported():
     assert [item["name"] for item in future] == ["未来"]
     assert future[0]["kind"] == cal.KIND_PENDING
     assert future[0]["today"] == "2026-10-05"
+
+
+def test_air_index_enables_history_and_future():
+    """播出索引：即使 date/last_update 都不是这天，当天有集也要出现。"""
+    rows = [_row(id=1, name="每天播", media_id="123", season=1, last_update="", date="")]
+    index = {("123", 1): [("2026-09-01", 5), ("2026-10-20", 6)]}
+    past = cal.build_today(rows, "2026-09-01", index)
+    future = cal.build_today(rows, "2026-10-20", index)
+    assert [item["name"] for item in past] == ["每天播"]
+    assert past[0]["episodes"] == [5]
+    assert future[0]["episodes"] == [6]
+    assert future[0]["kind"] == cal.KIND_PENDING
+
+
+def test_air_index_does_not_leak_other_dates():
+    rows = [_row(id=1, name="X", media_id="9", season=2)]
+    index = {("9", 2): [("2026-10-19", 1)]}
+    assert cal.build_today(rows, "2026-10-18", index) == []

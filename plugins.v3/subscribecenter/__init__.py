@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.12.1"
+    plugin_version = "1.12.2"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -412,6 +412,19 @@ class SubscribeCenter(_PluginBase):
             "items": items,
         }
 
+    @staticmethod
+    def _field(obj: Any, name: str, default: Any = None) -> Any:
+        """兼容 dict 与 pydantic 对象两种形态地取字段。
+
+        真机教训：``TmdbChain.async_tmdb_episodes`` 返回的是 ``TmdbEpisode`` 对象，
+        用 ``ep.get("air_date")`` 会抛 ``AttributeError``，整月日历直接空掉。
+        """
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
     async def _episode_air_index(self, rows: Any, date_text: str) -> Dict[Any, List[Any]]:
         """按 TMDB 每季的 ``episodes[].air_date`` 建「播出索引」。
 
@@ -465,47 +478,93 @@ class SubscribeCenter(_PluginBase):
         async def fetch(target: tuple) -> None:
             media_id, season_key, media_source = target
             key = (media_id, season_key)
-            if season_key == calendar_core.MOVIE_KEY:
-                try:
-                    from app.schemas.types import MediaType
 
-                    info = await asyncio.to_thread(
-                        tmdb.get_info, MediaType.MOVIE, int(media_id)
-                    )
-                    release = str((info or {}).get("release_date") or "")[:10]
-                    cache[key] = (now, [(release, 0)] if release else [])
-                except Exception as err:  # noqa: BLE001
-                    logger.debug(f"[SubscribeCenter] 日历取电影失败 {key}：{err}")
-                return
-            episodes: List[tuple] = []
-            async with semaphore:
+            # ---- 电影：按上映日期 ----
+            if season_key == calendar_core.MOVIE_KEY:
+                release = ""
                 try:
+                    from app.chain.media import MediaChain
+                    from app.schemas.types import MediaInfo, MediaType
+
+                    media = await MediaChain().async_recognize_media(
+                        MediaInfo(
+                            media_source=media_source, media_id=media_id, type=MediaType.MOVIE
+                        )
+                    )
+                    release = str(self._field(media, "release_date") or "")[:10]
+                except Exception as err:  # noqa: BLE001 - 链不可用时回退
+                    logger.debug(f"[SubscribeCenter] 电影识别失败 {key}：{err}")
+                if not release:
+                    try:
+                        from app.schemas.types import MediaType
+
+                        info = await asyncio.to_thread(
+                            tmdb.get_info, MediaType.MOVIE, int(media_id)
+                        )
+                        release = str(self._field(info, "release_date") or "")[:10]
+                    except Exception as err:  # noqa: BLE001
+                        logger.debug(f"[SubscribeCenter] 电影取详情失败 {key}：{err}")
+                if release:
+                    cache[key] = (now, [(release, 0)])
+                return
+
+            # ---- 剧集 / 剧集组 ----
+            async with semaphore:
+                episodes: List[tuple] = []
+                try:
+                    from app.chain.tmdb import TmdbChain
+
                     if isinstance(season_key, str) and season_key.startswith("g:"):
-                        seasons = await asyncio.to_thread(
-                            tmdb.get_tv_group_seasons, season_key[2:]
+                        raw = await TmdbChain().async_tmdb_episodes(
+                            tmdbid=int(media_id), season=0, episode_group=season_key[2:]
                         )
-                        for season in seasons or []:
-                            episodes.extend(
-                                (
-                                    str(ep.get("air_date") or "")[:10],
-                                    int(ep.get("episode_number") or 0),
-                                )
-                                for ep in season.get("episodes", [])
-                                if ep.get("air_date")
-                            )
                     else:
-                        detail = await asyncio.to_thread(
-                            tmdb.get_tv_season_detail, int(media_id), int(season_key)
+                        raw = await TmdbChain().async_tmdb_episodes(
+                            tmdbid=int(media_id), season=int(season_key)
                         )
-                        episodes = [
-                            (str(ep.get("air_date") or "")[:10], int(ep.get("episode_number") or 0))
-                            for ep in (detail or {}).get("episodes", [])
-                            if ep.get("air_date")
-                        ]
-                except Exception as err:  # noqa: BLE001 - 单部失败不影响整体
-                    logger.debug(f"[SubscribeCenter] 日历取季失败 {key}：{err}")
-                    return
-            cache[key] = (now, episodes)
+                    episodes = [
+                        (
+                            str(self._field(ep, "air_date") or "")[:10],
+                            int(self._field(ep, "episode_number") or 0),
+                        )
+                        for ep in raw or []
+                        if self._field(ep, "air_date")
+                    ]
+                except Exception as err:  # noqa: BLE001 - 链不可用时回退
+                    logger.debug(f"[SubscribeCenter] 链取季失败 {key}：{err}")
+
+                if not episodes:
+                    try:
+                        if isinstance(season_key, str) and season_key.startswith("g:"):
+                            group_seasons = await asyncio.to_thread(
+                                tmdb.get_tv_group_seasons, season_key[2:]
+                            )
+                            for season_item in group_seasons or []:
+                                episodes.extend(
+                                    (
+                                        str(self._field(ep, "air_date") or "")[:10],
+                                        int(self._field(ep, "episode_number") or 0),
+                                    )
+                                    for ep in self._field(season_item, "episodes", []) or []
+                                    if self._field(ep, "air_date")
+                                )
+                        else:
+                            detail = await asyncio.to_thread(
+                                tmdb.get_tv_season_detail, int(media_id), int(season_key)
+                            )
+                            episodes = [
+                                (
+                                    str(self._field(ep, "air_date") or "")[:10],
+                                    int(self._field(ep, "episode_number") or 0),
+                                )
+                                for ep in self._field(detail, "episodes", []) or []
+                                if self._field(ep, "air_date")
+                            ]
+                    except Exception as err:  # noqa: BLE001
+                        logger.debug(f"[SubscribeCenter] 回退取季失败 {key}：{err}")
+
+                if episodes:
+                    cache[key] = (now, episodes)
 
         if targets:
             await asyncio.gather(*(fetch(key) for key in targets))

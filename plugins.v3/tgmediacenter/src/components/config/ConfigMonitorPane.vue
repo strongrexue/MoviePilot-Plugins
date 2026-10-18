@@ -21,157 +21,90 @@
       class="mon-message"
     >{{ message }}</VAlert>
 
-    <!-- 运行状态 -->
+    <!-- 运行状态：正文只有 2×2 统计块 + 一行小字；状态徽章与刷新按钮收进卡片头部右侧 -->
     <VCard flat class="mon-card">
-      <VCardTitle class="text-subtitle-2">运行状态</VCardTitle>
+      <VCardItem>
+        <VCardTitle class="text-subtitle-2">运行状态</VCardTitle>
+        <VCardSubtitle class="text-caption">命中后推送到 115 网盘（固定）</VCardSubtitle>
+        <template #append>
+          <div class="mon-status-chips">
+            <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
+              监控{{ status?.enabled ? '已启用' : '未启用' }}
+            </VChip>
+            <VChip size="small" variant="tonal" :color="status?.pipeline?.running ? 'success' : 'warning'" label>
+              流水线{{ status?.pipeline?.running ? '运行中' : '未运行' }}
+            </VChip>
+            <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
+              刷新状态
+            </VBtn>
+          </div>
+        </template>
+      </VCardItem>
       <VCardText>
-        <div class="mon-status">
-          <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
-            监控{{ status?.enabled ? '已启用' : '未启用' }}
-          </VChip>
-          <VChip size="small" variant="tonal" :color="status?.pipeline?.running ? 'success' : 'warning'" label>
-            流水线{{ status?.pipeline?.running ? '运行中' : '未运行' }}
-          </VChip>
-          <VChip size="small" variant="tonal" :color="status?.pipeline?.handler_registered ? 'success' : 'warning'" label>
-            消息监听{{ status?.pipeline?.handler_registered ? '已注册' : '未注册' }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="info" label>
-            关心会话 {{ status?.watched_chats ?? 0 }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="primary" label>
-            规则 {{ status?.rules_count ?? 0 }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="primary" label>
-            队列待处理 {{ status?.pipeline?.push_pending ?? 0 }}
-          </VChip>
-          <VChip v-if="(status?.pipeline?.push_done ?? 0) > 0" size="small" variant="tonal" color="success" label>
-            推送完成 {{ status.pipeline.push_done }}
-          </VChip>
-          <VChip v-if="(status?.pipeline?.push_failed ?? 0) > 0" size="small" variant="tonal" color="error" label>
-            失败 {{ status.pipeline.push_failed }}
-          </VChip>
+        <div class="mon-stat-grid">
+          <div class="mon-stat">
+            <div class="mon-stat-label">监听规则</div>
+            <div class="mon-stat-value">{{ status?.rules_count ?? 0 }}</div>
+          </div>
+          <div class="mon-stat">
+            <div class="mon-stat-label">关心会话</div>
+            <div class="mon-stat-value">{{ status?.watched_chats ?? 0 }}</div>
+          </div>
+          <div class="mon-stat">
+            <div class="mon-stat-label">队列待处理</div>
+            <div class="mon-stat-value">{{ status?.pipeline?.push_pending ?? 0 }}</div>
+          </div>
+          <div class="mon-stat">
+            <div class="mon-stat-label">已推送</div>
+            <div class="mon-stat-value">{{ status?.pipeline?.push_done ?? 0 }}</div>
+          </div>
         </div>
-        <div class="mon-status-sub">
-          <span v-if="status?.pipeline?.started_at">启动于 {{ status.pipeline.started_at }}</span>
-          <span v-if="status?.pipeline?.buffered || status?.pipeline?.queued">
-            缓冲 {{ status.pipeline.buffered }} · 待处理 {{ status.pipeline.queued }}
+        <!-- 唯一的一行小字：消息监听注册态（原第三个徽章）+ 启动时间 + 风控/冷却 -->
+        <div class="mon-stat-foot">
+          <span :class="status?.pipeline?.handler_registered ? '' : 'mon-foot-warn'">
+            消息监听{{ status?.pipeline?.handler_registered ? '已注册' : '未注册' }}
           </span>
+          <span v-if="status?.pipeline?.started_at">启动于 {{ status.pipeline.started_at }}</span>
           <span v-if="status?.gate_interval">转发冷却 {{ status.gate_interval }} 秒</span>
           <span v-if="status?.flood_remaining > 0" class="mon-flood">
             FloodWait 退避中（约 {{ status.flood_remaining }} 秒）
           </span>
         </div>
-        <div class="mon-events">
-          <span class="mon-events-title">事件：</span>
-          <VChip size="x-small" variant="tonal" color="info" label>
-            收到 {{ status?.pipeline?.events_received ?? 0 }}
-          </VChip>
-          <VChip size="x-small" variant="tonal" :color="(status?.pipeline?.events_watched ?? 0) > 0 ? 'success' : 'default'" label>
-            命中监听 {{ status?.pipeline?.events_watched ?? 0 }}
-          </VChip>
-          <VChip size="x-small" variant="tonal" color="default" label>
-            非监听 {{ status?.pipeline?.events_unwatched ?? 0 }}
-          </VChip>
-          <VChip size="x-small" variant="tonal" color="primary" label>
-            已入队 {{ status?.pipeline?.messages_enqueued ?? 0 }}
-          </VChip>
-          <span v-if="status?.pipeline?.last_event_at" class="mon-events-last">
-            最近事件 {{ status.pipeline.last_event_at }}
-          </span>
-        </div>
-        <div v-if="(status?.watched_chat_ids?.length || 0) > 0" class="mon-sources">
-          <span class="mon-events-title">关心会话：</span>
-          <template v-if="(status?.pipeline?.watched_detail?.length || 0) > 0">
-            <VChip
-              v-for="item in status.pipeline.watched_detail"
-              :key="`watch-${item.chat_id}`"
-              size="x-small"
-              variant="tonal"
-              :color="item.resolved ? 'success' : 'error'"
-              label
-              class="mon-id-chip"
-              :title="item.resolved ? `会话标题：${item.title}` : `反查失败：${item.error}`"
-            >
-              {{ item.chat_id }}<template v-if="item.resolved"> ▸ {{ item.title || '(无标题)' }}</template><template v-else> ▸ 反查失败</template>
-              <span class="mon-id-purpose">［{{ purposeLabel(item.purposes) }}］</span>
-            </VChip>
-          </template>
-          <template v-else>
-            <VChip
-              v-for="chatId in status.watched_chat_ids"
-              :key="`watch-${chatId}`"
-              size="x-small"
-              variant="tonal"
-              color="warning"
-              label
-              class="mon-id-chip"
-            >
-              {{ chatId }}
-            </VChip>
-          </template>
-        </div>
-        <div v-if="(status?.pipeline?.recent_sources?.length || 0) > 0" class="mon-sources">
-          <span class="mon-events-title">来源 ID：</span>
-          <VChip
-            v-for="source in status.pipeline.recent_sources.slice(0, 12)"
-            :key="`src-${source.chat_id}`"
-            size="x-small"
-            variant="tonal"
-            :color="sourceColor(source)"
-            label
-            class="mon-id-chip"
-            :title="`监控：${source.watched ? '是' : '否'} · 缓存：${source.cached ? '是' : '否'}`"
-          >
-            {{ source.chat_id }} ×{{ source.count }}
-          </VChip>
-          <span class="mon-events-last">绿=监控，蓝=仅缓存，灰=无关</span>
-        </div>
+        <!-- 诊断：只在有问题时出现，正常时与效果图完全一致 -->
         <VAlert
-          v-if="status?.enabled && (status?.pipeline?.events_received > 0) && !(status?.pipeline?.events_watched > 0)"
+          v-if="status?.enabled && (status?.pipeline?.events_received ?? 0) > 0 && !((status?.pipeline?.events_watched ?? 0) > 0)"
           type="warning"
           variant="tonal"
           density="compact"
-          class="mon-events-hint"
+          class="mon-diag"
         >
           收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话。
           常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则）
-          ②规则里选错频道（名字相近的频道多选）③账号已退出该频道（重新加入后刷新对话列表重选）。
+          ②规则里选错频道 ③账号已退出该频道（重新加入后刷新对话列表重选）。
         </VAlert>
         <VAlert
-          v-if="status?.enabled && !(status?.pipeline?.events_received > 0)"
+          v-if="status?.enabled && !((status?.pipeline?.events_received ?? 0) > 0)"
           type="warning"
           variant="tonal"
           density="compact"
-          class="mon-events-hint"
+          class="mon-diag"
         >
-          还没收到任何 TG 事件：请确认 ①TG 凭证已登录且「已连接」 ②消息监听徽章为「已注册」
-          ③规则监听的频道 ID 正确（可在「TG 凭证」页刷新对话列表后点条目复制 ID，或点「保存规则」后重试）。
-          收到事件后这里会显示计数。
+          还没收到任何 TG 事件：请确认 ①TG 凭证已登录且「已连接」 ②消息监听为「已注册」③规则监听的频道正确。
         </VAlert>
-        <div class="mon-matcher">
-          缺失判断：
-          <VChip size="x-small" variant="tonal" :color="matcherReady ? 'success' : 'warning'" label class="mon-matcher-chip">
-            媒体服务器{{ status?.matcher?.mediaserver ? `（${status.matcher.mediaserver}）` : (status?.matcher?.mediaserver_available ? '已就绪' : '未配置') }}
-          </VChip>
-          <VChip size="x-small" variant="tonal" color="info" label class="mon-matcher-chip">
-            订阅 {{ status?.matcher?.subscriptions ?? 0 }}
-          </VChip>
-          <span v-if="!matcherReady" class="mon-matcher-warn">
-            两项都不可用，「仅缺失」规则会因无法判断而全部跳过；请在 MoviePilot 配置媒体服务器或建立订阅。
-          </span>
-        </div>
-        <div class="mon-actions">
-          <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
-            刷新状态
-          </VBtn>
+        <div
+          v-if="status?.enabled && !status?.matcher?.mediaserver && !((status?.matcher?.subscriptions ?? 0) > 0)"
+          class="mon-diag-text"
+        >
+          缺失判断不可用（媒体服务器未配置、也没有订阅）：「仅缺失」规则会因无法判断而全部跳过。
         </div>
       </VCardText>
     </VCard>
 
-    <!-- 规则编辑器 -->
+    <!-- 规则编辑器：每条规则默认折叠，标题行即可切换 -->
     <VCard flat class="mon-card">
       <VCardItem>
         <VCardTitle class="text-subtitle-2">监控规则</VCardTitle>
+        <VCardSubtitle class="text-caption">命中即推送 115，规则内不再选目标</VCardSubtitle>
         <template #append>
           <VBtn size="small" variant="tonal" prepend-icon="mdi-plus" @click="addRule">添加规则</VBtn>
         </template>
@@ -188,42 +121,68 @@
           class="mon-rule"
         >
           <VCardText class="pt-0">
-            <!-- 头部一行：左侧监听频道，右侧启用开关与删除，窄屏自动换行 -->
-            <div class="mon-rule-head">
-              <VSelect
-                v-model="rule.source_ids"
-                :items="selectItems"
-                item-title="title"
-                item-value="value"
-                label="监听频道 / 群组"
-                multiple
-                chips
-                closable-chips
-                density="compact"
-                variant="outlined"
-                hide-details
-                class="mon-rule-chats"
-              />
+            <!-- 标题行（折叠态唯一一行）：整行点击切换展开，▸/▾ 只是提示 -->
+            <div
+              class="mon-rule-head"
+              :class="{ 'mon-rule-head-open': isExpanded(rule) }"
+              :title="isExpanded(rule) ? '点击收起这条规则的编辑表单' : '点击展开编辑这条规则'"
+              @click="toggleRule(rule)"
+            >
+              <span class="mon-rule-toggle">{{ isExpanded(rule) ? '▾' : '▸' }}</span>
+              <!-- 监听频道下拉保持可操作：阻止冒泡，选频道时不会误触整行折叠 -->
+              <div class="mon-rule-chatfield" @click.stop>
+                <div class="mon-rule-chatlabel">监听频道 / 群组</div>
+                <VSelect
+                  v-model="rule.source_ids"
+                  :items="selectItems"
+                  item-title="title"
+                  item-value="value"
+                  multiple
+                  chips
+                  closable-chips
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  class="mon-rule-chats"
+                />
+              </div>
+              <!-- 折叠态右侧概览：按当前规则内容动态显示，没设置任何过滤时给一句占位 -->
+              <div class="mon-rule-tags">
+                <VChip v-if="rule.match_only_if_missing" size="x-small" variant="tonal" color="info" label>
+                  仅缺失
+                </VChip>
+                <VChip v-if="rule.match_custom_keywords && keywordCount(rule)" size="x-small" variant="tonal" color="primary" label>
+                  关键词 {{ keywordCount(rule) }}
+                </VChip>
+                <VChip v-if="excludeCount(rule)" size="x-small" variant="tonal" color="warning" label>
+                  排除 {{ excludeCount(rule) }}
+                </VChip>
+                <span
+                  v-if="!rule.match_only_if_missing && !(rule.match_custom_keywords && keywordCount(rule)) && !excludeCount(rule)"
+                  class="mon-rule-tag-empty"
+                >无额外过滤</span>
+              </div>
               <div
                 class="mon-rule-switch"
                 title="规则总开关：关闭后这条规则暂停监听（不识别、不推送、也就没有通知）；改动随底部「保存规则」生效。"
+                @click.stop
               >
                 <VSwitch v-model="rule.enabled" color="success" hide-details inset density="compact" />
-                <span class="mon-switch-label">启用规则</span>
+                <span class="mon-switch-label">启用</span>
               </div>
               <VBtn
                 size="small"
                 variant="text"
                 color="error"
-                prepend-icon="mdi-delete-outline"
-                @click="removeRule(index)"
+                @click.stop="removeRule(index)"
               >
                 删除
               </VBtn>
             </div>
 
-            <!-- 正文网格：名称 / 缺失判断 / 关键词 / 排除词 四组，窄屏自动单列 -->
-            <div class="mon-rule-grid">
+            <!-- 正文网格（仅展开后可见）：名称 / 缺失判断 / 关键词 / 排除词 四组。
+                 用 v-show 而不是 v-if：输入框实例始终挂载，展开/折叠不会丢表单绑定 -->
+            <div v-show="isExpanded(rule)" class="mon-rule-grid">
               <div class="mon-field">
                 <VTextField
                   v-model="rule.name"
@@ -286,6 +245,11 @@
           </VCardText>
         </VCard>
 
+        <!-- 折叠交互说明（放列表底部，不打扰展开后的表单） -->
+        <div v-if="rules.length" class="mon-hint mon-rules-hint">
+          默认折叠：点标题行展开编辑；折叠态用右侧小标签概览当前设置。
+        </div>
+
         <div v-if="rules.length" class="mon-actions">
           <VBtn
             color="primary"
@@ -297,7 +261,7 @@
             保存规则（即时生效）
           </VBtn>
           <span class="mon-hint">
-            「保存规则」把所有改动（含每条规则右上角的「启用规则」开关）立即写进配置并生效。
+            「保存规则」把所有改动（含每条规则标题行上的「启用」开关）立即写进配置并生效。
           </span>
         </div>
       </VCardText>
@@ -542,6 +506,9 @@ const decisions = ref([
   { value: 'failed', title: '处理失败' },
 ])
 const rules = ref([])
+// 规则展开态按规则 id 存在本地映射里，不挂到 rule 对象上：
+// rule 会随主表单整份保存，UI 状态不该混进配置（后端也不需要这个字段）
+const expandedRules = ref({})
 const dialogs = ref([])
 
 const testText = ref('')
@@ -592,6 +559,28 @@ function blankRule() {
   }
 }
 
+// ------------------------------------------------------------------ 规则折叠态（纯前端 UI 状态）
+
+// 展开态查表：没有记录的规则一律按折叠处理（旧规则默认折叠）
+function isExpanded(rule) {
+  return Boolean(rule?.id && expandedRules.value[rule.id])
+}
+
+// 标题行点击 / 箭头点击都走这里：整行任意空白处都能切换
+function toggleRule(rule) {
+  if (!rule?.id) return
+  expandedRules.value[rule.id] = !expandedRules.value[rule.id]
+}
+
+// 折叠态概览标签的计数（空数组按 0 处理，避免旧数据缺字段报错）
+function keywordCount(rule) {
+  return (rule?.custom_keywords || []).length
+}
+
+function excludeCount(rule) {
+  return (rule?.exclude_keywords || []).length
+}
+
 // ------------------------------------------------------------------ 数据加载（无重入保护，供按钮与内部调用共用）
 
 async function loadStatus() {
@@ -621,6 +610,8 @@ async function loadRules() {
       web_channel_usernames: Array.isArray(rule.web_channel_usernames) ? rule.web_channel_usernames : [],
       enabled: rule.enabled !== false,
     }))
+    // 接口读回来的都是「已保存的旧规则」，默认全部折叠（新加的规则才自动展开）
+    expandedRules.value = {}
     syncRulesToForm()
   } catch (err) {
     setMessage(err?.message || '读取监控规则失败', false)
@@ -720,12 +711,17 @@ function syncRulesToForm() {
 }
 
 function addRule() {
-  rules.value.push(blankRule())
+  const rule = blankRule()
+  rules.value.push(rule)
+  // 新加的规则自动展开：用户刚点「添加规则」就是要填内容的
+  expandedRules.value[rule.id] = true
   syncRulesToForm()
 }
 
 function removeRule(index) {
-  rules.value.splice(index, 1)
+  const [removed] = rules.value.splice(index, 1)
+  // 顺手清掉展开态，避免同 id 复用时状态串台
+  if (removed?.id) delete expandedRules.value[removed.id]
   syncRulesToForm()
 }
 
@@ -752,6 +748,8 @@ async function saveRules() {
     const data = unwrap(await putPluginApi(props.api, props.pluginId, 'monitor/rules', { rules: payload }, { timeoutMs: 30000 }))
     if (Array.isArray(data?.rules)) {
       rules.value = data.rules
+      // 保存后就变成「已保存的旧规则」，全部折叠回标题行，避免下次进来还是一堆展开的表单
+      expandedRules.value = {}
       syncRulesToForm()
     }
     setMessage(`已保存 ${payload.length} 条规则，监控已进入运行态`)
@@ -827,25 +825,6 @@ const selectItems = computed(() => {
   return items
 })
 
-// 关心会话的用途标注（监控 / 缓存 / 两者）
-function purposeLabel(purposes) {
-  const list = Array.isArray(purposes) ? purposes : []
-  return list.length ? list.join('+') : '监控'
-}
-
-// 来源会话配色：监控优先，其次缓存
-function sourceColor(source) {
-  if (source?.watched && source?.cached) return 'primary'
-  if (source?.watched) return 'success'
-  if (source?.cached) return 'info'
-  return 'default'
-}
-
-const matcherReady = computed(() => {
-  const matcher = status.value?.matcher || {}
-  return Boolean(matcher.mediaserver_available || (matcher.subscriptions ?? 0) > 0)
-})
-
 // 监听会话 ID → 反查标题（来自状态卡 watched_detail），命中流水「来源」列展示用
 const chatTitleMap = computed(() => {
   const map = {}
@@ -901,26 +880,50 @@ onUnmounted(() => {
 .mon-pane { display: flex; flex-direction: column; gap: 8px; }
 .mon-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
 .mon-message { font-size: 13px; }
-.mon-status { display: flex; gap: 6px; flex-wrap: wrap; }
-.mon-status-sub { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; opacity: 0.7; }
-.mon-events { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
-.mon-events-title { opacity: 0.7; }
-.mon-events-last { opacity: 0.6; }
-.mon-events-hint { margin-top: 8px; font-size: 12px; }
-.mon-sources { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
-.mon-id-chip { font-family: monospace; }
-.mon-id-purpose { opacity: 0.75; }
+/* 状态卡头部右侧：两个徽章 + 刷新按钮，窄屏自动换行并右对齐 */
+.mon-status-chips { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+/* 2×2 统计块：背景/边框/圆角/内边距按效果图固定 */
+.mon-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mon-stat {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  padding: 7px 9px;
+  min-width: 0;
+}
+.mon-stat-label { font-size: 10.5px; line-height: 1.3; color: rgba(var(--v-theme-on-surface), 0.6); }
+.mon-stat-value { font-size: 14px; font-weight: 700; line-height: 1.4; margin-top: 2px; }
+/* 正文唯一的一行小字：消息监听注册态 + 启动时间 + 冷却/退避 */
+.mon-stat-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 11.5px; color: rgba(var(--v-theme-on-surface), 0.65); }
+.mon-foot-warn { color: rgb(var(--v-theme-warning)); }
 .mon-flood { color: rgb(var(--v-theme-warning)); }
-.mon-matcher { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
-.mon-matcher-chip { margin-left: 0; }
-.mon-matcher-warn { color: rgb(var(--v-theme-warning)); line-height: 1.6; }
+/* 诊断：默认不出现，只在「收不到事件 / 仅缺失判断不可用」时插入 */
+.mon-diag { margin-top: 8px; font-size: 11.5px; }
+.mon-diag-text { margin-top: 6px; font-size: 11.5px; color: rgb(var(--v-theme-warning)); }
 .mon-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .mon-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-top: 8px; }
-/* 头部一行：监听频道（自适应）+ 启用开关 + 删除，窄屏自动换行 */
-.mon-rule-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.mon-rule-chats { flex: 1 1 260px; min-width: 0; }
-.mon-rule-switch { display: flex; align-items: center; gap: 2px; }
+/* 标题行（折叠态唯一一行）：整行可点，键盘/鼠标都能触发；箭头 + 下拉 + 概览标签 + 开关 + 删除 */
+.mon-rule-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; cursor: pointer; }
+.mon-rule-head-open { cursor: default; }
+.mon-rule-toggle {
+  flex: 0 0 14px;
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.65;
+  user-select: none;
+}
+/* 下拉框容器：阻止冒泡，选频道/删 chip 时不会误触整行折叠 */
+.mon-rule-chatfield { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: default; }
+.mon-rule-chatlabel { font-size: 10.5px; line-height: 1.3; color: rgba(var(--v-theme-on-surface), 0.6); }
+.mon-rule-chats { min-width: 0; }
+/* 折叠态概览小标签：按规则内容动态出现，无任何过滤时给一句灰色占位 */
+.mon-rule-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mon-rule-tag-empty { font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.45); white-space: nowrap; }
+.mon-rule-switch { display: flex; align-items: center; gap: 2px; cursor: default; }
 .mon-switch-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.7); white-space: nowrap; }
+.mon-rules-hint { margin-top: 8px; }
 /* 正文网格：等宽自适应列，窄屏自动降为单列 */
 .mon-rule-grid {
   display: grid;

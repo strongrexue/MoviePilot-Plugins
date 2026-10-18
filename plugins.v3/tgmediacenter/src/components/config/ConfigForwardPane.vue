@@ -22,37 +22,50 @@
       class="fwd-message"
     >{{ message }}</VAlert>
 
-    <!-- 运行状态 -->
+    <!-- 运行状态：头部右侧留状态徽章 + 刷新，正文是 2×2 统计块 -->
     <VCard flat class="fwd-card">
-      <VCardTitle class="text-subtitle-2">运行状态</VCardTitle>
+      <VCardItem>
+        <VCardTitle class="text-subtitle-2">运行状态</VCardTitle>
+        <VCardSubtitle class="text-caption">与监控共用流水线与全局冷却</VCardSubtitle>
+        <template #append>
+          <div class="fwd-status-head">
+            <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
+              转发{{ status?.enabled ? '已启用' : '未启用' }}
+            </VChip>
+            <VChip v-if="(status?.gate_interval ?? 0) > 0" size="small" variant="tonal" color="default" label>
+              全局冷却 {{ status.gate_interval }} 秒
+            </VChip>
+            <VChip v-if="(status?.flood_remaining ?? 0) > 0" size="small" variant="tonal" color="warning" label>
+              FloodWait 退避中（约 {{ status.flood_remaining }} 秒）
+            </VChip>
+            <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
+              刷新
+            </VBtn>
+          </div>
+        </template>
+      </VCardItem>
       <VCardText class="pt-0">
-        <div class="fwd-status">
-          <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
-            转发{{ status?.enabled ? '已启用' : '未启用' }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="primary" label>
-            规则 {{ status?.rules_count ?? 0 }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="info" label>
-            关心会话 {{ status?.watched_chats ?? 0 }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="default" label>
-            转换条目 {{ status?.transform_rules_count ?? 0 }}
-          </VChip>
-          <VChip v-if="(status?.gate_interval ?? 0) > 0" size="small" variant="tonal" color="default" label>
-            全局冷却 {{ status.gate_interval }} 秒
-          </VChip>
-          <VChip v-if="(status?.flood_remaining ?? 0) > 0" size="small" variant="tonal" color="warning" label>
-            FloodWait 退避中（约 {{ status.flood_remaining }} 秒）
-          </VChip>
+        <!-- 统计块：小灰标签 + 粗体数值，两列等宽 -->
+        <div class="fwd-stats">
+          <div class="fwd-stat">
+            <span class="fwd-stat-label">转发规则</span>
+            <span class="fwd-stat-value">{{ status?.rules_count ?? 0 }}</span>
+          </div>
+          <div class="fwd-stat">
+            <span class="fwd-stat-label">关心会话</span>
+            <span class="fwd-stat-value">{{ status?.watched_chats ?? 0 }}</span>
+          </div>
+          <div class="fwd-stat">
+            <span class="fwd-stat-label">转换条目</span>
+            <span class="fwd-stat-value">{{ status?.transform_rules_count ?? 0 }}</span>
+          </div>
+          <div class="fwd-stat">
+            <span class="fwd-stat-label">冷却间隔</span>
+            <span class="fwd-stat-value">{{ gateIntervalText }}</span>
+          </div>
         </div>
         <div class="fwd-status-sub">
           <span>转发只按关键词与扩展名匹配，与订阅无关；识别仅用于展示，识别不出也能转发。</span>
-        </div>
-        <div class="fwd-actions">
-          <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
-            刷新状态
-          </VBtn>
         </div>
       </VCardText>
     </VCard>
@@ -78,23 +91,34 @@
         >
           <!-- 规则卡片：顶部留 8px，避免 outlined 控件贴住卡片描边 -->
           <VCardText class="pt-2 pb-2 px-3">
-            <!-- 卡片头：左侧「来源频道」下拉，右侧「启用」开关与删除按钮，窄屏自动换行 -->
-            <div class="fwd-rule-head">
-              <VSelect
-                v-model="rule.source_ids"
-                :items="selectItems"
-                item-title="title"
-                item-value="value"
-                label="来源频道 / 群组"
-                multiple
-                chips
-                closable-chips
-                density="compact"
-                variant="outlined"
-                hide-details
-                class="fwd-rule-source"
-              />
-              <div class="fwd-rule-tools">
+            <!-- 卡片头（折叠态一行）：折叠箭头 + 来源下拉 + 概览标签 + 启用/删除；点整行切换折叠 -->
+            <div
+              class="fwd-rule-head"
+              :title="isRuleExpanded(rule) ? '点这里折叠规则详情' : '点这里展开规则详情'"
+              @click="toggleRule(rule)"
+            >
+              <span class="fwd-rule-caret">{{ isRuleExpanded(rule) ? '▾' : '▸' }}</span>
+              <!-- 来源下拉保持可操作：点它不触发折叠 -->
+              <div class="fwd-rule-source" @click.stop>
+                <VSelect
+                  v-model="rule.source_ids"
+                  :items="selectItems"
+                  item-title="title"
+                  item-value="value"
+                  label="来源频道 / 群组"
+                  multiple
+                  chips
+                  closable-chips
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                />
+              </div>
+              <!-- 概览标签：按规则实际内容动态生成，折叠态也能一眼看出规则在做什么 -->
+              <div class="fwd-rule-tags">
+                <span v-for="(tag, tagIndex) in ruleSummary(rule)" :key="tagIndex" class="fwd-rule-tag">{{ tag }}</span>
+              </div>
+              <div class="fwd-rule-tools" @click.stop>
                 <div
                   class="fwd-rule-switch"
                   title="规则总开关：关闭后这条转发规则不生效（不转发、也不会有通知）；改动随底部「保存配置」生效。"
@@ -114,8 +138,8 @@
               </div>
             </div>
 
-            <!-- 正文网格：转发 / 关键词 / 扩展名 / 转换 四组，每格最小 220px，窄屏自动换行 -->
-            <div class="fwd-rule-grid">
+            <!-- 正文网格：展开后显示，用 v-show 而非 v-if，折叠时控件仍挂载、表单绑定不断 -->
+            <div v-show="isRuleExpanded(rule)" class="fwd-rule-grid">
               <!-- 组一：转发（规则名 + 目标 + 置顶） -->
               <div class="fwd-group">
                 <div class="fwd-group-title">转发</div>
@@ -229,6 +253,11 @@
             </div>
           </VCardText>
         </VCard>
+
+        <!-- 折叠说明：规则默认折叠，避免多条规则把面板拉得很长 -->
+        <div v-if="rules.length" class="fwd-hint fwd-rules-hint">
+          默认折叠：点标题行展开；折叠态用右侧小标签概览。
+        </div>
 
         <div v-if="rules.length" class="fwd-actions">
           <VBtn
@@ -477,6 +506,9 @@ const rules = ref([])
 const dialogs = ref([])
 // 转换规则用多行文本编辑（提交时拆行）；键与规则 id 对应
 const transformText = ref({})
+// 每条规则的本地折叠状态：{ [规则 id]: true } 即展开。
+// 已保存的规则默认折叠（表里没有即 false），新加的规则由 addRule 显式置 true。
+const expandedRules = ref({})
 
 const testText = ref('')
 const testResult = ref(null)
@@ -567,6 +599,12 @@ async function loadRules() {
       transform_rules: Array.isArray(rule.transform_rules) ? rule.transform_rules : [],
       enabled: rule.enabled !== false,
     }))
+    // 已保存规则默认折叠（表里没有即 false）；只保留仍在列表里的 id，防止残留 key
+    const nextExpanded = {}
+    for (const rule of rules.value) {
+      if (expandedRules.value[rule.id]) nextExpanded[rule.id] = true
+    }
+    expandedRules.value = nextExpanded
     syncTransformFromRules()
     syncRulesToForm()
   } catch (err) {
@@ -687,14 +725,28 @@ function addRule() {
   const rule = blankRule()
   rules.value.push(rule)
   transformText.value[rule.id] = ''
+  // 新规则自动展开：空白规则折叠起来没法填
+  expandedRules.value[rule.id] = true
   syncRulesToForm()
 }
 
 function removeRule(index) {
   const rule = rules.value[index]
-  if (rule) delete transformText.value[rule.id]
+  if (rule) {
+    delete transformText.value[rule.id]
+    delete expandedRules.value[rule.id]
+  }
   rules.value.splice(index, 1)
   syncRulesToForm()
+}
+
+// 规则折叠状态：按规则 id 存在本地表里，已保存规则默认折叠
+function isRuleExpanded(rule) {
+  return Boolean(expandedRules.value[rule.id])
+}
+
+function toggleRule(rule) {
+  expandedRules.value[rule.id] = !expandedRules.value[rule.id]
 }
 
 function isNumericId(value) {
@@ -855,6 +907,40 @@ const chatTitleMap = computed(() => {
   return map
 })
 
+// 冷却间隔展示：0 表示未设限，其余按「N 秒」
+const gateIntervalText = computed(() => {
+  const seconds = Number(status.value?.gate_interval ?? 0)
+  return seconds > 0 ? `${seconds} 秒` : '未设限'
+})
+
+// 会话 ID → 对话名（优先用对话缓存里的原始 name，避免下拉标题里的「（类型）」后缀）
+function chatNameById(id) {
+  const numeric = Number(id)
+  const found = (dialogs.value || []).find(item => Number(item.id) === numeric)
+  return found ? found.name : unknownChatTitle(id)
+}
+
+// 折叠态概览标签：按规则真实内容动态生成（目标 / 置顶 / 扩展名 / 关键词 / 排除 / 转换）
+function ruleSummary(rule) {
+  const tags = []
+  const targetId = toChatId(rule.target_id)
+  tags.push(targetId === '' ? '→ 未选目标' : `→ ${chatNameById(targetId)}`)
+  if (rule.pin_links_enabled) tags.push('置顶')
+  if (rule.match_file_extensions) {
+    const extensions = (rule.file_extensions_to_match || [])
+      .map(ext => String(ext).trim().replace(/^\./, ''))
+      .filter(Boolean)
+    if (extensions.length) tags.push(extensions.join(' '))
+  }
+  if (rule.match_custom_keywords) tags.push(`关键词 ${(rule.custom_keywords || []).length}`)
+  if ((rule.exclude_keywords || []).length) tags.push(`排除 ${rule.exclude_keywords.length}`)
+  if (rule.enable_transform) {
+    const count = (rule.transform_rules || []).length
+    tags.push(count ? `转换 ${count}` : '内容转换')
+  }
+  return tags
+}
+
 // 媒体列完整名：片名（年份）+ 电视剧 SxxExx
 function mediaName(item) {
   if (!item.title) return ''
@@ -893,15 +979,49 @@ onUnmounted(() => {
 .fwd-pane { display: flex; flex-direction: column; gap: 8px; }
 .fwd-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
 .fwd-message { font-size: 13px; }
-.fwd-status { display: flex; gap: 6px; flex-wrap: wrap; }
+.fwd-status-head { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+/* 运行状态正文：2×2 统计块，小灰标签 + 粗体数值 */
+.fwd-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.fwd-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.fwd-stat-label { font-size: 10.5px; line-height: 1.4; color: rgba(var(--v-theme-on-surface), 0.6); }
+/* 数值 14px 粗体（600 与缓存面板统计块同口径），过长的会话名不撑破两列 */
+.fwd-stat-value { font-size: 14px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fwd-status-sub { margin-top: 6px; font-size: 12px; opacity: 0.75; line-height: 1.5; }
 .fwd-warn { color: rgb(var(--v-theme-warning)); }
 .fwd-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .fwd-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-bottom: 8px; }
 .fwd-rule:last-child { margin-bottom: 0; }
-/* 卡片头：来源下拉占满剩余宽度，开关与删除靠右，窄屏整体换行 */
-.fwd-rule-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.fwd-rule-source { flex: 1 1 260px; min-width: 200px; }
+/* 卡片头：折叠箭头 + 来源下拉占满剩余宽度 + 概览标签，开关与删除靠右；点整行切换折叠 */
+.fwd-rule-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; cursor: pointer; }
+.fwd-rule-caret { flex: 0 0 auto; width: 12px; font-size: 12px; line-height: 1; text-align: center; opacity: 0.65; user-select: none; }
+.fwd-rule-head:hover .fwd-rule-caret { opacity: 1; }
+/* 下拉自身要能正常点击，所以这一格不继承整行的 pointer */
+.fwd-rule-source { flex: 1 1 260px; min-width: 200px; cursor: default; }
+.fwd-rule-tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.fwd-rule-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  padding: 2px 8px;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: rgba(var(--v-theme-on-surface), 0.75);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
 .fwd-rule-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .fwd-rule-switch { display: flex; align-items: center; gap: 4px; }
 .fwd-switch-label { font-size: 13px; color: rgba(var(--v-theme-on-surface), 0.7); white-space: nowrap; }
@@ -910,6 +1030,8 @@ onUnmounted(() => {
 .fwd-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .fwd-group-title { font-size: 12.5px; font-weight: 600; opacity: 0.8; }
 .fwd-hint { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
+/* 折叠说明：跟规则卡片留 8px 呼吸，往下接保存按钮 */
+.fwd-rules-hint { margin: 8px 2px 0; }
 /* 组内纵向 gap 为 6px，提示文字再上提 2px，与上方控件净间距正好 4px */
 .fwd-group > .fwd-hint { margin-top: -2px; }
 .fwd-empty {

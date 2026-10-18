@@ -26,53 +26,48 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">运行状态</VCardTitle>
         <template #append>
-          <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
-            刷新状态
-          </VBtn>
+          <div class="cache-head-actions">
+            <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
+              缓存{{ status?.enabled ? '已启用' : '未启用' }}
+            </VChip>
+            <VBtn size="small" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshAll">
+              刷新状态
+            </VBtn>
+          </div>
         </template>
       </VCardItem>
       <VCardText class="pt-0 cache-body">
-        <div class="cache-status">
-          <VChip size="small" variant="tonal" :color="status?.enabled ? 'success' : 'default'" label>
-            缓存{{ status?.enabled ? '已启用' : '未启用' }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="info" label>
-            缓存频道 {{ status?.chats ?? 0 }}
-          </VChip>
-          <VChip size="small" variant="tonal" color="primary" label>
-            已缓存 {{ status?.total ?? 0 }} 条
-          </VChip>
-          <VChip
-            size="small"
-            variant="tonal"
-            :color="status?.sync?.running ? 'warning' : 'success'"
-            label
-          >
-            同步{{ status?.sync?.running ? '进行中' : '空闲' }}
-          </VChip>
-          <VChip
-            size="small"
-            variant="tonal"
-            :color="status?.subscribe?.enabled ? 'success' : 'default'"
-            label
-          >
-            订阅回搜{{ status?.subscribe?.enabled ? '已开启' : '已关闭' }}
-          </VChip>
-          <VChip v-if="status?.sync?.running" size="small" variant="tonal" color="info" label>
-            已扫描 {{ status.sync.processed ?? 0 }} · 新增 {{ status.sync.inserted ?? 0 }}
-          </VChip>
+        <!-- 2×2 统计块：标签 10.5px 灰 + 值 14px 粗体（与面板同一底色/边框口径） -->
+        <div class="cache-stats">
+          <div class="cache-stat">
+            <div class="cache-stat-label">已缓存消息</div>
+            <div class="cache-stat-value">{{ fmtCount(status?.total ?? 0) }}</div>
+          </div>
+          <div class="cache-stat">
+            <div class="cache-stat-label">缓存频道</div>
+            <div class="cache-stat-value">{{ status?.chats ?? 0 }}</div>
+          </div>
+          <div class="cache-stat">
+            <div class="cache-stat-label">同步</div>
+            <div class="cache-stat-value">{{ status?.sync?.running ? '进行中' : '空闲' }}</div>
+          </div>
+          <div class="cache-stat">
+            <div class="cache-stat-label">订阅回搜</div>
+            <div class="cache-stat-value">{{ status?.subscribe?.enabled ? '已开启' : '已关闭' }}</div>
+          </div>
         </div>
+        <!-- 明细小字：统计块下方一行（同步位点 / 回搜最近检查） -->
         <div class="cache-status-sub">
           <span v-if="status?.sync?.running">
             正在同步频道 {{ chatLabel(status.sync.chat_id) }}（{{ syncModeLabel(status.sync.mode) }}）
             <template v-if="status.sync.started_at"> · 开始于 {{ fmtTime(status.sync.started_at) }}</template>
+            · 已扫描 {{ status.sync.processed ?? 0 }} · 新增 {{ status.sync.inserted ?? 0 }}
           </span>
           <span v-else-if="status?.sync?.finished_at">
             上次同步结束 {{ fmtTime(status.sync.finished_at) }} · 新增 {{ status.sync.inserted ?? 0 }} 条
           </span>
           <span v-else>尚未执行过历史回溯同步</span>
-        </div>
-        <div class="cache-status-sub">
+          <span class="cache-dot">·</span>
           <span v-if="status?.subscribe?.last_check_at">
             订阅检查 {{ fmtTime(status.subscribe.last_check_at) }} ·
             新增订阅 {{ status.subscribe.last_check_new ?? 0 }} · 推送 {{ status.subscribe.last_check_pushed ?? 0 }} 条
@@ -186,34 +181,57 @@
               @update:model-value="syncSettingsToForm"
             />
           </div>
+        </div>
 
-          <div class="cache-field">
-            <div class="cache-switch-row">
+        <!-- 订阅回搜 / 跳过原生首次全站搜索：并排两个面板（窄屏自动单列） -->
+        <div class="cache-toggles">
+          <!-- 左：订阅回搜（走 /cache/settings，与其它缓存开关同一保存流程） -->
+          <div class="cache-toggle-panel">
+            <div class="cache-toggle-head">
+              <span class="cache-toggle-title">订阅回搜</span>
               <VSwitch
                 v-model="settings.subscribe_enabled"
                 color="primary"
+                density="compact"
                 hide-details
                 inset
                 @update:model-value="syncSettingsToForm"
-              >
-                <template #label><span class="cache-switch-label">订阅新增时回搜缓存</span></template>
-              </VSwitch>
+              />
             </div>
+            <div class="cache-toggle-desc">新增订阅后自动回搜缓存，命中缺失资源就推送</div>
           </div>
 
-          <div class="cache-field">
-            <div class="cache-switch-row">
+          <!-- 右：跳过原生首次全站搜索（主配置表单字段，不走 /cache/settings，随底部「保存配置」生效） -->
+          <div class="cache-toggle-panel">
+            <div class="cache-toggle-head">
+              <span class="cache-toggle-title">跳过原生首次全站搜索</span>
               <VSwitch
-                v-model="settings.backfill_enabled"
+                v-model="form.skip_first_search_enabled"
                 color="primary"
+                density="compact"
                 hide-details
                 inset
-                @update:model-value="syncSettingsToForm"
-              >
-                <template #label><span class="cache-switch-label">存量补扫（定时反扫缓存补缺集）</span></template>
-              </VSwitch>
+              />
+            </div>
+            <div class="cache-toggle-desc">
+              新增订阅不再触发宿主内置的首次全站搜索，避免与左边回搜撞车；后续仍按订阅间隔继续搜。
             </div>
           </div>
+        </div>
+
+        <!-- 存量补扫：两个面板下面一行（小开关 + 一行说明） -->
+        <div class="cache-backfill-row">
+          <VSwitch
+            v-model="settings.backfill_enabled"
+            color="primary"
+            density="compact"
+            hide-details
+            inset
+            @update:model-value="syncSettingsToForm"
+          >
+            <template #label><span class="cache-switch-label">存量补扫</span></template>
+          </VSwitch>
+          <span class="cache-hint">定时反扫缓存补缺集（按命中流水去重，推过的不会再推）</span>
         </div>
 
         <div class="cache-field">
@@ -915,6 +933,13 @@ function fmtTime(value) {
   return String(value || '').replace('T', ' ')
 }
 
+// 统计块数字：千分位（不依赖 locale，避免部分环境分隔符不一致）
+function fmtCount(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '0'
+  return String(Math.trunc(num)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
 onMounted(async () => {
   await refreshAll()
   // 同步在后台线程跑，状态卡保持新鲜（统计查询很轻，10 秒一次）
@@ -935,25 +960,76 @@ onUnmounted(() => {
 .cache-message { font-size: 13px; }
 /* 卡片内容：纵向堆叠统一 8px（配合 VCardText 的 pt-0 收紧标题下间距） */
 .cache-body { display: flex; flex-direction: column; gap: 8px; }
-.cache-status { display: flex; gap: 6px; flex-wrap: wrap; }
+/* 运行状态卡头部：状态徽章 + 刷新按钮同一行 */
+.cache-head-actions { display: flex; align-items: center; gap: 6px; }
+/* 2×2 统计块（背景/边框/圆角与面板同一口径） */
+.cache-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.cache-stat {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  padding: 7px 9px;
+  min-width: 0;
+}
+.cache-stat-label {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.cache-stat-value { font-size: 14px; font-weight: 600; line-height: 1.35; }
 .cache-status-sub {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
   font-size: 12px;
   line-height: 1.5;
   opacity: 0.7;
 }
+/* 统计块下方两段小字之间的分隔点 */
+.cache-dot { opacity: 0.5; }
 /* 频道 / 范围 / 天数条数 / 开关：等宽自适应列，窄屏自动单列（与「资源监控」同一网格口径） */
 .cache-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 8px;
 }
+/* 订阅回搜 / 跳过首次搜索：并排两列面板，窄屏一列 */
+.cache-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .cache-toggles { grid-template-columns: 1fr; }
+}
+.cache-toggle-panel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-width: 0;
+}
+.cache-toggle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cache-toggle-title { font-size: 12px; font-weight: 600; }
+.cache-toggle-desc {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+/* 存量补扫：两个面板下面一行（小开关 + 一行说明） */
+.cache-backfill-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
 .cache-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-/* 开关行与同排输入框（compact + outlined，40px）高度对齐 */
-.cache-switch-row { display: flex; align-items: center; min-height: 40px; }
 .cache-dates { display: flex; gap: 6px; min-width: 0; }
 .cache-dates > * { flex: 1 1 0; min-width: 0; }
 .cache-switch-label { font-size: 13px; }

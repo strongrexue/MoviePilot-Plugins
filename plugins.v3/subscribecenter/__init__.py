@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.8.2"
+    plugin_version = "1.9.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -281,7 +281,7 @@ class SubscribeCenter(_PluginBase):
         return await api_controller.api_poster(self, path=path)
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """注册每日发现定时任务。
+        """注册定时任务：一个全局任务 + 每个数据源可选的独立任务。
 
         :note: ``trigger`` 必须是 ``CronTrigger`` 对象；本方法整体兜底 ——
             任何异常都只记日志并降级为空列表（注册异常会拖垮插件加载）。
@@ -291,19 +291,56 @@ class SubscribeCenter(_PluginBase):
             return []
         try:
             from apscheduler.triggers.cron import CronTrigger
-
-            cron = self._normalize_cron(self._config.get("cron"))
-            return [
-                {
-                    "id": "subscribecenter_discover",
-                    "name": "胖虎订阅中心 每日发现",
-                    "trigger": CronTrigger.from_crontab(cron),
-                    "func": self.run_scheduled,
-                }
-            ]
         except Exception as err:  # pragma: no cover - 调度依赖缺失时降级
             logger.warning(f"[SubscribeCenter] 注册定时任务失败：{err}")
             return []
+
+        services: List[Dict[str, Any]] = []
+        cron = self._normalize_cron(self._config.get("cron"))
+        if cron:
+            try:
+                services.append(
+                    {
+                        "id": "subscribecenter_discover",
+                        "name": "胖虎订阅中心 每日发现",
+                        "trigger": CronTrigger.from_crontab(cron),
+                        "func": self.run_scheduled,
+                    }
+                )
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[SubscribeCenter] 全局定时任务注册失败：{err}")
+
+        # 每源独立定时：留空表示该源跟随全局任务，不单独调度
+        for key, source, label in self._per_source_cron_jobs():
+            raw = str(self._config.get(key) or "").strip()
+            if not raw:
+                continue
+            try:
+                crontab = self._normalize_cron(raw)
+                services.append(
+                    {
+                        "id": f"subscribecenter_{source}",
+                        "name": f"胖虎订阅中心 {label}",
+                        "trigger": CronTrigger.from_crontab(crontab),
+                        "func": lambda only_sources=[source]: self.run_scheduled(
+                            only_sources=only_sources
+                        ),
+                    }
+                )
+            except Exception as err:  # pragma: no cover
+                logger.warning(
+                    f"[SubscribeCenter] {label} 独立定时注册失败（{raw}）：{err}"
+                )
+        return services
+
+    @staticmethod
+    def _per_source_cron_jobs() -> List[tuple]:
+        """（配置键，源标识，显示名）——每源独立定时用。"""
+        return [
+            ("cron_tmdb", C.SOURCE_TMDB, "TMDB"),
+            ("cron_anilist", C.SOURCE_ANILIST, "AniList"),
+            ("cron_douban_rss", C.SOURCE_DOUBAN_RSS, "豆瓣榜单"),
+        ]
 
     def stop_service(self) -> None:
         """释放插件资源；必须可重复、安全调用。
@@ -316,7 +353,7 @@ class SubscribeCenter(_PluginBase):
 
     # ------------------------------------------------------------------ 运行入口
 
-    def run_scheduled(self) -> None:
+    def run_scheduled(self, only_sources: Optional[List[str]] = None) -> None:
         """**同步**入口：由 apscheduler 在自己的线程里调用。
 
         该线程没有事件循环，因此必须经 :class:`PipelineBridge` 桥接。
@@ -326,9 +363,13 @@ class SubscribeCenter(_PluginBase):
             logger.info("[SubscribeCenter] 插件未启用，跳过本次定时发现")
             return
         started = local_now_text(self._tz())
-        logger.info(f"[SubscribeCenter] 定时发现开始（{started}）")
+        scope = "、".join(only_sources) if only_sources else "全部数据源"
+        logger.info(f"[SubscribeCenter] 定时发现开始（{started}，{scope}）")
         summary = self._bridge.run(
-            lambda: self._pipeline_coroutine(force_dry_run=False), timeout=600
+            lambda: self._pipeline_coroutine(
+                force_dry_run=False, only_sources=only_sources
+            ),
+            timeout=600,
         )
         if summary is None:
             logger.info("[SubscribeCenter] 已有流水线在运行，本次定时发现跳过")
@@ -406,10 +447,13 @@ class SubscribeCenter(_PluginBase):
             "rejections": data.get("rejected_reasons") or {},
         }
 
-    async def _pipeline_coroutine(self, *, force_dry_run: bool = False) -> RunSummary:
+    async def _pipeline_coroutine(
+        self, *, force_dry_run: bool = False, only_sources: Optional[List[str]] = None
+    ) -> RunSummary:
         """构造并执行一次流水线（三种入口共用的唯一实现）。
 
         :param force_dry_run: 强制只读（预览用）。预览**不消耗**每日写入额度。
+        :param only_sources: 只跑这些源（每源独立定时用）；None = 全部已启用源。
         """
         resolver = self._resolver
         if resolver is None:
@@ -429,8 +473,14 @@ class SubscribeCenter(_PluginBase):
         # 映射缓存攒批落盘：一次运行可能解析 200+ 条，逐条落盘等于 200+ 次
         # 数据库写入。batch() 期间只标脏，退出时统一写一次。
         with self._cache.batch():
+            adapters = self._build_sources()
+            if only_sources:
+                wanted = {str(item) for item in only_sources}
+                adapters = [
+                    adapter for adapter in adapters if adapter.name in wanted
+                ]
             return await run_pipeline(
-                sources=self._build_sources(),
+                sources=adapters,
                 enabled=self._enabled_sources(),
                 resolver=resolver,
                 writer=self._writer,

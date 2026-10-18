@@ -500,6 +500,20 @@ onMounted(() => {
           </div>
 
           <div class="sc-card">
+            <div class="sc-card-title">独立定时（豆瓣）</div>
+            <VTextField
+              v-model="form.cron_douban_rss"
+              label="五位 cron，留空=跟随全局定时"
+              density="compact"
+              hide-details
+              variant="outlined"
+              placeholder="例：0 8 * * *"
+              class="mb-1"
+            />
+            <div class="sc-hint">留空则跟随「写入与调度」里的全局 cron；填了就会单独按这个时间跑该源。</div>
+          </div>
+
+          <div class="sc-card">
             <div class="sc-card-title">豆瓣 RSS 路线</div>
             <VTextField
               v-model="form.rsshub_domain"
@@ -615,6 +629,20 @@ onMounted(() => {
           </div>
 
           <div class="sc-card">
+            <div class="sc-card-title">独立定时（TMDB）</div>
+            <VTextField
+              v-model="form.cron_tmdb"
+              label="五位 cron，留空=跟随全局定时"
+              density="compact"
+              hide-details
+              variant="outlined"
+              placeholder="例：0 8 * * *"
+              class="mb-1"
+            />
+            <div class="sc-hint">留空则跟随「写入与调度」里的全局 cron；填了就会单独按这个时间跑该源。</div>
+          </div>
+
+          <div class="sc-card">
             <div class="sc-card-title">
               <VIcon icon="mdi-movie-open-outline" size="16" /> TMDB
             </div>
@@ -699,6 +727,20 @@ onMounted(() => {
               </div>
               <VSwitch v-model="form.enable_anilist" density="compact" hide-details color="primary" />
             </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">独立定时（AniList）</div>
+            <VTextField
+              v-model="form.cron_anilist"
+              label="五位 cron，留空=跟随全局定时"
+              density="compact"
+              hide-details
+              variant="outlined"
+              placeholder="例：0 8 * * *"
+              class="mb-1"
+            />
+            <div class="sc-hint">留空则跟随「写入与调度」里的全局 cron；填了就会单独按这个时间跑该源。</div>
           </div>
 
           <div class="sc-card">

@@ -68,7 +68,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.8.2",
+        "version": "1.9.0",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -76,6 +76,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.9.0": "每数据源独立定时（1.9.0，借鉴 automaticsubscriptionassistant 的第一步）。[1] 流水线支持 only_sources 参数：_pipeline_coroutine(only_sources=[...]) 会按适配器的 name 过滤源，run_scheduled(only_sources=...) 透传。[2] get_service 改为「全局任务 + 每源任务」：全局 cron 有值就注册「每日发现」；cron_tmdb / cron_anilist / cron_douban_rss 三个新配置项非空时，各注册一个独立任务（任务 id = subscribecenter_<source>，闭包绑定该源），留空表示跟随全局。[3] 前端三个源分区各加一张「独立定时」卡片（五位 cron 输入 + 说明），默认空。版本门禁、配置键一致性、ruff、455 项测试、构建均通过。",
             "v1.8.2": "配色改为外圈描边 4px（1.8.2）。用户反馈 1.8.1 的 3px 内描边几乎看不出变化，希望像宿主洗版标记那样给卡片套一圈明显的彩色外框且更粗。改法：card_theme._rules 改用 outline（画在盒子外侧、不参与布局，不会挤动网格）+ outline-offset:1px 留一点缝 + 卡片底色 14% + 左侧 6px 强调条；新增常量 _OUTLINE_WIDTH=4 / _OUTLINE_OFFSET=1 便于后续调粗细。仍然不用 ::after 覆盖层，绝不遮挡内容。同步更新测试断言（outline:4px solid / outline-offset:1px / inset 6px 0）。ruff 全绿、455 项测试通过、构建与 CSS 门禁通过。注意：用户此前把 UserCustomCSS 清成了 null，需要在配色面板重新点保存。",
             "v1.8.1": "配色安全化改造（1.8.1）。用户逐步排查后确认：订阅页筛选变空的真因是 MoviePilot 前端在「某条订阅开启洗版 + 特定状态」时筛选计算异常（他把斗破苍穹的洗版关掉，筛选立刻恢复），与我们插件无关 —— 我们的 CSS 只是把洗版状态显示出来，且 MP 的 GET /subscribe/ 接口本身没有状态筛选参数（永远返回全部），筛选全在前端。为彻底消除我方的任何风险，做了三处改造：[1] 删掉「洗版另加紫色外框」选项（含 UI 复选框、schema 字段、CSS 的 :has() 规则）—— 这个选项没有实际价值，还引入复杂选择器。[2] CSS 生成去掉 ::after 覆盖层，改为纯 box-shadow：3px 描边 + 左侧 7px 强调条 + 卡片底色 12%，绝不遮挡任何内容（之前若覆盖层被宿主伪元素规则干扰，会让人误以为卡片消失）。[3] 恢复默认改为写入空串而非 null，并在提示语里说明「若颜色仍在请重启 MoviePilot」，因为宿主的系统设置服务有内存缓存，绕过 API 直接写库不会刷新缓存。同步更新 4 项测试断言（3px/7px/无 ::after）。ruff 全绿、455 项测试通过、构建与 CSS 门禁通过。",
             "v1.8.0": "配色改为方案3（整卡浅染色）+ 移除订阅总览展示（1.8.0）。用户确认两件事：[1] 配色采用方案3——整卡按状态浅染色 + 2px 描边 + 左侧 5px 强调条，最醒目；[2] 不再需要「订阅总览」海报网格那套展示（他只用配色，看订阅直接去 MP 自己的订阅页）。改动：后端 card_theme.build_block 改为方案3 样式（每状态生成 box-shadow 描边 + 背景底色 + ::after 覆盖层，颜色做 rgba 转换，洗版仍用宿主自带左上角徽章，可选紫色外框）；删除 /subscriptions 接口、subscription_overview 方法、SubscriptionRow/SubscriptionOverview schema、_display_state 辅助函数、SUBSCRIBE_OVERVIEW_LIMIT 常量与相关测试。前端删除整个订阅总览区块（海报网格、状态 tab、滚动加载、排序、洗版角标等约 5KB 模板与 13KB 脚本逻辑），在原位置换成一张精简的「订阅卡片配色」卡片（三个色块 + 洗版外框开关 + 保存/恢复默认）；清理不再使用的样式（.sc-overview*/.sc-poster-* 等）。中途踩坑：第一次用 div 计数定位删除，误删了「发现流水」整块与配色脚本，已 git checkout 还原后用注释锚点重做。验证：455 项测试通过、ruff 全绿、构建通过、CSS 门禁通过，生成的 CSS 已本地打印确认。",

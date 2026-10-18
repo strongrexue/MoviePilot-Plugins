@@ -62,6 +62,9 @@ export const configDefaults = {
   daily_limit: 30,
   dry_run: false,
   // ---------------- 调度与通知
+  cron_tmdb: '',
+  cron_anilist: '',
+  cron_douban_rss: '',
   cron: '0 3 * * *',
   timezone: 'Asia/Shanghai',
   notify: false,

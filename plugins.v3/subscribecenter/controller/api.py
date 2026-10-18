@@ -28,7 +28,8 @@ def get_api(plugin) -> List[Dict[str, Any]]:
     definitions = [
         ("/status", plugin.api_status, ["GET"], "获取插件运行状态与各源情况"),
         ("/history", plugin.api_history, ["GET"], "分页查询发现/写入流水"),
-        ("/calendar", plugin.api_calendar, ["GET"], "今日日历：今天已入库/待播"),
+        ("/calendar", plugin.api_calendar, ["GET"], "日历：整月视图"),
+        ("/calendar/day", plugin.api_calendar_day, ["GET"], "日历：单日视图（默认今天）"),
         ("/card_theme", plugin.api_card_theme, ["GET"], "读取订阅卡片配色"),
         ("/card_theme/save", plugin.api_card_theme_save, ["POST"], "保存订阅卡片配色"),
         ("/run_once", plugin.api_run_once, ["POST"], "手动触发一次发现任务"),
@@ -172,6 +173,16 @@ __all__ = [
     "api_status",
     "get_api",
 ]
+
+
+async def api_calendar_day(plugin, date: str = "") -> Any:
+    """单日日历（默认今天）：给「今天」列表视图用。"""
+    try:
+        data = await plugin.calendar_today(date_text=date)
+        return schemas.Response(success=True, data=api_schemas.CalendarView(**data))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取单日日历失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取单日日历失败") from err
 
 
 async def api_calendar(plugin, month: str = "") -> Any:

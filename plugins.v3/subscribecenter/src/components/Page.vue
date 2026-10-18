@@ -23,6 +23,32 @@ const tip = ref({ show: false, ok: true, text: '' })
 const status = ref(null)
 /** 详情页视图：日历（默认）/ 发现流水。 */
 const viewTab = ref('calendar')
+/** 日历模式：today（默认，今天列表）/ month（整月网格）。 */
+const calMode = ref('today')
+/** 今天视图数据（GET /calendar/day）。 */
+const todayView = ref(null)
+const todayLoading = ref(false)
+
+/** 拉今天的列表。 */
+async function loadToday() {
+  todayLoading.value = true
+  try {
+    todayView.value = unwrap(await getPluginApi(props.api, props.pluginId, 'calendar/day'))
+  } catch (error) {
+    todayView.value = { today: '', total: 0, updated: 0, pending: 0, items: [] }
+    setTip(error?.message || '读取今天日历失败', false)
+  } finally {
+    todayLoading.value = false
+  }
+}
+
+/** 切换 今天 / 月历。 */
+function switchCalMode(mode) {
+  calMode.value = mode
+  if (mode === 'today' && !todayView.value) loadToday()
+  if (mode === 'month' && !calendar.value) loadCalendar()
+}
+
 /** 当前月份（YYYY-MM，默认本月）。 */
 const calMonth = ref('')
 /** 某天展开全部条目（key = YYYY-MM-DD）。 */
@@ -268,7 +294,7 @@ async function loadHistory() {
 }
 
 async function refreshAll() {
-  if (viewTab.value === 'calendar') loadCalendar()
+  if (viewTab.value === 'calendar' && calMode.value === 'today') loadToday()
   await Promise.all([loadStatus(), loadHistory()])
 }
 
@@ -497,7 +523,7 @@ const statCards = computed(() => {
 })
 
 onMounted(() => {
-  loadCalendar()
+  loadToday()
   refreshAll()
   refreshTimer = setInterval(refreshAll, 30000)
 })
@@ -650,6 +676,33 @@ onUnmounted(() => {
     <!-- 日历（复刻 MoviePilot 日历：月历网格 + 每天条目） -->
     <div v-if="viewTab === 'calendar'" class="sc-card sc-cal-card">
       <div class="sc-cal-head">
+        <button
+          type="button"
+          class="sc-calmode"
+          :class="{ 'sc-calmode-active': calMode === 'today' }"
+          @click="switchCalMode('today')"
+        >
+          今天
+        </button>
+        <button
+          type="button"
+          class="sc-calmode"
+          :class="{ 'sc-calmode-active': calMode === 'month' }"
+          @click="switchCalMode('month')"
+        >
+          月历
+        </button>
+        <template v-if="calMode === 'today'">
+          <span class="sc-cal-month">{{ todayView?.today || '—' }}</span>
+          <span class="sc-dim sc-cal-total">
+            共 {{ todayView?.total || 0 }} 条 · 已入库 {{ todayView?.updated || 0 }} ·
+            待入库 {{ todayView?.pending || 0 }}
+          </span>
+          <VBtn size="x-small" variant="text" class="sc-cal-refresh" :loading="todayLoading" @click="loadToday">
+            刷新
+          </VBtn>
+        </template>
+        <template v-else>
         <VBtn size="x-small" variant="text" icon="mdi-chevron-left" @click="shiftMonth(-1)" />
         <span class="sc-cal-month">{{ calMonthTitle }}</span>
         <VBtn size="x-small" variant="text" icon="mdi-chevron-right" @click="shiftMonth(1)" />
@@ -658,13 +711,40 @@ onUnmounted(() => {
         <VBtn size="x-small" variant="text" class="sc-cal-refresh" :loading="calendarLoading" @click="loadCalendar">
           刷新
         </VBtn>
+        </template>
       </div>
 
-      <div class="sc-cal-weekhead">
+      <!-- 今天：海报墙（默认视图） -->
+      <div v-if="calMode === 'today'" class="sc-today-scroll">
+        <div v-if="!(todayView?.items || []).length" class="sc-cal-empty">
+          <VIcon icon="mdi-calendar-blank-outline" size="34" />
+          <div>今天没有需要处理的更新</div>
+          <div class="sc-dim">切到「月历」可以看整月安排</div>
+        </div>
+        <div v-else class="sc-today-grid">
+          <div v-for="item in todayView.items" :key="item.id + '-' + item.kind" class="sc-today-item">
+            <div class="sc-today-poster">
+              <img v-if="item.poster" :src="posterUrl(item)" alt="" loading="lazy" @error="markPosterFailed($event)" />
+              <VIcon v-else icon="mdi-filmstrip-box-multiple" size="22" />
+              <span class="sc-today-badge" :class="item.kind === 'updated' ? 'sc-today-badge-ok' : 'sc-today-badge-wait'">
+                {{ item.kind === 'updated' ? '今日更新' : '今日待播' }}
+              </span>
+            </div>
+            <div class="sc-today-title" :title="item.name">{{ item.name }}</div>
+            <div class="sc-today-sub">{{ episodeText(item) }}</div>
+            <div class="sc-today-sub" :class="item.kind === 'updated' ? 'sc-cal-done' : 'sc-cal-wait'">
+              {{ item.kind === 'updated' ? '已入库' : '未入库' }}
+              ({{ item.total_episode - item.lack_episode }}/{{ item.total_episode }})
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="calMode === 'month'" class="sc-cal-weekhead">
         <span v-for="w in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']" :key="w">{{ w }}</span>
       </div>
 
-      <div class="sc-cal-scroll">
+      <div v-if="calMode === 'month'" class="sc-cal-scroll">
         <div v-for="(week, wi) in calWeeks" :key="wi" class="sc-cal-week">
           <div
             v-for="cell in week"
@@ -1533,5 +1613,85 @@ onUnmounted(() => {
 }
 .sc-cal-date-input:focus {
   outline: 2px solid rgb(var(--v-theme-primary));
+}
+
+/* 今天 / 月历 模式切换 */
+.sc-calmode {
+  border: 1px solid rgba(var(--v-border-color), 0.3);
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.sc-calmode-active {
+  background: rgb(var(--v-theme-primary));
+  border-color: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+  opacity: 1;
+  font-weight: 600;
+}
+/* 今天的海报墙 */
+.sc-today-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.sc-today-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px 8px;
+  align-items: start;
+}
+.sc-today-item {
+  min-width: 0;
+}
+.sc-today-poster {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+  background: rgba(var(--v-border-color), 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sc-today-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sc-today-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  color: #14141c;
+}
+.sc-today-badge-ok {
+  background: rgb(var(--v-theme-success));
+}
+.sc-today-badge-wait {
+  background: rgb(var(--v-theme-warning));
+}
+.sc-today-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-today-sub {
+  font-size: 11px;
+  opacity: 0.75;
 }
 </style>

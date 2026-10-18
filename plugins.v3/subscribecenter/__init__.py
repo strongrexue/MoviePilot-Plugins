@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.11.3"
+    plugin_version = "1.11.4"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -475,6 +475,10 @@ class SubscribeCenter(_PluginBase):
             if key in cache:
                 index[key] = cache[key][1]
         return index
+
+    async def api_calendar_day(self, date: str = "") -> Any:
+        """单日日历接口（默认今天）。"""
+        return await api_controller.api_calendar_day(self, date=date)
 
     async def api_calendar(self, month: str = "") -> Any:
         """日历接口（整月，month=YYYY-MM）。"""

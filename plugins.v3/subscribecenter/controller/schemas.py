@@ -245,6 +245,7 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
     "/calendar": CalendarMonth,
+    "/calendar/day": CalendarView,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,

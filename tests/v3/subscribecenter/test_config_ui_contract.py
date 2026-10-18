@@ -85,3 +85,17 @@ def test_calendar_uses_month_api():
     assert "calendar?month=" in text
     assert "function shiftMonth(" in text
     assert "calMonthTitle" in text
+
+
+def test_calendar_defaults_to_today_list():
+    """默认是「今天列表」，月历保留为可切换项。"""
+    page = (
+        Path(__file__).resolve().parents[3]
+        / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Page.vue"
+    )
+    text = page.read_text(encoding="utf-8")
+    assert "const calMode = ref('today')" in text, "默认必须是今天列表"
+    assert "switchCalMode" in text and "sc-calmode" in text, "要有 今天/月历 切换"
+    assert "calendar/day" in text, "今天视图走单日接口"
+    assert "sc-today-grid" in text
+    assert "sc-cal-weekhead" in text, "月历保留"

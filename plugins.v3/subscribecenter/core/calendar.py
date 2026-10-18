@@ -67,55 +67,40 @@ def build_today(
     today: str,
     episode_index: Optional[Dict[Any, List[Any]]] = None,
 ) -> List[Dict[str, Any]]:
-    """挑出某一天的日历条目：先「已入库」，再「待播」（去重）。
+    """某一天有哪些剧在播（复刻 MoviePilot 日历的数据口径）。
 
-    :param rows: 订阅行（ORM 对象即可）
-    :param today: 目标日期 ``YYYY-MM-DD``
-    :param episode_index: 可选 ``{(media_id, season): [(air_date, episode_number), ...]}``，
-        用来支持**任意日期**：命中当天播出的集数，即使订阅的 ``date``/``last_update``
-        都没落在这一天。
+    .. important::
+       **只看 TMDB 每季的 ``episodes[].air_date``**，不用订阅表的
+       ``last_update`` / ``date``：
+
+       - ``last_update`` 是「最后一次搜索/刷新时间」，批量跑一次会把几十上百条
+         订阅全部刷成同一天 → 用它判断会把整月撑爆（真机实测一天 200 条，MP 只有 38 条）
+       - ``date`` 只是「下一集播出」，查历史/未来都覆盖不到
+
+       入库状态按**集号 vs 已入库集数**（``total_episode - lack_episode``）判断，
+       与 MP 前端 ``libraryState`` 口径一致。
     """
     rows = list(rows)
     index = episode_index or {}
+    items: List[Dict[str, Any]] = []
 
-    updated: List[Dict[str, Any]] = []
-    updated_ids: set = set()
     for row in rows:
-        if _text(getattr(row, "last_update", "")).startswith(today):
-            item = _row_to_item(row, KIND_UPDATED, today)
-            updated.append(item)
-            updated_ids.add(item["id"])
+        media_id = _text(getattr(row, "media_id", ""))
+        season = _int(getattr(row, "season", 0))
+        air_eps = [number for air_date, number in index.get((media_id, season), []) if air_date == today]
+        if not air_eps:
+            continue
 
-    pending: List[Dict[str, Any]] = []
-    for row in rows:
-        sid = _int(getattr(row, "id", 0))
-        if sid in updated_ids:
-            continue
-        key = (_text(getattr(row, "media_id", "")), _int(getattr(row, "season", 0)))
-        air_eps = [
-            number for air_date, number in index.get(key, []) if air_date == today
-        ]
-        hit = bool(air_eps) or _text(getattr(row, "date", "")).startswith(today)
-        if not hit:
-            continue
-        # 入库状态按「集号 vs 已入库集数」判断（与 MoviePilot 日历一致）：
-        # libraryEpisode = 总集数 - 缺集；当天要播的集号都 <= 它才算已入库。
-        # 之前按「日期是否等于 last_update」判断，导致只有今天/昨天显示已入库。
         downloaded = _int(getattr(row, "total_episode", 0)) - _int(
             getattr(row, "lack_episode", 0)
         )
-        done = bool(air_eps) and downloaded > 0 and max(air_eps) <= downloaded
+        done = downloaded > 0 and max(air_eps) <= downloaded
         item = _row_to_item(row, KIND_UPDATED if done else KIND_PENDING, today)
-        if air_eps:
-            item["episodes"] = sorted(air_eps)
-        if done:
-            updated.append(item)
-        else:
-            pending.append(item)
+        item["episodes"] = sorted(air_eps)
+        items.append(item)
 
-    updated.sort(key=lambda item: item["name"])
-    pending.sort(key=lambda item: item["name"])
-    return updated + pending
+    items.sort(key=lambda item: (item["kind"] != KIND_UPDATED, item["name"]))
+    return items
 
 
 def summarize(items: List[Dict[str, Any]]) -> Dict[str, int]:

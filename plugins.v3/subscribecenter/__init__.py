@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.9.7"
+    plugin_version = "1.9.8"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -138,7 +138,7 @@ class SubscribeCenter(_PluginBase):
             resubscribe_completed=bool(
                 self._config.get("resubscribe_completed", True)
             ),
-            notify_each=bool(self._config.get("notify_each_subscription", True)),
+            notify_each=True,
         )
         self._last_run = self._state().get("last_run")
 
@@ -277,7 +277,7 @@ class SubscribeCenter(_PluginBase):
         默认关闭：只有插件已启用、且用户打开配置页的「发现页」开关时才注册，
         避免给不用的人凭空多一个导航项。
         """
-        if not self._enabled() or not self._config.get("discovery_page_enabled"):
+        if not self._enabled():
             return []
         return [
             {
@@ -367,10 +367,6 @@ class SubscribeCenter(_PluginBase):
     async def api_run_once(self, source: str = "") -> Any:
         """手动触发一次发现任务（可只跑某个源）。"""
         return await api_controller.api_run_once(self, source=source)
-
-    async def api_test_source(self, source: str = "") -> Any:
-        """单源连通性测试：只抓取，不识别、不订阅、不写历史。"""
-        return await api_controller.api_test_source(self, source=source)
 
     async def api_preview(self) -> Any:
         """只读预览：跑一次但不写入。"""
@@ -556,41 +552,6 @@ class SubscribeCenter(_PluginBase):
             "summary": data,
             "items": items,
             "rejections": data.get("rejected_reasons") or {},
-        }
-
-    async def test_source(self, source: str) -> Dict[str, Any]:
-        """连通性测试：只跑该源的 ``fetch``，返回条数与样例标题。
-
-        **不做**身份解析、不写订阅、不写历史 —— 纯探活。
-        """
-        adapters = {adapter.name: adapter for adapter in self._build_sources()}
-        adapter = adapters.get(source)
-        if adapter is None:
-            return {
-                "source": source,
-                "ok": False,
-                "count": 0,
-                "samples": [],
-                "error": f"未知或不可用的数据源：{source}",
-            }
-        try:
-            items = await adapter.fetch(self._config)
-        except Exception as err:  # noqa: BLE001 - 测试失败要回给前端
-            logger.warning(f"[SubscribeCenter] {source} 连通性测试失败：{err}")
-            return {
-                "source": source,
-                "ok": False,
-                "count": 0,
-                "samples": [],
-                "error": f"{type(err).__name__}: {err}",
-            }
-        samples = [str(getattr(item, "title", "") or "") for item in items[:5]]
-        return {
-            "source": source,
-            "ok": True,
-            "count": len(items),
-            "samples": [text for text in samples if text],
-            "error": "",
         }
 
     async def _pipeline_coroutine(

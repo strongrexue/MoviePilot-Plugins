@@ -137,21 +137,14 @@ def test_init_plugin_is_repeatable(plugin_cls):
 
 # --------------------------------------------------------------------- 侧栏入口
 
-def test_sidebar_nav_empty_by_default(plugin_cls):
-    """「发现页」入口默认不注册。"""
-    instance = plugin_cls()
-    instance.init_plugin({"enabled": True})
-    assert instance.get_sidebar_nav() == []
-
-
-def test_sidebar_nav_requires_enabled_and_switch(plugin_cls):
-    """需要插件已启用**且**开关打开。"""
+def test_sidebar_nav_follows_plugin_enabled(plugin_cls):
+    """「发现页」入口只看插件总开关（1.9.8 起合并，不再单独配置）。"""
     disabled = plugin_cls()
-    disabled.init_plugin({"enabled": False, "discovery_page_enabled": True})
+    disabled.init_plugin({"enabled": False})
     assert disabled.get_sidebar_nav() == []
 
     enabled = plugin_cls()
-    enabled.init_plugin({"enabled": True, "discovery_page_enabled": True})
+    enabled.init_plugin({"enabled": True})
     nav = enabled.get_sidebar_nav()
     assert len(nav) == 1
     assert nav[0]["nav_key"] == "main"
@@ -229,7 +222,6 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/card_theme/save",
         "/run_once",
         "/preview",
-        "/test_source",
         "/system_share",
         "/system_share/save",
         "/mapping_cache",
@@ -261,7 +253,6 @@ def test_every_route_has_a_response_model():
         "/card_theme/save",
         "/run_once",
         "/preview",
-        "/test_source",
         "/system_share",
         "/system_share/save",
         "/mapping_cache",

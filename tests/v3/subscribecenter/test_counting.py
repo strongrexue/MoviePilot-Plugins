@@ -211,7 +211,7 @@ def test_all_switch_rows_are_rendered():
 
     # 这几个键必须真的出现在 switchRows 定义里，否则界面上没有对应开关
     # （dry_run 已于 1.9.7 移除 —— 插件调参阶段结束，不再需要试运行开关）
-    for key in ("discovery_page_enabled", "notify"):
+    for key in ("notify",):
         assert f"key: '{key}'" in text, f"switchRows 缺少 {key}"
 
 

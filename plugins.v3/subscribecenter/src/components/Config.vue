@@ -39,6 +39,7 @@ const busy = ref('')
 const status = ref(null)
 const tip = ref({ show: false, ok: true, text: '' })
 const previewItems = ref([])
+const doubanTab = ref('basic')
 const activeSection = ref('overview')
 
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
@@ -88,32 +89,6 @@ const doubanSourcesText = computed({
 
 const sourceRows = [
   { key: 'enable_tmdb', label: 'TMDB', hint: '全球电影/剧集，自带 TMDB ID（身份最可靠）' },
-  {
-    key: 'enable_anilist',
-    label: 'AniList',
-    hint: '番剧 + 国漫；官方 GraphQL，自带开播日、在播状态与热度',
-  },
-  { key: 'enable_douban_rss', label: '豆瓣 RSS', hint: '经 RSSHub；上映日期与豆瓣 ID 均可解析' },
-  { key: 'enable_hot_media', label: '热门媒体', hint: '官方热门订阅统计；需开启「订阅数据共享」' },
-]
-
-/** 基础开关：一行一个，左标题右开关。 */
-const switchRows = [
-  {
-    key: 'enabled',
-    label: '启用插件',
-    hint: '关闭后定时任务与手动运行都会跳过',
-  },
-  {
-    key: 'discovery_page_enabled',
-    label: '在「发现」分区显示入口',
-    hint: '关闭只是不显示入口，插件仍会按时运行',
-  },
-  {
-    key: 'notify_each_subscription',
-    label: '每条新订阅都发 MP 原生通知',
-    hint: 'MP 自带的「新增订阅」消息；关闭后只有下面的运行摘要',
-  },
   {
     key: 'notify',
     label: '发送运行摘要通知',
@@ -295,45 +270,6 @@ async function toggleShare(value) {
     setTip(error?.message || '设置失败', false)
   } finally {
     shareSaving.value = false
-  }
-}
-
-/** 每源运行状态（防抖：进行中禁用按钮）。 */
-const sourceBusy = ref({})
-
-/** 只跑指定数据源一次。 */
-async function runOneSource(source, label) {
-  if (sourceBusy.value[source]) return
-  sourceBusy.value = { ...sourceBusy.value, [source]: true }
-  try {
-    const data = unwrap(
-      await postPluginApi(props.api, props.pluginId, `run_once?source=${source}`, {}, { timeoutMs: 600000 }),
-    )
-    const summary = data?.summary || {}
-    setTip(`${label} 已运行：新增 ${summary.added_count || 0} 条`)
-  } catch (error) {
-    setTip(error?.message || `${label} 运行失败`, false)
-  } finally {
-    sourceBusy.value = { ...sourceBusy.value, [source]: false }
-  }
-}
-
-/** 单源连通性测试：只抓取，不订阅、不写历史。 */
-async function testOneSource(source, label) {
-  if (sourceBusy.value[source]) return
-  sourceBusy.value = { ...sourceBusy.value, [source]: true }
-  try {
-    const data = unwrap(await getPluginApi(props.api, props.pluginId, `test_source?source=${source}`))
-    if (data?.ok) {
-      const sample = (data.samples || []).slice(0, 3).join('、')
-      setTip(`${label} 连通正常：抓到 ${data.count} 条${sample ? `，示例：${sample}` : ''}`)
-    } else {
-      setTip(`${label} 测试失败：${data?.error || '未知原因'}`, false)
-    }
-  } catch (error) {
-    setTip(error?.message || `${label} 测试失败`, false)
-  } finally {
-    sourceBusy.value = { ...sourceBusy.value, [source]: false }
   }
 }
 
@@ -586,6 +522,12 @@ onMounted(() => {
 
         <!-- 数据源 -->
         <template v-if="activeSection === 'douban'">
+          <VTabs v-model="doubanTab" density="compact" color="primary" class="sc-tabs">
+            <VTab value="basic">豆瓣 RSS</VTab>
+            <VTab value="routes">豆瓣榜单</VTab>
+          </VTabs>
+
+          <template v-if="doubanTab === 'basic'">
           <div class="sc-card">
             <div class="sc-row">
               <div class="sc-row-main">
@@ -608,20 +550,233 @@ onMounted(() => {
               class="mb-1"
             />
             <div class="sc-hint">留空则跟随「写入与调度」里的全局 cron；填了就会单独按这个时间跑该源。</div>
-            <div class="sc-source-actions">
-              <VBtn size="x-small" color="primary" :loading="!!sourceBusy['douban_rss']" @click="runOneSource('douban_rss', '豆瓣榜单')">
-                立即运行一次
-              </VBtn>
-              <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['douban_rss']" @click="testOneSource('douban_rss', '豆瓣榜单')">
-                连通性测试
-              </VBtn>
-            </div>
 
 
 
           </div>
 
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-movie-filter-outline" size="16" /> 豆瓣 RSS
+            </div>
+            <VRow dense>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.douban_future_days"
+                  label="发现窗口（天）"
+                  type="number"
+                  min="1"
+                  max="90"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.min_rating_douban"
+                  label="最低评分"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.douban_min_want"
+                  label="最低想看人数（0 = 不限）"
+                  type="number"
+                  min="0"
+                  step="100"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.douban_max_items_per_feed"
+                  label="每个榜单最多取 N 条"
+                  type="number"
+                  min="1"
+                  max="200"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.enable_douban_rss"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.resolve_concurrency"
+                  label="身份解析并发数"
+                  type="number"
+                  min="1"
+                  max="16"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">
+              豆瓣窗口独立于 TMDB（「即将上映」是策展列表，可以放宽）。想看人数只有 coming 类路线提供，
+              榜单类没有该数据，<b>缺失时不拦</b>。候选多不需要手动减 —— 解析是并发的，
+              实测 260 条约 20~30 秒。
+            </div>
+          </div>
 
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-check-decagram-outline" size="16" /> 订阅行为
+            </div>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">已完成过的订阅允许重新订阅</div>
+                <div class="sc-row-hint">
+                  从媒体库删掉文件后想重新下时需要。真正<b>已经播完</b>的剧不会因此重复订阅。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.resubscribe_completed"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">用 TMDB 分组精确订阅被压成单季的番剧</div>
+                <div class="sc-row-hint">
+                  如《药屋少女的呢喃》= 1 季 60 集，第 49~60 集才是第 3 季。开启后只订那 12 集，
+                  <b>不会去补前 48 集旧番</b>。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.prefer_episode_group"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+          </div>
+          </template>
+
+          <template v-if="doubanTab === 'routes'">
+            <summary>高级选项：豆瓣 RSS 路线（逐条自定义地址与阈值）</summary>
+            <div class="sc-card">
+            <div class="sc-card-title">豆瓣 RSS 路线</div>
+            <VTextField
+            v-model="form.rsshub_domain"
+            label="RSSHub 域名（总控）"
+            density="compact"
+            hide-details
+            variant="outlined"
+            placeholder="http://192.168.50.134:1200"
+            class="mb-2"
+            :disabled="!form.enable_douban_rss"
+            />
+            <div class="sc-hint mb-2">
+            每条榜单只填**路由**（如 <code>/douban/movie/coming</code>），
+            实际请求 = 域名 + 路由。换 RSSHub 地址只改这里，不用逐条改。
+            </div>
+            <div class="sc-list-head">
+            <span class="sc-hint">已启用 {{ doubanEnabledCount }} / {{ doubanLists.length }} 条</span>
+            <VBtn size="x-small" variant="tonal" prepend-icon="mdi-plus" @click="addDoubanList">
+            添加榜单
+            </VBtn>
+            </div>
+            <div
+            v-for="(entry, index) in doubanLists"
+            :key="index"
+            class="sc-list-item"
+            :class="{ 'sc-list-off': !entry.enabled }"
+            >
+            <div class="sc-list-row">
+            <VSwitch
+            v-model="entry.enabled"
+            density="compact"
+            hide-details
+            color="primary"
+            class="sc-list-switch"
+            />
+            <VTextField
+            v-model="entry.name"
+            density="compact"
+            hide-details
+            variant="outlined"
+            placeholder="榜单名称"
+            style="max-width: 160px"
+            />
+            <VTextField
+            v-model="entry.url"
+            density="compact"
+            hide-details
+            variant="outlined"
+            placeholder="/douban/movie/coming 或完整 URL"
+            class="sc-list-url"
+            />
+            <VBtn
+            size="x-small"
+            variant="text"
+            color="error"
+            icon="mdi-delete-outline"
+            @click="removeDoubanList(index)"
+            />
+            </div>
+            <div class="sc-list-row sc-list-params">
+            <VTextField
+            v-model.number="entry.max_items"
+            label="每榜条数（0=沿用全局）"
+            type="number"
+            min="1"
+            max="200"
+            density="compact"
+            hide-details
+            variant="outlined"
+            />
+            <VTextField
+            v-model.number="entry.future_days"
+            label="窗口天数（0=沿用全局）"
+            type="number"
+            min="0"
+            max="120"
+            density="compact"
+            hide-details
+            variant="outlined"
+            />
+            <VTextField
+            v-model.number="entry.min_want"
+            label="最低想看（0=不限）"
+            type="number"
+            min="0"
+            step="100"
+            density="compact"
+            hide-details
+            variant="outlined"
+            />
+            </div>
+            </div>
+            <div class="sc-hint mt-2">
+            <b>电影上映类</b>（<code>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br />
+            <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
+            <code>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br />
+            <b>电影榜单类</b>没有日期，会被跳过。<code>ustop250</code> 与
+            <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
+            </div>
+            </div>          </template>
         </template>
 
         <!-- 窗口与阈值 -->
@@ -635,14 +790,6 @@ onMounted(() => {
               <VSwitch v-model="form.enable_tmdb" density="compact" hide-details color="primary" />
             </div>
           </div>
-            <div class="sc-source-actions">
-              <VBtn size="x-small" color="primary" :loading="!!sourceBusy['tmdb']" @click="runOneSource('tmdb', 'TMDB')">
-                立即运行一次
-              </VBtn>
-              <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['tmdb']" @click="testOneSource('tmdb', 'TMDB')">
-                连通性测试
-              </VBtn>
-            </div>
 
 
           <div class="sc-card">
@@ -745,14 +892,6 @@ onMounted(() => {
               <VSwitch v-model="form.enable_anilist" density="compact" hide-details color="primary" />
             </div>
           </div>
-            <div class="sc-source-actions">
-              <VBtn size="x-small" color="primary" :loading="!!sourceBusy['anilist']" @click="runOneSource('anilist', 'AniList')">
-                立即运行一次
-              </VBtn>
-              <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['anilist']" @click="testOneSource('anilist', 'AniList')">
-                连通性测试
-              </VBtn>
-            </div>
 
 
           <div class="sc-card">
@@ -836,230 +975,6 @@ onMounted(() => {
 
         </template>
 
-        <template v-if="activeSection === 'douban'">
-          <div class="sc-card">
-            <div class="sc-card-title">
-              <VIcon icon="mdi-movie-filter-outline" size="16" /> 豆瓣 RSS
-            </div>
-            <VRow dense>
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.douban_future_days"
-                  label="发现窗口（天）"
-                  type="number"
-                  min="1"
-                  max="90"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                  :disabled="!form.enable_douban_rss"
-                />
-              </VCol>
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.min_rating_douban"
-                  label="最低评分"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="10"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                  :disabled="!form.enable_douban_rss"
-                />
-              </VCol>
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.douban_min_want"
-                  label="最低想看人数（0 = 不限）"
-                  type="number"
-                  min="0"
-                  step="100"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                  :disabled="!form.enable_douban_rss"
-                />
-              </VCol>
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.douban_max_items_per_feed"
-                  label="每个榜单最多取 N 条"
-                  type="number"
-                  min="1"
-                  max="200"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                  :disabled="!form.enable_douban_rss"
-                />
-              </VCol>
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.resolve_concurrency"
-                  label="身份解析并发数"
-                  type="number"
-                  min="1"
-                  max="16"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                />
-              </VCol>
-            </VRow>
-            <div class="sc-hint">
-              豆瓣窗口独立于 TMDB（「即将上映」是策展列表，可以放宽）。想看人数只有 coming 类路线提供，
-              榜单类没有该数据，<b>缺失时不拦</b>。候选多不需要手动减 —— 解析是并发的，
-              实测 260 条约 20~30 秒。
-            </div>
-          </div>
-
-          <details class="sc-adv">
-          <summary>高级选项：豆瓣 RSS 路线（逐条自定义地址与阈值）</summary>
-          <div class="sc-card">
-          <div class="sc-card-title">豆瓣 RSS 路线</div>
-          <VTextField
-          v-model="form.rsshub_domain"
-          label="RSSHub 域名（总控）"
-          density="compact"
-          hide-details
-          variant="outlined"
-          placeholder="http://192.168.50.134:1200"
-          class="mb-2"
-          :disabled="!form.enable_douban_rss"
-          />
-          <div class="sc-hint mb-2">
-          每条榜单只填**路由**（如 <code>/douban/movie/coming</code>），
-          实际请求 = 域名 + 路由。换 RSSHub 地址只改这里，不用逐条改。
-          </div>
-          <div class="sc-list-head">
-          <span class="sc-hint">已启用 {{ doubanEnabledCount }} / {{ doubanLists.length }} 条</span>
-          <VBtn size="x-small" variant="tonal" prepend-icon="mdi-plus" @click="addDoubanList">
-          添加榜单
-          </VBtn>
-          </div>
-          <div
-          v-for="(entry, index) in doubanLists"
-          :key="index"
-          class="sc-list-item"
-          :class="{ 'sc-list-off': !entry.enabled }"
-          >
-          <div class="sc-list-row">
-          <VSwitch
-          v-model="entry.enabled"
-          density="compact"
-          hide-details
-          color="primary"
-          class="sc-list-switch"
-          />
-          <VTextField
-          v-model="entry.name"
-          density="compact"
-          hide-details
-          variant="outlined"
-          placeholder="榜单名称"
-          style="max-width: 160px"
-          />
-          <VTextField
-          v-model="entry.url"
-          density="compact"
-          hide-details
-          variant="outlined"
-          placeholder="/douban/movie/coming 或完整 URL"
-          class="sc-list-url"
-          />
-          <VBtn
-          size="x-small"
-          variant="text"
-          color="error"
-          icon="mdi-delete-outline"
-          @click="removeDoubanList(index)"
-          />
-          </div>
-          <div class="sc-list-row sc-list-params">
-          <VTextField
-          v-model.number="entry.max_items"
-          label="每榜条数（0=沿用全局）"
-          type="number"
-          min="1"
-          max="200"
-          density="compact"
-          hide-details
-          variant="outlined"
-          />
-          <VTextField
-          v-model.number="entry.future_days"
-          label="窗口天数（0=沿用全局）"
-          type="number"
-          min="0"
-          max="120"
-          density="compact"
-          hide-details
-          variant="outlined"
-          />
-          <VTextField
-          v-model.number="entry.min_want"
-          label="最低想看（0=不限）"
-          type="number"
-          min="0"
-          step="100"
-          density="compact"
-          hide-details
-          variant="outlined"
-          />
-          </div>
-          </div>
-          <div class="sc-hint mt-2">
-          <b>电影上映类</b>（<code>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br />
-          <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
-          <code>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br />
-          <b>电影榜单类</b>没有日期，会被跳过。<code>ustop250</code> 与
-          <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
-          </div>
-          </div>
-          </details>
-
-          <div class="sc-card">
-            <div class="sc-card-title">
-              <VIcon icon="mdi-check-decagram-outline" size="16" /> 订阅行为
-            </div>
-            <div class="sc-row">
-              <div class="sc-row-main">
-                <div class="sc-row-label">已完成过的订阅允许重新订阅</div>
-                <div class="sc-row-hint">
-                  从媒体库删掉文件后想重新下时需要。真正<b>已经播完</b>的剧不会因此重复订阅。
-                </div>
-              </div>
-              <VSwitch
-                v-model="form.resubscribe_completed"
-                density="compact"
-                hide-details
-                color="primary"
-              />
-            </div>
-            <div class="sc-row">
-              <div class="sc-row-main">
-                <div class="sc-row-label">用 TMDB 分组精确订阅被压成单季的番剧</div>
-                <div class="sc-row-hint">
-                  如《药屋少女的呢喃》= 1 季 60 集，第 49~60 集才是第 3 季。开启后只订那 12 集，
-                  <b>不会去补前 48 集旧番</b>。
-                </div>
-              </div>
-              <VSwitch
-                v-model="form.prefer_episode_group"
-                density="compact"
-                hide-details
-                color="primary"
-              />
-            </div>
-          </div>
-        </template>
 
         <!-- 写入与调度 -->
         <template v-if="activeSection === 'hot_media'">
@@ -1202,14 +1117,6 @@ onMounted(() => {
             placeholder="例：0 9 * * *"
             class="mt-2 mb-1"
           />
-          <div class="sc-source-actions">
-            <VBtn size="x-small" color="primary" :loading="!!sourceBusy['hot_media']" @click="runOneSource('hot_media', '热门媒体')">
-              立即运行一次
-            </VBtn>
-            <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['hot_media']" @click="testOneSource('hot_media', '热门媒体')">
-              连通性测试
-            </VBtn>
-          </div>
         </div>
         </template>
 
@@ -1580,21 +1487,6 @@ onMounted(() => {
 .sc-tabs {
   margin-bottom: 6px;
 }
-.sc-adv {
-  border: 1px dashed rgba(var(--v-border-color), 0.35);
-  border-radius: 10px;
-  padding: 6px 10px;
-  margin-bottom: 10px;
-}
-.sc-adv > summary {
-  cursor: pointer;
-  font-size: 12px;
-  opacity: 0.8;
-  padding: 2px 0;
-}
-.sc-adv[open] > summary {
-  margin-bottom: 8px;
-}
 
 
 
@@ -1615,11 +1507,6 @@ onMounted(() => {
 }
 
 /* 每个数据源底部的操作按钮 */
-.sc-source-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
 
 /* 卡片 */
 .sc-card {

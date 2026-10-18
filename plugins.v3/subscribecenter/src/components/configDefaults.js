@@ -69,7 +69,6 @@ export const configDefaults = {
   timezone: 'Asia/Shanghai',
   notify: false,
   // ---------------- 界面
-  discovery_page_enabled: false,
   // ---------------- 测试辅助
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,

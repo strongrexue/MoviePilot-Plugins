@@ -3893,7 +3893,7 @@ return (_ctx, _cache) => {
                     inset: ""
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[32] || (_cache[32] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 新增订阅不再触发宿主内置的首次全站搜索，避免与左边回搜撞车；后续仍按订阅间隔继续搜。 ", -1))
+                _cache[32] || (_cache[32] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 新增订阅不再触发原生首次全站搜索，避免与左边回搜撞车；后续仍按订阅间隔继续搜。 ", -1))
               ])
             ]),
             _createElementVNode$3("div", _hoisted_30$1, [
@@ -4450,7 +4450,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-f55c3b8b"]]);
+const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-64b18e5a"]]);
 
 const {resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createTextVNode:_createTextVNode$2,withCtx:_withCtx$2,toDisplayString:_toDisplayString$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,createElementVNode:_createElementVNode$2,createElementBlock:_createElementBlock$2,renderList:_renderList$2,Fragment:_Fragment$2,withModifiers:_withModifiers,vShow:_vShow,withDirectives:_withDirectives,unref:_unref$1} = await importShared('vue');
 

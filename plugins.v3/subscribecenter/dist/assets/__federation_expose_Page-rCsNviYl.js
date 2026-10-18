@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-O21F20oi.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-CXwoSywt.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -61,7 +61,7 @@ const _hoisted_36 = {
   key: 2,
   class: "sc-cal-scroll"
 };
-const _hoisted_37 = ["id"];
+const _hoisted_37 = ["id", "onClick"];
 const _hoisted_38 = { class: "sc-cal-daynum" };
 const _hoisted_39 = { class: "sc-cal-evposter" };
 const _hoisted_40 = ["src"];
@@ -267,6 +267,14 @@ const calWeeks = computed(() => {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   return weeks
 });
+
+/** 点月历某一天：切到「今天」视图并加载那一天。 */
+function openDay(cell) {
+  if (!cell || cell.empty) return
+  todayDate.value = cell.date;
+  calMode.value = 'today';
+  loadToday();
+}
 
 /** 切到本月。 */
 function goThisMonth() {
@@ -1082,7 +1090,12 @@ return (_ctx, _cache) => {
                       return (_openBlock(), _createElementBlock("div", {
                         key: cell.key,
                         id: cell.date === todayText.value ? 'sc-cal-today' : undefined,
-                        class: _normalizeClass(["sc-cal-day", { 'sc-cal-day-empty': cell.empty, 'sc-cal-day-today': cell.date === todayText.value }])
+                        class: _normalizeClass(["sc-cal-day", {
+              'sc-cal-day-empty': cell.empty,
+              'sc-cal-day-today': cell.date === todayText.value,
+              'sc-cal-day-clickable': !cell.empty,
+            }]),
+                        onClick: $event => (openDay(cell))
                       }, [
                         (!cell.empty)
                           ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
@@ -1379,6 +1392,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-09392efe"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-134dab22"]]);
 
 export { Page as default };

@@ -114,3 +114,19 @@ def test_library_state_uses_episode_number():
     late = cal.build_today(rows, "2026-10-02", index)[0]
     assert early["kind"] == cal.KIND_UPDATED, "第 3 集 <= 已入库 5 集"
     assert late["kind"] == cal.KIND_PENDING, "第 12 集 > 已入库 5 集"
+
+
+def test_month_keeps_all_items_per_day():
+    """月历不截断：+N 必须是真实折叠数（之前截到 20 导致永远 +15）。"""
+    rows = [_row(id=1, name="每天播", media_id="55", season=1, total_episode=60, lack_episode=10)]
+    # 同一天塞 30 集，模拟一天上百条的情况
+    index = {("55", 1): [("2026-10-19", ep) for ep in range(1, 31)]}
+    data = cal.build_month(rows, "2026-10", index)
+    day = data["days"].get("2026-10-19") or []
+    assert len(day) == 1, "同一条订阅一天只算一条"
+    assert day[0]["episodes"], "集号要保留"
+
+    rows2 = [_row(id=i, name=f"剧{i}", media_id=str(100 + i), season=1) for i in range(1, 26)]
+    index2 = {(str(100 + i), 1): [("2026-10-19", 1)] for i in range(1, 26)}
+    data2 = cal.build_month(rows2, "2026-10", index2)
+    assert len(data2["days"]["2026-10-19"]) == 25, "25 条都要返回（不能截到 20）"

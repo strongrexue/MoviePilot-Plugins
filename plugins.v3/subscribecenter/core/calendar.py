@@ -152,12 +152,11 @@ def build_month(
         items = build_today(rows, day, episode_index)
         if items:
             days[day] = items
-    # 单天最多回 20 条：整月 30 天 × 20 条已经够 UI（每格显示 5 条 + N 展开），
-    # 不设上限的话一天 100+ 部连载会把响应撑到几 MB。
-    capped = {day: items[:20] for day, items in days.items()}
+    # 不截断：以前截到 20 条会让「+N」永远显示 +15，和 MP 的真实折叠数对不上。
+    # 一个月几百条对 JSON 来说没问题（实测 <1MB）。
     return {
         "month": month,
-        "days": capped,
+        "days": days,
         "total": sum(len(items) for items in days.values()),
         "per_day_limit": 5,
     }

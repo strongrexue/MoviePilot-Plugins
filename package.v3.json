@@ -78,7 +78,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.11.5",
+        "version": "1.11.6",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -86,6 +86,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.11.6": "修月历 +N 恒为 +15、并让格子可点（1.11.6）。[1] 用户实测：MP 18日 5+33=38、19日 5+20=25；我们月历每天都显示 5+15 —— 原因是我上一版给单天加了「最多回 20 条」的上限，导致 +N 恒等于 20-5=15。已去掉该上限（一个月几百条 JSON 实测 <1MB），+N 恢复真实折叠数。新增测试：25 条同日数据必须全部返回、同一条订阅一天只算一条。[2] 月历格子改为可点击：点某天即切到「今天」视图并加载该日期（今日高亮/hover 描边）。[3] 另外用容器内 API 核对了 19 日：我们返回 25 条（已入库 4 / 待入库 21），与 MP 的 5+20=25 完全一致 —— 之前界面显示 24 是旧数据缓存，刷新即对。ruff 全绿、484 项测试通过、构建与门禁通过。",
             "v1.11.5": "今天视图加日期选择与筛选（1.11.5）。[1] 今天海报墙头部新增：日期输入框（原生 input[type=date]，改日期即调 GET /calendar/day?date=，留空=今天）、非今天时出现「今天」按钮、以及三个筛选胶囊「全部 N / 已入库 N / 待入库 N」（再点一次取消）；列表改用 todayItems 计算属性过滤；空态区分「当前筛选下没有条目」与「这一天没有需要处理的更新」。[2] 验证：SSR 注入 3 条今天数据（2 已入库 + 1 待播），error=none warnings=0，断言出现 type=date、全部 3、已入库 2、待入库 1、海报墙与剧名；新增 UI 契约测试。ruff 全绿、483 项测试通过、构建与门禁通过。[3] 数量对不上的问题待用户提供同日对比（我怀疑是把 108 条「暂停」订阅也算进了日历，MP 日历可能只算订阅中），已向用户索取截图再动手，不擅自改口径。",
             "v1.11.4": "日历默认视图改为「今天列表」，月历作为切换项（1.11.4）。用户确认月历入库状态已正确，并要求补上「打开就是今天全部条目一屏铺开」的默认视图。[1] 后端新增独立单日接口 GET /calendar/day?date=（留空=今天），返回 CalendarView，与整月 /calendar 分开路径，避免上次那种「同路径两种模型导致宿主校验失败」的问题；API_RESPONSE_MODELS 增加 /calendar/day，路由与插件委托同步。[2] 前端新增 calMode（today 默认 / month），日历头部加「今天 | 月历」胶囊切换；今天视图为海报墙（grid auto-fill minmax(132px,1fr)，板块内滚动），卡片含海报、今日更新/今日待播角标、剧名、第 N 集、已入库/未入库 (x/y)；月历视图原样保留（含今天高亮与自动定位）。初次进入只请求 /calendar/day，切到月历才请求整月（省流量）。[3] 验证：SSR 注入 3 条今天数据渲染，error=none warnings=0，断言出现 sc-calmode / sc-today-grid / 今日更新 / 今日待播 / 已入库 / 第 13 集，且默认不渲染月历网格；新增 UI 契约测试。ruff 全绿、482 项测试通过、构建与门禁通过。",
             "v1.11.3": "入库状态改按集号判断 + 默认定位今天（1.11.3）。[1] 用户反馈：只有今天/昨天的条目显示「已入库」，历史和未来全显示「未入库」，与 MP 日历（历史也显示 已入库 (13/14)）不一致。根因：我之前用「last_update 是否等于当天」判断入库，这只能覆盖当天；MP 前端 calendar-*.js 的口径是 libraryState = 当天集号 vs libraryEpisode（= total_episode - lack_episode），与日期无关。改法：build_today 里对命中播出索引的条目，取 downloaded = total - lack，若 max(episodes) <= downloaded 则 kind=updated，否则 pending。新增测试 test_library_state_uses_episode_number（集号 3 <= 5 → 已入库；集号 12 > 5 → 未入库），并修正原 air_index 测试期望。[2] 默认定位今天：月历加载完成后用 nextTick 把 id=sc-cal-today 的格子 scrollIntoView({block:'center'})，一进来就看到今天（SSR 下用 null 兜底，已验证渲染 error=none warnings=0 且含 sc-cal-day-today / sc-cal-more / 已入库 / 未入库）。ruff 全绿、481 项测试通过、构建与门禁通过。",

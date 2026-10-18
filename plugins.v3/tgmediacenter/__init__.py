@@ -43,7 +43,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.5"
+    plugin_version = "1.13.6"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -496,14 +496,17 @@ class TgMediaCenter(_PluginBase):
             logger.warning(f"[TgMediaCenter] 处理订阅事件失败：{err}")
             return
         # TG 回搜与宿主「首次全站搜索」会重复抓取：本插件接管时跳过宿主那次。
-        # 只在 TG 订阅回搜开启时生效 —— 关掉本插件的回搜就完全不干预宿主。
+        #
+        # 关键：宿主在**事件之后**才入队首搜，且入队前会检查 ``state != "N"``。
+        # 所以只要在事件里（同步）把状态推进到 R，宿主自己就不会入队 ——
+        # 不需要删队列、也不需要定时器（第一版那样做真机无效）。
         try:
             if cache.enabled() and cache.subscribe_enabled():
                 sid = self._subscribe_id_of(event)
                 if sid:
-                    first_search_guard.schedule(sid)
+                    first_search_guard.activate(sid)
         except Exception as err:  # pragma: no cover
-            logger.debug(f"[TgMediaCenter] 登记跳过首次搜索失败：{err}")
+            logger.debug(f"[TgMediaCenter] 跳过首次搜索失败：{err}")
 
     @staticmethod
     def _subscribe_id_of(event) -> int:

@@ -39,8 +39,21 @@ async function loadCalendar() {
   }
 }
 
-/** 日历条目按 kind 分组（已入库在前）。 */
-const calendarItems = computed(() => calendar.value?.items || [])
+/** 日历筛选：全部 / 今日已入库 / 待入库 / 洗版。 */
+const calFilter = ref('')
+
+/** 切换日历筛选（再点一次取消）。 */
+function switchCalFilter(value) {
+  calFilter.value = calFilter.value === value ? '' : value
+}
+
+/** 过滤后的日历条目。 */
+const calendarItems = computed(() => {
+  const items = calendar.value?.items || []
+  if (!calFilter.value) return items
+  if (calFilter.value === 'best') return items.filter((item) => item.best_version)
+  return items.filter((item) => item.kind === calFilter.value)
+})
 
 /** 切换视图 tab。 */
 function switchView(tab) {
@@ -545,10 +558,39 @@ onUnmounted(() => {
           <div class="sc-cal-date">{{ calendar?.today || '—' }}</div>
         </div>
         <div class="sc-cal-chips">
-          <span class="sc-cal-chip">今日更新 {{ calendar?.total || 0 }} 部</span>
-          <span class="sc-cal-chip sc-cal-chip-ok">已入库 {{ calendar?.updated || 0 }}</span>
-          <span class="sc-cal-chip sc-cal-chip-wait">待入库 {{ calendar?.pending || 0 }}</span>
-          <span class="sc-cal-chip sc-cal-chip-best">洗版中 {{ calendar?.best_version || 0 }}</span>
+          <button
+            type="button"
+            class="sc-cal-chip"
+            :class="{ 'sc-cal-chip-active': calFilter === '' }"
+            @click="switchCalFilter('')"
+          >
+            全部 {{ calendar?.total || 0 }}
+          </button>
+          <button
+            type="button"
+            class="sc-cal-chip sc-cal-chip-ok"
+            :class="{ 'sc-cal-chip-active': calFilter === 'updated' }"
+            @click="switchCalFilter('updated')"
+          >
+            已入库 {{ calendar?.updated || 0 }}
+          </button>
+          <button
+            type="button"
+            class="sc-cal-chip sc-cal-chip-wait"
+            :class="{ 'sc-cal-chip-active': calFilter === 'pending' }"
+            @click="switchCalFilter('pending')"
+          >
+            待入库 {{ calendar?.pending || 0 }}
+          </button>
+          <button
+            type="button"
+            class="sc-cal-chip sc-cal-chip-best"
+            :class="{ 'sc-cal-chip-active': calFilter === 'best' }"
+            title="洗版 = MoviePilot 的最佳版本自动替换；这里统计其中开着洗版的数量"
+            @click="switchCalFilter('best')"
+          >
+            洗版中 {{ calendar?.best_version || 0 }}
+          </button>
         </div>
         <VBtn
           size="x-small"
@@ -563,8 +605,10 @@ onUnmounted(() => {
 
       <div v-if="!calendarItems.length" class="sc-cal-empty">
         <VIcon icon="mdi-calendar-blank-outline" size="34" />
-        <div>今天没有需要处理的更新</div>
-        <div class="sc-dim">订阅有新的播出/入库后会出现在这里</div>
+        <div>{{ calFilter ? '当前筛选下没有条目' : '今天没有需要处理的更新' }}</div>
+        <div class="sc-dim">
+          {{ calFilter ? '点上方「全部」看今天的全部条目' : '订阅有新的播出/入库后会出现在这里' }}
+        </div>
       </div>
 
       <div v-else class="sc-cal-scroll">
@@ -577,7 +621,7 @@ onUnmounted(() => {
             <div class="sc-cal-poster">
               <img
                 v-if="item.poster"
-                :src="posterUrl(item.poster)"
+                :src="posterUrl(item)"
                 alt=""
                 loading="lazy"
                 @error="markPosterFailed($event)"
@@ -596,7 +640,10 @@ onUnmounted(() => {
               <span v-if="item.air_time"> · {{ item.air_time }}</span>
             </div>
             <div class="sc-cal-meta">
-              <span v-if="item.total_episode">{{ item.total_episode - item.lack_episode }}/{{ item.total_episode }}</span>
+              <span v-if="item.total_episode">
+                {{ item.kind === 'updated' ? '已入库' : '未入库' }}
+                ({{ item.total_episode - item.lack_episode }}/{{ item.total_episode }})
+              </span>
               <span v-if="item.best_version" class="sc-cal-best">洗版</span>
             </div>
           </div>
@@ -1275,6 +1322,19 @@ onUnmounted(() => {
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid rgba(var(--v-border-color), 0.3);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.sc-cal-chip:hover {
+  opacity: 1;
+}
+.sc-cal-chip-active {
+  background: rgba(var(--v-border-color), 0.22);
+  border-color: rgb(var(--v-theme-primary));
+  opacity: 1;
+  font-weight: 600;
 }
 .sc-cal-chip-ok {
   color: rgb(var(--v-theme-success));

@@ -101,7 +101,8 @@
         <VCardTitle class="text-subtitle-2">缓存频道与范围</VCardTitle>
       </VCardItem>
       <VCardText class="cache-body">
-        <!-- 频道 / 范围 / 天数条数 / 开关同一网格：同一行控件等高，窄屏自动单列 -->
+        <!-- 频道 / 范围同一网格：同一行控件等高，窄屏自动单列（「每批拉取条数」不再上界面，
+             配置键 cache_batch_size 仍随设置读写与回传） -->
         <div class="cache-fields">
           <div class="cache-field">
             <VSelect
@@ -169,18 +170,6 @@
               />
             </div>
           </div>
-
-          <div class="cache-field">
-            <VTextField
-              v-model="settings.batch_size"
-              label="每批拉取条数"
-              type="number"
-              density="compact"
-              variant="outlined"
-              hide-details
-              @update:model-value="syncSettingsToForm"
-            />
-          </div>
         </div>
 
         <!-- 订阅回搜 / 跳过原生首次全站搜索：并排两个面板（窄屏自动单列） -->
@@ -219,31 +208,24 @@
           </div>
         </div>
 
-        <!-- 存量补扫：两个面板下面一行（小开关 + 一行说明） -->
+        <!-- 存量补扫：一行三格——左侧「存量补扫」小标题 + 开关（附一行小字），右侧两个 cron 并排
+             （增量同步定时已移入「缓存管理」卡，这里不再占位） -->
         <div class="cache-backfill-row">
-          <VSwitch
-            v-model="settings.backfill_enabled"
-            color="primary"
-            density="compact"
-            hide-details
-            inset
-            @update:model-value="syncSettingsToForm"
-          >
-            <template #label><span class="cache-switch-label">存量补扫</span></template>
-          </VSwitch>
-          <span class="cache-hint">定时反扫缓存补缺集（按命中流水去重，推过的不会再推）</span>
-        </div>
-
-        <div class="cache-field">
-          <div class="cache-fields">
-            <VTextField
-              v-model="settings.cron"
-              label="增量同步定时（cron）"
-              density="compact"
-              variant="outlined"
-              hide-details
-              @update:model-value="syncSettingsToForm"
-            />
+          <div class="cache-toggle-panel">
+            <div class="cache-toggle-head">
+              <span class="cache-toggle-title">存量补扫</span>
+              <VSwitch
+                v-model="settings.backfill_enabled"
+                color="primary"
+                density="compact"
+                hide-details
+                inset
+                @update:model-value="syncSettingsToForm"
+              />
+            </div>
+            <div class="cache-toggle-desc">定时反扫缓存补缺集（按命中流水去重，推过的不会再推）</div>
+          </div>
+          <div class="cache-cron-pair">
             <VTextField
               v-model="settings.subscribe_cron"
               label="订阅兜底检查定时（cron）"
@@ -260,10 +242,6 @@
               hide-details
               @update:model-value="syncSettingsToForm"
             />
-          </div>
-          <div class="cache-hint">
-            增量定时的作用不是「拉新消息」（实时通道已在写），而是补齐插件离线/掉线/限流期间漏掉的窗口，
-            并刷新同步位点。改完需重新启用插件生效。
           </div>
         </div>
 
@@ -322,6 +300,21 @@
           </div>
         </div>
 
+        <!-- 增量同步定时：从上方「缓存频道与范围」移来，按钮行下方、频道表格上方，一行一个字段 -->
+        <div class="cache-field">
+          <VTextField
+            v-model="settings.cron"
+            label="增量同步定时（cron）"
+            density="compact"
+            variant="outlined"
+            hide-details
+            @update:model-value="syncSettingsToForm"
+          />
+          <div class="cache-note">
+            增量定时不是「拉新消息」（实时通道已在写），而是补齐插件离线/掉线/限流期间漏掉的窗口并刷新同步位点；改完需重新启用插件生效。
+          </div>
+        </div>
+
         <VTable density="compact" class="cache-table">
           <thead>
             <tr>
@@ -370,8 +363,19 @@
               检索
             </VBtn>
           </div>
-          <div class="cache-hint">
-            检索本地缓存（不访问 TG）：先按归一标题匹配，再退回全文模糊；用于验证「订阅回搜能不能命中」。
+          <div class="cache-summary">
+            <div class="cache-summary-line">
+              检索本地缓存（不访问 TG）：先按归一标题命中，再退回全文模糊，用来验证「订阅回搜能不能命中」。
+            </div>
+            <div class="cache-tags">
+              <span class="cache-tag">手动触发</span>
+              <span class="cache-tag">归一标题优先</span>
+              <span class="cache-tag">全文模糊兜底</span>
+              <span class="cache-tag">只读不推送</span>
+            </div>
+          </div>
+          <div class="cache-note">
+            命中只读展示缓存原文与链接数；空结果说明该片没被缓存覆盖，先到「缓存管理」跑一次回溯同步。
           </div>
         </div>
 
@@ -411,18 +415,20 @@
         <VCardTitle class="text-subtitle-2">订阅回搜</VCardTitle>
       </VCardItem>
       <VCardText class="cache-body">
-        <div class="cache-hint">
-          实时路径：MoviePilot 新增订阅 → 插件收到订阅事件 → 防抖后<strong>按该订阅</strong>回搜缓存（删除后重新添加同样回搜，
-          已推过的由命中流水拦掉，不会重复推送）。兜底路径：定时对比订阅快照（默认每 30 分钟，
-          用于插件离线期间的新增订阅——事件不会补发）。命中后逐条判缺失（<strong>以媒体库逐集比对为准</strong>，
-          未订阅的按门禁跳过；媒体库不可用时才退回订阅缺集数）→ 过滤无链接 / 已推送 →
-          入推送队列（同一目标合并下发的链接数不超过 20 条）→ 通知结果（含跳过原因与媒体库未收录原因，一条没推也会说明原因）。
-          首次运行只建立基线。
-          <br>
-          媒体库查询按<strong>片名+年份 → 仅片名 → 名称变体</strong>逐层放宽：
-          宿主按「片名 + 年份」精确匹配，资源名里的年份/名称与媒体库刮削结果不一致时会被判成「库里没有」，
-          逐层放宽容忍这类偏差（第三层用「片名 (年份)」等少量候选名各做一次定向查询，代价与媒体库规模无关；
-          放宽命中会复核库内年份，同名不同年的翻拍剧不会被误判「已有」）。
+        <div class="cache-summary">
+          <div class="cache-summary-line">
+            新增订阅后回搜缓存并推送缺失：实时事件路径为主，定时对比订阅快照兜底，命中去重靠推送流水。
+          </div>
+          <div class="cache-tags">
+            <span class="cache-tag">实时</span>
+            <span class="cache-tag">每 30 分钟兜底</span>
+            <span class="cache-tag">已推送流水去重</span>
+            <span class="cache-tag">首次只建基线</span>
+          </div>
+        </div>
+        <div class="cache-note">
+          判缺<strong>以媒体库逐集比对为准</strong>（媒体库不可用才退回订阅缺集数），库内查询按「片名+年份 → 仅片名 → 名称变体」逐层放宽；
+          无链接 / 已推送的过滤后入队，同一目标合并下发不超过 20 条链接，推送结果含跳过原因与媒体库未收录原因。
         </div>
         <div class="cache-actions">
           <span class="cache-hint">缺失判断：</span>
@@ -466,13 +472,19 @@
         <VCardTitle class="text-subtitle-2">存量补扫</VCardTitle>
       </VCardItem>
       <VCardText class="cache-body">
-        <div class="cache-hint">
-          反扫缓存补缺集：定时捞出<strong>水位之后新入库</strong>的缓存消息，逐条判缺失
-          （已订阅 + 媒体库缺，与监控同款判定）→ 过前向闸门（PT 在途不抢）→ 入队推送。
-          判重按命中流水：一条消息无论被监控 / 回搜 / 补扫哪条路推过，都只推一次。
-          <br>
-          首次开启只建立水位基线（不翻历史）；想补历史缺口用「全量补扫」手动触发
-          （后台分批跑，可随时停止）。推送仅在真的推了时发一条汇总通知，没推不打扰。
+        <div class="cache-summary">
+          <div class="cache-summary-line">
+            定时反扫缓存补缺集：捞出<strong>水位之后新入库</strong>的消息逐条判缺失并推送，与监控共用推送流水判重。
+          </div>
+          <div class="cache-tags">
+            <span class="cache-tag">水位之后增量</span>
+            <span class="cache-tag">与监控同款判缺</span>
+            <span class="cache-tag">已推送流水去重</span>
+            <span class="cache-tag">首次只建基线</span>
+          </div>
+        </div>
+        <div class="cache-note">
+          先过前向闸门（PT 在途不抢）；只在真的推了时发一条汇总通知，没推不打扰。想补历史缺口用「全量补扫一次」（后台分批，可随时停止）。
         </div>
         <div class="cache-actions">
           <VChip size="small" variant="tonal" :color="status?.backfill?.enabled ? 'success' : 'default'" label>
@@ -683,7 +695,7 @@ async function refreshAll() {
   loading.value = true
   try {
     await Promise.all([loadSettings(), loadStatus(), loadDialogs()])
-    setMessage('状态已刷新')
+    // 刷新成功不再弹蓝色 info 提示（load* 内部失败仍会显示 warning，错误提示保留）
   } finally {
     loading.value = false
   }
@@ -1009,7 +1021,7 @@ onUnmounted(() => {
 }
 /* 统计块下方两段小字之间的分隔点 */
 .cache-dot { opacity: 0.5; }
-/* 频道 / 范围 / 天数条数 / 开关：等宽自适应列，窄屏自动单列（与「资源监控」同一网格口径） */
+/* 频道 / 范围：等宽自适应列，窄屏自动单列（与「资源监控」同一网格口径） */
 .cache-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1043,13 +1055,54 @@ onUnmounted(() => {
   line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
-/* 存量补扫：两个面板下面一行（小开关 + 一行说明） */
-.cache-backfill-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 存量补扫：一行三格——左侧小标题 + 开关（+ 一行小字），右侧两个 cron 并排；窄屏收成单列 */
+.cache-backfill-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  gap: 8px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .cache-backfill-row { grid-template-columns: 1fr; }
+}
+.cache-cron-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .cache-cron-pair { grid-template-columns: 1fr; }
+}
 /* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
 .cache-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .cache-dates { display: flex; gap: 6px; min-width: 0; }
 .cache-dates > * { flex: 1 1 0; min-width: 0; }
-.cache-switch-label { font-size: 13px; }
+/* 说明区统一口径：一行 11px 摘要 + 关键词 chip + 至多两行补充小字
+   （对齐参考图「豆瓣中心」的紧凑信息带，替代原来 5-8 行的长段落） */
+.cache-summary { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cache-summary-line {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+}
+.cache-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.cache-tag {
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(var(--v-theme-on-surface), 0.68);
+}
+/* 补充细节：11px 灰字，控制在 1-2 行 */
+.cache-note {
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(var(--v-theme-on-surface), 0.52);
+}
 .cache-hint {
   font-size: 12px;
   line-height: 1.5;

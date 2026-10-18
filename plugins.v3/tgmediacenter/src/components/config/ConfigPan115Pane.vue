@@ -423,6 +423,7 @@ onUnmounted(qrStopPolling)
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">通知</VCardTitle>
       <VCardText class="p115-body">
+        <!-- 三个通知开关一行并排（窄屏自动换行），说明统一放到开关行下方 -->
         <div class="p115-notify">
           <VSwitch v-model="form.notify_on_hit" color="primary" hide-details inset>
             <template #label><span class="p115-switch-label">转存成功后通知我</span></template>
@@ -434,13 +435,11 @@ onUnmounted(qrStopPolling)
             <template #label><span class="p115-switch-label">回搜到资源后通知我</span></template>
           </VSwitch>
         </div>
-        <div class="p115-hint">
-          这三个开关分别管一类通知，关闭哪类就收不到哪类（都走 MoviePilot 通知渠道，
-          用哪个渠道、发给谁跟宿主的「通知」设置一致）：
-          <br>· <strong>转存成功</strong>：监控 / 转发命中后往 115 转存（或离线）成功，按批汇总一条（如「已转存 3 条」）；
-          <br>· <strong>转存失败</strong>：汇总失败条数与原因，115 登录态失效会附上重新扫码的引导（同一故障 6 小时内只提醒一次）；
-          <br>· <strong>回搜到资源</strong>：订阅回搜在缓存里找到缺失资源并推送后的结果汇总。
-          <br>通用转发本身不发送通知（转发结果在「通用转发」面板的流水里看）。
+        <!-- 三类通知各归哪个开关：11px 灰字，压到三行内，均走宿主的「通知」渠道 -->
+        <div class="p115-notify-hint">
+          <div>· <strong>转存成功</strong>：监控 / 转发命中后转存（或离线）成功，按批汇总一条；</div>
+          <div>· <strong>转存失败</strong>：汇总失败条数与原因，登录态失效会引导重新扫码（同一故障 6 小时内只提醒一次）；</div>
+          <div>· <strong>回搜到资源</strong>：订阅回搜找到缺失资源并推送后的结果汇总。</div>
         </div>
       </VCardText>
     </VCard>
@@ -498,22 +497,26 @@ onUnmounted(qrStopPolling)
           实际推送需要已保存的 Cookie 与目标目录 CID。
         </div>
 
-        <VSwitch v-model="form.interactive_push" color="primary" hide-details inset>
-          <template #label><span class="p115-switch-label">允许私聊机器人发链接直接转存 115</span></template>
-        </VSwitch>
-        <div class="p115-hint">
-          开启后，私聊 MoviePilot 机器人直接发 115 分享链接 / 磁力 / ed2k，插件会转存到 115
-          并回一条回执（成功 / 失败 / 已转存过都会说清）。消息里没有链接时不会有任何回复。
-          回执与其余通知一样走宿主的「通知」渠道。
-        </div>
-
-        <VSwitch v-model="form.interactive_dedup" color="primary" hide-details inset>
-          <template #label><span class="p115-switch-label">私聊转存查重（已转存过的链接不重复转存）</span></template>
-        </VSwitch>
-        <div class="p115-hint">
-          开启后，插件会记住所有已成功转存的链接（含监控 / 回搜转存的）：私聊再发同一条
-          链接时直接回「已转存过，本次未重复保存」，不再往 115 里重复存一份
-          （115 的分享转存本身不查重，同一分享会落盘多份）。关闭后每次都会实际转存。
+        <!-- 底部两个私聊开关一行并排，各自说明放在开关正下方（两列，窄屏自动上下叠） -->
+        <div class="p115-interactive">
+          <div class="p115-interactive-item">
+            <VSwitch v-model="form.interactive_push" color="primary" hide-details inset>
+              <template #label><span class="p115-switch-label">允许私聊机器人发链接直接转存 115</span></template>
+            </VSwitch>
+            <div class="p115-interactive-hint">
+              开启后私聊机器人直接发 115 分享链接 / 磁力 / ed2k 即转存并回执（成功 / 失败 / 已转存过）；
+              消息里没有链接时不回复，回执与其余通知一样走宿主的「通知」渠道。
+            </div>
+          </div>
+          <div class="p115-interactive-item">
+            <VSwitch v-model="form.interactive_dedup" color="primary" hide-details inset>
+              <template #label><span class="p115-switch-label">私聊转存查重（已转存过的链接不重复转存）</span></template>
+            </VSwitch>
+            <div class="p115-interactive-hint">
+              开启后记住所有已成功转存的链接（含监控 / 回搜转存的），私聊再发同一条直接回「已转存过，本次未重复保存」；
+              115 的分享转存本身不查重，关闭后每次都会实际转存。
+            </div>
+          </div>
         </div>
       </VCardText>
     </VCard>
@@ -558,8 +561,24 @@ onUnmounted(qrStopPolling)
 .p115-qr-tip { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.65); line-height: 1.5; }
 /* 说明文字：12px / 1.5，与上方控件净间距 4px（父级 gap 8px，用 -4px 抵消） */
 .p115-hint { margin-top: -4px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
-/* 通知开关纵向堆叠，间距与其它区块一致 8px */
-.p115-notify { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+/* 通知开关一行并排：横向 gap 18px，窄屏自动换行（原纵向堆叠改横排） */
+.p115-notify { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px 18px; }
+/* 通知说明：11px / on-surface 65% / 1.5，紧贴开关行下方（父级 gap 8px，用 -4px 收到 4px） */
+.p115-notify-hint {
+  margin-top: -4px;
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  line-height: 1.5;
+}
+/* 推送测试底部两个私聊开关：一行两列并排，说明各自跟随自己的开关，窄屏上下叠 */
+.p115-interactive { display: flex; flex-direction: row; align-items: flex-start; flex-wrap: wrap; gap: 10px 20px; }
+.p115-interactive-item { display: flex; flex-direction: column; flex: 1 1 300px; min-width: 0; }
+.p115-interactive-hint {
+  margin-top: -4px;
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  line-height: 1.5;
+}
 .p115-switch-label { font-size: 13px; }
 .p115-hint code {
   padding: 1px 4px;

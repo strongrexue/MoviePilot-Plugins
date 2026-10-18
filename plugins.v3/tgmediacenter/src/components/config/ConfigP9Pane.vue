@@ -16,7 +16,8 @@ import { getPluginApi, unwrap } from '../api'
  * - **反向闸门 R1**（1.13.8 提供）：开关已迁到「消息缓存 → 缓存频道与范围」，
  *   本分区只保留探针与前向闸门。
  *
- * 探针保留：闸门依赖的宿主能力随版本可能漂移，这里随时能看到真实可用性。
+ * 版面（对齐豆瓣中心「运行总览」）：四张分区卡——运行链路 / 状态 / 宿主能力探针 /
+ * 前向闸门；说明一律压到一行小字，探针详情按行展开，默认不占屏。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -32,13 +33,28 @@ const messageOk = ref(true)
 const probe = computed(() => guard.value?.probe || null)
 const items = computed(() => probe.value?.items || [])
 
+/** 运行链路：前向闸门的判定顺序（纯展示，不参与逻辑） */
+const flowSteps = ['媒体库已有？', '下载历史近 T', '活跃种？', 'PT 在途 / 等成熟期 / 放行']
+
+/** 探针通过数 / 总数（只读现有 probe.items） */
+const probeOkCount = computed(() => items.value.filter(item => item.ok).length)
+const probeTotal = computed(() => items.value.length)
+const probeCountText = computed(() => (probe.value ? `${probeOkCount.value}/${probeTotal.value}` : '—'))
+
+/** 顶部汇总一行：全部通过 / N 项未通过 + 探测时间 */
 const probeSummary = computed(() => {
   const data = probe.value
   if (!data) return ''
   const bad = items.value.filter(item => !item.ok).length
-  const text = data.ok ? '全部通过' : `${bad} / ${items.value.length} 项未通过`
-  return data.checked_at ? `${text}（探测于 ${data.checked_at}）` : text
+  const text = data.ok ? '全部通过' : `${bad} 项未通过`
+  return data.checked_at ? `${text} · 探测于 ${data.checked_at}` : text
 })
+
+/** 探针详情按行展开，默认全部收起（避免大段 app.sdk... 文字占屏） */
+const expanded = ref({})
+function toggleDetail(key) {
+  expanded.value = { ...expanded.value, [key]: !expanded.value[key] }
+}
 
 function setMessage(text, ok = true) {
   message.value = text || ''
@@ -61,23 +77,6 @@ onMounted(load)
 
 <template>
   <div class="p9-pane">
-    <!-- 首张卡只有分区说明，用 p9-intro 收紧下内边距，避免与下方第一张卡片之间空一大截 -->
-    <VCard flat class="p9-card p9-intro">
-      <VCardItem>
-        <template #prepend>
-          <VAvatar color="primary" variant="tonal" size="40" rounded="lg">
-            <VIcon icon="mdi-shield-sync-outline" size="22" />
-          </VAvatar>
-        </template>
-        <VCardTitle class="text-subtitle-2">重复获取治理</VCardTitle>
-        <VCardSubtitle class="text-caption">
-          PT 路（MP 订阅 → 下载 → 115）与 TG 路（本插件转存 → 115）写进同一个
-          115 + STRM + Emby，会重复拿到同一部作品。这里只按「媒体身份」判断谁在管，
-          不在目录或命名上做任何约定。
-        </VCardSubtitle>
-      </VCardItem>
-    </VCard>
-
     <VAlert
       v-if="message"
       :type="messageOk ? 'info' : 'warning'"
@@ -88,14 +87,58 @@ onMounted(load)
 
     <VProgressLinear v-if="loading" indeterminate color="primary" height="2" />
 
-    <!-- 宿主能力探针 -->
+    <!-- 1) 运行链路：一行 chips 展示前向闸门的判定顺序 -->
     <VCard flat class="p9-card">
       <VCardItem>
-        <VCardTitle class="text-subtitle-2">宿主能力探针</VCardTitle>
-        <VCardSubtitle class="text-caption">
-          前向闸门要用宿主的两组能力（下载历史查询、下载器种子列表），而它们本插件此前从未调用过。
-          先探测清楚真实导入路径与字段，再动手写判定链——探针只读，不改任何状态。
+        <VCardTitle class="p9-card-title">运行链路</VCardTitle>
+        <VCardSubtitle class="p9-card-sub">
+          只按「媒体身份」判断 PT 路与 TG 路谁在管，不在目录或命名上做任何约定。
         </VCardSubtitle>
+      </VCardItem>
+      <VCardText>
+        <div class="p9-flow">
+          <template v-for="(step, index) in flowSteps" :key="step">
+            <span v-if="index" class="p9-flow-arrow">→</span>
+            <span class="p9-flow-chip">{{ step }}</span>
+          </template>
+        </div>
+        <div class="p9-flow-hint">命中以上任一环节就按对应结论处理，不命中则照常推送 115。</div>
+      </VCardText>
+    </VCard>
+
+    <!-- 2) 状态：一行 4 个统计块（窄屏 2×2），样式与缓存/监控面板一致 -->
+    <VCard flat class="p9-card">
+      <VCardItem>
+        <VCardTitle class="p9-card-title">状态</VCardTitle>
+        <VCardSubtitle class="p9-card-sub">探针结论与闸门当前生效值</VCardSubtitle>
+      </VCardItem>
+      <VCardText>
+        <div class="p9-stat-grid">
+          <div class="p9-stat">
+            <div class="p9-stat-label">探针通过</div>
+            <div class="p9-stat-value">{{ probeCountText }}</div>
+          </div>
+          <div class="p9-stat">
+            <div class="p9-stat-label">前向闸门</div>
+            <div class="p9-stat-value">{{ config.form.p9_forward_gate_enabled ? '已开启' : '已关闭' }}</div>
+          </div>
+          <div class="p9-stat">
+            <div class="p9-stat-label">成熟期 T</div>
+            <div class="p9-stat-value">{{ config.form.p9_maturity_hours ?? 0 }} 小时</div>
+          </div>
+          <div class="p9-stat">
+            <div class="p9-stat-label">活跃性细化</div>
+            <div class="p9-stat-value">{{ config.form.p9_check_downloader ? '开启' : '关闭' }}</div>
+          </div>
+        </div>
+      </VCardText>
+    </VCard>
+
+    <!-- 3) 宿主能力探针：6 项压成紧凑列表，详情按行展开 -->
+    <VCard flat class="p9-card">
+      <VCardItem>
+        <VCardTitle class="p9-card-title">宿主能力探针</VCardTitle>
+        <VCardSubtitle class="p9-card-sub">闸门依赖的宿主能力，只读探测，不改任何状态。</VCardSubtitle>
         <template #append>
           <VBtn
             size="small"
@@ -111,36 +154,37 @@ onMounted(load)
           <VIcon
             :icon="probe.ok ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'"
             :color="probe.ok ? 'success' : 'warning'"
-            size="18"
+            size="14"
           />
           <span>{{ probeSummary }}</span>
         </div>
         <div v-for="item in items" :key="item.key" class="p9-probe-row">
-          <VIcon
-            :icon="item.ok ? 'mdi-check' : 'mdi-close'"
-            :color="item.ok ? 'success' : 'error'"
-            size="16"
-            class="p9-probe-icon"
-          />
-          <div class="p9-probe-body">
-            <div class="p9-probe-label">{{ item.label }}</div>
-            <div class="p9-probe-detail">{{ item.detail }}</div>
+          <div class="p9-probe-line">
+            <VIcon
+              :icon="item.ok ? 'mdi-check' : 'mdi-close'"
+              :color="item.ok ? 'success' : 'error'"
+              size="14"
+              class="p9-probe-icon"
+            />
+            <span class="p9-probe-label">{{ item.label }}</span>
+            <button
+              type="button"
+              class="p9-probe-toggle"
+              :aria-expanded="Boolean(expanded[item.key])"
+              @click="toggleDetail(item.key)"
+            >{{ expanded[item.key] ? '收起' : '详情' }}</button>
           </div>
+          <div v-if="expanded[item.key]" class="p9-probe-detail">{{ item.detail }}</div>
         </div>
       </VCardText>
     </VCard>
 
-    <!-- 前向闸门 A（P9-2 起提供控件） -->
+    <!-- 4) 前向闸门：控件不变，说明压成一行小字 -->
     <VCard flat class="p9-card">
       <VCardItem>
-        <VCardTitle class="text-subtitle-2">前向闸门</VCardTitle>
-        <VCardSubtitle class="text-caption">
-          TG 推送前依次判断「媒体库已有（仅缺失）→ 下载历史近 T 有本集记录 → 下载器有本集活跃种」，
-          PT 路在管就拦下：有活跃种记「PT 在途」，PT 还没取到资源则等过成熟期 T 再补；
-          有记录但种子已死/被清则立即放行。判定与计时均按「集」粒度（片名+年份+季+集）——
-          PT 追更是单集发布、单集抓取，一季可持续数月，按季计时会让季末单集的成熟期早已失效。
-          宿主查询失败时一律放行并写 WARNING（闸门绝不静默拦截推送）。
-          改动随底部「保存配置」生效。
+        <VCardTitle class="p9-card-title">前向闸门</VCardTitle>
+        <VCardSubtitle class="p9-card-sub">
+          TG 推送前先看 PT 路是否在管：有活跃种记「PT 在途」，没取到则等过成熟期 T，记录已死立即放行。
         </VCardSubtitle>
       </VCardItem>
       <VCardText>
@@ -196,21 +240,80 @@ onMounted(load)
 .p9-card > .v-card-text { padding: 10px 12px; }
 .p9-card > .v-card-item + .v-card-text,
 .p9-card > .v-card-title + .v-card-text { padding-top: 0; }
-/* 首张卡只有「分区说明」：下内边距收到 4px，与下方第一张卡片之间合计 12px（4 + 分区 gap 8），
-   不再出现说明下面空一截的样子 */
-.p9-intro > .v-card-item { padding-bottom: 4px; }
-.p9-gate-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.p9-message { margin: 0; }
+/* 卡头：12.5px 标题 + 10.5px 灰色副标题（压过 Vuetify 的 1.25rem 标题与 0.75rem 副标题） */
+.p9-card-title { font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.p9-card-sub {
+  font-size: 10.5px; line-height: 1.5; opacity: 1;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  white-space: normal;
+  word-break: break-word;
+}
+/* 运行链路：一行流程 chips，用箭头连接，窄屏自动换行 */
+.p9-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.p9-flow-chip {
+  padding: 3px 8px;
+  font-size: 11px; line-height: 1.5;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
+  border-radius: 6px;
+  background: transparent;
+  white-space: nowrap;
+}
+.p9-flow-arrow { font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.45); }
+.p9-flow-hint {
+  margin-top: 6px;
+  font-size: 10.5px; line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+/* 状态条：一行 4 个（与缓存/监控面板一致），窄屏回落 2×2 */
+.p9-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 760px) {
+  .p9-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.p9-stat {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  padding: 7px 9px;
+  min-width: 0;
+}
+.p9-stat-label { font-size: 10.5px; line-height: 1.3; color: rgba(var(--v-theme-on-surface), 0.6); }
+.p9-stat-value { font-size: 14px; font-weight: 700; line-height: 1.4; margin-top: 2px; }
+/* 探针：顶部一行小字汇总 + 紧凑行；行与行之间一条极淡分隔线 */
 .p9-probe-summary {
   display: flex; align-items: center; gap: 6px;
-  font-size: 0.8125rem; font-weight: 500; margin-bottom: 8px;
+  margin-bottom: 6px;
+  font-size: 10.5px; line-height: 1.4;
+  color: rgba(var(--v-theme-on-surface), 0.6);
 }
-.p9-probe-row { display: flex; gap: 8px; padding: 4px 0; align-items: flex-start; }
-.p9-probe-icon { flex: 0 0 auto; margin-top: 2px; }
-.p9-probe-body { min-width: 0; }
-.p9-probe-label { font-size: 0.8125rem; }
+.p9-probe-row { padding: 3px 0; }
+.p9-probe-row + .p9-probe-row {
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+}
+.p9-probe-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.p9-probe-icon { flex: 0 0 auto; }
+.p9-probe-label {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 12px; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+/* 「详情」按钮：10.5px 灰色纯文字，点开才出现该行的导入路径/字段说明 */
+.p9-probe-toggle {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 10.5px; line-height: 1.4;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  cursor: pointer;
+}
+.p9-probe-toggle:hover { color: rgba(var(--v-theme-on-surface), 0.85); background: rgba(var(--v-theme-on-surface), 0.06); }
 .p9-probe-detail {
-  font-size: 0.75rem; opacity: 0.7; line-height: 1.5;
+  padding: 2px 0 2px 20px;
+  font-size: 10.5px; line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.55);
   word-break: break-all; white-space: normal;
 }
+.p9-gate-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.p9-message { margin: 0; }
 </style>

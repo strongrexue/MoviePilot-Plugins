@@ -706,7 +706,7 @@ async function refreshAll() {
   loading.value = true
   try {
     await Promise.all([loadStatus(), loadRules(), loadHits(), loadDialogs()])
-    setMessage('状态已刷新')
+    // 刷新成功不再弹蓝色 info 提示（load* 内部失败仍会显示 warning，错误提示保留）
   } finally {
     loading.value = false
   }

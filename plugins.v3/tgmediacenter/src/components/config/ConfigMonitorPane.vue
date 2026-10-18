@@ -70,27 +70,7 @@
             FloodWait 退避中（约 {{ status.flood_remaining }} 秒）
           </span>
         </div>
-        <!-- 诊断：只在有问题时出现，正常时与效果图完全一致 -->
-        <VAlert
-          v-if="status?.enabled && (status?.pipeline?.events_received ?? 0) > 0 && !((status?.pipeline?.events_watched ?? 0) > 0)"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          class="mon-diag"
-        >
-          收到 {{ status.pipeline.events_received }} 条事件，但没有一条来自监听会话。
-          常见原因：①监听 ID「反查失败」＝账号看不到该会话（ID 失效或选错，到「TG 凭证」页刷新对话后重选并保存规则）
-          ②规则里选错频道 ③账号已退出该频道（重新加入后刷新对话列表重选）。
-        </VAlert>
-        <VAlert
-          v-if="status?.enabled && !((status?.pipeline?.events_received ?? 0) > 0)"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          class="mon-diag"
-        >
-          还没收到任何 TG 事件：请确认 ①TG 凭证已登录且「已连接」 ②消息监听为「已注册」③规则监听的频道正确。
-        </VAlert>
+        <!-- 诊断：只在「仅缺失」不可判断时出现（收不到事件的两条告警已按需求移除） -->
         <div
           v-if="status?.enabled && !status?.matcher?.mediaserver && !((status?.matcher?.subscriptions ?? 0) > 0)"
           class="mon-diag-text"
@@ -182,8 +162,9 @@
               </VBtn>
             </div>
 
-            <!-- 展开区（仅展开后可见）：按语义拆成 3 个「分组块」——基础 / 关键词过滤 / 排除关键词。
-                 块内 1-2 列网格，块与块 8px；用 v-show 而不是 v-if：输入框实例始终挂载，
+            <!-- 展开区（仅展开后可见）：基础块 + 关键词两列块——「关键词过滤」与「排除关键词」
+                 合并到同一行两列（等宽、gap 8px，窄屏 <700px 回落单列）。
+                 用 v-show 而不是 v-if：输入框实例始终挂载，
                  展开/折叠不会丢表单绑定（折叠/展开逻辑与 payload 一律未改动） -->
             <div v-show="isExpanded(rule)" class="mon-rule-body">
               <!-- ① 基础：名称 + 仅缺失开关，2 列网格 -->
@@ -209,49 +190,55 @@
                 </div>
               </div>
 
-              <!-- ② 关键词过滤：标题行右侧总开关 + 全宽多值输入 + 11px 提示 -->
-              <div class="mon-group">
-                <div class="mon-group-head">
-                  <span>关键词过滤</span>
-                  <VSwitch
-                    v-model="rule.match_custom_keywords"
-                    color="primary"
-                    hide-details
-                    inset
-                    density="compact"
-                    class="mon-group-switch"
-                    title="开启后只有命中关键词的消息才会推送"
-                  />
+              <!-- ②③ 关键词过滤 + 排除关键词：同一行两列，两列等宽、gap 8px；
+                   左列标题行带总开关，右列无开关；两组的 11px 提示合并成一行放在两列下方。
+                   v-model 与多值（multiple + chips）逻辑保持原样 -->
+              <div class="mon-kw-wrap">
+                <div class="mon-kw-row">
+                  <!-- 左：关键词过滤 -->
+                  <div class="mon-group mon-kw-col">
+                    <div class="mon-group-head">
+                      <span>关键词过滤</span>
+                      <VSwitch
+                        v-model="rule.match_custom_keywords"
+                        color="primary"
+                        hide-details
+                        inset
+                        density="compact"
+                        class="mon-group-switch"
+                        title="开启后只有命中关键词的消息才会推送"
+                      />
+                    </div>
+                    <VCombobox
+                      v-model="rule.custom_keywords"
+                      multiple
+                      chips
+                      closable-chips
+                      label=""
+                      placeholder="输入关键词后回车添加，可多个"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                    />
+                  </div>
+                  <!-- 右：排除关键词（无开关，优先级高于关键词） -->
+                  <div class="mon-group mon-kw-col">
+                    <div class="mon-group-head">排除关键词</div>
+                    <VCombobox
+                      v-model="rule.exclude_keywords"
+                      multiple
+                      chips
+                      closable-chips
+                      label=""
+                      placeholder="输入排除词后回车添加，可多个"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                    />
+                  </div>
                 </div>
-                <VCombobox
-                  v-model="rule.custom_keywords"
-                  multiple
-                  chips
-                  closable-chips
-                  label=""
-                  placeholder="输入关键词后回车添加，可多个"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-                <div class="mon-group-hint">命中任一关键词即视为通过（留空表示不设限）</div>
-              </div>
-
-              <!-- ③ 排除关键词：无开关，全宽多值输入 + 11px 提示（优先级高于关键词） -->
-              <div class="mon-group">
-                <div class="mon-group-head">排除关键词</div>
-                <VCombobox
-                  v-model="rule.exclude_keywords"
-                  multiple
-                  chips
-                  closable-chips
-                  label=""
-                  placeholder="输入排除词后回车添加，可多个"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-                <div class="mon-group-hint">命中即跳过，优先级高于关键词</div>
+                <!-- 两组提示合并成一行 -->
+                <div class="mon-group-hint">命中任一关键词即视为通过（留空表示不设限）；排除词命中即跳过，优先级高于关键词</div>
               </div>
             </div>
           </VCardText>
@@ -708,8 +695,9 @@ async function runClear() {
 async function refreshAll() {
   loading.value = true
   try {
+    // 刷新成功不再弹「状态已刷新」这类提示（页面数据本身已更新）；失败仍由各 load* 里的
+    // setMessage(..., false) 报错，这里不吞异常、也不再覆盖成功文案
     await Promise.all([loadStatus(), loadRules(), loadHits(), loadDialogs()])
-    setMessage('状态已刷新')
   } finally {
     loading.value = false
   }
@@ -923,8 +911,7 @@ onUnmounted(() => {
 .mon-stat-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 11.5px; color: rgba(var(--v-theme-on-surface), 0.65); }
 .mon-foot-warn { color: rgb(var(--v-theme-warning)); }
 .mon-flood { color: rgb(var(--v-theme-warning)); }
-/* 诊断：默认不出现，只在「收不到事件 / 仅缺失判断不可用」时插入 */
-.mon-diag { margin-top: 8px; font-size: 11.5px; }
+/* 诊断：只剩「仅缺失判断不可用」一条小字（收不到事件的两条告警已移除） */
 .mon-diag-text { margin-top: 6px; font-size: 11.5px; color: rgb(var(--v-theme-warning)); }
 .mon-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .mon-rule {
@@ -997,6 +984,13 @@ onUnmounted(() => {
 .mon-group-switch { margin-left: auto; }
 .mon-group-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 @media (max-width: 700px) { .mon-group-fields { grid-template-columns: 1fr; } }
+/* 关键词过滤 / 排除关键词：同一行两列（等宽、gap 8px），窄屏（<700px）回落单列；
+   两组的 11px 提示合并成一行放在两列下方，故外层再包一层竖向 flex + 6px */
+.mon-kw-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mon-kw-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 700px) { .mon-kw-row { grid-template-columns: 1fr; } }
+/* 左列标题行带 VSwitch、右列是纯文字：给同高下限，两列输入框才不会错位 */
+.mon-kw-col > .mon-group-head { min-height: 24px; }
 /* 组内 11px 灰提示：贴着对应输入框，不再堆成一片 */
 .mon-group-hint { font-size: 11px; line-height: 1.45; color: rgba(var(--v-theme-on-surface), 0.55); }
 .mon-group-note { font-size: 11px; line-height: 1.45; color: rgba(var(--v-theme-on-surface), 0.5); }

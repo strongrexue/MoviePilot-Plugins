@@ -28,7 +28,6 @@ def get_api(plugin) -> List[Dict[str, Any]]:
     definitions = [
         ("/status", plugin.api_status, ["GET"], "获取插件运行状态与各源情况"),
         ("/history", plugin.api_history, ["GET"], "分页查询发现/写入流水"),
-        ("/subscriptions", plugin.api_subscriptions, ["GET"], "订阅总览：按状态分组"),
         ("/card_theme", plugin.api_card_theme, ["GET"], "读取订阅卡片配色"),
         ("/card_theme/save", plugin.api_card_theme_save, ["POST"], "保存订阅卡片配色"),
         ("/run_once", plugin.api_run_once, ["POST"], "手动触发一次发现任务"),
@@ -109,12 +108,6 @@ async def api_card_theme_save(plugin, request: api_schemas.CardThemeRequest) -> 
             success=bool(data.get("success")), error=str(data.get("error") or "")
         ),
     )
-
-
-async def api_subscriptions(plugin) -> Any:
-    """订阅总览：宿主订阅按状态分组 + 明细（供「订阅总览」标签页）。"""
-    data = await plugin.subscription_overview()
-    return schemas.Response(success=True, data=api_schemas.SubscriptionOverview(**data))
 
 
 async def api_run_once(plugin) -> Any:

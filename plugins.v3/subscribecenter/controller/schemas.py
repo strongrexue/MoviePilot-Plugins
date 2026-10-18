@@ -86,8 +86,6 @@ class CardThemeResult(BaseModel):
 
     success: bool = Field(description="是否写入成功")
     error: str = Field(default="", description="失败原因")
-
-
 class CardTheme(BaseModel):
     """当前订阅卡片配色。"""
 
@@ -95,33 +93,6 @@ class CardTheme(BaseModel):
     best_version_outline: bool = Field(default=False, description="洗版描边")
     best_version_color: str = Field(default="", description="洗版描边颜色")
     applied: bool = Field(default=False, description="是否已写入宿主 CSS")
-
-
-class SubscriptionRow(BaseModel):
-    """宿主订阅表的一行（只取界面要用的字段）。"""
-
-    id: int = Field(description="订阅 ID")
-    name: str = Field(description="名称")
-    year: Optional[str] = Field(default=None, description="年份")
-    season: Optional[int] = Field(default=None, description="季")
-    total_episode: Optional[int] = Field(default=None, description="总集数")
-    lack_episode: Optional[int] = Field(default=None, description="缺失集数")
-    state: str = Field(default="N", description="宿主状态码 N/R/P/S")
-    media_source: Optional[str] = Field(default=None, description="媒体源")
-    media_id: Optional[str] = Field(default=None, description="媒体 ID")
-    poster: Optional[str] = Field(default=None, description="海报")
-    last_update: Optional[str] = Field(default=None, description="最近更新")
-    #: 洗版标记：MP 订阅表的 best_version / best_version_full（0/1）
-    best_version: Optional[int] = Field(default=None, description="洗版（非完整）")
-    best_version_full: Optional[int] = Field(default=None, description="洗版（完整）")
-
-
-class SubscriptionOverview(BaseModel):
-    """订阅总览：按状态分组统计 + 明细。"""
-
-    total: int = Field(default=0, description="总数")
-    counts: Dict[str, int] = Field(default_factory=dict, description="按状态码的条数")
-    items: List[SubscriptionRow] = Field(default_factory=list, description="明细")
 
 
 class HistoryPage(BaseModel):
@@ -221,7 +192,6 @@ class MappingFixResult(BaseModel):
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
-    "/subscriptions": SubscriptionOverview,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,
@@ -237,8 +207,6 @@ __all__ = [
     "CardTheme",
     "CardThemeRequest",
     "CardThemeResult",
-    "SubscriptionOverview",
-    "SubscriptionRow",
     "HistoryRecord",
     "MappingCacheView",
     "MappingEntry",

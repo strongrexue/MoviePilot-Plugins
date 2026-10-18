@@ -42,4 +42,6 @@ def test_paused_and_pending_selectors_present():
     css = t.build_block(t.normalize_colors({}), False)
     assert ".subscribe-card.subscribe-card-pending-tint" in css
     assert ".subscribe-card.subscribe-card-paused" in css
-    assert "border-left" in css
+    assert "box-shadow:inset 0 0 0 2px" in css, "方案3：整卡浅染色 + 2px 描边"
+    assert "inset 5px 0 0 0" in css, "左侧强调条"
+    assert "::after" in css, "整卡染色覆盖层"

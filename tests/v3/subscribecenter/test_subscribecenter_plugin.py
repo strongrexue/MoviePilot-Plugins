@@ -225,7 +225,6 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
     assert paths == {
         "/status",
         "/history",
-        "/subscriptions",
         "/card_theme",
         "/card_theme/save",
         "/run_once",
@@ -255,7 +254,6 @@ def test_every_route_has_a_response_model():
     declared = {
         "/status",
         "/history",
-        "/subscriptions",
         "/card_theme",
         "/card_theme/save",
         "/run_once",
@@ -569,87 +567,6 @@ def test_sfc_api_calls_use_imported_helpers():
         for used in set(re.findall(r"\b(\w+PluginApi)\s*\(", text)):
             assert used in exported, f"{name} 调用了不存在的 {used}"
             assert used in imported_names, f"{name} 调用 {used} 但没有 import"
-
-
-def test_overview_constant_exists():
-    """订阅总览依赖的常量必须真的在模块顶层。
-
-    真机：1.5.3 的 `subscription_overview` 用了 `C.SUBSCRIBE_OVERVIEW_LIMIT`，
-    但常量根本没写进 constants.py（插入位置算错），运行时
-    AttributeError -> 接口 500 -> 前端「未知错误」。
-    py_compile 和 ruff 都查不出这种「模块属性不存在」。
-    """
-    from subscribecenter.core import constants as C
-
-    assert hasattr(C, "SUBSCRIBE_OVERVIEW_LIMIT"), "缺 SUBSCRIBE_OVERVIEW_LIMIT"
-    assert int(C.SUBSCRIBE_OVERVIEW_LIMIT) >= 100
-    # 总览方法引用的常量都要真实存在
-    import inspect
-
-    from subscribecenter import SubscribeCenter
-
-    source = inspect.getsource(SubscribeCenter.subscription_overview)
-    for name in ("SUBSCRIBE_OVERVIEW_LIMIT",):
-        assert f"C.{name}" in source
-        assert hasattr(C, name), f"代码引用了不存在的常量 C.{name}"
-
-
-def test_api_subscriptions_calls_through():
-    """直接调用 api_subscriptions，确认返回包络与模型都对。
-
-    真机：1.5.4 里写成了 `schemas.SubscriptionOverview`，而 api.py 中的
-    `schemas` 是**宿主的 app.schemas**，我们的模型在 `api_schemas` ——
-    运行时 AttributeError -> 接口 500。py_compile / ruff / 现有测试都查不出来，
-    所以这里直接**调用一次**这个接口函数。
-    """
-    import asyncio
-
-    from subscribecenter.controller import api as api_module
-
-    class _FakePlugin:
-        async def subscription_overview(self):
-            return {
-                "total": 1,
-                "counts": {"R": 1},
-                "items": [
-                    {
-                        "id": 1,
-                        "name": "测试剧",
-                        "year": "2026",
-                        "season": 1,
-                        "total_episode": 12,
-                        "lack_episode": 3,
-                        "state": "R",
-                        "media_source": "themoviedb",
-                        "media_id": "123",
-                        "poster": None,
-                        "last_update": None,
-                    }
-                ],
-            }
-
-    result = asyncio.run(api_module.api_subscriptions(_FakePlugin()))
-    assert getattr(result, "success", False) is True
-    assert result.data.total == 1
-    assert result.data.items[0].name == "测试剧"
-
-
-def test_overview_includes_best_version_fields():
-    """订阅总览明细要带洗版标记（MP 的 best_version / best_version_full）。
-
-    界面上右上角「洗版」角标靠这两个字段，漏了就不会显示。
-    """
-    import inspect
-
-    from subscribecenter import SubscribeCenter
-    from subscribecenter.controller import schemas
-
-    src = inspect.getsource(SubscribeCenter.subscription_overview)
-    assert '"best_version"' in src
-    assert '"best_version_full"' in src
-    row = schemas.SubscriptionRow(id=1, name="x", best_version=1, best_version_full=0)
-    assert row.best_version == 1
-    assert row.best_version_full == 0
 
 
 def test_api_card_theme_calls_through():

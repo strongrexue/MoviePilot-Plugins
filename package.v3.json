@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.7.1",
+        "version": "1.8.0",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.8.0": "配色改为方案3（整卡浅染色）+ 移除订阅总览展示（1.8.0）。用户确认两件事：[1] 配色采用方案3——整卡按状态浅染色 + 2px 描边 + 左侧 5px 强调条，最醒目；[2] 不再需要「订阅总览」海报网格那套展示（他只用配色，看订阅直接去 MP 自己的订阅页）。改动：后端 card_theme.build_block 改为方案3 样式（每状态生成 box-shadow 描边 + 背景底色 + ::after 覆盖层，颜色做 rgba 转换，洗版仍用宿主自带左上角徽章，可选紫色外框）；删除 /subscriptions 接口、subscription_overview 方法、SubscriptionRow/SubscriptionOverview schema、_display_state 辅助函数、SUBSCRIBE_OVERVIEW_LIMIT 常量与相关测试。前端删除整个订阅总览区块（海报网格、状态 tab、滚动加载、排序、洗版角标等约 5KB 模板与 13KB 脚本逻辑），在原位置换成一张精简的「订阅卡片配色」卡片（三个色块 + 洗版外框开关 + 保存/恢复默认）；清理不再使用的样式（.sc-overview*/.sc-poster-* 等）。中途踩坑：第一次用 div 计数定位删除，误删了「发现流水」整块与配色脚本，已 git checkout 还原后用注释锚点重做。验证：455 项测试通过、ruff 全绿、构建通过、CSS 门禁通过，生成的 CSS 已本地打印确认。",
             "v1.7.1": "修配色保存 422「请求参数不正确」（1.7.1）。用户保存配色时报错。根因：插件的薄委托把 request 标注成了 Any（async def api_card_theme_save(self, request: Any)），而 FastAPI 是依据端点签名构建请求体的 —— Any 会被当成查询参数，于是 POST 过去直接 422。对照可用的 api_mapping_fix 就能看出差别（它用的是 api_schemas.MappingFixRequest）。修法：委托签名改为 api_schemas.CardThemeRequest。另加一项守卫测试：遍历 POST 端点，断言 request 参数不能用 Any 标注、且必须是 pydantic 模型（带 model_fields），防止同类问题复发。ruff 全绿、458 项测试通过、构建通过。",
             "v1.7.0": "订阅总览新增「配色」面板，颜色写入宿主自定义 CSS（1.7.0）。用户希望在插件里给订阅状态选颜色，MP 订阅页卡片跟着变色。可行性已确认：宿主启动时会把 UserCustomCSS 注入成 style（前端 default chunk 里 document.head.appendChild），且订阅卡片带状态修饰类（subscribe-card-paused / -pending-tint / -best-version-tint，默认即订阅中）。实现：[1] 新增 core/card_theme.py：生成带标记块的 CSS（BLOCK_BEGIN/END），merge 时只替换标记块内部，用户自己的自定义 CSS 一个字不动；strip 只删标记块；颜色做 #RRGGBB 校验并回退默认。[2] 插件方法 apply_card_theme：读现有 UserCustomCSS → 合并/删除 → 写回；读走 get_configured_system_config，服务未装配时用 ORM（systemconfig 表按 key 过滤，主键是自增 id 不是 key）兜底。[3] 接口 GET /card_theme、POST /card_theme/save（reset=true 恢复默认）。[4] 前端在订阅总览标题栏加「配色」按钮：三个状态色（订阅中/待定/暂停）+ 可选「洗版另加紫色外框」开关 + 保存/恢复默认，并提示需刷新 MP 页面生效。说明：洗版是叠加标记不单独占色（真实数据 91 条订阅中里 87 条开洗版，若占色会让状态色失效），默认用宿主自带的左上角徽章表达。新增 6 项测试（CSS 合并幂等/保留用户 CSS/strip 还原/颜色校验/接口直调）。容器内验证 systemconfig 按 key 查询可用（当前无 UserCustomCSS 行，首次写入会新建）。",
             "v1.6.8": "修 1.6.7 的 ruff 报错（1.6.8）。1.6.7 推送时 ruff 已报 6 个错误（I001 导入未排序、E402 模块级 import 不在顶部、F821 asyncio 未定义），我又在没有拦截的情况下推送了 —— 这是第二次犯同一个错误，必须改正。修法：[1] anilist.py 的 from app.sdk.logging import logger 移到顶部导入组（typing 之后、相对导入之前）。[2] 测试里新增的三个重试用例改为函数内局部导入（asyncio / pytest / json），避免 E402 与 F821；重写整个测试块保证干净。现在 ruff 全绿、451 项测试通过、构建通过。",

@@ -5,7 +5,7 @@
  * 展示运行状态、各数据源情况、最近流水，并提供「立即运行一次」。
  * 与仪表盘共用 /status 与 /history 接口。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { FRONTEND_VERSION } from './version'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 
@@ -189,14 +189,7 @@ function switchFilter(value) {
   loadHistory()
 }
 
-/** 订阅总览：宿主订阅按状态分组（着色的卡片）。 */
-const overview = ref({ total: 0, counts: {}, items: [] })
-const overviewLoaded = ref(false)
-const overviewOpen = ref(overviewOpenSaved())
-const overviewState = ref('')
-
-/** 订阅卡片配色（写入宿主 UserCustomCSS，MP 订阅页跟着变色）。 */
-const themeOpen = ref(false)
+/** 订阅卡片配色（写进宿主 UserCustomCSS，MP 订阅页跟着变色）。 */
 const themeSaving = ref(false)
 const theme = ref({
   colors: { subscribing: '#FFC107', pending: '#F97316', paused: '#9CA3AF' },
@@ -234,7 +227,7 @@ async function saveTheme() {
         best_version_outline: theme.value.best_version_outline,
       }),
     )
-    setTip('配色已保存：刷新 MoviePilot 页面后订阅卡片生效')
+    setTip('配色已保存：刷新 MoviePilot 页面后生效')
   } catch (error) {
     setTip(error?.message || '配色保存失败', false)
   } finally {
@@ -245,9 +238,7 @@ async function saveTheme() {
 async function resetTheme() {
   themeSaving.value = true
   try {
-    unwrap(
-      await postPluginApi(props.api, props.pluginId, 'card_theme/save', { reset: true }),
-    )
+    unwrap(await postPluginApi(props.api, props.pluginId, 'card_theme/save', { reset: true }))
     setTip('已恢复默认配色：刷新 MoviePilot 页面生效')
   } catch (error) {
     setTip(error?.message || '恢复默认失败', false)
@@ -262,197 +253,11 @@ function sourceLabel(key) {
   return map[key] || key
 }
 
-/** 订阅总览展开状态：记住上次选择（默认展开）。 */
-const OVERVIEW_KEY = 'subscribecenter:overview-open'
-function overviewOpenSaved() {
-  try {
-    const raw = window.localStorage.getItem(OVERVIEW_KEY)
-    return raw === null ? true : raw === '1'
-  } catch (error) {
-    return true
-  }
-}
-
-/** 状态码 → 中文 + 颜色（与 MP 订阅页一致：未开始/订阅中/待定/暂停/完成）。 */
-const STATE_META = {
-  N: { label: '未开始', color: '#FFC107' },
-  R: { label: '订阅中', color: '#3B82F6' },
-  P: { label: '待定', color: '#F97316' },
-  S: { label: '暂停', color: '#9CA3AF' },
-  D: { label: '订阅完成', color: '#22C55E' },
-}
-
-/** 一条订阅的状态元信息（完成后优先显示「订阅完成」）。 */
-function stateMeta(item) {
-  const total = Number(item.total_episode || 0)
-  const lack = Number(item.lack_episode || 0)
-  const code = String(item.state || 'N')
-  if (code === 'S') return { ...STATE_META.S, code: 'S' }
-  if (total > 0 && lack === 0) return { ...STATE_META.D, code: 'D' }
-  return { ...(STATE_META[code] || { label: code, color: '#6B7280' }), code }
-}
-
-/** 状态排序权重：暂停 → 待定 → 订阅中 → 未开始 → 完成。 */
-const STATE_ORDER = { R: 0, S: 1, P: 2, N: 3, D: 4 }
-
-/** 订阅列表（筛选 + 排序后的**全部**，未截断）。 */
-const overviewSorted = computed(() => {
-  let items = overview.value.items || []
-  if (overviewState.value) {
-    items = items.filter((item) => stateMeta(item).code === overviewState.value)
-  }
-  return [...items].sort((a, b) => {
-    const wa = STATE_ORDER[stateMeta(a).code] ?? 9
-    const wb = STATE_ORDER[stateMeta(b).code] ?? 9
-    if (wa !== wb) return wa - wb
-    return String(b.last_update || '').localeCompare(String(a.last_update || ''))
-  })
-})
-
-/** 实际渲染的条数（滚动加载，跟随页面滚动）。 */
-const overviewItems = computed(() => overviewSorted.value.slice(0, overviewLimit.value))
-
-/** 还有多少没显示。 */
-const overviewRemain = computed(() =>
-  Math.max(overviewSorted.value.length - overviewItems.value.length, 0),
-)
-
-/** 一次显示多少张（滚动加载）。 */
-const OVERVIEW_PAGE = 20
-const overviewLimit = ref(OVERVIEW_PAGE)
-
-/** 到底自动加载更多。
-
- 用 **IntersectionObserver 观察网格底部哨兵**，而不是监听 window scroll ——
- 插件页的滚动容器是宿主内部的 div，`window` 的 scroll 事件根本不触发
- （真机：插件页滚不动，MP 自己的页面一滚就出）。
- 观察器不关心谁在滚，只要哨兵进入视口就追加。
- */
-const overviewSentinel = ref(null)
-let overviewObserver = null
-
-/** 网格的滚动容器（订阅总览内部滚动，不是窗口）。 */
-function overviewScroller() {
-  return overviewSentinel.value?.closest('.sc-poster-grid') || null
-}
-
-/** 哨兵是否已滚动到容器可视区附近。
-
- 以前拿 `window.innerHeight` 判断 —— 网格改成内部滚动后，哨兵在裁剪区外
- 但坐标仍在窗口内，于是循环一路加到 206 条（真机：展开直接全部加载）。
- */
-/** 网格当前是否真的在内部滚动（窄屏会取消高度上限，改成跟随页面滚）。 */
-function overviewScrollsInternally() {
-  const box = overviewScroller()
-  if (!box) return false
-  const style = window.getComputedStyle(box)
-  return style.overflowY === 'auto' || style.overflowY === 'scroll'
-}
-
-function sentinelVisible() {
-  const el = overviewSentinel.value
-  const box = overviewScroller()
-  if (!el) return false
-  const rect = el.getBoundingClientRect()
-  if (!box || !overviewScrollsInternally()) {
-    // 跟随页面滚动（含手机端）：按视口判断
-    return rect.top <= window.innerHeight + 120
-  }
-  const view = box.getBoundingClientRect()
-  return rect.top <= view.bottom + 120
-}
-
-/** 追加一批，直到不再可见或没剩的（宽屏时一次 +20 可能仍停在原地）。 */
-async function growOverview() {
-  if (!overviewOpen.value) return
-  let guard = 0
-  while (overviewRemain.value > 0 && sentinelVisible() && guard < 20) {
-    overviewLimit.value += OVERVIEW_PAGE
-    guard += 1
-    await nextTick()
-  }
-}
-
-function ensureOverviewObserver() {
-  if (overviewObserver || !overviewSentinel.value) return
-  overviewObserver = new IntersectionObserver(
-    (entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) growOverview()
-    },
-    // 有内部滚动时 root 必须是滚动容器本身（视口不会重新判定）；
-    // 窄屏取消高度上限后没有内部滚动，root 要回到视口。
-    {
-      root: overviewScrollsInternally() ? overviewScroller() : null,
-      rootMargin: '0px 0px 120px 0px',
-    },
-  )
-  overviewObserver.observe(overviewSentinel.value)
-}
-
-/** 收起时销毁观察器：v-if 会重建哨兵节点，旧观察器会绑在已销毁的节点上。 */
-function dropOverviewObserver() {
-  if (overviewObserver) {
-    overviewObserver.disconnect()
-    overviewObserver = null
-  }
-}
-
-watch(overviewOpen, async (open) => {
-  if (!open) {
-    dropOverviewObserver()
-    return
-  }
-  await nextTick()
-  ensureOverviewObserver()
-  await growOverview()
-})
 
 onMounted(async () => {
   await loadTheme()
-  if (overviewOpen.value) await loadOverview()
-  await nextTick()
-  ensureOverviewObserver()
 })
 
-onUnmounted(() => dropOverviewObserver())
-
-/** 是否开启洗版（best_version / best_version_full）。 */
-function isBestVersion(item) {
-  return Boolean(Number(item.best_version || 0) || Number(item.best_version_full || 0))
-}
-
-/** 集数进度文本。 */
-function episodeText(item) {
-  const total = Number(item.total_episode || 0)
-  if (!total) return ''
-  const lack = Number(item.lack_episode || 0)
-  return `${Math.max(total - lack, 0)}/${total}`
-}
-
-/** 拉一次订阅总览（已拉过就跳过）。 */
-async function loadOverview(force = false) {
-  if (overviewLoaded.value && !force) return
-  try {
-    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'subscriptions'))
-    overview.value = data || { total: 0, counts: {}, items: [] }
-    overviewLoaded.value = true
-    await nextTick()
-    await growOverview()
-  } catch (error) {
-    setTip(error?.message || '读取订阅总览失败', false)
-  }
-}
-
-/** 展开/收起；展开时按需拉数据。 */
-async function toggleOverview() {
-  overviewOpen.value = !overviewOpen.value
-  try {
-    window.localStorage.setItem(OVERVIEW_KEY, overviewOpen.value ? '1' : '0')
-  } catch (error) {
-    /* 隐私模式下忽略 */
-  }
-  if (overviewOpen.value) await loadOverview()
-}
 
 /** 「按源」tab：TMDB / AniList / 豆瓣，带条数。 */
 const sourceTabs = computed(() => {
@@ -656,116 +461,32 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 订阅总览：三个源状态下方，默认展开 -->
-    <div class="sc-overview">
-          <div class="sc-overview-head" @click="toggleOverview">
-            <VIcon :icon="overviewOpen ? 'mdi-chevron-down' : 'mdi-chevron-right'" size="18" />
-            <span class="sc-overview-title">订阅总览</span>
-            <span class="sc-dim">
-              <template v-if="overviewLoaded">
-                共 {{ overview.total }} 条订阅 · 已完成 {{ overview.counts.D || 0 }} · 待定
-                {{ overview.counts.P || 0 }}
-              </template>
-              <template v-else>（尚未加载）</template>
-            </span>
-            <span class="sc-overview-spacer" />
-            <button
-              type="button"
-              class="sc-theme-btn"
-              :class="{ 'sc-theme-btn-active': themeOpen }"
-              @click.stop="themeOpen = !themeOpen"
-            >
-              配色
-            </button>
-            <span class="sc-overview-toggle">{{ overviewOpen ? '收起 ⌃' : '展开 ⌄' }}</span>
-          </div>
-          <div v-if="themeOpen" class="sc-theme-panel" @click.stop>
-            <div class="sc-theme-row" v-for="row in themeRows" :key="row.key">
-              <span class="sc-theme-label">{{ row.label }}</span>
-              <input type="color" v-model="theme.colors[row.key]" class="sc-theme-color" />
-              <code class="sc-dim">{{ theme.colors[row.key] }}</code>
-            </div>
-            <label class="sc-theme-row sc-theme-check">
-              <input type="checkbox" v-model="theme.best_version_outline" />
-              <span class="sc-theme-label">洗版另加紫色外框</span>
-              <span class="sc-dim">{{ theme.best_version_color }}</span>
-            </label>
-            <div class="sc-theme-actions">
-              <VBtn size="x-small" color="primary" :loading="themeSaving" @click="saveTheme">保存</VBtn>
-              <VBtn size="x-small" variant="text" :disabled="themeSaving" @click="resetTheme">
-                恢复默认
-              </VBtn>
-              <span class="sc-dim sc-theme-hint">保存后需刷新 MP 页面生效</span>
-            </div>
-          </div>
-          <div v-if="overviewOpen" class="sc-overview-body">
-            <div v-if="!overview.total" class="sc-hint">暂无订阅</div>
-            <template v-else>
-              <div class="sc-state-row">
-                <button
-                  type="button"
-                  class="sc-state-chip"
-                  :class="{ 'sc-state-active': !overviewState }"
-                  @click="overviewState = ''"
-                >
-                  全部 <span class="sc-dim">{{ overview.total }}</span>
-                </button>
-                <button
-                  v-for="(meta, code) in STATE_META"
-                  :key="code"
-                  type="button"
-                  class="sc-state-chip"
-                  :class="{ 'sc-state-active': overviewState === code }"
-                  :style="{ borderColor: meta.color }"
-                  @click="overviewState = overviewState === code ? '' : code"
-                >
-                  <span class="sc-state-dot" :style="{ background: meta.color }" />
-                  {{ meta.label }}
-                  <span class="sc-dim">{{ overview.counts[code] || 0 }}</span>
-                </button>
-              </div>
-              <div class="sc-overview-count">
-                已显示 {{ overviewItems.length }} / {{ overviewSorted.length }}
-                <span v-if="overviewRemain > 0"> · 继续向下滚动自动加载</span>
-              </div>
-              <div class="sc-poster-grid">
-                <div
-                  v-for="item in overviewItems"
-                  :key="item.id"
-                  class="sc-poster-card"
-                  :style="{ borderColor: stateMeta(item).color }"
-                >
-                  <div class="sc-poster-wrap">
-                    <img
-                      v-if="posterUrl(item)"
-                      :src="posterUrl(item)"
-                      alt=""
-                      loading="lazy"
-                      class="sc-poster-img"
-                      @error="markPosterFailed(item)"
-                    />
-                    <div v-else class="sc-poster-empty">
-                      <VIcon icon="mdi-television-classic" size="26" />
-                    </div>
-                    <span class="sc-poster-state" :style="{ background: stateMeta(item).color }">
-                      {{ stateMeta(item).label }}
-                    </span>
-                    <span v-if="isBestVersion(item)" class="sc-poster-best">洗版</span>
-                  </div>
-                  <div class="sc-poster-name" :title="item.name">
-                    {{ item.name }}<span v-if="item.season"> S{{ String(item.season).padStart(2, '0') }}</span>
-                  </div>
-                  <div class="sc-poster-meta">
-                    <span>{{ item.year || '' }}</span>
-                    <span v-if="episodeText(item)">{{ episodeText(item) }}</span>
-                  </div>
-                </div>
-                <div ref="overviewSentinel" class="sc-overview-sentinel" />
-              </div>
-            </template>
-          </div>
+    <!-- 订阅卡片配色：写进宿主自定义 CSS，MP 订阅页卡片跟着变色 -->
+    <div class="sc-theme-card">
+      <div class="sc-theme-head">
+        <VIcon icon="mdi-palette-outline" size="16" />
+        <span class="sc-theme-title">订阅卡片配色</span>
+        <span class="sc-dim">保存后刷新 MoviePilot 页面生效；只影响卡片外观，不改订阅</span>
+      </div>
+      <div class="sc-theme-body">
+        <div class="sc-theme-row" v-for="row in themeRows" :key="row.key">
+          <span class="sc-theme-label">{{ row.label }}</span>
+          <input type="color" v-model="theme.colors[row.key]" class="sc-theme-color" />
+          <code class="sc-dim">{{ theme.colors[row.key] }}</code>
         </div>
-
+        <label class="sc-theme-row sc-theme-check">
+          <input type="checkbox" v-model="theme.best_version_outline" />
+          <span class="sc-theme-label">洗版另加紫色外框</span>
+          <span class="sc-dim">{{ theme.best_version_color }}</span>
+        </label>
+        <div class="sc-theme-actions">
+          <VBtn size="x-small" color="primary" :loading="themeSaving" @click="saveTheme">保存</VBtn>
+          <VBtn size="x-small" variant="text" :disabled="themeSaving" @click="resetTheme">
+            恢复默认
+          </VBtn>
+        </div>
+      </div>
+    </div>
 
     <!-- 发现流水：表格式，一眼看全 -->
     <div class="sc-card">
@@ -1187,9 +908,6 @@ onUnmounted(() => {
   object-fit: cover;
   display: block;
 }
-.sc-poster-ph {
-  opacity: 0.45;
-}
 .sc-media-title {
   display: flex;
   align-items: baseline;
@@ -1253,39 +971,6 @@ onUnmounted(() => {
   opacity: 1;
   font-weight: 600;
 }
-.sc-overview {
-  margin-bottom: 10px;
-  border: 1px solid rgba(var(--v-border-color), 0.22);
-  border-radius: 10px;
-  background: rgba(var(--v-border-color), 0.06);
-}
-.sc-overview-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px;
-  cursor: pointer;
-  user-select: none;
-  min-height: 44px;
-  border-radius: 10px;
-}
-.sc-theme-btn {
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--v-border-color), 0.28);
-  background: transparent;
-  color: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-.sc-theme-btn-active {
-  border-color: rgba(var(--v-theme-primary), 0.7);
-  background: rgba(var(--v-theme-primary), 0.16);
-}
-.sc-theme-panel {
-  padding: 8px 12px 12px;
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.14);
-}
 .sc-theme-row {
   display: flex;
   align-items: center;
@@ -1305,181 +990,19 @@ onUnmounted(() => {
   background: transparent;
   cursor: pointer;
 }
-.sc-theme-check {
-  cursor: pointer;
-}
 .sc-theme-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
 }
-.sc-theme-hint {
-  font-size: 11px;
-}
-.sc-overview-spacer {
-  flex: 1 1 auto;
-}
-.sc-overview-toggle {
-  font-size: 11.5px;
-  opacity: 0.7;
-}
-.sc-overview-sentinel {
-  height: 1px;
-}
-.sc-overview-count {
-  font-size: 11px;
-  opacity: 0.6;
-  margin-bottom: 6px;
-}
-.sc-poster-best {
-  position: absolute;
-  right: 4px;
-  top: 4px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #1a1a1a;
-  background: #A855F7;
-}
-.sc-overview-title {
-  font-size: 13px;
-  font-weight: 600;
-}
-.sc-overview-body {
-  padding: 0 12px 12px;
-}
-.sc-state-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-.sc-state-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--v-border-color), 0.2);
-  background: transparent;
-  color: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-.sc-state-active {
-  background: rgba(var(--v-theme-primary), 0.14);
-  border-color: rgba(var(--v-theme-primary), 0.6);
-}
-.sc-state-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
 /* 固定列宽（而不是 1fr）：列宽恒定才能精确算「2 行」的高度，
    否则行高随窗口宽度变化，卡片会被切在中间。 */
 /* 窄屏（手机）：一格 132px 时 20 张会排成十几行，固定 492px 的内部滚动
    在触屏上不好用，直接放开高度、跟随页面滚动。 */
 @media (max-width: 900px) {
-  .sc-poster-grid {
-    max-height: none;
-    overflow-y: visible;
-    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  }
 }
 
-.sc-poster-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 132px);
-  gap: 8px;
-  /* 2 行 = 海报 198 + 文字约 40 = 238；两行加间距约 484，留余量 */
-  max-height: 492px;
-  overflow-y: auto;
-  align-content: start;
-}
-.sc-poster-card {
-  border: 1px solid rgba(var(--v-border-color), 0.16);
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgba(var(--v-border-color), 0.05);
-}
-.sc-poster-wrap {
-  position: relative;
-  aspect-ratio: 2 / 3;
-  overflow: hidden;
-}
-.sc-poster-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.sc-poster-empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.4;
-}
-.sc-poster-state {
-  position: absolute;
-  left: 4px;
-  top: 4px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  color: #1a1a1a;
-  font-weight: 600;
-}
-.sc-poster-name {
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 4px 6px 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sc-poster-meta {
-  display: flex;
-  gap: 6px;
-  font-size: 10.5px;
-  opacity: 0.62;
-  padding: 1px 6px 5px;
-}
-.sc-sub-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 8px;
-  max-height: 340px;
-  overflow: auto;
-}
-.sc-sub-card {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(var(--v-border-color), 0.14);
-  border-left-width: 4px;
-  border-left-style: solid;
-}
-.sc-sub-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sc-sub-meta {
-  display: flex;
-  gap: 8px;
-  font-size: 11px;
-  opacity: 0.65;
-  margin-top: 2px;
-}
-.sc-sub-state {
-  font-size: 11px;
-  margin-top: 3px;
-}
 .sc-search {
   display: flex;
   align-items: center;
@@ -1523,5 +1046,56 @@ onUnmounted(() => {
   .sc-grid {
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   }
+}
+
+/* 订阅卡片配色卡片 */
+.sc-theme-card {
+  border: 1px solid rgba(var(--v-border-color), 0.2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(var(--v-border-color), 0.05);
+}
+.sc-theme-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.sc-theme-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sc-theme-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.sc-theme-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.sc-theme-label {
+  min-width: 44px;
+}
+.sc-theme-color {
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(var(--v-border-color), 0.3);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.sc-theme-check {
+  cursor: pointer;
+}
+.sc-theme-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 </style>

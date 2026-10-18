@@ -40,23 +40,49 @@ def normalize_colors(value: Any) -> Dict[str, str]:
     return colors
 
 
-def build_block(colors: Dict[str, str], best_version_outline: bool = False) -> str:
-    """生成标记块（含首尾标记行）。"""
-    lines = [
-        BLOCK_BEGIN,
-        "/* 生命周期状态用左边条着色；洗版是叠加标记，默认只保留宿主自带的左上角徽章 */",
-        ".subscribe-card{",
-        f"  border-left:4px solid {colors['subscribing']} !important;",
+def _rgba(hex_color: str, alpha: float) -> str:
+    """#RRGGBB -> rgba(r,g,b,a)，用于整卡浅染色。"""
+    value = hex_color.lstrip("#")
+    red, green, blue = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({red},{green},{blue},{alpha:.2f})"
+
+
+def _rules(selector: str, color: str, color_alpha: float = 0.12) -> list:
+    """方案 3：整卡浅染色 + 2px 描边 + 左侧 5px 强调条。"""
+    return [
+        f"{selector}{{",
+        f"  box-shadow:inset 0 0 0 2px {color}, inset 5px 0 0 0 {color} !important;",
+        f"  background-color:{_rgba(color, 0.10)} !important;",
         "}",
-        ".subscribe-card.subscribe-card-pending-tint{",
-        f"  border-left-color:{colors['pending']} !important;",
-        "}",
-        ".subscribe-card.subscribe-card-paused{",
-        f"  border-left-color:{colors['paused']} !important;",
+        f"{selector}::after{{",
+        '  content:"";',
+        "  position:absolute;",
+        "  inset:0;",
+        "  border-radius:inherit;",
+        "  pointer-events:none;",
+        "  z-index:3;",
+        f"  background:{_rgba(color, color_alpha)} !important;",
         "}",
     ]
+
+
+def build_block(colors: Dict[str, str], best_version_outline: bool = False) -> str:
+    """生成标记块（含首尾标记行）。
+
+    方案 3：整卡按状态浅染色 + 2px 描边，最醒目；洗版仍用宿主自带的
+    左上角徽章表达（可选再加紫色外框）。
+    """
+    lines = [
+        BLOCK_BEGIN,
+        "/* 方案 3：整卡浅染色 + 2px 描边；洗版用宿主自带左上角徽章 */",
+        ".subscribe-card{",
+        "  position:relative !important;",
+        "}",
+    ]
+    lines += _rules(".subscribe-card", colors["subscribing"])
+    lines += _rules(".subscribe-card.subscribe-card-pending-tint", colors["pending"], 0.14)
+    lines += _rules(".subscribe-card.subscribe-card-paused", colors["paused"], 0.10)
     if best_version_outline:
-        # 洗版的卡片左上有 .best-version-badge 徽章，用 :has() 额外描一圈
         lines += [
             ".subscribe-card:has(.best-version-badge){",
             f"  outline:2px solid {BEST_VERSION_COLOR} !important;",

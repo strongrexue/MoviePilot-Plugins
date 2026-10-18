@@ -6,9 +6,6 @@
 import copy
 from typing import Any, Dict, List
 
-#: 订阅总览一次最多取多少条（够看即可，避免一次拉爆）
-SUBSCRIBE_OVERVIEW_LIMIT = 500
-
 # --------------------------------------------------------------------- 插件元信息
 
 PLUGIN_ID = "SubscribeCenter"
@@ -19,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.7.1"
+PLUGIN_VERSION = "1.8.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"

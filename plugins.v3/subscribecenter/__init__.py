@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.7.1"
+    plugin_version = "1.8.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -259,10 +259,6 @@ class SubscribeCenter(_PluginBase):
     async def api_card_theme_save(self, request: api_schemas.CardThemeRequest) -> Any:
         """保存订阅卡片配色（写入宿主自定义 CSS）。"""
         return await api_controller.api_card_theme_save(self, request)
-
-    async def api_subscriptions(self) -> Any:
-        """订阅总览：宿主订阅按状态分组 + 明细。"""
-        return await api_controller.api_subscriptions(self)
 
     async def api_run_once(self) -> Any:
         """手动触发一次发现任务。"""
@@ -838,56 +834,6 @@ class SubscribeCenter(_PluginBase):
         )
         return {"success": True, "error": ""}
 
-    async def subscription_overview(self) -> Dict[str, Any]:
-        """读取宿主订阅表，按状态统计并返回明细（供「订阅总览」标签页）。
-
-        这里用 **ORM 直连**（``app.db.async_session_scope`` + ``Subscribe``），
-        不走宿主 SDK 的 ``async_list_subscriptions`` —— 后者依赖
-        「插件数据查询服务」，在某些调用路径下尚未配置就会直接抛
-        ``插件数据查询服务尚未配置``（真机：接口 500，前端只显示「未知错误」）。
-        ORM 读取只依赖数据库连接，稳定得多。
-        """
-        from app.db import async_session_scope
-        from app.db.models.subscribe import Subscribe
-        from sqlalchemy import select
-
-        items: List[Dict[str, Any]] = []
-        counts: Dict[str, int] = {}
-        try:
-            async with async_session_scope() as session:
-                rows = (
-                    await session.execute(
-                        select(Subscribe)
-                        .order_by(Subscribe.id.desc())
-                        .limit(C.SUBSCRIBE_OVERVIEW_LIMIT)
-                    )
-                ).scalars().all()
-        except Exception as err:  # noqa: BLE001 - 查询失败不该炸整个页面
-            logger.error(f"[SubscribeCenter] 读取订阅总览失败：{err}", exc_info=True)
-            return {"total": 0, "counts": {}, "items": [], "error": str(err)}
-
-        for row in rows:
-            state = _display_state(row)
-            counts[state] = counts.get(state, 0) + 1
-            items.append(
-                {
-                    "id": getattr(row, "id", None),
-                    "name": getattr(row, "name", None),
-                    "year": getattr(row, "year", None),
-                    "season": getattr(row, "season", None),
-                    "total_episode": getattr(row, "total_episode", None),
-                    "lack_episode": getattr(row, "lack_episode", None),
-                    "state": state,
-                    "media_source": getattr(row, "media_source", None),
-                    "media_id": getattr(row, "media_id", None),
-                    "poster": getattr(row, "poster", None),
-                    "last_update": getattr(row, "last_update", None),
-                    "best_version": getattr(row, "best_version", None),
-                    "best_version_full": getattr(row, "best_version_full", None),
-                }
-            )
-        return {"total": len(items), "counts": counts, "items": items}
-
     def history_page(
         self,
         *,
@@ -1199,26 +1145,6 @@ def _collapse_history(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         ):
             best[key] = record
     return [best[key] for key in order]
-
-
-def _display_state(row: Any) -> str:
-    """把订阅行折算成界面展示用的状态码。
-
-    宿主的状态码只有 N/R/P/S，而界面上「订阅完成」是靠集数推导的
-    （``total_episode > 0 且 lack_episode == 0``）—— 计数与卡片着色必须用
-    同一个口径，否则筛选条上的数字和卡片颜色会对不上。
-    """
-    state = str(getattr(row, "state", None) or "N")
-    if state == "S":
-        return "S"
-    try:
-        total = int(getattr(row, "total_episode", None) or 0)
-        lack = int(getattr(row, "lack_episode", None) or 0)
-    except (TypeError, ValueError):
-        return state
-    if total > 0 and lack == 0:
-        return "D"
-    return state
 
 
 def _source_counts(records: List[Dict[str, Any]]) -> Dict[str, int]:

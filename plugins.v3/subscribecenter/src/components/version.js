@@ -8,4 +8,4 @@
  * 唯一能确认当前浏览器到底加载了哪一版的办法，就是在组件里把这个号显示出来、
  * 并与后端 `/status` 返回的 plugin_version 比对；不一致就提示硬刷新。
  */
-export const FRONTEND_VERSION = '1.9.3'
+export const FRONTEND_VERSION = '1.9.4'

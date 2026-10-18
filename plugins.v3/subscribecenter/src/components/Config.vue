@@ -39,6 +39,7 @@ const busy = ref('')
 const status = ref(null)
 const tip = ref({ show: false, ok: true, text: '' })
 const previewItems = ref([])
+const activeTab = ref('config')
 const activeSection = ref('overview')
 
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
@@ -135,8 +136,8 @@ const sectionNav = computed(() => [
   { key: 'tmdb', label: 'TMDB', icon: 'mdi-movie-open-outline' },
   { key: 'anilist', label: 'AniList', icon: 'mdi-animation-outline' },
   { key: 'douban', label: '豆瓣榜单', icon: 'mdi-movie-filter-outline' },
+  { key: 'hot_media', label: '热门媒体', icon: 'mdi-fire' },
   { key: 'schedule', label: '写入与调度', icon: 'mdi-calendar-clock' },
-  { key: 'preview', label: '预览结果', icon: 'mdi-eye-outline' },
 ])
 
 const overviewCards = computed(() => {
@@ -483,9 +484,18 @@ onMounted(() => {
       />
     </div>
 
+    <VTabs v-model="activeTab" density="compact" class="sc-tabs" color="primary">
+      <VTab value="config">
+        <VIcon icon="mdi-tune-variant" size="16" class="mr-1" />订阅配置
+      </VTab>
+      <VTab value="history">
+        <VIcon icon="mdi-history" size="16" class="mr-1" />订阅历史
+      </VTab>
+    </VTabs>
+
     <div class="sc-body">
       <!-- 左侧分区导航 -->
-      <nav class="sc-nav">
+      <nav v-if="activeTab === 'config'" class="sc-nav">
         <button
           v-for="item in sectionNav"
           :key="item.key"
@@ -598,54 +608,6 @@ onMounted(() => {
               </VBtn>
             </div>
 
-        <!-- 热门媒体 -->
-        <div class="sc-card">
-          <div class="sc-card-title">
-            <VSwitch v-model="form.enable_hot_media" density="compact" hide-details color="primary" class="mr-2" />
-            热门媒体（MoviePilot 官方热门订阅统计）
-          </div>
-          <div class="sc-hint">
-            大家都在订什么。**依赖宿主的「订阅数据共享」**：未开启时官方返回空数据。
-          </div>
-          <div class="sc-row sc-row-wrap">
-            <label class="sc-inline">
-              <input type="checkbox" v-model="form.hot_media_movie_enabled" /> 电影
-              <VTextField v-model.number="form.hot_media_movie_limit" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
-            </label>
-            <label class="sc-inline">
-              <input type="checkbox" v-model="form.hot_media_tv_enabled" /> 剧集
-              <VTextField v-model.number="form.hot_media_tv_limit" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
-            </label>
-            <label class="sc-inline">
-              订阅人次 ≥
-              <VTextField v-model.number="form.hot_media_min_count" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
-            </label>
-          </div>
-          <div class="sc-row">
-            <label class="sc-inline">
-              <input type="checkbox" :checked="shareEnabled" :disabled="shareSaving" @change="toggleShare($event.target.checked)" />
-              开启「订阅数据共享」（一键写入宿主系统设置）
-            </label>
-          </div>
-          <VTextField
-            v-model="form.cron_hot_media"
-            label="独立定时（留空=跟随全局）"
-            density="compact"
-            hide-details
-            variant="outlined"
-            placeholder="例：0 9 * * *"
-            class="mt-2 mb-1"
-          />
-          <div class="sc-source-actions">
-            <VBtn size="x-small" color="primary" :loading="!!sourceBusy['hot_media']" @click="runOneSource('hot_media', '热门媒体')">
-              立即运行一次
-            </VBtn>
-            <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['hot_media']" @click="testOneSource('hot_media', '热门媒体')">
-              连通性测试
-            </VBtn>
-          </div>
-        </div>
-
             <div class="sc-source-actions">
               <VBtn size="x-small" color="primary" :loading="!!sourceBusy['tmdb']" @click="runOneSource('tmdb', 'TMDB')">
                 立即运行一次
@@ -657,7 +619,9 @@ onMounted(() => {
 
           </div>
 
-          <div class="sc-card">
+          <details class="sc-adv">
+            <summary>高级选项：豆瓣 RSS 路线（逐条自定义地址与阈值）</summary>
+            <div class="sc-card">
             <div class="sc-card-title">豆瓣 RSS 路线</div>
             <VTextField
               v-model="form.rsshub_domain"
@@ -758,6 +722,7 @@ onMounted(() => {
               <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
             </div>
           </div>
+          </details>
         </template>
 
         <!-- 窗口与阈值 -->
@@ -1075,6 +1040,55 @@ onMounted(() => {
         </template>
 
         <!-- 写入与调度 -->
+        <template v-if="activeSection === 'hot_media'">
+        <div class="sc-card">
+          <div class="sc-card-title">
+            <VSwitch v-model="form.enable_hot_media" density="compact" hide-details color="primary" class="mr-2" />
+            热门媒体（MoviePilot 官方热门订阅统计）
+          </div>
+          <div class="sc-hint">
+            大家都在订什么。**依赖宿主的「订阅数据共享」**：未开启时官方返回空数据。
+          </div>
+          <div class="sc-row sc-row-wrap">
+            <label class="sc-inline">
+              <input type="checkbox" v-model="form.hot_media_movie_enabled" /> 电影
+              <VTextField v-model.number="form.hot_media_movie_limit" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
+            </label>
+            <label class="sc-inline">
+              <input type="checkbox" v-model="form.hot_media_tv_enabled" /> 剧集
+              <VTextField v-model.number="form.hot_media_tv_limit" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
+            </label>
+            <label class="sc-inline">
+              订阅人次 ≥
+              <VTextField v-model.number="form.hot_media_min_count" type="number" density="compact" hide-details variant="outlined" style="width: 90px" />
+            </label>
+          </div>
+          <div class="sc-row">
+            <label class="sc-inline">
+              <input type="checkbox" :checked="shareEnabled" :disabled="shareSaving" @change="toggleShare($event.target.checked)" />
+              开启「订阅数据共享」（一键写入宿主系统设置）
+            </label>
+          </div>
+          <VTextField
+            v-model="form.cron_hot_media"
+            label="独立定时（留空=跟随全局）"
+            density="compact"
+            hide-details
+            variant="outlined"
+            placeholder="例：0 9 * * *"
+            class="mt-2 mb-1"
+          />
+          <div class="sc-source-actions">
+            <VBtn size="x-small" color="primary" :loading="!!sourceBusy['hot_media']" @click="runOneSource('hot_media', '热门媒体')">
+              立即运行一次
+            </VBtn>
+            <VBtn size="x-small" variant="tonal" :disabled="!!sourceBusy['hot_media']" @click="testOneSource('hot_media', '热门媒体')">
+              连通性测试
+            </VBtn>
+          </div>
+        </div>
+        </template>
+
         <template v-if="activeSection === 'schedule'">
           <div class="sc-card">
             <div class="sc-card-title">写入与调度</div>
@@ -1170,7 +1184,7 @@ onMounted(() => {
         </template>
 
         <!-- 预览结果 -->
-        <template v-if="activeSection === 'preview'">
+        <template v-if="activeTab === 'history'">
           <div class="sc-card">
             <div class="sc-card-title sc-preview-head">
               <VIcon icon="mdi-eye-outline" size="16" /> 预览结果
@@ -1437,6 +1451,26 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
+}
+
+
+.sc-tabs {
+  margin-bottom: 6px;
+}
+.sc-adv {
+  border: 1px dashed rgba(var(--v-border-color), 0.35);
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+.sc-adv > summary {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.8;
+  padding: 2px 0;
+}
+.sc-adv[open] > summary {
+  margin-bottom: 8px;
 }
 
 /* 每个数据源底部的操作按钮 */

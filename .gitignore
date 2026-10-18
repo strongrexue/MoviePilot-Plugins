@@ -31,3 +31,6 @@ Thumbs.db
 
 # 仿真脚本的隔离配置目录（tools/verify/sim_first_search.py，运行期生成）
 .sim/
+
+# 本地排查用脚本与随附依赖（不入库）
+.devtools/

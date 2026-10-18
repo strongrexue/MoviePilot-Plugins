@@ -25,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.6.20"
+    plugin_version = "1.6.21"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -61,6 +61,8 @@ class EmbyCoverCenter(_PluginBase):
         """读取配置并建立运行状态；必须允许重复调用。"""
         self.stop_service()
         raw = dict(config or {})
+        # 1.6.21：发现页入口并入「启用」开关，顺手清掉老配置里残留的独立键
+        raw.pop("discovery_page_enabled", None)
         merged = default_config()
         merged.update(raw)
         self._config = merged
@@ -219,8 +221,12 @@ class EmbyCoverCenter(_PluginBase):
         return [{"key": "dashboard1", "name": self.plugin_name}]
 
     def get_sidebar_nav(self) -> List[Dict[str, Any]]:
-        """按配置注册「发现」分区的整页入口。"""
-        if not self.get_state() or not self._config.get("discovery_page_enabled"):
+        """「发现」分区整页入口：跟随「启用」开关（启用即注册、停用即移除）。
+
+        早期版本另有独立的 ``discovery_page_enabled`` 开关，1.6.21 起并入总开关，
+        配置项一并删除（老配置里残留的值不再生效）。
+        """
+        if not self.get_state():
             return []
         return [
             {

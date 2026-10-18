@@ -174,28 +174,51 @@
   display: block;
 }
 
-.ec-config[data-v-b8b6a6ef] {
+.ec-config[data-v-bca9d1dc] {
   width: min(1360px, calc(100vw - 48px));
   max-width: 100%;
   border-radius: 14px;
   overflow: hidden;
 }
-.ec-header[data-v-b8b6a6ef] {
+.ec-header[data-v-bca9d1dc] {
   padding: 14px 18px;
 }
-.ec-body[data-v-b8b6a6ef] {
+.ec-body[data-v-bca9d1dc] {
   max-height: min(74vh, 820px);
   overflow-y: auto;
   padding: 14px 16px 4px;
 }
-.ec-block[data-v-b8b6a6ef] {
+/* 同排卡片等高对齐：此前「基础」比「媒体服务器」高出一截，两卡底边错层。 */
+.ec-block[data-v-bca9d1dc] {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   border-radius: 10px;
 }
+/* 标题行统一高度：右侧带「刷新」按钮时标题基线不会比左侧低半行。 */
+.ec-block-head[data-v-bca9d1dc] {
+  min-height: 48px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.ec-block-body[data-v-bca9d1dc] {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+/* 说明文字贴底，两卡等高后中间不再留一段空白。 */
+.ec-hint[data-v-bca9d1dc] {
+  margin-top: auto;
+  padding-top: 8px;
+}
 @media (max-width: 760px) {
-.ec-config[data-v-b8b6a6ef] {
+.ec-config[data-v-bca9d1dc] {
     width: min(100%, calc(100vw - 16px));
 }
-.ec-body[data-v-b8b6a6ef] {
+.ec-body[data-v-bca9d1dc] {
     padding: 10px 10px 4px;
+}
+.ec-block[data-v-bca9d1dc] {
+    height: auto;
 }
 }

@@ -16,10 +16,8 @@ DEFAULT_COVER_LAYOUT = "经典平铺"
 def default_config() -> Dict[str, Any]:
     """返回插件默认配置。"""
     return {
-        # 总开关
+        # 总开关（「发现」分区的整页入口跟随它：启用即注册、停用即移除）
         "enabled": False,
-        # 是否在 MP 左侧「发现」分区注册整页入口
-        "discovery_page_enabled": False,
         # 参与封面的媒体服务器名称；空 = 全部已启用服务器
         "selected_servers": [],
         # 封面：默认布局与布局参数（cover_config 由前端按布局 schema 填充）

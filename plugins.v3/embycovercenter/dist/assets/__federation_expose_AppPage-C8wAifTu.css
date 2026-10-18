@@ -1,5 +1,5 @@
 
-.ec-app-page[data-v-cf51611b] {
+.ec-app-page[data-v-4e83f23b] {
   width: 100%;
   min-width: 0;
   max-width: 1800px;
@@ -8,7 +8,7 @@
   background: transparent;
 }
 @media (max-width: 600px) {
-.ec-app-page[data-v-cf51611b] {
+.ec-app-page[data-v-4e83f23b] {
     padding: 8px;
 }
 }

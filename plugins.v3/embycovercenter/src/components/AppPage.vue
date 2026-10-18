@@ -9,7 +9,7 @@ import { getPluginConfig, savePluginConfig } from './api'
  *
  * 页面内容直接复用 Page.vue（与插件详情页同一份），不另做一套；整页场景没有
  * "关闭"语义，工具栏的「设置」按钮改为在这里弹出配置弹窗（与详情页同一份 Config.vue）。
- * 显示与否由后端 ``get_sidebar_nav()`` 依据配置项 ``discovery_page_enabled`` 决定。
+ * 显示与否由后端 ``get_sidebar_nav()`` 跟随「启用」开关决定（启用即注册、停用即移除）。
  */
 const props = defineProps({
   api: { type: [Object, Function], default: null },

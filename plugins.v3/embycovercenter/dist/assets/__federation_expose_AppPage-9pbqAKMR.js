@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-Cz4m2qmJ.js';
-import Page from './__federation_expose_Page-C8ime2_C.js';
+import Config from './__federation_expose_Config-XFUoONtx.js';
+import Page from './__federation_expose_Page-Dwoxz6lL.js';
 import { _ as _export_sfc, g as getPluginConfig, s as savePluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,resolveComponent:_resolveComponent,createCommentVNode:_createCommentVNode,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
@@ -15,7 +15,7 @@ const {ref} = await importShared('vue');
  *
  * 页面内容直接复用 Page.vue（与插件详情页同一份），不另做一套；整页场景没有
  * "关闭"语义，工具栏的「设置」按钮改为在这里弹出配置弹窗（与详情页同一份 Config.vue）。
- * 显示与否由后端 ``get_sidebar_nav()`` 依据配置项 ``discovery_page_enabled`` 决定。
+ * 显示与否由后端 ``get_sidebar_nav()`` 跟随「启用」开关决定（启用即注册、停用即移除）。
  */
 
 const _sfc_main = {
@@ -122,6 +122,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cf51611b"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4e83f23b"]]);
 
 export { AppPage as default };

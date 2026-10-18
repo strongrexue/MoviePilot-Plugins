@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "embycovercenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert EmbyCoverCenter.plugin_name == "胖虎封面中心"
-    assert EmbyCoverCenter.plugin_version == "1.6.20"
+    assert EmbyCoverCenter.plugin_version == "1.6.21"
     assert EmbyCoverCenter.plugin_config_prefix == "embycovercenter_"
 
 
@@ -61,12 +61,13 @@ def test_render_mode_is_vue():
 def test_default_config_shape():
     """默认配置应包含开关、定时与通知字段（M4：含自动封面任务新键）。"""
     config = EmbyCoverCenter.default_config()
-    for key in ("enabled", "discovery_page_enabled", "selected_servers",
+    for key in ("enabled", "selected_servers",
                 "auto_refresh_on_webhook", "cover_cron", "notify_on_task_finish",
                 "auto_cover_enabled", "auto_cover_libraries", "auto_cover_template",
                 "auto_backup_enabled"):
         assert key in config
-    assert config["discovery_page_enabled"] is False
+    # 1.6.21：发现页入口并入「启用」开关，配置里不再有独立键
+    assert "discovery_page_enabled" not in config
     assert config["cover_cron"] == "0 4 * * *"
     assert config["auto_cover_enabled"] is False
     assert config["auto_cover_libraries"] == {}
@@ -81,16 +82,16 @@ def _bare_plugin(config):
     return plugin
 
 
-def test_sidebar_nav_off_by_default():
-    """默认不注册「发现」分区入口（关闭 / 未启用两种情形都不注册）。"""
-    assert _bare_plugin({"enabled": True, "discovery_page_enabled": False}).get_sidebar_nav() == []
-    assert _bare_plugin({"enabled": False, "discovery_page_enabled": True}).get_sidebar_nav() == []
+def test_sidebar_nav_follows_enabled_switch():
+    """1.6.21：发现页入口跟着「启用」开关走（停用不注册，启用即注册）。"""
     assert _bare_plugin({}).get_sidebar_nav() == []
+    # 老配置里残留的 discovery_page_enabled 不再影响结果
+    assert _bare_plugin({"enabled": False, "discovery_page_enabled": True}).get_sidebar_nav() == []
 
 
 def test_sidebar_nav_registers_discovery_entry_when_enabled():
-    """启用插件并打开「发现页」开关后，注册一条「发现」分区整页入口。"""
-    nav = _bare_plugin({"enabled": True, "discovery_page_enabled": True}).get_sidebar_nav()
+    """1.6.21：插件启用即注册一条「发现」分区整页入口。"""
+    nav = _bare_plugin({"enabled": True}).get_sidebar_nav()
     assert isinstance(nav, list) and len(nav) == 1
     entry = nav[0]
     assert entry["nav_key"] == "main"

@@ -39,8 +39,8 @@ MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / Jellyfin，提供：
 ## 界面
 
 Vue 联邦远程组件，暴露 `./Config`、`./Page`、`./Dashboard`、`./AppPage` 四个入口；
-`AppPage` 为「发现」分区整页入口，由后端 `get_sidebar_nav()` 按配置项
-`discovery_page_enabled` 决定是否注册。
+`AppPage` 为「发现」分区整页入口，由后端 `get_sidebar_nav()` **跟随「启用」开关**决定
+（启用即注册、停用即移除，没有独立的发现页开关）。
 
 ## 开发与发版
 

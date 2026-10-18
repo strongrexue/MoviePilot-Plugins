@@ -20,8 +20,8 @@ const props = defineProps({
 const emit = defineEmits(['save', 'close'])
 
 const form = reactive({
+  // 「发现」分区的整页入口跟随总开关：启用即注册、停用即移除（不再有独立开关）
   enabled: props.initialConfig.enabled === true,
-  discovery_page_enabled: props.initialConfig.discovery_page_enabled === true,
   selected_servers: Array.isArray(props.initialConfig.selected_servers)
     ? [...props.initialConfig.selected_servers]
     : [],
@@ -122,7 +122,6 @@ async function runAutoCover() {
 function savePayload() {
   return {
     enabled: form.enabled,
-    discovery_page_enabled: form.discovery_page_enabled,
     selected_servers: [...form.selected_servers],
     auto_cover_enabled: form.auto_cover_enabled,
     auto_cover_template: form.auto_cover_template,
@@ -189,178 +188,170 @@ onMounted(() => {
     <VDivider />
 
     <div class="ec-body">
-      <VRow dense>
-            <VCol cols="12" md="6">
-              <VCard variant="tonal" class="ec-block">
-                <VCardItem class="py-2">
-                  <VCardTitle class="text-subtitle-1">基础</VCardTitle>
-                </VCardItem>
-                <VCardText>
+      <VRow dense align="stretch">
+        <VCol cols="12" md="6">
+          <VCard variant="tonal" class="ec-block">
+            <VCardItem class="ec-block-head">
+              <VCardTitle class="text-subtitle-1">基础</VCardTitle>
+            </VCardItem>
+            <VCardText class="ec-block-body">
+              <VSwitch
+                v-model="form.auto_refresh_on_webhook"
+                color="primary"
+                hide-details
+                inset
+                class="mb-3"
+                label="自动更新入库媒体所在媒体库封面"
+              />
+              <VSwitch
+                v-model="form.notify_on_task_finish"
+                color="primary"
+                hide-details
+                inset
+                label="任务完成后发送通知（走 MP 通知渠道）"
+              />
+            </VCardText>
+          </VCard>
+        </VCol>
+        <VCol cols="12" md="6">
+          <VCard variant="tonal" class="ec-block">
+            <VCardItem class="ec-block-head">
+              <VCardTitle class="text-subtitle-1">媒体服务器</VCardTitle>
+              <template #append>
+                <VBtn size="small" variant="text" :loading="loadingServers" @click="loadServers">刷新</VBtn>
+              </template>
+            </VCardItem>
+            <VCardText class="ec-block-body">
+              <VAlert v-if="serverError" type="warning" variant="tonal" density="compact" class="mb-2">
+                {{ serverError }}
+              </VAlert>
+              <VSelect
+                v-model="form.selected_servers"
+                :items="serverItems"
+                label="参与封面的服务器"
+                chips
+                multiple
+                clearable
+                density="compact"
+                variant="outlined"
+                :disabled="!servers.length"
+              />
+              <div class="text-caption text-medium-emphasis ec-hint">
+                留空表示使用全部已启用的媒体服务器。
+              </div>
+            </VCardText>
+          </VCard>
+        </VCol>
+        <VCol cols="12">
+          <VCard variant="tonal" class="ec-block">
+            <VCardItem class="py-2">
+              <VCardTitle class="text-subtitle-1">自动封面任务</VCardTitle>
+              <VCardSubtitle class="text-caption">
+                定时 / Emby 入库时，为选中媒体库自动生成并应用封面
+              </VCardSubtitle>
+              <template #append>
+                <VBtn size="small" variant="text" prepend-icon="mdi-backup-restore" @click="showBackups = true">
+                  备份管理
+                </VBtn>
+                <VBtn
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  prepend-icon="mdi-content-save"
+                  :loading="savingNow"
+                  :disabled="props.busy"
+                  @click="saveNow"
+                >
+                  即时保存
+                </VBtn>
+                <VBtn
+                  size="small"
+                  variant="tonal"
+                  prepend-icon="mdi-play"
+                  :loading="runningCover"
+                  :disabled="!form.enabled"
+                  @click="runAutoCover"
+                >
+                  立即运行
+                </VBtn>
+              </template>
+            </VCardItem>
+            <VCardText class="ec-block-body">
+              <VAlert v-if="runMessage" :type="runOk ? 'success' : 'error'" variant="tonal" density="compact" class="mb-2">
+                {{ runMessage }}
+              </VAlert>
+              <VRow dense>
+                <VCol cols="12" md="4">
                   <VSwitch
-                    v-model="form.discovery_page_enabled"
+                    v-model="form.auto_cover_enabled"
                     color="primary"
                     hide-details
                     inset
-                    class="mb-3"
-                    label="在「发现」分区显示整页入口"
+                    class="mt-2"
+                    label="启用定时自动封面"
                   />
-                  <VSwitch
-                    v-model="form.auto_refresh_on_webhook"
-                    color="primary"
-                    hide-details
-                    inset
-                    class="mb-3"
-                    label="Emby 入库后自动刷新对应媒体库封面"
-                  />
-                  <VSwitch
-                    v-model="form.notify_on_task_finish"
-                    color="primary"
-                    hide-details
-                    inset
-                    label="任务完成后发送通知（走 MP 通知渠道）"
-                  />
-                </VCardText>
-              </VCard>
-            </VCol>
-            <VCol cols="12" md="6">
-              <VCard variant="tonal" class="ec-block">
-                <VCardItem class="py-2">
-                  <VCardTitle class="text-subtitle-1">媒体服务器</VCardTitle>
-                  <template #append>
-                    <VBtn size="small" variant="text" :loading="loadingServers" @click="loadServers">刷新</VBtn>
-                  </template>
-                </VCardItem>
-                <VCardText>
-                  <VAlert v-if="serverError" type="warning" variant="tonal" density="compact" class="mb-2">
-                    {{ serverError }}
-                  </VAlert>
+                </VCol>
+                <VCol cols="12" md="4">
                   <VSelect
-                    v-model="form.selected_servers"
-                    :items="serverItems"
-                    label="参与封面的服务器"
-                    chips
-                    multiple
-                    clearable
+                    v-model="form.auto_cover_template"
+                    :items="templateItems"
+                    label="封面方案"
                     density="compact"
                     variant="outlined"
+                    hide-details
+                  />
+                </VCol>
+                <VCol cols="12" md="4">
+                  <VSelect
+                    :model-value="scheduleChoice"
+                    :items="scheduleOptions"
+                    label="执行频率"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    @update:model-value="onScheduleChange"
+                  />
+                </VCol>
+                <VCol cols="12">
+                  <VSwitch
+                    v-model="form.auto_backup_enabled"
+                    color="primary"
+                    hide-details
+                    inset
+                    label="覆盖前自动备份原版封面（每库保留最近 3 版，可在「备份管理」恢复）"
+                  />
+                </VCol>
+                <VCol v-if="scheduleChoice === '__custom__'" cols="12" md="6">
+                  <VTextField
+                    v-model="form.cover_cron"
+                    label="Cron 表达式"
+                    placeholder="分 时 日 月 周，如 30 5 * * *"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                  />
+                </VCol>
+                <VCol cols="12">
+                  <AutoCoverLibraries
+                    v-model="form.auto_cover_libraries"
+                    :api="props.api"
+                    :plugin-id="props.pluginId"
+                    :servers="servers"
                     :disabled="!servers.length"
                   />
-                  <div class="text-caption text-medium-emphasis mt-1">
-                    留空表示使用全部已启用的媒体服务器。
+                </VCol>
+                <VCol cols="12">
+                  <div class="text-caption text-medium-emphasis">
+                    「跟随封面设计」使用封面设计页最近一次应用的布局与参数（在插件页「封面设计」里
+                    应用封面后自动保存）；执行时只处理所选媒体库与「参与封面的服务器」的交集。
+                    入库自动更新由「基础」里的开关控制，同样只更新这里勾选的媒体库。
                   </div>
-                </VCardText>
-              </VCard>
-            </VCol>
-            <VCol cols="12">
-              <VCard variant="tonal" class="ec-block">
-                <VCardItem class="py-2">
-                  <VCardTitle class="text-subtitle-1">自动封面任务</VCardTitle>
-                  <VCardSubtitle class="text-caption">
-                    定时 / Emby 入库时，为选中媒体库自动生成并应用封面
-                  </VCardSubtitle>
-                  <template #append>
-                    <VBtn size="small" variant="text" prepend-icon="mdi-backup-restore" @click="showBackups = true">
-                      备份管理
-                    </VBtn>
-                    <VBtn
-                      size="small"
-                      variant="tonal"
-                      color="primary"
-                      prepend-icon="mdi-content-save"
-                      :loading="savingNow"
-                      :disabled="props.busy"
-                      @click="saveNow"
-                    >
-                      即时保存
-                    </VBtn>
-                    <VBtn
-                      size="small"
-                      variant="tonal"
-                      prepend-icon="mdi-play"
-                      :loading="runningCover"
-                      :disabled="!form.enabled"
-                      @click="runAutoCover"
-                    >
-                      立即运行
-                    </VBtn>
-                  </template>
-                </VCardItem>
-                <VCardText>
-                  <VAlert v-if="runMessage" :type="runOk ? 'success' : 'error'" variant="tonal" density="compact" class="mb-2">
-                    {{ runMessage }}
-                  </VAlert>
-                  <VRow dense>
-                    <VCol cols="12" md="4">
-                      <VSwitch
-                        v-model="form.auto_cover_enabled"
-                        color="primary"
-                        hide-details
-                        inset
-                        class="mt-2"
-                        label="启用定时自动封面"
-                      />
-                    </VCol>
-                    <VCol cols="12" md="4">
-                      <VSelect
-                        v-model="form.auto_cover_template"
-                        :items="templateItems"
-                        label="封面方案"
-                        density="compact"
-                        variant="outlined"
-                        hide-details
-                      />
-                    </VCol>
-                    <VCol cols="12" md="4">
-                      <VSelect
-                        :model-value="scheduleChoice"
-                        :items="scheduleOptions"
-                        label="执行频率"
-                        density="compact"
-                        variant="outlined"
-                        hide-details
-                        @update:model-value="onScheduleChange"
-                      />
-                    </VCol>
-                    <VCol cols="12">
-                      <VSwitch
-                        v-model="form.auto_backup_enabled"
-                        color="primary"
-                        hide-details
-                        inset
-                        label="覆盖前自动备份原版封面（每库保留最近 3 版，可在「备份管理」恢复）"
-                      />
-                    </VCol>
-                    <VCol v-if="scheduleChoice === '__custom__'" cols="12" md="6">
-                      <VTextField
-                        v-model="form.cover_cron"
-                        label="Cron 表达式"
-                        placeholder="分 时 日 月 周，如 30 5 * * *"
-                        density="compact"
-                        variant="outlined"
-                        hide-details
-                      />
-                    </VCol>
-                    <VCol cols="12">
-                      <AutoCoverLibraries
-                        v-model="form.auto_cover_libraries"
-                        :api="props.api"
-                        :plugin-id="props.pluginId"
-                        :servers="servers"
-                        :disabled="!servers.length"
-                      />
-                    </VCol>
-                    <VCol cols="12">
-                      <div class="text-caption text-medium-emphasis">
-                        「跟随封面设计」使用封面设计页最近一次应用的布局与参数（在插件页「封面设计」里
-                        应用封面后自动保存）；执行时只处理所选媒体库与「参与封面的服务器」的交集。
-                        Emby 入库自动刷新由上方开关控制，同样只刷新这里勾选的媒体库。
-                      </div>
-                    </VCol>
-                  </VRow>
-                </VCardText>
-              </VCard>
-            </VCol>
-          </VRow>
+                </VCol>
+              </VRow>
+            </VCardText>
+          </VCard>
+        </VCol>
+      </VRow>
     </div>
 
     <VDivider />
@@ -402,8 +393,28 @@ onMounted(() => {
   overflow-y: auto;
   padding: 14px 16px 4px;
 }
+/* 同排卡片等高对齐：此前「基础」比「媒体服务器」高出一截，两卡底边错层。 */
 .ec-block {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   border-radius: 10px;
+}
+/* 标题行统一高度：右侧带「刷新」按钮时标题基线不会比左侧低半行。 */
+.ec-block-head {
+  min-height: 48px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.ec-block-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+/* 说明文字贴底，两卡等高后中间不再留一段空白。 */
+.ec-hint {
+  margin-top: auto;
+  padding-top: 8px;
 }
 @media (max-width: 760px) {
   .ec-config {
@@ -411,6 +422,9 @@ onMounted(() => {
   }
   .ec-body {
     padding: 10px 10px 4px;
+  }
+  .ec-block {
+    height: auto;
   }
 }
 </style>

@@ -554,9 +554,9 @@ onUnmounted(() => {
     <!-- 今日日历（海报墙，板块内滚动） -->
     <div v-if="viewTab === 'calendar'" class="sc-card sc-cal-card">
       <div class="sc-cal-head">
-        <div>
-          <div class="sc-dim">今天</div>
-          <div class="sc-cal-date">{{ calendar?.today || '—' }}</div>
+        <div class="sc-cal-date-row">
+          <span class="sc-dim">今天</span>
+          <span class="sc-cal-date">{{ calendar?.today || '—' }}</span>
         </div>
         <div class="sc-cal-chips">
           <button
@@ -1295,6 +1295,11 @@ onUnmounted(() => {
   gap: 14px;
   flex: 0 0 auto;
   padding-bottom: 8px;
+}
+.sc-cal-date-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 .sc-cal-date {
   font-size: 18px;

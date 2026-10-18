@@ -70,6 +70,6 @@ def test_page_has_calendar_tab_default_and_scrollable_grid():
     assert "const viewTab = ref('calendar')" in text, "日历必须是默认 tab"
     assert "sc-cal-scroll" in text, "海报墙必须在自己板块里滚动"
     assert "overflow-y: auto" in text
-    assert "grid-template-columns: repeat(5" in text, "桌面 5 列"
+    assert "repeat(auto-fill, minmax(132px" in text, "海报按列宽自适应（避免过大）"
     assert "repeat(2" in text, "手机 2 列"
     assert "viewTab === 'history'" in text, "发现流水仍可切换"

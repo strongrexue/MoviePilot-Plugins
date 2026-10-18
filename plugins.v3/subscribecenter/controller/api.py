@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 
 from app import schemas
 from app.sdk.logging import logger
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 
 from . import schemas as api_schemas
 
@@ -90,6 +90,88 @@ async def api_history(
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 查询流水失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="查询流水失败") from err
+
+
+async def api_poster(plugin, path: str = "") -> Any:
+    """代理 TMDB 海报。
+
+    ``path`` 是 TMDB 返回的 ``poster_path``（形如 ``/abc.jpg``）。
+    走插件后端抓取，浏览器只连 MoviePilot —— 否则国内网络下
+    ``image.tmdb.org`` 往往连不上，流水封面会整片空白。
+    """
+    try:
+        payload = await plugin.poster_bytes(path)
+    except Exception as err:  # noqa: BLE001
+        logger.warning(f"[SubscribeCenter] 抓取海报失败：{err}")
+        payload = None
+    if not payload:
+        raise HTTPException(status_code=404, detail="海报不存在")
+    content, content_type = payload
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+async def api_preview(plugin) -> Any:
+    """只读预览：跑完整流水线但不写入订阅，返回会订哪些。
+
+    与 `/run_once` 共用同一把互斥锁，但**不消耗每日写入额度**。
+    """
+    try:
+        result = await plugin.preview()
+        return schemas.Response(success=True, data=result)
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 预览失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="预览失败") from err
+
+
+async def api_mapping_cache(plugin) -> Any:
+    """返回映射缓存内容。"""
+    try:
+        return schemas.Response(success=True, data=plugin.mapping_cache_view())
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取映射缓存失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取映射缓存失败") from err
+
+
+async def api_mapping_fix(plugin, request: api_schemas.MappingFixRequest) -> Any:
+    """人工修正一条身份映射。"""
+    try:
+        key = request.key
+        if not key and request.title:
+            # 前端只让用户填 TMDB ID；键由后端按「归一化标题 + 年份 + 类型」生成，
+            # 与身份解析用的键完全一致，所以下一次运行必定命中。
+            from ..core.identity import normalize_title, strip_season_suffix, title_key
+
+            key = title_key(
+                normalize_title(strip_season_suffix(request.title)),
+                request.year,
+                request.media_type or "tv",
+            )
+        data = plugin.mapping_fix(
+            key=key,
+            media_source=request.media_source,
+            media_id=request.media_id,
+        )
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 修正映射失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="修正映射失败") from err
+    if not data.get("success"):
+        raise HTTPException(status_code=400, detail="媒体身份非法，未写入映射")
+    return schemas.Response(success=True, data=data)
+
+
+__all__ = [
+    "api_history",
+    "api_mapping_cache",
+    "api_preview",
+    "api_mapping_fix",
+    "api_run_once",
+    "api_status",
+    "get_api",
+]
 
 
 async def api_calendar(plugin) -> Any:

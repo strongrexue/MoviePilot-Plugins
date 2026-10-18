@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "tgmediacenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "胖虎媒体中心"
-    assert TgMediaCenter.plugin_version == "1.13.7"
+    assert TgMediaCenter.plugin_version == "1.13.8"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 
@@ -54,6 +54,9 @@ def test_default_config_shape():
     assert config["tg_user_cooldown_seconds"] == 5
     # 1.8.0：发现页入口默认关（不开的人不该凭空多一个导航项）
     assert config["discovery_page_enabled"] is False
+    # 1.13.8：跳过宿主首搜是独立开关，默认关，且与「订阅回搜」开关互不依赖
+    assert config["skip_first_search_enabled"] is False
+    assert config["cache_subscribe_enabled"] is True
 
 
 def _bare_plugin(config):

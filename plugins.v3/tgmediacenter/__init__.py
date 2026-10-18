@@ -10,6 +10,8 @@ P7 打磨已完成（运行详情与仪表盘、通知接入、限流退避收�
   ⑦ 运行详情页与仪表盘（/overview 聚合）+ 插件级共享冷却门（读写共用 FloodWait 退避）；
   ⑧ 消息交互（监听宿主用户消息事件，私聊发链接即转存 115 并回执：新转存 / 已转存过 / 失败原因）；
   ⑩ P9 重复获取治理（P9-1：宿主能力探针 + 反向开关「暂停新增订阅搜索」，默认关）。
+  ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主「首次全站搜索」，独立开关默认关
+     （在宿主入队前拦截；与「订阅回搜」开关互不依赖，见 modules/first_search_guard.py）。
 """
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,7 +45,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.7"
+    plugin_version = "1.13.8"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -116,6 +118,9 @@ class TgMediaCenter(_PluginBase):
         self._pan115 = Pan115Module(self)
         # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 转发 ∪ 缓存」，事件入口要用到它
         self._cache = CacheModule(self)
+        # ⑪ 跳过宿主「新增订阅首次全站搜索」（独立开关，默认关）：
+        # 只能在入队前拦截，详见 modules/first_search_guard.py 里的三条实测证据
+        first_search_guard.install(self)
         # 监听宿主「新增订阅」事件：新增订阅后秒级触发缓存回搜（定时检查仍作兜底）
         self._install_subscribe_listener()
         # ⑧ 监听宿主「用户消息」事件：私聊发 115 / 磁力 / ed2k 链接即转存并回执
@@ -265,6 +270,10 @@ class TgMediaCenter(_PluginBase):
             "p9_maturity_hours": 2,
             # 下载器活跃性细化：用下载历史里的 hash 查种子，区分「在途」与「死种」
             "p9_check_downloader": True,
+            # ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主的「首次全站搜索」。
+            # 与「订阅回搜」开关（cache_subscribe_enabled）**互不依赖**，独立开关便于单独验证；
+            # 默认关 = 升级后行为与 1.13.7 完全一致（详见 modules/first_search_guard.py）
+            "skip_first_search_enabled": False,
             # 一次性执行
             "onlyonce": False,
         }
@@ -486,6 +495,10 @@ class TgMediaCenter(_PluginBase):
         （``plugin_id = owner_class.__name__``）绑定运行实例；定义在普通类
         （如 CacheModule）上的绑定方法会被判定「未绑定显式 resolver」静默跳过，
         这也是 1.4.3 事件没生效的原因。
+
+        :note: 这里**只做回搜**。「跳过宿主首次全站搜索」是独立开关、独立实现
+            （``first_search_guard``，在入队前拦截），与本方法无关——事件是本方法
+            唯一的职责，避免再次把两件事耦合在一起。
         """
         cache = getattr(self, "_cache", None)
         if cache is None:
@@ -494,31 +507,6 @@ class TgMediaCenter(_PluginBase):
             cache.on_subscribe_event(event)
         except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
             logger.warning(f"[TgMediaCenter] 处理订阅事件失败：{err}")
-            return
-        # TG 回搜与宿主「首次全站搜索」会重复抓取：本插件接管时跳过宿主那次。
-        #
-        # 关键：宿主在**事件之后**才入队首搜，且入队前会检查 ``state != "N"``。
-        # 所以只要在事件里（同步）把状态推进到 R，宿主自己就不会入队 ——
-        # 不需要删队列、也不需要定时器（第一版那样做真机无效）。
-        try:
-            if cache.enabled() and cache.subscribe_enabled():
-                sid = self._subscribe_id_of(event)
-                if sid:
-                    first_search_guard.activate(sid)
-        except Exception as err:  # pragma: no cover
-            logger.debug(f"[TgMediaCenter] 跳过首次搜索失败：{err}")
-
-    @staticmethod
-    def _subscribe_id_of(event) -> int:
-        """从事件里取 subscribe_id（宿主 payload 结构可能变化，逐层兜底）。"""
-        payload = getattr(event, "event_data", None) or getattr(event, "data", None) or {}
-        if isinstance(payload, dict):
-            value = payload.get("subscribe_id")
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return 0
-        return 0
 
     def on_user_message(self, event) -> None:
         """宿主「收到用户外来消息」广播事件：消息里有链接就转存 115 并回执。
@@ -671,6 +659,8 @@ class TgMediaCenter(_PluginBase):
 
     def stop_service(self) -> None:
         """释放插件创建的后台资源。"""
+        # 先还原宿主入队方法：插件停用 / 重载后绝不留补丁在宿主进程里
+        first_search_guard.uninstall()
         monitor, self._monitor = self._monitor, None
         if monitor is not None:
             try:

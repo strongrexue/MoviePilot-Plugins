@@ -13,6 +13,10 @@ import { getPluginApi, unwrap } from '../api'
  * - **反向 R0 开关**（1.9.0 曾提供）：真机验证**否决**——暂停宿主内置的
  *   「新增订阅搜索」后，新增订阅照旧被搜索（首次搜索是 subscribe.added
  *   事件驱动，那个 5 分钟 job 只是兜底），开关无收益，1.9.1 已移除。
+ * - **反向闸门 R1**（1.13.8 提供）：换思路——不暂停宿主的定时任务，而是在宿主
+ *   「入队首次搜索」之前把订阅置为订阅中（独立开关 skip_first_search_enabled，
+ *   默认关）。R0 失败是因为拦错了位置：首次搜索并不由那个 job 发起，而是
+ *   subscribe.added 事件之后同步入队的队列任务。
  *
  * 探针保留：闸门依赖的宿主能力随版本可能漂移，这里随时能看到真实可用性。
  */
@@ -171,6 +175,32 @@ onMounted(load)
             :disabled="!config.form.p9_forward_gate_enabled"
           />
         </div>
+      </VCardText>
+    </VCard>
+
+    <!-- 反向闸门 R1（1.13.8）：新增订阅时跳过宿主的首次全站搜索 -->
+    <VCard flat class="p9-card">
+      <VCardItem>
+        <VCardTitle class="text-subtitle-2">新增订阅首搜（反向闸门 R1）</VCardTitle>
+        <VCardSubtitle class="text-caption">
+          宿主保存订阅后，会立刻把这条订阅排进一次全站搜索（约 60 秒后自动开始）。
+          本插件的「订阅回搜」已经从 TG 频道缓存里找同一部作品，两边都跑等于重复抓取。
+          打开后在**宿主入队之前**就把该订阅置为「订阅中」，这次全站搜索不再发生，
+          订阅活动里也不会留「已安排搜索」的记录；后续仍按宿主正常的订阅搜索间隔继续搜
+          （订阅自己的间隔 / 默认 24 小时），不是永久屏蔽。
+          本开关与「消息缓存 → 订阅回搜」开关**互不依赖**：回搜关掉也照样生效，反之亦然。
+          改动随底部「保存配置」生效。
+        </VCardSubtitle>
+      </VCardItem>
+      <VCardText class="pt-0">
+        <VSwitch
+          v-model="config.form.skip_first_search_enabled"
+          color="primary"
+          inset
+          hide-details
+          :disabled="!config.form.enabled"
+          label="跳过宿主新增订阅的首次全站搜索（默认关）"
+        />
       </VCardText>
     </VCard>
   </div>

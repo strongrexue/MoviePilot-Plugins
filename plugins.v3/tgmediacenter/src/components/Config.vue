@@ -28,7 +28,7 @@ const modules = [
   { key: 'monitor', title: '资源监控', icon: 'mdi-radar', desc: '监听频道、推送目标、仅缺集' },
   { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、同步与检索' },
   { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '关键词与扩展名匹配、置顶与内容转换' },
-  { key: 'p9', title: '重复获取治理', icon: 'mdi-shield-sync-outline', desc: '宿主能力探针、PT 侧的暂停开关' },
+  { key: 'p9', title: '重复获取治理', icon: 'mdi-shield-sync-outline', desc: '宿主能力探针、前向闸门、新增订阅首搜' },
 ]
 
 const activeModule = ref(modules[0].key)

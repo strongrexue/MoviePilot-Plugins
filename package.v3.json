@@ -3,7 +3,7 @@
         "name": "胖虎媒体中心",
         "description": "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。",
         "labels": "工具,媒体",
-        "version": "1.13.7",
+        "version": "1.13.8",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.8": "「跳过宿主新增订阅首搜」改用入队前拦截，并拆成独立开关（1.13.8）。1. 根因（离线仿真 + 宿主源码确认，1.13.5~1.13.7 三版失败的共同原因）：宿主广播事件是异步的——send_event 只把事件塞进优先级队列、由后台消费线程稍后分发，而 notify.py 在 send_event 之后**同步**入队首搜（真机日志：41,043 触发事件，41,051 首搜已排好），等插件处理器跑起来任务已经入队；且已入队的任务在执行时只认 state='S'（暂停）才跳过，写 R 也不拦。2. 新做法：包住宿主唯一的入队入口 SubscribeSearchOwner._SubscribeChain__queue_new_subscription_search（含异步入队 async 版），对 state='N' 的订阅直接写库置为 R 并返回 None —— 不入队、不写「已安排搜索」活动记录、不产生 60 秒后那次全站搜索；后续仍按订阅自身间隔由宿主正常搜索（不是永久屏蔽）。插件停用/重载时还原宿主方法，绝不留补丁；宿主升级后方法名漂移则整体失效并留 WARNING，不影响宿主原有行为。3. 开关独立：新增配置 skip_first_search_enabled（默认关，界面在「重复获取治理」分区新增「新增订阅首搜（反向闸门 R1）」卡片），与「订阅回搜」（cache_subscribe_enabled）互不依赖。4. 同步还原「新增订阅回搜」为它本来的功能：SubscribeAdded 事件处理器 on_subscribe_added 去掉 1.13.5 起塞进去的状态改写逻辑（连同 _subscribe_id_of 辅助方法），只负责缓存回搜，事件与首搜两件事彻底解耦。5. 测试：新增 test_first_search_guard.py（开关关闭不接管/拦截命中/未命中放行原逻辑/异步入队/还原身份/宿主缺方法时降级/重复 install 不叠壳/事件处理器不再写状态），配置键两处同步由 test_config_parity 锁住。",
             "v1.13.7": "修正跳过首次搜索：改用直接写库（1.13.7）。真机日志显示 SubscribeOper.update 会发出 subscribe.modified，宿主收到后仍会立刻搜该订阅 —— 所以 1.13.6 依然被搜。现在改为用 ScopedSession 直接 UPDATE subscribe.state='R'，不发任何事件，同时满足「宿主入队前检查 state!=N」与「不触发 modified 搜索」两个条件。",
             "v1.13.6": "修正跳过首次搜索的实现（1.13.6）：第一版用「延迟 1.5 秒删 subscription_search_task」真机无效；改为在 SubscribeAdded 事件里**同步**把订阅状态 N 改 R（SubscribeOper.update），因为宿主入队首搜发生在事件之后且会检查 state != N，改完状态宿主自己就不会入队。做法参考插件市场已有的 subscribenoautosearch。",
             "v1.13.5": "新增订阅时跳过 MoviePilot 首次全站搜索（1.13.5）：监听 SubscribeAdded 事件后，延迟 1.5 秒删除宿主刚入队的首搜任务（source=new/state=queued），并把订阅状态 N 推进到 R，避免与 TG 频道缓存回搜重复抓取；只在 TG 订阅回搜开启时生效。",

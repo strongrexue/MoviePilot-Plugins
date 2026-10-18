@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.7';
+const FRONTEND_VERSION = '1.13.8';
 
 const {resolveComponent:_resolveComponent$8,createVNode:_createVNode$8,withCtx:_withCtx$8,openBlock:_openBlock$8,createBlock:_createBlock$8} = await importShared('vue');
 
@@ -6355,6 +6355,10 @@ const {computed: computed$1,onMounted: onMounted$1,ref: ref$2} = await importSha
  * - **反向 R0 开关**（1.9.0 曾提供）：真机验证**否决**——暂停宿主内置的
  *   「新增订阅搜索」后，新增订阅照旧被搜索（首次搜索是 subscribe.added
  *   事件驱动，那个 5 分钟 job 只是兜底），开关无收益，1.9.1 已移除。
+ * - **反向闸门 R1**（1.13.8 提供）：换思路——不暂停宿主的定时任务，而是在宿主
+ *   「入队首次搜索」之前把订阅置为订阅中（独立开关 skip_first_search_enabled，
+ *   默认关）。R0 失败是因为拦错了位置：首次搜索并不由那个 job 发起，而是
+ *   subscribe.added 事件之后同步入队的队列任务。
  *
  * 探针保留：闸门依赖的宿主能力随版本可能漂移，这里随时能看到真实可用性。
  */
@@ -6443,13 +6447,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$1(() => [...(_cache[3] || (_cache[3] = [
+              default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
                 _createTextVNode$1("重复获取治理", -1)
               ]))]),
               _: 1
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$1(() => [...(_cache[4] || (_cache[4] = [
+              default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
                 _createTextVNode$1(" PT 路（MP 订阅 → 下载 → 115）与 TG 路（本插件转存 → 115）写进同一个 115 + STRM + Emby，会重复拿到同一部作品。这里只按「媒体身份」判断谁在管， 不在目录或命名上做任何约定。 ", -1)
               ]))]),
               _: 1
@@ -6497,7 +6501,7 @@ return (_ctx, _cache) => {
               loading: loading.value,
               onClick: load
             }, {
-              default: _withCtx$1(() => [...(_cache[7] || (_cache[7] = [
+              default: _withCtx$1(() => [...(_cache[8] || (_cache[8] = [
                 _createTextVNode$1("重新探测", -1)
               ]))]),
               _: 1
@@ -6505,13 +6509,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
+              default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
                 _createTextVNode$1("宿主能力探针", -1)
               ]))]),
               _: 1
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
+              default: _withCtx$1(() => [...(_cache[7] || (_cache[7] = [
                 _createTextVNode$1(" 前向闸门要用宿主的两组能力（下载历史查询、下载器种子列表），而它们本插件此前从未调用过。 先探测清楚真实导入路径与字段，再动手写判定链——探针只读，不改任何状态。 ", -1)
               ]))]),
               _: 1
@@ -6565,13 +6569,13 @@ return (_ctx, _cache) => {
         _createVNode$1(_component_VCardItem, null, {
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$1(() => [...(_cache[8] || (_cache[8] = [
+              default: _withCtx$1(() => [...(_cache[9] || (_cache[9] = [
                 _createTextVNode$1("前向闸门", -1)
               ]))]),
               _: 1
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$1(() => [...(_cache[9] || (_cache[9] = [
+              default: _withCtx$1(() => [...(_cache[10] || (_cache[10] = [
                 _createTextVNode$1(" TG 推送前依次判断「媒体库已有（仅缺失）→ 下载历史近 T 有本集记录 → 下载器有本集活跃种」， PT 路在管就拦下：有活跃种记「PT 在途」，PT 还没取到资源则等过成熟期 T 再补； 有记录但种子已死/被清则立即放行。判定与计时均按「集」粒度（片名+年份+季+集）—— PT 追更是单集发布、单集抓取，一季可持续数月，按季计时会让季末单集的成熟期早已失效。 宿主查询失败时一律放行并写 WARNING（闸门绝不静默拦截推送）。 改动随底部「保存配置」生效。 ", -1)
               ]))]),
               _: 1
@@ -6620,13 +6624,52 @@ return (_ctx, _cache) => {
         })
       ]),
       _: 1
+    }),
+    _createVNode$1(_component_VCard, {
+      flat: "",
+      class: "p9-card"
+    }, {
+      default: _withCtx$1(() => [
+        _createVNode$1(_component_VCardItem, null, {
+          default: _withCtx$1(() => [
+            _createVNode$1(_component_VCardTitle, { class: "text-subtitle-2" }, {
+              default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
+                _createTextVNode$1("新增订阅首搜（反向闸门 R1）", -1)
+              ]))]),
+              _: 1
+            }),
+            _createVNode$1(_component_VCardSubtitle, { class: "text-caption" }, {
+              default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
+                _createTextVNode$1(" 宿主保存订阅后，会立刻把这条订阅排进一次全站搜索（约 60 秒后自动开始）。 本插件的「订阅回搜」已经从 TG 频道缓存里找同一部作品，两边都跑等于重复抓取。 打开后在**宿主入队之前**就把该订阅置为「订阅中」，这次全站搜索不再发生， 订阅活动里也不会留「已安排搜索」的记录；后续仍按宿主正常的订阅搜索间隔继续搜 （订阅自己的间隔 / 默认 24 小时），不是永久屏蔽。 本开关与「消息缓存 → 订阅回搜」开关**互不依赖**：回搜关掉也照样生效，反之亦然。 改动随底部「保存配置」生效。 ", -1)
+              ]))]),
+              _: 1
+            })
+          ]),
+          _: 1
+        }),
+        _createVNode$1(_component_VCardText, { class: "pt-0" }, {
+          default: _withCtx$1(() => [
+            _createVNode$1(_component_VSwitch, {
+              modelValue: __props.config.form.skip_first_search_enabled,
+              "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((__props.config.form.skip_first_search_enabled) = $event)),
+              color: "primary",
+              inset: "",
+              "hide-details": "",
+              disabled: !__props.config.form.enabled,
+              label: "跳过宿主新增订阅的首次全站搜索（默认关）"
+            }, null, 8, ["modelValue", "disabled"])
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
     })
   ]))
 }
 }
 
 };
-const ConfigP9Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-2281b8a0"]]);
+const ConfigP9Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-14dbfdf9"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 
@@ -6686,6 +6729,9 @@ const configDefaults = {
   p9_forward_gate_enabled: false,
   p9_maturity_hours: 2,
   p9_check_downloader: true,
+  // ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主的「首次全站搜索」
+  //   独立开关，与 cache_subscribe_enabled（订阅回搜）互不依赖；默认关
+  skip_first_search_enabled: false,
 };
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，
@@ -6798,7 +6844,7 @@ const modules = [
   { key: 'monitor', title: '资源监控', icon: 'mdi-radar', desc: '监听频道、推送目标、仅缺集' },
   { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、同步与检索' },
   { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '关键词与扩展名匹配、置顶与内容转换' },
-  { key: 'p9', title: '重复获取治理', icon: 'mdi-shield-sync-outline', desc: '宿主能力探针、PT 侧的暂停开关' },
+  { key: 'p9', title: '重复获取治理', icon: 'mdi-shield-sync-outline', desc: '宿主能力探针、前向闸门、新增订阅首搜' },
 ];
 
 const activeModule = ref(modules[0].key);
@@ -7025,6 +7071,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9f3c533c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-47493581"]]);
 
 export { Config as default };

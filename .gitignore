@@ -28,3 +28,6 @@ Thumbs.db
 
 # WorkBuddy 本地工作区数据（记忆/任务等，仅本机）
 .workbuddy/
+
+# 仿真脚本的隔离配置目录（tools/verify/sim_first_search.py，运行期生成）
+.sim/

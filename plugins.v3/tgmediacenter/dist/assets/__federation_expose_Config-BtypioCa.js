@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.6';
+const FRONTEND_VERSION = '1.13.7';
 
 const {resolveComponent:_resolveComponent$8,createVNode:_createVNode$8,withCtx:_withCtx$8,openBlock:_openBlock$8,createBlock:_createBlock$8} = await importShared('vue');
 

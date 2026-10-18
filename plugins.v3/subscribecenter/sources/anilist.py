@@ -42,6 +42,8 @@ from ..core.constants import (
 from ..core.model import DiscoveredItem, is_special
 from ..core.window import get_tz, in_window, parse_date, today
 
+from app.sdk.logging import logger
+
 #: AniList GraphQL 端点（只接受 POST）
 ENDPOINT = "https://graphql.anilist.co"
 
@@ -53,6 +55,13 @@ USER_AGENT = (
 
 #: 单次请求超时（秒）
 TIMEOUT_SECONDS = 25
+
+#: 每次请求前的节流（秒）——AniList 对连续请求会限流
+_THROTTLE = 0.3
+#: 单个请求最多尝试几次
+_MAX_ATTEMPTS = 3
+#: 重试退避基数（秒），第 n 次等待 n * _BACKOFF
+_BACKOFF = 1.5
 
 #: 每页条数（AniList 上限 50）
 PAGE_SIZE = 50
@@ -190,7 +199,11 @@ class AniListSource:
 
         # 通道②：连载中（按下一集播出时间落窗口）
         for page in range(1, ONGOING_PAGES + 1):
-            data = await self._query(ONGOING_QUERY, {"page": page, "perPage": PAGE_SIZE})
+            try:
+                data = await self._query(ONGOING_QUERY, {"page": page, "perPage": PAGE_SIZE})
+            except Exception as err:  # noqa: BLE001 - 单通道失败不拖垮整体
+                logger.warning(f"[SubscribeCenter] AniList 连载通道失败：{err}")
+                break
             media = _page_media(data)
             payloads.extend(("ongoing", row) for row in media)
             if len(media) < PAGE_SIZE:
@@ -198,8 +211,12 @@ class AniListSource:
 
         # 通道③：国漫（按产地单查，只有一页 —— 热度前 50 已覆盖主流国漫）
         if include_donghua:
-            data = await self._query(DONGHUA_QUERY, {"page": 1, "perPage": PAGE_SIZE})
-            payloads.extend(("donghua", row) for row in _page_media(data))
+            try:
+                data = await self._query(DONGHUA_QUERY, {"page": 1, "perPage": PAGE_SIZE})
+            except Exception as err:  # noqa: BLE001 - 单通道失败不拖垮整体
+                logger.warning(f"[SubscribeCenter] AniList 国漫通道失败：{err}")
+            else:
+                payloads.extend(("donghua", row) for row in _page_media(data))
 
         items: List[DiscoveredItem] = []
         seen: set = set()
@@ -303,15 +320,46 @@ class AniListSource:
     # ------------------------------------------------------------------ HTTP
 
     async def _query(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
-        """执行一次 GraphQL 查询。失败必须抛 —— 静默返回空会被当成「今天没新番」。"""
+        """执行一次 GraphQL 查询（**带节流与重试**）。
+
+        失败必须抛 —— 静默返回空会被当成「今天没新番」。
+
+        真机：一轮连发 6 个请求（当季 2 页 + 下季 2 页 + 连载 + 国漫），
+        AniList 被限流时偶尔返回**空响应体**，json 解析抛
+        ``JSONDecodeError: Expecting value: line 1 column 1 (char 0)``，
+        一个请求失败就把整个源打成「失败」。这里：
+        1. 每次请求前节流 ``_THROTTLE`` 秒
+        2. 空响应 / 非 JSON / 网络错误都按**可重试**处理，最多 3 次
+        3. 3 次都失败才抛，并给出人话提示
+        """
+        await asyncio.sleep(_THROTTLE)
         body = {"query": query, "variables": variables}
-        response = await self._post(body)
-        if not isinstance(response, dict):
-            raise RuntimeError("AniList 返回非 JSON")
-        if response.get("errors"):
-            message = response["errors"][0].get("message") if response["errors"] else "未知错误"
-            raise RuntimeError(f"AniList 查询失败：{message}")
-        return response
+        last_error = ""
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                response = await self._post(body)
+            except Exception as err:  # noqa: BLE001 - 统一按可重试处理
+                last_error = f"{type(err).__name__}: {err}"
+            else:
+                if isinstance(response, dict):
+                    if response.get("errors"):
+                        errors = response["errors"] or []
+                        message = (errors[0] or {}).get("message") or "未知错误"
+                        raise RuntimeError(f"AniList 查询失败：{message}")
+                    return response
+                last_error = f"返回内容不是 JSON（{str(response)[:60]!r}）"
+
+            if attempt < _MAX_ATTEMPTS:
+                delay = _BACKOFF * attempt
+                logger.warning(
+                    f"[SubscribeCenter] AniList 第 {attempt} 次请求失败（{last_error}），"
+                    f"{delay:.1f}s 后重试"
+                )
+                await asyncio.sleep(delay)
+
+        raise RuntimeError(
+            f"AniList 连续 {_MAX_ATTEMPTS} 次请求失败（可能被限流）：{last_error}"
+        )
 
     async def _post(self, body: Dict[str, Any]) -> Any:
         """POST 到 AniList，返回解析后的 JSON。"""

@@ -337,3 +337,88 @@ def test_donghua_is_exempt_from_continuation_year_floor():
     )
     assert _continuation_floor(donghua) is None, "国漫不应有年份下限"
     assert _continuation_floor(jp) == 2026, "日番续作仍要年份下限"
+
+
+# ------------------------------------------- 限流重试（1.6.7 真机）
+
+import asyncio
+import json as jsonlib
+
+import pytest
+
+
+class _Resp:
+    def __init__(self, value):
+        self._value = value
+
+    def json(self):
+        if isinstance(self._value, Exception):
+            raise self._value
+        return self._value
+
+
+class _Client:
+    """按顺序返回预设响应，并记录调用次数。"""
+
+    def __init__(self, sequence):
+        self.sequence = list(sequence)
+        self.calls = 0
+
+    async def post(self, url, json=None):
+        self.calls += 1
+        value = self.sequence.pop(0) if self.sequence else ""
+        return _Resp(value)
+
+
+def _source_with(sequence):
+    from subscribecenter.sources.anilist import AniListSource
+
+    source = AniListSource()
+    source._client = _Client(sequence)
+    return source
+
+
+def test_query_retries_on_empty_response(monkeypatch):
+    """空响应要重试，而不是直接抛 JSONDecodeError。
+
+    真机：AniList 被限流时返回空响应体，json 解析抛
+    ``Expecting value: line 1 column 1 (char 0)``，一个请求失败整个源就红。
+    """
+    import subscribecenter.sources.anilist as mod
+
+    monkeypatch.setattr(mod, "_THROTTLE", 0)
+    monkeypatch.setattr(mod, "_BACKOFF", 0)
+
+    source = _source_with(["", {"data": {"ok": True}}])
+    result = asyncio.run(source._query("query { x }", {}))
+    assert result == {"data": {"ok": True}}
+    assert source._client.calls == 2, "第一次空响应后应重试一次"
+
+
+def test_query_gives_up_after_three_attempts(monkeypatch):
+    """连续三次失败才抛，且提示是人话（提到限流），不是 JSONDecodeError。"""
+    import subscribecenter.sources.anilist as mod
+
+    monkeypatch.setattr(mod, "_THROTTLE", 0)
+    monkeypatch.setattr(mod, "_BACKOFF", 0)
+
+    source = _source_with(["", "", ""])
+    with pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(source._query("query { x }", {}))
+    assert source._client.calls == 3
+    assert "限流" in str(excinfo.value)
+
+
+def test_query_retries_on_decode_error(monkeypatch):
+    """json 解析异常同样按可重试处理。"""
+    import json as jsonlib
+
+    import subscribecenter.sources.anilist as mod
+
+    monkeypatch.setattr(mod, "_THROTTLE", 0)
+    monkeypatch.setattr(mod, "_BACKOFF", 0)
+
+    broken = jsonlib.JSONDecodeError("Expecting value", "", 0)
+    source = _source_with([broken, {"data": {"ok": 1}}])
+    result = asyncio.run(source._query("query { x }", {}))
+    assert result == {"data": {"ok": 1}}

@@ -8,7 +8,7 @@
         </template>
         <VCardTitle class="text-subtitle-2">启用消息缓存</VCardTitle>
         <VCardSubtitle class="text-caption">
-          关心会话的新消息实时入库，历史消息按时间范围回溯补齐；新增订阅自动回搜缓存并推送缺失（随「保存配置」生效）。
+          新消息实时入库，历史按范围回溯；新订阅回搜命中后推送 115。
         </VCardSubtitle>
       </VCardItem>
     </VCard>
@@ -224,6 +224,74 @@
       </VCardText>
     </VCard>
 
+    <!-- 缓存检索 -->
+    <VCard flat class="cache-card">
+      <VCardItem>
+        <VCardTitle class="text-subtitle-2">缓存检索</VCardTitle>
+      </VCardItem>
+      <VCardText class="cache-body">
+        <div class="cache-field">
+          <div class="cache-search">
+            <VTextField
+              v-model="keyword"
+              label="片名关键词"
+              placeholder="青与碧"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="cache-search-input"
+              @keyup.enter="doSearch"
+            />
+            <VBtn variant="tonal" prepend-icon="mdi-magnify" :loading="busy === 'search'" @click="doSearch">
+              检索
+            </VBtn>
+          </div>
+          <div class="cache-summary">
+            <div class="cache-summary-line">
+              检索本地缓存（不访问 TG）：先按归一标题命中，再退回全文模糊，用来验证「订阅回搜能不能命中」。
+            </div>
+            <div class="cache-tags">
+              <span class="cache-tag">手动触发</span>
+              <span class="cache-tag">归一标题优先</span>
+              <span class="cache-tag">全文模糊兜底</span>
+              <span class="cache-tag">只读不推送</span>
+            </div>
+          </div>
+          <div class="cache-note">
+            命中只读展示缓存原文与链接数；空结果说明该片没被缓存覆盖，先到「缓存管理」跑一次回溯同步。
+          </div>
+        </div>
+
+        <VTable v-if="searchItems.length" density="compact" class="cache-table">
+          <thead>
+            <tr>
+              <th>媒体</th>
+              <th class="cache-nowrap">来源</th>
+              <th class="cache-nowrap">链接</th>
+              <th class="cache-nowrap">消息时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in searchItems" :key="`s-${item.chat_id}-${item.message_id}`">
+              <td>
+                <div>{{ searchName(item) }}</div>
+                <div class="cache-dim cache-text">{{ item.text }}</div>
+              </td>
+              <td class="cache-nowrap cache-dim">{{ chatLabel(item.chat_id) }}</td>
+              <td class="cache-nowrap">
+                <VChip v-if="(item.links || []).length" size="x-small" variant="tonal" color="success" label>
+                  {{ item.links.length }} 个
+                </VChip>
+                <span v-else class="cache-dim">无</span>
+              </td>
+              <td class="cache-nowrap cache-dim">{{ fmtTime(item.message_date) || '—' }}</td>
+            </tr>
+          </tbody>
+        </VTable>
+        <div v-else-if="searchDone" class="cache-empty">没有命中缓存记录（换关键词，或先执行一次历史回溯同步）</div>
+      </VCardText>
+    </VCard>
+
     <!-- 缓存管理 -->
     <VCard flat class="cache-card">
       <VCardItem>
@@ -297,74 +365,6 @@
             </tr>
           </tbody>
         </VTable>
-      </VCardText>
-    </VCard>
-
-    <!-- 缓存检索 -->
-    <VCard flat class="cache-card">
-      <VCardItem>
-        <VCardTitle class="text-subtitle-2">缓存检索</VCardTitle>
-      </VCardItem>
-      <VCardText class="cache-body">
-        <div class="cache-field">
-          <div class="cache-search">
-            <VTextField
-              v-model="keyword"
-              label="片名关键词"
-              placeholder="青与碧"
-              density="compact"
-              variant="outlined"
-              hide-details
-              class="cache-search-input"
-              @keyup.enter="doSearch"
-            />
-            <VBtn variant="tonal" prepend-icon="mdi-magnify" :loading="busy === 'search'" @click="doSearch">
-              检索
-            </VBtn>
-          </div>
-          <div class="cache-summary">
-            <div class="cache-summary-line">
-              检索本地缓存（不访问 TG）：先按归一标题命中，再退回全文模糊，用来验证「订阅回搜能不能命中」。
-            </div>
-            <div class="cache-tags">
-              <span class="cache-tag">手动触发</span>
-              <span class="cache-tag">归一标题优先</span>
-              <span class="cache-tag">全文模糊兜底</span>
-              <span class="cache-tag">只读不推送</span>
-            </div>
-          </div>
-          <div class="cache-note">
-            命中只读展示缓存原文与链接数；空结果说明该片没被缓存覆盖，先到「缓存管理」跑一次回溯同步。
-          </div>
-        </div>
-
-        <VTable v-if="searchItems.length" density="compact" class="cache-table">
-          <thead>
-            <tr>
-              <th>媒体</th>
-              <th class="cache-nowrap">来源</th>
-              <th class="cache-nowrap">链接</th>
-              <th class="cache-nowrap">消息时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in searchItems" :key="`s-${item.chat_id}-${item.message_id}`">
-              <td>
-                <div>{{ searchName(item) }}</div>
-                <div class="cache-dim cache-text">{{ item.text }}</div>
-              </td>
-              <td class="cache-nowrap cache-dim">{{ chatLabel(item.chat_id) }}</td>
-              <td class="cache-nowrap">
-                <VChip v-if="(item.links || []).length" size="x-small" variant="tonal" color="success" label>
-                  {{ item.links.length }} 个
-                </VChip>
-                <span v-else class="cache-dim">无</span>
-              </td>
-              <td class="cache-nowrap cache-dim">{{ fmtTime(item.message_date) || '—' }}</td>
-            </tr>
-          </tbody>
-        </VTable>
-        <div v-else-if="searchDone" class="cache-empty">没有命中缓存记录（换关键词，或先执行一次历史回溯同步）</div>
       </VCardText>
     </VCard>
 
@@ -482,16 +482,6 @@
         </div>
         <!-- 存量补扫开关 + 两个触发按钮 + 存量补扫 cron 同一行：开关在最左（gap 8px），cron 在按钮右侧 -->
         <div class="cache-backfill-actions">
-          <VSwitch
-            v-model="settings.backfill_enabled"
-            label="存量补扫"
-            color="primary"
-            density="compact"
-            hide-details
-            inset
-            class="cache-switch-inline"
-            @update:model-value="syncSettingsToForm"
-          />
           <VBtn
             variant="tonal"
             prepend-icon="mdi-refresh-circle"
@@ -510,6 +500,16 @@
           >
             全量补扫一次
           </VBtn>
+          <VSwitch
+            v-model="settings.backfill_enabled"
+            label="存量补扫"
+            color="primary"
+            density="compact"
+            hide-details
+            inset
+            class="cache-switch-inline"
+            @update:model-value="syncSettingsToForm"
+          />
           <VTextField
             v-model="settings.backfill_cron"
             label="存量补扫定时（cron）"

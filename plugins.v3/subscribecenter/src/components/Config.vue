@@ -40,6 +40,8 @@ const status = ref(null)
 const tip = ref({ show: false, ok: true, text: '' })
 const previewItems = ref([])
 const doubanTab = ref('basic')
+/** 豆瓣榜单里展开的那一条（-1 = 全部收起）。 */
+const openList = ref(-1)
 const activeSection = ref('overview')
 
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
@@ -675,7 +677,6 @@ onMounted(() => {
           </template>
 
           <template v-if="doubanTab === 'routes'">
-            <summary>高级选项：豆瓣 RSS 路线（逐条自定义地址与阈值）</summary>
             <div class="sc-card">
             <div class="sc-card-title">豆瓣 RSS 路线</div>
             <VTextField
@@ -699,76 +700,93 @@ onMounted(() => {
             </VBtn>
             </div>
             <div
-            v-for="(entry, index) in doubanLists"
-            :key="index"
-            class="sc-list-item"
-            :class="{ 'sc-list-off': !entry.enabled }"
+              v-for="(entry, index) in doubanLists"
+              :key="index"
+              class="sc-db-item"
+              :class="{ 'sc-db-off': !entry.enabled }"
             >
-            <div class="sc-list-row">
-            <VSwitch
-            v-model="entry.enabled"
-            density="compact"
-            hide-details
-            color="primary"
-            class="sc-list-switch"
-            />
-            <VTextField
-            v-model="entry.name"
-            density="compact"
-            hide-details
-            variant="outlined"
-            placeholder="榜单名称"
-            style="max-width: 160px"
-            />
-            <VTextField
-            v-model="entry.url"
-            density="compact"
-            hide-details
-            variant="outlined"
-            placeholder="/douban/movie/coming 或完整 URL"
-            class="sc-list-url"
-            />
-            <VBtn
-            size="x-small"
-            variant="text"
-            color="error"
-            icon="mdi-delete-outline"
-            @click="removeDoubanList(index)"
-            />
+              <div class="sc-db-head" @click="openList = openList === index ? -1 : index">
+                <VIcon
+                  :icon="openList === index ? 'mdi-chevron-down' : 'mdi-chevron-right'"
+                  size="18"
+                  class="sc-db-chevron"
+                />
+                <input type="checkbox" v-model="entry.enabled" @click.stop />
+                <span class="sc-db-name">{{ entry.name || '未命名榜单' }}</span>
+                <span v-if="!entry.enabled" class="sc-db-tag">未启用</span>
+                <span class="sc-db-spacer" />
+                <span class="sc-db-sum">
+                  数量 {{ entry.max_items || '全局' }} · 窗口 {{ entry.future_days || '全局' }} 天
+                  · 想看 {{ entry.min_want || '不限' }}
+                </span>
+                <VBtn
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  icon="mdi-delete-outline"
+                  @click.stop="removeDoubanList(index)"
+                />
+              </div>
+              <div v-if="openList === index" class="sc-db-body">
+                <VTextField
+                  v-model="entry.url"
+                  label="RSSHub 路由或完整 URL"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  placeholder="/douban/movie/coming"
+                  class="mb-2"
+                />
+                <VRow dense>
+                  <VCol cols="6" sm="3">
+                    <VTextField
+                      v-model="entry.name"
+                      label="名称"
+                      density="compact"
+                      hide-details
+                      variant="outlined"
+                    />
+                  </VCol>
+                  <VCol cols="6" sm="3">
+                    <VTextField
+                      v-model.number="entry.max_items"
+                      label="每榜条数"
+                      type="number"
+                      min="1"
+                      max="200"
+                      density="compact"
+                      hide-details
+                      variant="outlined"
+                    />
+                  </VCol>
+                  <VCol cols="6" sm="3">
+                    <VTextField
+                      v-model.number="entry.future_days"
+                      label="窗口天数（0=全局）"
+                      type="number"
+                      min="0"
+                      max="120"
+                      density="compact"
+                      hide-details
+                      variant="outlined"
+                    />
+                  </VCol>
+                  <VCol cols="6" sm="3">
+                    <VTextField
+                      v-model.number="entry.min_want"
+                      label="最低想看（0=不限）"
+                      type="number"
+                      min="0"
+                      step="100"
+                      density="compact"
+                      hide-details
+                      variant="outlined"
+                    />
+                  </VCol>
+                </VRow>
+              </div>
             </div>
-            <div class="sc-list-row sc-list-params">
-            <VTextField
-            v-model.number="entry.max_items"
-            label="每榜条数（0=沿用全局）"
-            type="number"
-            min="1"
-            max="200"
-            density="compact"
-            hide-details
-            variant="outlined"
-            />
-            <VTextField
-            v-model.number="entry.future_days"
-            label="窗口天数（0=沿用全局）"
-            type="number"
-            min="0"
-            max="120"
-            density="compact"
-            hide-details
-            variant="outlined"
-            />
-            <VTextField
-            v-model.number="entry.min_want"
-            label="最低想看（0=不限）"
-            type="number"
-            min="0"
-            step="100"
-            density="compact"
-            hide-details
-            variant="outlined"
-            />
-            </div>
-            </div>
+
             <div class="sc-hint mt-2">
             <b>电影上映类</b>（<code>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br />
             <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
@@ -776,7 +794,8 @@ onMounted(() => {
             <b>电影榜单类</b>没有日期，会被跳过。<code>ustop250</code> 与
             <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
             </div>
-            </div>          </template>
+            </div>
+          </template>
         </template>
 
         <!-- 窗口与阈值 -->
@@ -1704,5 +1723,48 @@ code {
   border-radius: 4px;
   background: rgba(var(--v-theme-on-surface), 0.08);
   font-size: 11.5px;
+}
+
+/* 豆瓣榜单（对齐豆瓣中心的行式布局） */
+.sc-db-item {
+  border: 1px solid rgba(var(--v-border-color), 0.25);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.sc-db-off {
+  opacity: 0.6;
+}
+.sc-db-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.sc-db-chevron {
+  color: rgb(var(--v-theme-primary));
+}
+.sc-db-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sc-db-tag {
+  font-size: 11px;
+  opacity: 0.7;
+  border: 1px solid rgba(var(--v-border-color), 0.4);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.sc-db-spacer {
+  flex: 1;
+}
+.sc-db-sum {
+  font-size: 11.5px;
+  opacity: 0.75;
+}
+.sc-db-body {
+  padding: 8px 10px 10px;
+  border-top: 1px dashed rgba(var(--v-border-color), 0.25);
 }
 </style>

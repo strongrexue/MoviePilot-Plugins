@@ -5,7 +5,7 @@
  * 展示运行状态、各数据源情况、最近流水，并提供「立即运行一次」。
  * 与仪表盘共用 /status 与 /history 接口。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { FRONTEND_VERSION } from './version'
 import { getPluginApi, postPluginApi, unwrap } from './api'
 
@@ -42,6 +42,12 @@ async function loadCalendar() {
   } catch (error) {
     calendar.value = { month: '', days: {}, total: 0, per_day_limit: 5 }
     setTip(error?.message || '读取日历失败', false)
+    // 默认定位到今天（图 4 那种「一进来就看到今天」的体验）
+    await nextTick()
+    const today = document?.getElementById?.('sc-cal-today')
+    if (today && typeof today.scrollIntoView === 'function') {
+      today.scrollIntoView({ block: 'center' })
+    }
   } finally {
     calendarLoading.value = false
   }
@@ -663,6 +669,7 @@ onUnmounted(() => {
           <div
             v-for="cell in week"
             :key="cell.key"
+            :id="cell.date === todayText ? 'sc-cal-today' : undefined"
             class="sc-cal-day"
             :class="{ 'sc-cal-day-empty': cell.empty, 'sc-cal-day-today': cell.date === todayText }"
           >

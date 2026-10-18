@@ -98,10 +98,20 @@ def build_today(
         hit = bool(air_eps) or _text(getattr(row, "date", "")).startswith(today)
         if not hit:
             continue
-        item = _row_to_item(row, KIND_PENDING, today)
+        # 入库状态按「集号 vs 已入库集数」判断（与 MoviePilot 日历一致）：
+        # libraryEpisode = 总集数 - 缺集；当天要播的集号都 <= 它才算已入库。
+        # 之前按「日期是否等于 last_update」判断，导致只有今天/昨天显示已入库。
+        downloaded = _int(getattr(row, "total_episode", 0)) - _int(
+            getattr(row, "lack_episode", 0)
+        )
+        done = bool(air_eps) and downloaded > 0 and max(air_eps) <= downloaded
+        item = _row_to_item(row, KIND_UPDATED if done else KIND_PENDING, today)
         if air_eps:
             item["episodes"] = sorted(air_eps)
-        pending.append(item)
+        if done:
+            updated.append(item)
+        else:
+            pending.append(item)
 
     updated.sort(key=lambda item: item["name"])
     pending.sort(key=lambda item: item["name"])

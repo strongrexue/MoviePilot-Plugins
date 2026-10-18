@@ -88,6 +88,7 @@ def test_other_dates_supported():
 
 def test_air_index_enables_history_and_future():
     """播出索引：即使 date/last_update 都不是这天，当天有集也要出现。"""
+    # total=12 / lack=4 → 已入库 8 集；所以集号 5、6 都算「已入库」（与 MP 日历同口径）
     rows = [_row(id=1, name="每天播", media_id="123", season=1, last_update="", date="")]
     index = {("123", 1): [("2026-09-01", 5), ("2026-10-20", 6)]}
     past = cal.build_today(rows, "2026-09-01", index)
@@ -95,10 +96,21 @@ def test_air_index_enables_history_and_future():
     assert [item["name"] for item in past] == ["每天播"]
     assert past[0]["episodes"] == [5]
     assert future[0]["episodes"] == [6]
-    assert future[0]["kind"] == cal.KIND_PENDING
+    # 集号 <= 已入库集数 → 已入库（MP 也是按集号判断，不按日期）
+    assert future[0]["kind"] == cal.KIND_UPDATED
 
 
 def test_air_index_does_not_leak_other_dates():
     rows = [_row(id=1, name="X", media_id="9", season=2)]
     index = {("9", 2): [("2026-10-19", 1)]}
     assert cal.build_today(rows, "2026-10-18", index) == []
+
+
+def test_library_state_uses_episode_number():
+    """集号超过已入库集数 → 未入库；否则已入库（不看日期）。"""
+    rows = [_row(id=1, name="连载", media_id="77", season=1, total_episode=20, lack_episode=15)]
+    index = {("77", 1): [("2026-10-01", 3), ("2026-10-02", 12)]}
+    early = cal.build_today(rows, "2026-10-01", index)[0]
+    late = cal.build_today(rows, "2026-10-02", index)[0]
+    assert early["kind"] == cal.KIND_UPDATED, "第 3 集 <= 已入库 5 集"
+    assert late["kind"] == cal.KIND_PENDING, "第 12 集 > 已入库 5 集"

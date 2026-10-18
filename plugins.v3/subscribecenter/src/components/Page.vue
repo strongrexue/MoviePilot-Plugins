@@ -121,8 +121,10 @@ const calMonthTitle = computed(() => {
   return `${year}年${Number(month)}月`
 })
 
-/** 今天的 YYYY-MM-DD。 */
-const todayText = computed(() => new Date().toISOString().slice(0, 10))
+/** 今天的 YYYY-MM-DD：优先用服务器返回的（避免浏览器 UTC 偏一天）。 */
+const todayText = computed(
+  () => calendar.value?.today || status.value?.today || new Date().toISOString().slice(0, 10),
+)
 
 /** 月历格子：周一开头，补齐前后空白。 */
 const calWeeks = computed(() => {
@@ -148,14 +150,6 @@ const calWeeks = computed(() => {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
   return weeks
 })
-
-/** 点月历某一天：切到「今天」视图并加载那一天。 */
-function openDay(cell) {
-  if (!cell || cell.empty) return
-  todayDate.value = cell.date
-  calMode.value = 'today'
-  loadToday()
-}
 
 /** 切到本月。 */
 function goThisMonth() {
@@ -810,9 +804,7 @@ onUnmounted(() => {
             :class="{
               'sc-cal-day-empty': cell.empty,
               'sc-cal-day-today': cell.date === todayText,
-              'sc-cal-day-clickable': !cell.empty,
             }"
-            @click="openDay(cell)"
           >
             <template v-if="!cell.empty">
               <div class="sc-cal-daynum">{{ cell.day }}</div>
@@ -1557,6 +1549,7 @@ onUnmounted(() => {
 }
 .sc-cal-day {
   min-height: 92px;
+  height: fit-content;
   border: 1px solid rgba(var(--v-border-color), 0.18);
   border-radius: 8px;
   padding: 4px 4px 6px;
@@ -1568,12 +1561,6 @@ onUnmounted(() => {
 .sc-cal-day-empty {
   border: none;
   background: transparent;
-}
-.sc-cal-day-clickable {
-  cursor: pointer;
-}
-.sc-cal-day-clickable:hover {
-  border-color: rgb(var(--v-theme-primary));
 }
 .sc-cal-day-today {
   border-color: rgb(var(--v-theme-primary));

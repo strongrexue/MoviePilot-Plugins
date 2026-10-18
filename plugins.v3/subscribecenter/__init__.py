@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.11.6"
+    plugin_version = "1.11.7"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -442,7 +442,9 @@ class SubscribeCenter(_PluginBase):
             season = int(getattr(row, "season", 0) or 0)
             if not media_id.isdigit() or season <= 0:
                 continue
-            key = (media_id, season)
+            # 有剧集组时按组取（MoviePilot 日历也是带 episode_group 请求的）
+            group = str(getattr(row, "episode_group", "") or "").strip()
+            key = (media_id, f"g:{group}" if group else season)
             if key in cache and now - cache[key][0] < ttl:
                 continue
             targets.append(key)
@@ -450,20 +452,35 @@ class SubscribeCenter(_PluginBase):
         semaphore = asyncio.Semaphore(6)
 
         async def fetch(key: tuple) -> None:
-            media_id, season = key
+            media_id, season_key = key
+            episodes: List[tuple] = []
             async with semaphore:
                 try:
-                    detail = await asyncio.to_thread(
-                        tmdb.get_tv_season_detail, int(media_id), season
-                    )
+                    if isinstance(season_key, str) and season_key.startswith("g:"):
+                        seasons = await asyncio.to_thread(
+                            tmdb.get_tv_group_seasons, season_key[2:]
+                        )
+                        for season in seasons or []:
+                            episodes.extend(
+                                (
+                                    str(ep.get("air_date") or "")[:10],
+                                    int(ep.get("episode_number") or 0),
+                                )
+                                for ep in season.get("episodes", [])
+                                if ep.get("air_date")
+                            )
+                    else:
+                        detail = await asyncio.to_thread(
+                            tmdb.get_tv_season_detail, int(media_id), int(season_key)
+                        )
+                        episodes = [
+                            (str(ep.get("air_date") or "")[:10], int(ep.get("episode_number") or 0))
+                            for ep in (detail or {}).get("episodes", [])
+                            if ep.get("air_date")
+                        ]
                 except Exception as err:  # noqa: BLE001 - 单部失败不影响整体
                     logger.debug(f"[SubscribeCenter] 日历取季失败 {key}：{err}")
                     return
-            episodes = [
-                (str(ep.get("air_date") or "")[:10], int(ep.get("episode_number") or 0))
-                for ep in (detail or {}).get("episodes", [])
-                if ep.get("air_date")
-            ]
             cache[key] = (now, episodes)
 
         if targets:
@@ -471,9 +488,13 @@ class SubscribeCenter(_PluginBase):
 
         index: Dict[Any, List[Any]] = {}
         for row in rows:
-            key = (str(getattr(row, "media_id", "") or ""), int(getattr(row, "season", 0) or 0))
+            media_id = str(getattr(row, "media_id", "") or "")
+            group = str(getattr(row, "episode_group", "") or "").strip()
+            key = (media_id, f"g:{group}" if group else int(getattr(row, "season", 0) or 0))
+            # build_today 用 (media_id, season) 查索引：这里统一按 season 再登记一份
+            legacy_key = (media_id, int(getattr(row, "season", 0) or 0))
             if key in cache:
-                index[key] = cache[key][1]
+                index[legacy_key] = cache[key][1]
         return index
 
     async def api_calendar_day(self, date: str = "") -> Any:

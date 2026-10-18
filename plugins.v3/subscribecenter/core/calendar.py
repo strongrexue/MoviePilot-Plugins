@@ -154,8 +154,12 @@ def build_month(
             days[day] = items
     # 不截断：以前截到 20 条会让「+N」永远显示 +15，和 MP 的真实折叠数对不上。
     # 一个月几百条对 JSON 来说没问题（实测 <1MB）。
+    from datetime import date as _date
+
     return {
         "month": month,
+        # 服务器本地「今天」：前端用它高亮，避免用浏览器 UTC 日期算偏一天
+        "today": _date.today().isoformat(),
         "days": days,
         "total": sum(len(items) for items in days.values()),
         "per_day_limit": 5,

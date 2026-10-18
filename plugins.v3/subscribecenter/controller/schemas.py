@@ -128,6 +128,7 @@ class CalendarMonth(BaseModel):
     """整月日历（复刻 MoviePilot 日历页）。"""
 
     month: str = Field(description="月份 YYYY-MM")
+    today: str = Field(default="", description="服务器本地今天（前端高亮用）")
     total: int = Field(default=0, description="本月条目总数")
     per_day_limit: int = Field(default=5, description="每格默认展示条数")
     days: Dict[str, List[CalendarItem]] = Field(

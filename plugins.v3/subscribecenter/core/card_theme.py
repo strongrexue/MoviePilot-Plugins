@@ -22,8 +22,9 @@ DEFAULT_COLORS: Dict[str, str] = {
     "paused": "#9CA3AF",
 }
 
-#: 洗版外框颜色（可选的额外标记，默认不开启）
-BEST_VERSION_COLOR = "#A855F7"
+#: 外圈描边宽度 / 与卡片的间距（px）
+_OUTLINE_WIDTH = 4
+_OUTLINE_OFFSET = 1
 
 #: 合法的 #RRGGBB
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -48,17 +49,20 @@ def _rgba(hex_color: str, alpha: float) -> str:
 
 
 def _rules(selector: str, color: str) -> list:
-    """方案 3（安全版）：加粗描边 + 左侧强调条 + 卡片底色。
+    """状态配色：**外圈描边**（4px）+ 卡片底色 + 左侧强调条。
 
     .. important::
-       这里**不用** ``::after`` 覆盖层 —— 覆盖层会盖在卡片内容之上，
-       一旦被宿主自身的伪元素规则干扰，就可能出现「整张卡看不见」的错觉。
-       只用 box-shadow 画描边 + 背景色，绝不遮挡任何内容。
+       ``outline`` 画在盒子外侧、**不参与布局**，所以不会挤动网格；
+       用正 offset 让描边离卡片有一点缝，视觉上像给卡片套了一圈彩色外框
+       （和宿主洗版标记的观感一致）。
+       不用 ``::after`` 覆盖层 —— 那会盖在内容之上。
     """
     return [
         f"{selector}{{",
-        f"  box-shadow:inset 0 0 0 3px {color}, inset 7px 0 0 0 {color} !important;",
-        f"  background-color:{_rgba(color, 0.12)} !important;",
+        f"  outline:{_OUTLINE_WIDTH}px solid {color} !important;",
+        f"  outline-offset:{_OUTLINE_OFFSET}px !important;",
+        f"  background-color:{_rgba(color, 0.14)} !important;",
+        f"  box-shadow:inset 6px 0 0 0 {color} !important;",
         "}",
     ]
 
@@ -71,7 +75,7 @@ def build_block(colors: Dict[str, str]) -> str:
     """
     lines = [
         BLOCK_BEGIN,
-        "/* 方案 3：3px 描边 + 左侧 7px 强调条 + 卡片底色（不覆盖内容） */",
+        "/* 状态配色：外圈 4px 描边 + 卡片底色 + 左侧强调条 */",
     ]
     lines += _rules(".subscribe-card", colors["subscribing"])
     lines += _rules(".subscribe-card.subscribe-card-pending-tint", colors["pending"])

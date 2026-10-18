@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.12.0"
+    plugin_version = "1.12.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -431,11 +431,12 @@ class SubscribeCenter(_PluginBase):
         now = time.time()
 
         try:
-            from app.chain.tmdb import TmdbChain
+            from app.modules.themoviedb.tmdbapi import TmdbApi
 
-            _ = TmdbChain
+            tmdb = TmdbApi()
         except Exception as err:  # noqa: BLE001 - 宿主缺 TMDB 时退化为只看订阅字段
             logger.debug(f"[SubscribeCenter] 日历取不到 TMDB：{err}")
+            return {}
             return {}
 
         targets: List[tuple] = []
@@ -465,17 +466,13 @@ class SubscribeCenter(_PluginBase):
             media_id, season_key, media_source = target
             key = (media_id, season_key)
             if season_key == calendar_core.MOVIE_KEY:
-                # 和 MP 前端一致：电影走「识别媒体」拿 release_date
                 try:
-                    from app.chain.media import MediaChain
-                    from app.schemas.types import MediaInfo, MediaType
+                    from app.schemas.types import MediaType
 
-                    media = await MediaChain().async_recognize_media(
-                        MediaInfo(
-                            media_source=media_source, media_id=media_id, type=MediaType.MOVIE
-                        )
+                    info = await asyncio.to_thread(
+                        tmdb.get_info, MediaType.MOVIE, int(media_id)
                     )
-                    release = str(getattr(media, "release_date", "") or "")[:10]
+                    release = str((info or {}).get("release_date") or "")[:10]
                     cache[key] = (now, [(release, 0)] if release else [])
                 except Exception as err:  # noqa: BLE001
                     logger.debug(f"[SubscribeCenter] 日历取电影失败 {key}：{err}")
@@ -483,27 +480,26 @@ class SubscribeCenter(_PluginBase):
             episodes: List[tuple] = []
             async with semaphore:
                 try:
-                    from app.chain.tmdb import TmdbChain
-
-                    chain = TmdbChain()
                     if isinstance(season_key, str) and season_key.startswith("g:"):
-                        # 剧集组：宿主没有直接暴露「组→所有集」的链方法，
-                        # 按组内各季逐个取（与 MP 前端 episode_group 参数等价）
-                        episodes = []
-                        group_eps = await chain.async_tmdb_episodes(
-                            tmdbid=int(media_id), season=0, episode_group=season_key[2:]
+                        seasons = await asyncio.to_thread(
+                            tmdb.get_tv_group_seasons, season_key[2:]
                         )
-                        for ep in group_eps or []:
-                            air = str(ep.get("air_date") or "")[:10]
-                            if air:
-                                episodes.append((air, int(ep.get("episode_number") or 0)))
+                        for season in seasons or []:
+                            episodes.extend(
+                                (
+                                    str(ep.get("air_date") or "")[:10],
+                                    int(ep.get("episode_number") or 0),
+                                )
+                                for ep in season.get("episodes", [])
+                                if ep.get("air_date")
+                            )
                     else:
-                        rows_eps = await chain.async_tmdb_episodes(
-                            tmdbid=int(media_id), season=int(season_key)
+                        detail = await asyncio.to_thread(
+                            tmdb.get_tv_season_detail, int(media_id), int(season_key)
                         )
                         episodes = [
                             (str(ep.get("air_date") or "")[:10], int(ep.get("episode_number") or 0))
-                            for ep in rows_eps or []
+                            for ep in (detail or {}).get("episodes", [])
                             if ep.get("air_date")
                         ]
                 except Exception as err:  # noqa: BLE001 - 单部失败不影响整体

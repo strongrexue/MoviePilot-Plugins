@@ -69,3 +69,18 @@ def test_sorted_by_name_within_kind():
     ]
     items = cal.build_today(rows, TODAY)
     assert [item["name"] for item in items] == ["A 剧", "B 剧", "0 待播"]
+
+
+def test_other_dates_supported():
+    """任意日期都能查：历史看 last_update，未来看 date。"""
+    rows = [
+        _row(id=1, name="历史", last_update="2026-09-30 21:00:00"),
+        _row(id=2, name="未来", date="2026-10-05 21:00:00"),
+    ]
+    past = cal.build_today(rows, "2026-09-30")
+    future = cal.build_today(rows, "2026-10-05")
+    assert [item["name"] for item in past] == ["历史"]
+    assert past[0]["kind"] == cal.KIND_UPDATED
+    assert [item["name"] for item in future] == ["未来"]
+    assert future[0]["kind"] == cal.KIND_PENDING
+    assert future[0]["today"] == "2026-10-05"

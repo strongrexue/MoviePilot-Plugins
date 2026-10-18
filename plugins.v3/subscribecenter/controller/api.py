@@ -174,10 +174,10 @@ __all__ = [
 ]
 
 
-async def api_calendar(plugin) -> Any:
-    """今日日历：今天已入库 / 今天待播的订阅。"""
+async def api_calendar(plugin, date: str = "") -> Any:
+    """日历：某天已入库 / 待播的订阅（date 为空=今天）。"""
     try:
-        data = await plugin.calendar_today()
+        data = await plugin.calendar_today(date_text=date)
         return schemas.Response(success=True, data=api_schemas.CalendarView(**data))
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 读取今日日历失败：{err}", exc_info=True)

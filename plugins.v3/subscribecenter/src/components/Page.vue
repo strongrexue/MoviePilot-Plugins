@@ -23,7 +23,10 @@ const tip = ref({ show: false, ok: true, text: '' })
 const status = ref(null)
 /** 详情页视图：日历（默认）/ 发现流水。 */
 const viewTab = ref('calendar')
-/** 今日日历数据（来自 GET /calendar）。 */
+/** 所选日期（默认今天，可查历史/未来）。 */
+const calDate = ref('')
+
+/** 日历数据（来自 GET /calendar?date=）。 */
 const calendar = ref(null)
 const calendarLoading = ref(false)
 
@@ -31,12 +34,22 @@ const calendarLoading = ref(false)
 async function loadCalendar() {
   calendarLoading.value = true
   try {
-    calendar.value = unwrap(await getPluginApi(props.api, props.pluginId, 'calendar'))
+    const query = calDate.value ? `calendar?date=${calDate.value}` : 'calendar'
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, query))
+    calendar.value = data
+    // 后端会回填真实日期（空参数时等于今天）
+    calDate.value = data?.today || calDate.value
   } catch (error) {
     calendar.value = { today: '', total: 0, updated: 0, pending: 0, items: [] }
   } finally {
     calendarLoading.value = false
   }
+}
+
+/** 回到今天。 */
+function goToday() {
+  calDate.value = ''
+  loadCalendar()
 }
 
 /** 日历筛选：全部 / 今日已入库 / 待入库 / 洗版。 */
@@ -548,15 +561,23 @@ onUnmounted(() => {
         <VIcon icon="mdi-history" size="16" />
         发现流水
       </button>
-      <span class="sc-dim sc-maintabs-hint">日历只显示今天 · 与 MoviePilot 日历同源</span>
+      <span class="sc-dim sc-maintabs-hint">可选日期 · 默认今天 · 与 MoviePilot 日历同源</span>
     </div>
 
     <!-- 今日日历（海报墙，板块内滚动） -->
     <div v-if="viewTab === 'calendar'" class="sc-card sc-cal-card">
       <div class="sc-cal-head">
         <div class="sc-cal-date-row">
-          <span class="sc-dim">今天</span>
-          <span class="sc-cal-date">{{ calendar?.today || '—' }}</span>
+          <span class="sc-dim">日期</span>
+          <input
+            v-model="calDate"
+            type="date"
+            class="sc-cal-date-input"
+            @change="loadCalendar()"
+          />
+          <VBtn v-if="calendar?.today !== status?.today" size="x-small" variant="text" @click="goToday">
+            今天
+          </VBtn>
         </div>
         <div class="sc-cal-chips">
           <button
@@ -597,9 +618,9 @@ onUnmounted(() => {
 
       <div v-if="!calendarItems.length" class="sc-cal-empty">
         <VIcon icon="mdi-calendar-blank-outline" size="34" />
-        <div>{{ calFilter ? '当前筛选下没有条目' : '今天没有需要处理的更新' }}</div>
+        <div>{{ calFilter ? '当前筛选下没有条目' : '这一天没有需要处理的更新' }}</div>
         <div class="sc-dim">
-          {{ calFilter ? '点上方「全部」看今天的全部条目' : '订阅有新的播出/入库后会出现在这里' }}
+          {{ calFilter ? '点上方「全部」看这一天的全部条目' : '换一个日期看看，或等订阅有新的播出/入库' }}
         </div>
       </div>
 
@@ -1439,5 +1460,19 @@ onUnmounted(() => {
   .sc-maintabs-hint {
     display: none;
   }
+}
+
+.sc-cal-date-input {
+  background: transparent;
+  border: 1px solid rgba(var(--v-border-color), 0.35);
+  border-radius: 8px;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 3px 8px;
+  color-scheme: dark;
+}
+.sc-cal-date-input:focus {
+  outline: 2px solid rgb(var(--v-theme-primary));
 }
 </style>

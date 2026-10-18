@@ -115,7 +115,7 @@ class CalendarItem(BaseModel):
 class CalendarView(BaseModel):
     """今日日历视图。"""
 
-    today: str = Field(description="今天的日期")
+    today: str = Field(description="所选日期（YYYY-MM-DD）")
     total: int = Field(default=0)
     updated: int = Field(default=0, description="今日已入库")
     pending: int = Field(default=0, description="今日待播")

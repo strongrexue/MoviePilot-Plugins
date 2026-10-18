@@ -690,3 +690,27 @@ def test_api_card_theme_calls_through():
         api_module.api_card_theme_save(_Fake(), api_schemas.CardThemeRequest(reset=True))
     )
     assert reset.success is True
+
+
+def test_post_endpoints_use_concrete_body_model(plugin_cls):
+    """带请求体的 POST 端点必须用**具体模型**标注 request。
+
+    真机：`api_card_theme_save(self, request: Any)` 让 FastAPI 把 request
+    当成查询参数，前端一保存就 422「请求参数不正确」。
+    """
+    import inspect
+    from typing import Any  # noqa: F401 - 仅用于比较注解
+
+    instance = plugin_cls()
+    for name in ("api_card_theme_save", "api_mapping_fix"):
+        func = getattr(instance, name)
+        params = inspect.signature(func).parameters
+        assert "request" in params, name
+        annotation = params["request"].annotation
+        assert annotation is not Any, f"{name} 的 request 不能用 Any 标注"
+        assert isinstance(annotation, type) and hasattr(annotation, "model_fields"), (
+            f"{name} 的 request 必须是 pydantic 模型"
+        )
+    from subscribecenter.controller import schemas as api_schemas
+
+    assert hasattr(api_schemas.CardThemeRequest, "model_fields")

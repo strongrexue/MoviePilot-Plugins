@@ -34,6 +34,8 @@ import asyncio  # noqa: F401 - 保持与其他源一致的导入风格
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.sdk.logging import logger
+
 from ..core.constants import (
     MEDIA_TYPE_MOVIE,
     MEDIA_TYPE_TV,
@@ -41,8 +43,6 @@ from ..core.constants import (
 )
 from ..core.model import DiscoveredItem, is_special
 from ..core.window import get_tz, in_window, parse_date, today
-
-from app.sdk.logging import logger
 
 #: AniList GraphQL 端点（只接受 POST）
 ENDPOINT = "https://graphql.anilist.co"

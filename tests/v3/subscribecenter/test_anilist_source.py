@@ -341,12 +341,6 @@ def test_donghua_is_exempt_from_continuation_year_floor():
 
 # ------------------------------------------- 限流重试（1.6.7 真机）
 
-import asyncio
-import json as jsonlib
-
-import pytest
-
-
 class _Resp:
     def __init__(self, value):
         self._value = value
@@ -384,6 +378,8 @@ def test_query_retries_on_empty_response(monkeypatch):
     真机：AniList 被限流时返回空响应体，json 解析抛
     ``Expecting value: line 1 column 1 (char 0)``，一个请求失败整个源就红。
     """
+    import asyncio
+
     import subscribecenter.sources.anilist as mod
 
     monkeypatch.setattr(mod, "_THROTTLE", 0)
@@ -396,7 +392,10 @@ def test_query_retries_on_empty_response(monkeypatch):
 
 
 def test_query_gives_up_after_three_attempts(monkeypatch):
-    """连续三次失败才抛，且提示是人话（提到限流），不是 JSONDecodeError。"""
+    """连续三次失败才抛，且提示是人话（提到限流）。"""
+    import asyncio
+
+    import pytest
     import subscribecenter.sources.anilist as mod
 
     monkeypatch.setattr(mod, "_THROTTLE", 0)
@@ -411,6 +410,7 @@ def test_query_gives_up_after_three_attempts(monkeypatch):
 
 def test_query_retries_on_decode_error(monkeypatch):
     """json 解析异常同样按可重试处理。"""
+    import asyncio
     import json as jsonlib
 
     import subscribecenter.sources.anilist as mod

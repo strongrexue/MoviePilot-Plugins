@@ -94,7 +94,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.6.7",
+        "version": "1.6.8",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -102,6 +102,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.6.8": "修 1.6.7 的 ruff 报错（1.6.8）。1.6.7 推送时 ruff 已报 6 个错误（I001 导入未排序、E402 模块级 import 不在顶部、F821 asyncio 未定义），我又在没有拦截的情况下推送了 —— 这是第二次犯同一个错误，必须改正。修法：[1] anilist.py 的 from app.sdk.logging import logger 移到顶部导入组（typing 之后、相对导入之前）。[2] 测试里新增的三个重试用例改为函数内局部导入（asyncio / pytest / json），避免 E402 与 F821；重写整个测试块保证干净。现在 ruff 全绿、451 项测试通过、构建通过。",
             "v1.6.7": "AniList 加节流/重试/通道隔离（1.6.7）。用户状态栏报「失败：JSONDecodeError: Expecting value: line 1 column 1 (char 0)」——响应体为空导致 json 解析在第 1 个字符就失败。容器内验证：直连与走配置代理访问 graphql.anilist.co 均返回 HTTP 200 JSON，说明不是网络不通；根因是一轮要连发 6 个请求（当季 2 页 + 下季 2 页 + 连载 + 国漫），AniList 限流时偶尔返回空响应体，而代码此前无重试，一个请求失败整个源就红。修法：[1] _query 增加节流 _THROTTLE=0.3s、最多 _MAX_ATTEMPTS=3 次、退避 _BACKOFF=1.5s*n；空响应/非 JSON/网络异常/JSONDecodeError 均视为可重试。[2] 三次都失败才抛，提示改为「AniList 连续 3 次请求失败（可能被限流）」。[3] 连载与国漫通道各自 try/except，单通道失败只记 warning 并继续，不再拖垮整个源。[4] 补 logger（from app.sdk.logging import logger）与三个常量。新增 3 项测试（空响应重试、三次失败报限流、decode 异常重试）。容器内实跑 fetch：成功抓取 88 条。ruff 全绿、451 项测试通过。",
             "v1.6.6": "窄屏（手机）订阅总览改跟随页面滚动（1.6.6）。用户反馈：电脑上发现页与插件页都正常了，但手机浏览器的发现页只显示 20 条且无法滚动，插件页正常。原因：网格用固定 132px 列宽，手机上 20 张会排成十几行，而 max-height 492px 的内部滚动在触屏上没有生效/不好用。修法：加 @media (max-width: 900px) 让窄屏取消 max-height 与内部滚动（overflow-y: visible）、列宽改为 minmax(96px, 1fr)；脚本侧新增 overviewScrollsInternally()（读 computedStyle 判断 overflowY），哨兵可见性与 IntersectionObserver 的 root 随之切换 —— 有内部滚动时 root 指向滚动容器，没有时回到视口（null），保证手机上继续向下滑动页面就能自动加载。电脑端行为不变。构建通过、ruff 全绿、448 项测试通过、CSS 门禁通过。",
             "v1.6.5": "修订阅总览的滚动判定与插件页高度（1.6.5）。用户反馈：[1]「发现页展开直接加载全部 206 条」——哨兵可见性用的是 window.innerHeight，而网格已改为内部滚动（max-height 492px），哨兵虽然被裁剪区挡住，但在窗口坐标系里仍算可见，于是 growOverview 循环一路加到 206。改为相对**滚动容器**判断：新增 overviewScroller() 取哨兵的 .sc-poster-grid 祖先，sentinelVisible 用两者 getBoundingClientRect 比较，IntersectionObserver 的 root 也指向该容器（默认视口在内部滚动时不会重新判定）。[2]「插件页还是锁死、内部没法滚」——插件详情容器自身是定高+裁剪，我们的根节点按内容撑开就会被外层裁掉；给 .sc-root:not(.sc-root-page) 加 height:100% 撑满容器，max-height 作为兜底，overflow-y:auto 由它自己滚。构建通过、ruff 全绿、448 项测试通过、CSS 门禁通过。",

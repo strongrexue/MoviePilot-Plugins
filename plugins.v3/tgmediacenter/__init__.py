@@ -11,8 +11,8 @@ P7 打磨已完成（运行详情与仪表盘、通知接入、限流退避收�
   ⑧ 消息交互（监听宿主用户消息事件，私聊发链接即转存 115 并回执：新转存 / 已转存过 / 失败原因）；
   ⑩ P9 重复获取治理（P9-1：宿主能力探针 + 反向开关「暂停新增订阅搜索」，默认关）。
 """
-from typing import Any, Dict, List, Optional, Tuple
 import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
@@ -22,6 +22,7 @@ from .controller import schemas as api_schemas
 from .core.cooldown import CooldownGate
 from .model import get_models
 from .model.migration import ensure_schema
+from .modules import first_search_guard
 from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
 from .modules.forward import ForwardModule
@@ -42,7 +43,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.4"
+    plugin_version = "1.13.5"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -493,6 +494,28 @@ class TgMediaCenter(_PluginBase):
             cache.on_subscribe_event(event)
         except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
             logger.warning(f"[TgMediaCenter] 处理订阅事件失败：{err}")
+            return
+        # TG 回搜与宿主「首次全站搜索」会重复抓取：本插件接管时跳过宿主那次。
+        # 只在 TG 订阅回搜开启时生效 —— 关掉本插件的回搜就完全不干预宿主。
+        try:
+            if cache.enabled() and cache.subscribe_enabled():
+                sid = self._subscribe_id_of(event)
+                if sid:
+                    first_search_guard.schedule(sid)
+        except Exception as err:  # pragma: no cover
+            logger.debug(f"[TgMediaCenter] 登记跳过首次搜索失败：{err}")
+
+    @staticmethod
+    def _subscribe_id_of(event) -> int:
+        """从事件里取 subscribe_id（宿主 payload 结构可能变化，逐层兜底）。"""
+        payload = getattr(event, "event_data", None) or getattr(event, "data", None) or {}
+        if isinstance(payload, dict):
+            value = payload.get("subscribe_id")
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+        return 0
 
     def on_user_message(self, event) -> None:
         """宿主「收到用户外来消息」广播事件：消息里有链接就转存 115 并回执。
@@ -511,8 +534,8 @@ class TgMediaCenter(_PluginBase):
     def _install_user_message_listener(self) -> bool:
         """注册宿主用户消息事件监听（宿主无该事件时静默降级）。"""
         try:
-            from app.sdk.events import eventmanager
             from app.schemas.types import EventType
+            from app.sdk.events import eventmanager
         except Exception as err:  # pragma: no cover - 宿主未提供事件总线
             logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，消息转存不启用：{err}")
             return False
@@ -545,8 +568,8 @@ class TgMediaCenter(_PluginBase):
     def _install_subscribe_listener(self) -> bool:
         """注册宿主新增订阅事件监听（旧宿主无事件总线时静默降级为仅定时）。"""
         try:
-            from app.sdk.events import eventmanager
             from app.schemas.types import EventType
+            from app.sdk.events import eventmanager
         except Exception as err:  # pragma: no cover - 宿主未提供事件总线
             logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，订阅回搜仅按定时执行：{err}")
             return False

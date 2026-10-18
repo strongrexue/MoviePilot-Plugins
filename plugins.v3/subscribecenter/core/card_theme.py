@@ -47,48 +47,35 @@ def _rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({red},{green},{blue},{alpha:.2f})"
 
 
-def _rules(selector: str, color: str, color_alpha: float = 0.12) -> list:
-    """方案 3：整卡浅染色 + 2px 描边 + 左侧 5px 强调条。"""
+def _rules(selector: str, color: str) -> list:
+    """方案 3（安全版）：加粗描边 + 左侧强调条 + 卡片底色。
+
+    .. important::
+       这里**不用** ``::after`` 覆盖层 —— 覆盖层会盖在卡片内容之上，
+       一旦被宿主自身的伪元素规则干扰，就可能出现「整张卡看不见」的错觉。
+       只用 box-shadow 画描边 + 背景色，绝不遮挡任何内容。
+    """
     return [
         f"{selector}{{",
-        f"  box-shadow:inset 0 0 0 2px {color}, inset 5px 0 0 0 {color} !important;",
-        f"  background-color:{_rgba(color, 0.10)} !important;",
-        "}",
-        f"{selector}::after{{",
-        '  content:"";',
-        "  position:absolute;",
-        "  inset:0;",
-        "  border-radius:inherit;",
-        "  pointer-events:none;",
-        "  z-index:3;",
-        f"  background:{_rgba(color, color_alpha)} !important;",
+        f"  box-shadow:inset 0 0 0 3px {color}, inset 7px 0 0 0 {color} !important;",
+        f"  background-color:{_rgba(color, 0.12)} !important;",
         "}",
     ]
 
 
-def build_block(colors: Dict[str, str], best_version_outline: bool = False) -> str:
+def build_block(colors: Dict[str, str]) -> str:
     """生成标记块（含首尾标记行）。
 
-    方案 3：整卡按状态浅染色 + 2px 描边，最醒目；洗版仍用宿主自带的
-    左上角徽章表达（可选再加紫色外框）。
+    方案 3：整卡描边 + 左侧强调条 + 底色，最醒目；
+    洗版仍由宿主自带的左上角徽章表达（不额外配色，避免和状态色打架）。
     """
     lines = [
         BLOCK_BEGIN,
-        "/* 方案 3：整卡浅染色 + 2px 描边；洗版用宿主自带左上角徽章 */",
-        ".subscribe-card{",
-        "  position:relative !important;",
-        "}",
+        "/* 方案 3：3px 描边 + 左侧 7px 强调条 + 卡片底色（不覆盖内容） */",
     ]
     lines += _rules(".subscribe-card", colors["subscribing"])
-    lines += _rules(".subscribe-card.subscribe-card-pending-tint", colors["pending"], 0.14)
-    lines += _rules(".subscribe-card.subscribe-card-paused", colors["paused"], 0.10)
-    if best_version_outline:
-        lines += [
-            ".subscribe-card:has(.best-version-badge){",
-            f"  outline:2px solid {BEST_VERSION_COLOR} !important;",
-            "  outline-offset:-2px;",
-            "}",
-        ]
+    lines += _rules(".subscribe-card.subscribe-card-pending-tint", colors["pending"])
+    lines += _rules(".subscribe-card.subscribe-card-paused", colors["paused"])
     lines.append(BLOCK_END)
     return chr(10).join(lines) + chr(10)
 
@@ -110,10 +97,10 @@ def strip_block(css: Optional[str]) -> str:
     return text[:start] + text[end:]
 
 
-def merge_css(existing: Optional[str], colors: Dict[str, str], best_version_outline: bool) -> str:
+def merge_css(existing: Optional[str], colors: Dict[str, str]) -> str:
     """把标记块合并进用户已有的自定义 CSS。"""
     base = strip_block(existing).rstrip()
-    block = build_block(colors, best_version_outline).rstrip()
+    block = build_block(colors).rstrip()
     if not base:
         return block + chr(10)
     return base + chr(10) + chr(10) + block + chr(10)
@@ -134,7 +121,6 @@ def split(existing: Optional[str]) -> Tuple[str, str]:
 __all__ = [
     "BLOCK_BEGIN",
     "BLOCK_END",
-    "BEST_VERSION_COLOR",
     "DEFAULT_COLORS",
     "build_block",
     "merge_css",

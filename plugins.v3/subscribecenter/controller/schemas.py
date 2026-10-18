@@ -78,7 +78,6 @@ class CardThemeRequest(BaseModel):
 
     colors: Optional[Dict[str, str]] = Field(default=None, description="状态色；传 null 或 reset=true 表示恢复默认")
     reset: bool = Field(default=False, description="恢复默认（删除插件写入的 CSS）")
-    best_version_outline: bool = Field(default=False, description="洗版是否额外描边")
 
 
 class CardThemeResult(BaseModel):
@@ -90,8 +89,6 @@ class CardTheme(BaseModel):
     """当前订阅卡片配色。"""
 
     colors: Dict[str, str] = Field(default_factory=dict, description="状态色")
-    best_version_outline: bool = Field(default=False, description="洗版描边")
-    best_version_color: str = Field(default="", description="洗版描边颜色")
     applied: bool = Field(default=False, description="是否已写入宿主 CSS")
 
 

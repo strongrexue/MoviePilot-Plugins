@@ -193,8 +193,6 @@ function switchFilter(value) {
 const themeSaving = ref(false)
 const theme = ref({
   colors: { subscribing: '#FFC107', pending: '#F97316', paused: '#9CA3AF' },
-  best_version_outline: false,
-  best_version_color: '#A855F7',
 })
 
 const themeRows = [
@@ -207,11 +205,7 @@ async function loadTheme() {
   try {
     const data = unwrap(await getPluginApi(props.api, props.pluginId, 'card_theme'))
     if (data) {
-      theme.value = {
-        colors: { ...theme.value.colors, ...(data.colors || {}) },
-        best_version_outline: Boolean(data.best_version_outline),
-        best_version_color: data.best_version_color || '#A855F7',
-      }
+      theme.value = { colors: { ...theme.value.colors, ...(data.colors || {}) } }
     }
   } catch (error) {
     /* 配色读取失败不影响主功能 */
@@ -224,7 +218,6 @@ async function saveTheme() {
     unwrap(
       await postPluginApi(props.api, props.pluginId, 'card_theme/save', {
         colors: theme.value.colors,
-        best_version_outline: theme.value.best_version_outline,
       }),
     )
     setTip('配色已保存：刷新 MoviePilot 页面后生效')
@@ -239,7 +232,7 @@ async function resetTheme() {
   themeSaving.value = true
   try {
     unwrap(await postPluginApi(props.api, props.pluginId, 'card_theme/save', { reset: true }))
-    setTip('已恢复默认配色：刷新 MoviePilot 页面生效')
+    setTip('已恢复默认：若颜色仍在，请重启 MoviePilot（设置服务有内存缓存）')
   } catch (error) {
     setTip(error?.message || '恢复默认失败', false)
   } finally {
@@ -474,11 +467,6 @@ onUnmounted(() => {
           <input type="color" v-model="theme.colors[row.key]" class="sc-theme-color" />
           <code class="sc-dim">{{ theme.colors[row.key] }}</code>
         </div>
-        <label class="sc-theme-row sc-theme-check">
-          <input type="checkbox" v-model="theme.best_version_outline" />
-          <span class="sc-theme-label">洗版另加紫色外框</span>
-          <span class="sc-dim">{{ theme.best_version_color }}</span>
-        </label>
         <div class="sc-theme-actions">
           <VBtn size="x-small" color="primary" :loading="themeSaving" @click="saveTheme">保存</VBtn>
           <VBtn size="x-small" variant="text" :disabled="themeSaving" @click="resetTheme">
@@ -1087,9 +1075,6 @@ onUnmounted(() => {
   border: 1px solid rgba(var(--v-border-color), 0.3);
   border-radius: 4px;
   background: transparent;
-  cursor: pointer;
-}
-.sc-theme-check {
   cursor: pointer;
 }
 .sc-theme-actions {

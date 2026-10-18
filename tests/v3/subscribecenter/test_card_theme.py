@@ -17,31 +17,30 @@ def test_normalize_colors_falls_back_on_invalid():
 
 def test_merge_keeps_user_css():
     user = "body{color:red}"
-    merged = t.merge_css(user, t.normalize_colors({}), False)
+    merged = t.merge_css(user, t.normalize_colors({}))
     assert merged.startswith("body{color:red}")
     assert t.BLOCK_BEGIN in merged and t.BLOCK_END in merged
 
 
 def test_merge_is_idempotent():
     colors = t.normalize_colors({"subscribing": "#FFC107"})
-    once = t.merge_css("", colors, False)
-    twice = t.merge_css(once, colors, True)
+    once = t.merge_css("", colors)
+    twice = t.merge_css(once, colors)
     assert twice.count(t.BLOCK_BEGIN) == 1, "重复保存不能叠加多个块"
-    assert "best-version-badge" in twice, "开启洗版描边后应写进 CSS"
 
 
 def test_strip_removes_only_our_block():
     user = "body{color:red}"
-    merged = t.merge_css(user, t.normalize_colors({}), True)
+    merged = t.merge_css(user, t.normalize_colors({}))
     stripped = t.strip_block(merged).rstrip()
     assert stripped == user
     assert t.BLOCK_BEGIN not in stripped
 
 
 def test_paused_and_pending_selectors_present():
-    css = t.build_block(t.normalize_colors({}), False)
+    css = t.build_block(t.normalize_colors({}))
     assert ".subscribe-card.subscribe-card-pending-tint" in css
     assert ".subscribe-card.subscribe-card-paused" in css
-    assert "box-shadow:inset 0 0 0 2px" in css, "方案3：整卡浅染色 + 2px 描边"
-    assert "inset 5px 0 0 0" in css, "左侧强调条"
-    assert "::after" in css, "整卡染色覆盖层"
+    assert "box-shadow:inset 0 0 0 3px" in css, "方案3：3px 描边"
+    assert "inset 7px 0 0 0" in css, "左侧强调条"
+    assert "::after" not in css, "不要覆盖层（会挡住内容）"

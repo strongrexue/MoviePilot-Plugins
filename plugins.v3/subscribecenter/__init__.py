@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.8.0"
+    plugin_version = "1.8.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -797,14 +797,11 @@ class SubscribeCenter(_PluginBase):
         stored = stored if isinstance(stored, dict) else {}
         return {
             "colors": card_theme.normalize_colors(stored.get("colors")),
-            "best_version_outline": bool(stored.get("best_version_outline", False)),
-            "best_version_color": card_theme.BEST_VERSION_COLOR,
             "applied": bool(stored.get("applied", False)),
+            "restart_hint": False,
         }
 
-    async def apply_card_theme(
-        self, colors: Any = None, best_version_outline: bool = False
-    ) -> Dict[str, Any]:
+    async def apply_card_theme(self, colors: Any = None) -> Dict[str, Any]:
         """把状态配色写进宿主的自定义 CSS（``UserCustomCSS``）。
 
         只在标记块内替换，**不动用户自己写的 CSS**；``colors`` 传 None
@@ -818,8 +815,10 @@ class SubscribeCenter(_PluginBase):
                 if merged:
                     merged += chr(10)
             else:
-                merged = card_theme.merge_css(current, normalized, best_version_outline)
-            await self._write_custom_css(merged or None)
+                merged = card_theme.merge_css(current, normalized)
+            # 恢复默认时写空串（不是 None）——宿主的设置服务对 None 的缓存语义
+            # 容易让人以为"没清掉"，空串更明确
+            await self._write_custom_css(merged)
         except Exception as err:  # noqa: BLE001 - 写设置失败要报给前端
             logger.error(f"[SubscribeCenter] 写入卡片配色失败：{err}", exc_info=True)
             return {"success": False, "error": str(err)}
@@ -828,7 +827,6 @@ class SubscribeCenter(_PluginBase):
             DATA_KEY_CARD_THEME,
             {
                 "colors": normalized or card_theme.DEFAULT_COLORS,
-                "best_version_outline": bool(best_version_outline) if normalized else False,
                 "applied": normalized is not None,
             },
         )

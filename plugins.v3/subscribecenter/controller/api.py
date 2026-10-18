@@ -97,10 +97,7 @@ async def api_card_theme(plugin) -> Any:
 async def api_card_theme_save(plugin, request: api_schemas.CardThemeRequest) -> Any:
     """保存订阅卡片配色并写入宿主自定义 CSS。"""
     colors = None if request.reset else (request.colors or None)
-    data = await plugin.apply_card_theme(
-        colors=colors,
-        best_version_outline=bool(request.best_version_outline),
-    )
+    data = await plugin.apply_card_theme(colors=colors)
     return schemas.Response(
         success=bool(data.get("success")),
         message=str(data.get("error") or ""),

@@ -99,3 +99,17 @@ def test_calendar_defaults_to_today_list():
     assert "calendar/day" in text, "今天视图走单日接口"
     assert "sc-today-grid" in text
     assert "sc-cal-weekhead" in text, "月历保留"
+
+
+def test_today_view_has_date_picker_and_filters():
+    """今天视图：日期可选、可按 已入库/待入库 筛选。"""
+    page = (
+        Path(__file__).resolve().parents[3]
+        / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Page.vue"
+    )
+    text = page.read_text(encoding="utf-8")
+    assert "const todayDate = ref('')" in text
+    assert "calendar/day?date=" in text, "今天视图要能查任意日期"
+    assert "switchTodayFilter" in text and "todayItems" in text, "要有筛选"
+    assert "todayFilter === 'updated'" in text
+    assert "todayFilter === 'pending'" in text

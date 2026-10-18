@@ -26,20 +26,45 @@ const viewTab = ref('calendar')
 /** 日历模式：today（默认，今天列表）/ month（整月网格）。 */
 const calMode = ref('today')
 /** 今天视图数据（GET /calendar/day）。 */
+const todayDate = ref('')
 const todayView = ref(null)
 const todayLoading = ref(false)
 
-/** 拉今天的列表。 */
+/** 今天视图的筛选：'' / updated / pending。 */
+const todayFilter = ref('')
+
+/** 切换今天视图筛选。 */
+function switchTodayFilter(value) {
+  todayFilter.value = todayFilter.value === value ? '' : value
+}
+
+/** 筛选后的今天条目。 */
+const todayItems = computed(() => {
+  const items = todayView.value?.items || []
+  if (!todayFilter.value) return items
+  return items.filter((item) => item.kind === todayFilter.value)
+})
+
+/** 拉某天的列表（留空=今天）。 */
 async function loadToday() {
   todayLoading.value = true
   try {
-    todayView.value = unwrap(await getPluginApi(props.api, props.pluginId, 'calendar/day'))
+    const query = todayDate.value ? `calendar/day?date=${todayDate.value}` : 'calendar/day'
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, query))
+    todayView.value = data
+    todayDate.value = data?.today || todayDate.value
   } catch (error) {
     todayView.value = { today: '', total: 0, updated: 0, pending: 0, items: [] }
     setTip(error?.message || '读取今天日历失败', false)
   } finally {
     todayLoading.value = false
   }
+}
+
+/** 回到今天。 */
+function goToday() {
+  todayDate.value = ''
+  loadToday()
 }
 
 /** 切换 今天 / 月历。 */
@@ -693,11 +718,34 @@ onUnmounted(() => {
           月历
         </button>
         <template v-if="calMode === 'today'">
-          <span class="sc-cal-month">{{ todayView?.today || '—' }}</span>
-          <span class="sc-dim sc-cal-total">
-            共 {{ todayView?.total || 0 }} 条 · 已入库 {{ todayView?.updated || 0 }} ·
+          <input v-model="todayDate" type="date" class="sc-cal-date-input" @change="loadToday()" />
+          <VBtn v-if="todayView?.today !== status?.today" size="x-small" variant="text" @click="goToday">
+            今天
+          </VBtn>
+          <button
+            type="button"
+            class="sc-calmode"
+            :class="{ 'sc-calmode-active': todayFilter === '' }"
+            @click="switchTodayFilter('')"
+          >
+            全部 {{ todayView?.total || 0 }}
+          </button>
+          <button
+            type="button"
+            class="sc-calmode"
+            :class="{ 'sc-calmode-active': todayFilter === 'updated' }"
+            @click="switchTodayFilter('updated')"
+          >
+            已入库 {{ todayView?.updated || 0 }}
+          </button>
+          <button
+            type="button"
+            class="sc-calmode"
+            :class="{ 'sc-calmode-active': todayFilter === 'pending' }"
+            @click="switchTodayFilter('pending')"
+          >
             待入库 {{ todayView?.pending || 0 }}
-          </span>
+          </button>
           <VBtn size="x-small" variant="text" class="sc-cal-refresh" :loading="todayLoading" @click="loadToday">
             刷新
           </VBtn>
@@ -716,13 +764,13 @@ onUnmounted(() => {
 
       <!-- 今天：海报墙（默认视图） -->
       <div v-if="calMode === 'today'" class="sc-today-scroll">
-        <div v-if="!(todayView?.items || []).length" class="sc-cal-empty">
+        <div v-if="!todayItems.length" class="sc-cal-empty">
           <VIcon icon="mdi-calendar-blank-outline" size="34" />
-          <div>今天没有需要处理的更新</div>
+          <div>{{ todayFilter ? '当前筛选下没有条目' : '这一天没有需要处理的更新' }}</div>
           <div class="sc-dim">切到「月历」可以看整月安排</div>
         </div>
         <div v-else class="sc-today-grid">
-          <div v-for="item in todayView.items" :key="item.id + '-' + item.kind" class="sc-today-item">
+          <div v-for="item in todayItems" :key="item.id + '-' + item.kind" class="sc-today-item">
             <div class="sc-today-poster">
               <img v-if="item.poster" :src="posterUrl(item)" alt="" loading="lazy" @error="markPosterFailed($event)" />
               <VIcon v-else icon="mdi-filmstrip-box-multiple" size="22" />

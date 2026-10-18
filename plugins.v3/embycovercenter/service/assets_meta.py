@@ -67,6 +67,7 @@ def seed_default_templates(plugin) -> int:
         except Exception as error:
             logger.warning(f"[EmbyCoverCenter] 拷贝默认模板失败 {item.name}: {error}")
     copied += fix_known_template_bugs(plugin)
+    copied += rename_legacy_template_names(plugin)
     return copied
 
 
@@ -109,6 +110,48 @@ def fix_known_template_bugs(plugin) -> int:
         except Exception as error:
             logger.warning(f"[EmbyCoverCenter] 修正模板失败 {name}: {error}")
     return fixed
+
+
+# 内置模板显示名的历史命名（「xxx默认」「xxx预设」）统一去掉后缀，写进界面的就是布局本名。
+# 只改用户数据目录里的 *显示名*，文件名保持不动 —— 文件名是模板的唯一标识，
+# 已被 ``auto_cover_template`` 等配置引用，改名会让老用户的选择失效。
+TEMPLATE_NAME_RENAMES = {
+    "扇形展开默认.json": ("扇形展开默认", "扇形展开"),
+    "斜线分割默认.json": ("斜线分割默认", "斜线分割"),
+    "旋转默认.json": ("旋转默认", "旋转"),
+    "旋转堆叠预设.json": ("旋转堆叠预设", "旋转堆叠"),
+    "海报墙默认.json": ("海报墙默认", "海报墙"),
+    "经典堆叠默认.json": ("经典堆叠默认", "经典堆叠"),
+    "经典平铺默认.json": ("经典平铺默认", "经典平铺"),
+    "聚焦默认.json": ("聚焦默认", "聚焦"),
+    "荣耀视界默认.json": ("荣耀视界默认", "荣耀视界"),
+}
+
+
+def rename_legacy_template_names(plugin) -> int:
+    """把内置模板的旧显示名改成布局本名；返回改动文件数。
+
+    只修正 ``name`` 仍等于旧默认值的文件（即用户没改过名），
+    用户自行重命名过的模板原样保留。老用户的模板文件在首次初始化时已拷进数据目录、
+    之后不会被覆盖，所以这条迁移必须留在每次初始化都跑的路径里。
+    """
+    target = templates_dir(plugin)
+    renamed = 0
+    for filename, (old_name, new_name) in TEMPLATE_NAME_RENAMES.items():
+        path = target / filename
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or str(data.get("name") or "") != old_name:
+                continue  # 用户已自定义名字，跳过
+            data["name"] = new_name
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
+            renamed += 1
+            logger.info(f"[EmbyCoverCenter] 已更新内置模板名：{old_name} → {new_name}")
+        except Exception as error:
+            logger.warning(f"[EmbyCoverCenter] 更新模板名失败 {filename}: {error}")
+    return renamed
 
 
 def seed_default_fonts(plugin) -> int:

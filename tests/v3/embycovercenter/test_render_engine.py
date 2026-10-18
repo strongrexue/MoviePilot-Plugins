@@ -161,6 +161,54 @@ def test_fix_known_template_bugs(tmp_path):
     assert untouched["config"]["font_title"] == "我的字体.ttf"
 
 
+def test_rename_legacy_template_names(tmp_path):
+    """内置模板的旧显示名（xxx默认 / xxx预设）就地改成布局本名；用户改过名的不动。"""
+    plugin = _FakePlugin(tmp_path)
+    templates = assets_meta.templates_dir(plugin)
+    templates.mkdir(parents=True, exist_ok=True)
+    legacy = {"name": "扇形展开默认", "layout": "扇形展开", "config": {"title": "x"}}
+    (templates / "扇形展开默认.json").write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    custom = {"name": "我的旋转", "layout": "旋转", "config": {}}
+    (templates / "旋转默认.json").write_text(json.dumps(custom, ensure_ascii=False), encoding="utf-8")
+
+    assert assets_meta.rename_legacy_template_names(plugin) == 1
+    renamed = json.loads((templates / "扇形展开默认.json").read_text(encoding="utf-8"))
+    assert renamed["name"] == "扇形展开"
+    assert renamed["config"]["title"] == "x"  # 其余字段不丢
+    untouched = json.loads((templates / "旋转默认.json").read_text(encoding="utf-8"))
+    assert untouched["name"] == "我的旋转"  # 用户自定义名字保留
+    # 幂等：再跑一次没有可改的
+    assert assets_meta.rename_legacy_template_names(plugin) == 0
+
+
+def test_default_template_display_names_have_no_suffix(tmp_path):
+    """随包分发的预设显示名不带「默认 / 预设」后缀，且与布局同名。"""
+    plugin = _FakePlugin(tmp_path)
+    assets_meta.seed_default_templates(plugin)
+    templates = assets_meta.list_templates(plugin)
+    names = {item["name"] for item in templates}
+    assert {
+        "扇形展开",
+        "斜线分割",
+        "旋转",
+        "旋转堆叠",
+        "海报墙",
+        "经典堆叠",
+        "经典平铺",
+        "聚焦",
+        "荣耀视界",
+        "极简",
+        "动态平铺",
+    } <= names
+    assert not [name for name in names if name.endswith(("默认", "预设"))]
+    # 文件名保持原样：auto_cover_template 存的是它，老配置不能失效
+    filenames = {item["filename"] for item in templates}
+    assert "旋转默认.json" in filenames and "旋转堆叠预设.json" in filenames
+    # 迁移表里的文件名必须都还在包里（只改显示名、不改文件名的约定）
+    shipped = {path.name for path in (PACKAGE / "defaults" / "templates").glob("*.json")}
+    assert set(assets_meta.TEMPLATE_NAME_RENAMES) <= shipped
+
+
 def test_anim_fast_path_matches_frame_by_frame_render(tmp_path, monkeypatch):
     """render_anim 快速通道应与逐帧 render() 视觉一致（动画帧间只有海报水平偏移变化）。"""
     from PIL import Image, ImageChops

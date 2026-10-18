@@ -25,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.6.19"
+    plugin_version = "1.6.20"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -73,7 +73,7 @@ class EmbyCoverCenter(_PluginBase):
         assets_meta.ensure_dirs(self)
         copied = assets_meta.seed_default_templates(self)
         if copied:
-            logger.info(f"[EmbyCoverCenter] 已补全默认模板 {copied} 个文件")
+            logger.info(f"[EmbyCoverCenter] 已同步默认模板 {copied} 处（补全 / 修正 / 改名）")
         fonts = assets_meta.seed_default_fonts(self)
         if fonts:
             logger.info(f"[EmbyCoverCenter] 已补全默认字体 {fonts} 个文件")

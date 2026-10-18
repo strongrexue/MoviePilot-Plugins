@@ -51,7 +51,6 @@ function switchCalFilter(value) {
 const calendarItems = computed(() => {
   const items = calendar.value?.items || []
   if (!calFilter.value) return items
-  if (calFilter.value === 'best') return items.filter((item) => item.best_version)
   return items.filter((item) => item.kind === calFilter.value)
 })
 
@@ -116,6 +115,8 @@ function posterPath(item) {
   const text = String(raw)
   const match = text.match(/\/t\/p\/[^/]+(\/.+)$/)
   if (match) return match[1]
+  // 豆瓣 / Bangumi 等非 TMDB 海报是绝对 URL：原样交给后端代理
+  if (/^https?:\/\//i.test(text)) return text
   return text.startsWith('/') ? text : ''
 }
 
@@ -582,15 +583,6 @@ onUnmounted(() => {
           >
             待入库 {{ calendar?.pending || 0 }}
           </button>
-          <button
-            type="button"
-            class="sc-cal-chip sc-cal-chip-best"
-            :class="{ 'sc-cal-chip-active': calFilter === 'best' }"
-            title="洗版 = MoviePilot 的最佳版本自动替换；这里统计其中开着洗版的数量"
-            @click="switchCalFilter('best')"
-          >
-            洗版中 {{ calendar?.best_version || 0 }}
-          </button>
         </div>
         <VBtn
           size="x-small"
@@ -644,7 +636,6 @@ onUnmounted(() => {
                 {{ item.kind === 'updated' ? '已入库' : '未入库' }}
                 ({{ item.total_episode - item.lack_episode }}/{{ item.total_episode }})
               </span>
-              <span v-if="item.best_version" class="sc-cal-best">洗版</span>
             </div>
           </div>
         </div>
@@ -1356,8 +1347,9 @@ onUnmounted(() => {
 }
 .sc-cal-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px 8px;
+  align-items: start;
 }
 .sc-cal-item {
   min-width: 0;

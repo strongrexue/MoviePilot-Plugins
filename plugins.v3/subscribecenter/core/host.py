@@ -98,6 +98,19 @@ IMAGE_USER_AGENT = "MoviePilot/SubscribeCenter"
 _IMAGE_CACHE: Dict[str, Any] = {}
 _IMAGE_CACHE_LIMIT = 400
 
+#: 同时最多拉几张图（日历页一次会请求 30~40 张，全并发会被 TMDB 限流）
+_POSTER_SEMAPHORE: Any = None
+
+
+def _poster_semaphore() -> Any:
+    """按需创建信号量（必须在事件循环里创建，不能在 import 期）。"""
+    global _POSTER_SEMAPHORE
+    if _POSTER_SEMAPHORE is None:
+        import asyncio
+
+        _POSTER_SEMAPHORE = asyncio.Semaphore(4)
+    return _POSTER_SEMAPHORE
+
 
 #: 从 TMDB 图片 URL 里抠出图片路径（``/t/p/original/abc.jpg`` -> ``/abc.jpg``）
 _TMDB_IMAGE_RE = re.compile(r"/t/p/[^/]+(/[^\s]+)$")
@@ -131,30 +144,43 @@ async def fetch_poster_bytes(path: str) -> Optional[tuple]:
        根本连不上，于是流水里的封面全部空白（真机反馈）。
        走插件后端代理后，浏览器只连 MoviePilot，图片由服务器绕代理取回。
     """
-    key = _poster_path(path)
-    if not key:
+    raw = str(path or "").strip()
+    key = _poster_path(raw)
+    absolute = raw if raw.lower().startswith(("http://", "https://")) else ""
+    if not key and not absolute:
         return None
-    cached = _IMAGE_CACHE.get(key)
+    cache_key = key or absolute
+    cached = _IMAGE_CACHE.get(cache_key)
     if cached:
         return cached
 
     from app.runtime.settings import get_runtime_setting
     from app.sdk.network import AsyncRequestUtils
 
-    url = f"https://image.tmdb.org/t/p/w185{key}"
+    url = absolute or f"https://image.tmdb.org/t/p/w185{key}"
     utils = AsyncRequestUtils(
         ua=IMAGE_USER_AGENT,
         proxies=get_runtime_setting("PROXY") or None,
         timeout=20,
     )
-    response = await utils.get_res(url, raise_exception=True)
+    response = None
+    async with _poster_semaphore():
+        for _attempt in range(2):
+            try:
+                response = await utils.get_res(url, raise_exception=True)
+            except Exception:  # noqa: BLE001 - 单张失败不阻塞整页
+                response = None
+            if response and getattr(response, "content", None):
+                break
     if not response or not getattr(response, "content", None):
         return None
     content_type = str(getattr(response, "headers", {}).get("content-type") or "image/jpeg")
+    if not content_type.startswith("image/"):
+        return None
     payload = (bytes(response.content), content_type)
     if len(_IMAGE_CACHE) >= _IMAGE_CACHE_LIMIT:
         _IMAGE_CACHE.clear()
-    _IMAGE_CACHE[key] = payload
+    _IMAGE_CACHE[cache_key] = payload
     return payload
 
 

@@ -102,6 +102,15 @@ const enabledSourceCount = computed(
   () => sourceRows.filter((row) => form.value[row.key]).length,
 )
 
+/** 开关行：enabled 在顶部栏单独渲染，reset_daily_counter 单独一行。 */
+const switchRows = [
+  {
+    key: 'notify',
+    label: '发送运行摘要通知',
+    hint: '每次运行结束把「新增/跳过/失败」摘要发到 MoviePilot 通知渠道',
+  },
+]
+
 const sectionNav = computed(() => [
   { key: 'overview', label: '总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'tmdb', label: 'TMDB', icon: 'mdi-movie-open-outline' },
@@ -524,10 +533,24 @@ onMounted(() => {
 
         <!-- 数据源 -->
         <template v-if="activeSection === 'douban'">
-          <VTabs v-model="doubanTab" density="compact" color="primary" class="sc-tabs">
-            <VTab value="basic">豆瓣 RSS</VTab>
-            <VTab value="routes">豆瓣榜单</VTab>
-          </VTabs>
+          <div class="sc-subtabs">
+            <button
+              type="button"
+              class="sc-subtab"
+              :class="{ 'sc-subtab-active': doubanTab === 'basic' }"
+              @click="doubanTab = 'basic'"
+            >
+              豆瓣 RSS
+            </button>
+            <button
+              type="button"
+              class="sc-subtab"
+              :class="{ 'sc-subtab-active': doubanTab === 'routes' }"
+              @click="doubanTab = 'routes'"
+            >
+              豆瓣榜单
+            </button>
+          </div>
 
           <template v-if="doubanTab === 'basic'">
           <div class="sc-card">
@@ -1766,5 +1789,28 @@ code {
 .sc-db-body {
   padding: 8px 10px 10px;
   border-top: 1px dashed rgba(var(--v-border-color), 0.25);
+}
+
+.sc-subtabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.sc-subtab {
+  border: 1px solid rgba(var(--v-border-color), 0.3);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.sc-subtab-active {
+  background: rgb(var(--v-theme-primary));
+  border-color: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+  opacity: 1;
+  font-weight: 600;
 }
 </style>

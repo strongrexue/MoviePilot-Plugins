@@ -45,7 +45,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.17"
+    plugin_version = "1.13.18"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -259,9 +259,8 @@ class TgMediaCenter(_PluginBase):
             "interactive_push": True,
             # 私聊转存查重：转存成功过的链接（台账）不再重复转存（1.7.5）
             "interactive_dedup": True,
-            # ⑨ 发现页入口（1.8.0）：开启后在 MP 左侧「发现」分区注册一个整页入口，
-            # 页面即本插件的运行详情 / 仪表盘；默认关，避免给不用的人凭空多一项导航
-            "discovery_page_enabled": False,
+            # ⑨ 发现页入口（1.8.0；1.13.18 起并入「启用」开关）：
+            # 插件启用即在 MP 左侧「发现」分区注册整页入口，停用即自动移除，不再单独配置
             # ⑩ P9 重复获取治理（1.9.0；反向 R0 开关 1.9.1 真机验证无收益后移除——
             # 暂停 new_subscribe_search 后新增订阅照旧被搜索，首次搜索是事件驱动）
             # 前向闸门 A：缺失确认之后再加一层「PT 路是否在管」判定；默认关 = 完全维持现状
@@ -283,13 +282,12 @@ class TgMediaCenter(_PluginBase):
         return None
 
     def get_sidebar_nav(self) -> List[Dict[str, Any]]:
-        """MP 左侧「发现」分区的整页入口（1.8.0）。
+        """MP 左侧「发现」分区的整页入口（1.8.0；1.13.18 起并入「启用」开关）。
 
         页面由前端 ``AppPage`` 远程组件渲染，内容就是本插件的运行详情 / 仪表盘。
-        默认关闭：只有插件已启用、且用户打开配置页顶部的「发现页」开关时才注册，
-        避免给不用的人凭空多一个导航项。
+        插件启用即注册、停用即移除，与「已启用」开关联动，不再单独配置。
         """
-        if not self._enabled() or not self._config.get("discovery_page_enabled"):
+        if not self._enabled():
             return []
         return [
             {

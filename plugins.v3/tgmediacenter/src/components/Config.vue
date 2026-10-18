@@ -55,16 +55,7 @@ onMounted(config.loadConfig)
             hide-details
             inset
             :label="config.form.enabled ? '已启用' : '已停用'"
-          />
-          <VSwitch
-            v-model="config.form.discovery_page_enabled"
-            color="primary"
-            hide-details
-            inset
-            class="ms-4"
-            :disabled="!config.form.enabled"
-            :label="'发现页'"
-            title="在 MP 左侧「发现」分区增加本插件的整页入口（内容为运行详情 / 仪表盘）。插件未启用时不生效；改动随底部「保存配置」生效。"
+            title="启用后自动在 MP 左侧「发现」分区注册本插件的整页入口（运行详情 / 仪表盘）；停用即自动移除。"
           />
         </template>
       </VCardItem>

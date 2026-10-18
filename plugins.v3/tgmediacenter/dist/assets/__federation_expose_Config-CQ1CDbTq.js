@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.17';
+const FRONTEND_VERSION = '1.13.18';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -5488,8 +5488,8 @@ const configDefaults = {
   notify_on_search: true,
   interactive_push: true,
   interactive_dedup: true,
-  // ⑨ 发现页入口（1.8.0）：在 MP 左侧「发现」分区注册本插件整页入口
-  discovery_page_enabled: false,
+  // ⑨ 发现页入口（1.8.0；1.13.18 起不再单独开关）：
+  //   插件启用即在 MP 左侧「发现」分区注册整页入口，停用即自动移除
   // ⑩ P9 重复获取治理（1.9.0）
   //   注意：P9-1 只放出「能力探针」（反向 R0 开关 1.9.1 真机验证无收益后移除），
   //   闸门 A 的三个键先在表单里占位，保证「保存配置」整份覆盖时不会把它们清掉
@@ -5668,23 +5668,13 @@ return (_ctx, _cache) => {
               color: "success",
               "hide-details": "",
               inset: "",
-              label: _unref(config).form.enabled ? '已启用' : '已停用'
-            }, null, 8, ["modelValue", "label"]),
-            _createVNode(_component_VSwitch, {
-              modelValue: _unref(config).form.discovery_page_enabled,
-              "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((_unref(config).form.discovery_page_enabled) = $event)),
-              color: "primary",
-              "hide-details": "",
-              inset: "",
-              class: "ms-4",
-              disabled: !_unref(config).form.enabled,
-              label: '发现页',
-              title: "在 MP 左侧「发现」分区增加本插件的整页入口（内容为运行详情 / 仪表盘）。插件未启用时不生效；改动随底部「保存配置」生效。"
-            }, null, 8, ["modelValue", "disabled"])
+              label: _unref(config).form.enabled ? '已启用' : '已停用',
+              title: "启用后自动在 MP 左侧「发现」分区注册本插件的整页入口（运行详情 / 仪表盘）；停用即自动移除。"
+            }, null, 8, ["modelValue", "label"])
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6" }, {
-              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+              default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
                 _createTextVNode("胖虎媒体中心", -1)
               ]))]),
               _: 1
@@ -5810,9 +5800,9 @@ return (_ctx, _cache) => {
             _createVNode(_component_VSpacer),
             _createVNode(_component_VBtn, {
               variant: "text",
-              onClick: _cache[2] || (_cache[2] = $event => (emit('close')))
+              onClick: _cache[1] || (_cache[1] = $event => (emit('close')))
             }, {
-              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
                 _createTextVNode("取消", -1)
               ]))]),
               _: 1
@@ -5823,7 +5813,7 @@ return (_ctx, _cache) => {
               "prepend-icon": "mdi-content-save-outline",
               onClick: _unref(config).saveConfig
             }, {
-              default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
                 _createTextVNode(" 保存配置 ", -1)
               ]))]),
               _: 1
@@ -5839,6 +5829,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-29212c06"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-82bba5db"]]);
 
 export { Config as default };

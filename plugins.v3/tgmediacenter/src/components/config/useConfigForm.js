@@ -48,8 +48,8 @@ export const configDefaults = {
   notify_on_search: true,
   interactive_push: true,
   interactive_dedup: true,
-  // ⑨ 发现页入口（1.8.0）：在 MP 左侧「发现」分区注册本插件整页入口
-  discovery_page_enabled: false,
+  // ⑨ 发现页入口（1.8.0；1.13.18 起不再单独开关）：
+  //   插件启用即在 MP 左侧「发现」分区注册整页入口，停用即自动移除
   // ⑩ P9 重复获取治理（1.9.0）
   //   注意：P9-1 只放出「能力探针」（反向 R0 开关 1.9.1 真机验证无收益后移除），
   //   闸门 A 的三个键先在表单里占位，保证「保存配置」整份覆盖时不会把它们清掉

@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "tgmediacenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "胖虎媒体中心"
-    assert TgMediaCenter.plugin_version == "1.13.17"
+    assert TgMediaCenter.plugin_version == "1.13.18"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 
@@ -53,8 +53,8 @@ def test_default_config_shape():
     # 1.13.9：命中推送目标固定 115 网盘（界面不再提供选择）
     assert config["cache_destination"] == "pan115"
     assert config["tg_user_cooldown_seconds"] == 5
-    # 1.8.0：发现页入口默认关（不开的人不该凭空多一个导航项）
-    assert config["discovery_page_enabled"] is False
+    # 1.13.18：发现页入口并入「启用」开关，配置里不再有独立键
+    assert "discovery_page_enabled" not in config
     # 1.13.8：跳过宿主首搜是独立开关，默认关，且与「订阅回搜」开关互不依赖
     assert config["skip_first_search_enabled"] is False
     assert config["cache_subscribe_enabled"] is True
@@ -67,16 +67,17 @@ def _bare_plugin(config):
     return plugin
 
 
-def test_sidebar_nav_off_by_default():
-    """1.8.0：默认不注册「发现」分区入口（关闭 / 未启用两种情形都不注册）。"""
-    assert _bare_plugin({"enabled": True, "discovery_page_enabled": False}).get_sidebar_nav() == []
-    assert _bare_plugin({"enabled": False, "discovery_page_enabled": True}).get_sidebar_nav() == []
+def test_sidebar_nav_follows_enabled_switch():
+    """1.13.18：发现页入口跟着「启用」开关走（停用不注册，启用即注册）。"""
+    assert _bare_plugin({"enabled": False}).get_sidebar_nav() == []
     assert _bare_plugin({}).get_sidebar_nav() == []
+    # 旧配置里残留的 discovery_page_enabled 不再影响结果
+    assert _bare_plugin({"enabled": False, "discovery_page_enabled": True}).get_sidebar_nav() == []
 
 
 def test_sidebar_nav_registers_discovery_entry_when_enabled():
-    """1.8.0：启用插件并打开「发现页」开关后，注册一条「发现」分区整页入口。"""
-    nav = _bare_plugin({"enabled": True, "discovery_page_enabled": True}).get_sidebar_nav()
+    """1.13.18：插件启用即注册一条「发现」分区整页入口。"""
+    nav = _bare_plugin({"enabled": True}).get_sidebar_nav()
     assert isinstance(nav, list) and len(nav) == 1
     entry = nav[0]
     assert entry["nav_key"] == "main"

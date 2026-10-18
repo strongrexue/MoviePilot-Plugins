@@ -243,6 +243,47 @@ const doubanEnabledCount = computed(
   () => doubanLists.value.filter((entry) => entry && entry.enabled).length,
 )
 
+/** 热门媒体的风格选项（TMDB genre id）。 */
+const MOVIE_GENRES = [
+  { title: '动作', value: 28 },
+  { title: '冒险', value: 12 },
+  { title: '动画', value: 16 },
+  { title: '喜剧', value: 35 },
+  { title: '犯罪', value: 80 },
+  { title: '纪录', value: 99 },
+  { title: '剧情', value: 18 },
+  { title: '家庭', value: 10751 },
+  { title: '奇幻', value: 14 },
+  { title: '历史', value: 36 },
+  { title: '恐怖', value: 27 },
+  { title: '音乐', value: 10402 },
+  { title: '悬疑', value: 9648 },
+  { title: '爱情', value: 10749 },
+  { title: '科幻', value: 878 },
+  { title: '惊悚', value: 53 },
+  { title: '战争', value: 10752 },
+  { title: '西部', value: 37 },
+]
+
+const TV_GENRES = [
+  { title: '动作冒险', value: 10759 },
+  { title: '动画', value: 16 },
+  { title: '喜剧', value: 35 },
+  { title: '犯罪', value: 80 },
+  { title: '纪录', value: 99 },
+  { title: '剧情', value: 18 },
+  { title: '家庭', value: 10751 },
+  { title: '儿童', value: 10762 },
+  { title: '悬疑', value: 9648 },
+  { title: '新闻', value: 10763 },
+  { title: '真人秀', value: 10764 },
+  { title: '科幻奇幻', value: 10765 },
+  { title: '肥皂剧', value: 10766 },
+  { title: '脱口秀', value: 10767 },
+  { title: '战争政治', value: 10768 },
+  { title: '西部', value: 37 },
+]
+
 /** 宿主的「订阅数据共享」开关（热门媒体依赖它）。 */
 const shareEnabled = ref(false)
 const shareSaving = ref(false)
@@ -1053,67 +1094,127 @@ onMounted(() => {
           <div class="sc-hint">
             大家都在订什么。**依赖宿主的「订阅数据共享」**：未开启时官方返回空数据。
           </div>
-          <div class="sc-hm-grid">
-            <div class="sc-hm-item">
-              <div class="sc-hm-label">
-                <VSwitch v-model="form.hot_media_movie_enabled" density="compact" hide-details color="primary" />
-                <span>电影热门</span>
-              </div>
-              <VTextField
-                v-model.number="form.hot_media_movie_limit"
-                label="取前 N 部"
-                type="number"
-                min="1"
-                max="100"
-                density="compact"
-                hide-details
-                variant="outlined"
-                suffix="部"
-              />
+          <div class="sc-hm-group">
+            <div class="sc-hm-head">
+              <VSwitch v-model="form.hot_media_movie_enabled" density="compact" hide-details color="primary" />
+              <span>电影热门</span>
             </div>
-            <div class="sc-hm-item">
-              <div class="sc-hm-label">
-                <VSwitch v-model="form.hot_media_tv_enabled" density="compact" hide-details color="primary" />
-                <span>剧集热门</span>
-              </div>
-              <VTextField
-                v-model.number="form.hot_media_tv_limit"
-                label="取前 N 部"
-                type="number"
-                min="1"
-                max="100"
-                density="compact"
-                hide-details
-                variant="outlined"
-                suffix="部"
-              />
-            </div>
-            <div class="sc-hm-item">
-              <div class="sc-hm-label">
-                <VIcon icon="mdi-account-multiple-outline" size="16" />
-                <span>订阅人次下限</span>
-              </div>
-              <VTextField
-                v-model.number="form.hot_media_min_count"
-                label="至少多少人订阅"
-                type="number"
-                min="0"
-                density="compact"
-                hide-details
-                variant="outlined"
-                suffix="人"
-              />
-            </div>
+            <VRow dense>
+              <VCol cols="12" sm="6" md="3">
+                <VTextField
+                  v-model.number="form.hot_media_movie_limit"
+                  label="取前 N 部"
+                  type="number"
+                  min="1"
+                  max="100"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  suffix="部"
+                />
+              </VCol>
+              <VCol cols="12" sm="6" md="4">
+                <VSelect
+                  v-model="form.hot_media_movie_genres"
+                  :items="MOVIE_GENRES"
+                  label="风格（不选=全部）"
+                  multiple
+                  chips
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+              </VCol>
+              <VCol cols="6" sm="3" md="2">
+                <VTextField
+                  v-model.number="form.hot_media_movie_min_rating"
+                  label="评分 ≥"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+              </VCol>
+              <VCol cols="6" sm="3" md="3">
+                <VTextField
+                  v-model.number="form.hot_media_movie_min_count"
+                  label="订阅人次 ≥"
+                  type="number"
+                  min="0"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  suffix="人"
+                />
+              </VCol>
+            </VRow>
           </div>
+
+          <div class="sc-hm-group">
+            <div class="sc-hm-head">
+              <VSwitch v-model="form.hot_media_tv_enabled" density="compact" hide-details color="primary" />
+              <span>剧集热门</span>
+            </div>
+            <VRow dense>
+              <VCol cols="12" sm="6" md="3">
+                <VTextField
+                  v-model.number="form.hot_media_tv_limit"
+                  label="取前 N 部"
+                  type="number"
+                  min="1"
+                  max="100"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  suffix="部"
+                />
+              </VCol>
+              <VCol cols="12" sm="6" md="4">
+                <VSelect
+                  v-model="form.hot_media_tv_genres"
+                  :items="TV_GENRES"
+                  label="风格（不选=全部）"
+                  multiple
+                  chips
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+              </VCol>
+              <VCol cols="6" sm="3" md="2">
+                <VTextField
+                  v-model.number="form.hot_media_tv_min_rating"
+                  label="评分 ≥"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+              </VCol>
+              <VCol cols="6" sm="3" md="3">
+                <VTextField
+                  v-model.number="form.hot_media_tv_min_count"
+                  label="订阅人次 ≥"
+                  type="number"
+                  min="0"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  suffix="人"
+                />
+              </VCol>
+            </VRow>
+          </div>
+
           <div class="sc-hint">
-            「取前 N 部」= 每个榜单抓多少条（电影榜前 20、剧集榜前 20）。
-            「订阅人次下限」= 少于这么多人订阅的就跳过，填 0 表示不限。
-          </div>
-          <div class="sc-row">
-            <label class="sc-inline">
-              <input type="checkbox" :checked="shareEnabled" :disabled="shareSaving" @change="toggleShare($event.target.checked)" />
-              开启「订阅数据共享」（一键写入宿主系统设置，热门媒体必须有它）
-            </label>
+            「取前 N 部」= 每个榜单抓多少条；「风格」可多选，选了多个会分别查询后合并去重；
+            「评分 ≥」「订阅人次 ≥」填 0 表示不限。
           </div>
           <VTextField
             v-model="form.cron_hot_media"
@@ -1520,21 +1621,20 @@ onMounted(() => {
 }
 
 
-.sc-hm-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+
+
+.sc-hm-group {
+  border: 1px solid rgba(var(--v-border-color), 0.18);
+  border-radius: 10px;
+  padding: 8px 10px;
   margin: 8px 0;
 }
-.sc-hm-item {
-  flex: 1 1 180px;
-  min-width: 160px;
-}
-.sc-hm-label {
+.sc-hm-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
   margin-bottom: 4px;
 }
 

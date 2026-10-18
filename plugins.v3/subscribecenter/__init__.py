@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.9.5"
+    plugin_version = "1.9.6"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -317,15 +317,35 @@ class SubscribeCenter(_PluginBase):
         )
 
     async def system_share(self) -> Dict[str, Any]:
-        """读取 / 写入宿主的「订阅数据共享」（SUBSCRIBE_STATISTIC_SHARE）。"""
-        enabled = await self._read_system_flag("SubscribeStatisticShare")
-        return {"enabled": enabled}
+        """读取宿主的「订阅数据共享」（``SUBSCRIBE_STATISTIC_SHARE``）。
+
+        .. important::
+           它是宿主的**运行设置**（``app/runtime/config.py`` 里的 ``SUBSCRIBE_STATISTIC_SHARE``），
+           不是 ``SystemConfigKey`` 成员。早期用 ``getattr(SystemConfigKey, ...)``
+           会直接 AttributeError → 前端「未知错误」，故改走 runtime 端口。
+        """
+        return {"enabled": self._share_enabled()}
 
     async def set_system_share(self, enabled: bool) -> Dict[str, Any]:
         """一键开关「订阅数据共享」（热门媒体依赖它）。"""
-        await self._write_system_flag("SubscribeStatisticShare", bool(enabled))
-        logger.info(f"[SubscribeCenter] 订阅数据共享已设为 {bool(enabled)}")
-        return {"enabled": bool(enabled)}
+        from app.runtime.settings import update_runtime_setting
+
+        ok, message = update_runtime_setting("SUBSCRIBE_STATISTIC_SHARE", bool(enabled))
+        if ok is False:
+            raise RuntimeError(str(message or "宿主拒绝修改该设置"))
+        logger.info(f"[SubscribeCenter] 订阅数据共享已设为 {bool(enabled)}（{message or 'ok'}）")
+        return {"enabled": self._share_enabled()}
+
+    @staticmethod
+    def _share_enabled() -> bool:
+        """读取宿主运行设置里的订阅数据共享开关。"""
+        try:
+            from app.runtime.settings import get_runtime_setting
+
+            return bool(get_runtime_setting("SUBSCRIBE_STATISTIC_SHARE", False))
+        except Exception as err:  # pragma: no cover - 宿主无该端口时按关闭处理
+            logger.debug(f"[SubscribeCenter] 读取订阅数据共享失败：{err}")
+            return False
 
     async def api_system_share(self) -> Any:
         """读取订阅数据共享状态。"""
@@ -335,60 +355,6 @@ class SubscribeCenter(_PluginBase):
         """设置订阅数据共享开关。"""
         return await api_controller.api_system_share_save(self, request)
 
-    @staticmethod
-    async def _read_system_flag(name: str) -> bool:
-        """按 SystemConfigKey 名称读布尔型系统配置（带 ORM 兜底）。"""
-        from app.schemas.types import SystemConfigKey
-
-        key = getattr(SystemConfigKey, name)
-        try:
-            from app.application.configuration import get_configured_system_config
-
-            return bool(get_configured_system_config().get(key))
-        except Exception:  # noqa: BLE001 - 服务未装配时走 ORM
-            pass
-
-        from app.db import async_session_scope
-        from app.db.models.systemconfig import SystemConfig
-        from sqlalchemy import select
-
-        async with async_session_scope() as session:
-            row = (
-                await session.execute(
-                    select(SystemConfig).where(SystemConfig.key == key.value)
-                )
-            ).scalars().first()
-            return bool(getattr(row, "value", False)) if row else False
-
-    @staticmethod
-    async def _write_system_flag(name: str, value: bool) -> None:
-        """写布尔型系统配置（优先宿主服务，失败回落 ORM）。"""
-        from app.schemas.types import SystemConfigKey
-
-        key = getattr(SystemConfigKey, name)
-        try:
-            from app.application.configuration import get_configured_system_config
-
-            await get_configured_system_config().async_set(key, bool(value))
-            return
-        except Exception:  # noqa: BLE001 - 服务未装配时走 ORM
-            pass
-
-        from app.db import async_session_scope
-        from app.db.models.systemconfig import SystemConfig
-        from sqlalchemy import select
-
-        async with async_session_scope() as session:
-            row = (
-                await session.execute(
-                    select(SystemConfig).where(SystemConfig.key == key.value)
-                )
-            ).scalars().first()
-            if row is None:
-                session.add(SystemConfig(key=key.value, value=bool(value)))
-            else:
-                row.value = bool(value)
-            await session.commit()
 
     async def api_card_theme(self) -> Any:
         """读取订阅卡片配色。"""

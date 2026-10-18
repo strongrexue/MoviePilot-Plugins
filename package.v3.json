@@ -68,7 +68,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.9.5",
+        "version": "1.9.6",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -76,6 +76,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.9.6": "修复设置页「未知错误」+ 热门媒体筛选复刻（1.9.6）。[1] 根因：SUBSCRIBE_STATISTIC_SHARE 是宿主的**运行设置**（app/runtime/config.py），不是 SystemConfigKey 成员；我上一版用 getattr(SystemConfigKey, SubscribeStatisticShare) 直接 AttributeError → /system_share 500 → 前端弹「未知错误」。改为走 app.runtime.settings 的 get_runtime_setting / update_runtime_setting（update 返回 (ok, message)），并删除两个错误的 _read/_write_system_flag helper。[2] 复刻参考插件的筛选：电影/剧集各自独立的「风格（TMDB genre 多选，多选取并集去重）」「评分下限」「订阅人次下限」，共同替换原来的单一 hot_media_min_count；配置键 hot_media_movie_genres / hot_media_tv_genres / hot_media_movie_min_rating / hot_media_tv_min_rating / hot_media_movie_min_count / hot_media_tv_min_count（前后端默认值同步，parity 检查 0 差异）；HotMediaSource.fetch 按 genre 逐个查询（genre_id + min_rating 传给宿主）后按 source_id 去重，本地再复核 min_count / min_rating，空数据报错时提示可能是筛选过严。[3] 排版：热门媒体改为两张分组卡片（电影热门 / 剧集热门），每组一行 VRow：开关+标题、取前 N 部、风格多选、评分≥、人次≥，四列栅格对齐；删除旧的 sc-hm-grid/item/label 样式。新增 tests/v3/subscribecenter/test_hot_media.py 4 项（风格合并去重、评分/人次过滤、空数据提示、逗号字符串兼容）。ruff 全绿、464 项测试通过、构建与门禁通过。",
             "v1.9.5": "修正设置页三处问题（1.9.5）。[1] 豆瓣榜单面板里出现 3 组「立即运行一次/连通性测试」—— 原因是上一版插入按钮时用同一段提示文案定位，三次都命中了豆瓣面板的第一处；现在删掉误放的 anilist/tmdb 两组，分别放进 TMDB、AniList 面板的启用开关卡片内，四个面板各一组（已用脚本核对 run/test 各 1 次）。[2] 热门媒体控件看不懂 —— 原来只有裸 checkbox + 无标签数字框；改为三列卡片式布局：电影热门(VSwitch)+「取前 N 部」(后缀 部)、剧集热门(VSwitch)+「取前 N 部」、订阅人次下限(图标)+「至少多少人订阅」(后缀 人)，并加一行说明文字解释两个数字框的含义；订阅数据共享复选框保留并补全说明。新增 .sc-hm-grid/.sc-hm-item/.sc-hm-label 样式。[3] 把「高级选项：豆瓣 RSS 路线」折叠块从豆瓣面板顶部移到「豆瓣 RSS 发现窗口」卡片下方、订阅行为卡片之前（已用脚本校验顺序）。ruff 全绿、460 项测试通过、构建与门禁通过。",
             "v1.9.4": "前端设置页改版（1.9.4，借鉴其信息架构）。[1] 顶部新增「订阅配置 / 订阅历史」两个标签：配置标签显示左侧源导航 + 右侧配置面板；历史标签直接展示流水表格（原「预览结果」面板改为由标签驱动，nav 里的预览项移除）。[2] 左侧导航新增「热门媒体」，并把上一版误插在豆瓣面板里的热门媒体卡片抽出来成为独立面板（含启用开关、电影/剧集条数与订阅人次下限、订阅数据共享复选框、独立定时、立即运行/连通性测试）。[3] 新增「高级选项」折叠区（原生 details）：豆瓣面板里的「豆瓣 RSS 路线」逐条配置收进折叠，默认收起，减少首屏噪音。[4] 补 sc-tabs / sc-adv 样式。ruff 全绿、460 项测试通过、构建与门禁通过。",
             "v1.9.3": "新增「热门媒体」数据源（1.9.3，借鉴第四步）。读取 MoviePilot 官方热门订阅统计（宿主 MoviePilotServerHelper.async_get_subscribe_statistic），内容与主程序「热门订阅」一致。[1] 新源 sources/hot_media.py：电影(MOV)/剧集(TV) 两组独立开关与条数，订阅人次下限过滤，按 media_source+media_id 生成原生 ID 便于直接命中宿主身份；官方返回空时明确报错提示需开启「订阅数据共享」而不是静默空跑。[2] 配置项 enable_hot_media / hot_media_movie_enabled / hot_media_tv_enabled / hot_media_movie_limit=20 / hot_media_tv_limit=20 / hot_media_min_count / cron_hot_media，前后端默认值同步；SOURCE_HOT_MEDIA 加入 ALL_SOURCES 与 IMPLEMENTED_SOURCES；状态接口、空转检测（两组都关时自动关闭该源）、独立定时任务表都已接入。[3] 一键开关宿主的「订阅数据共享」：_read/_write_system_flag 走宿主系统配置服务（ORM 兜底），API GET /system_share、POST /system_share/save，前端热门媒体卡片里一个复选框直接写入系统设置。[4] 前端新增热门媒体配置卡片（启用开关、电影/剧集条数、人次下限、订阅数据共享复选框、独立定时、立即运行/连通性测试）。前端源清单与标签同步。ruff 全绿、460 项测试通过、构建与门禁通过。",

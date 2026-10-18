@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.9.10"
+    plugin_version = "1.10.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -355,6 +355,34 @@ class SubscribeCenter(_PluginBase):
         """设置订阅数据共享开关。"""
         return await api_controller.api_system_share_save(self, request)
 
+
+    async def calendar_today(self) -> Dict[str, Any]:
+        """今日日历：从宿主订阅表里挑出今天已入库 / 今天待播的条目。"""
+        from app.db import async_session_scope
+        from app.db.models.subscribe import Subscribe
+        from sqlalchemy import select
+
+        from .core import calendar as calendar_core
+
+        today_text = today(self._tz()).isoformat()
+        async with async_session_scope() as session:
+            rows = (
+                await session.execute(
+                    select(Subscribe).where(Subscribe.state.in_(calendar_core.ACTIVE_STATES))
+                )
+            ).scalars().all()
+
+        items = calendar_core.build_today(rows, today_text)
+        summary = calendar_core.summarize(items)
+        return {
+            "today": today_text,
+            **summary,
+            "items": items,
+        }
+
+    async def api_calendar(self) -> Any:
+        """今日日历接口。"""
+        return await api_controller.api_calendar(self)
 
     async def api_card_theme(self) -> Any:
         """读取订阅卡片配色。"""

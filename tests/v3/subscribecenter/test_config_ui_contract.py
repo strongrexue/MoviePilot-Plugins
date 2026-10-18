@@ -58,3 +58,18 @@ def test_no_stray_summary_tag():
     """``<summary>`` 只能出现在 ``<details>`` 里；这里的残留会把区块当成折叠标题。"""
     text = _text()
     assert "<summary>" not in text
+
+
+def test_page_has_calendar_tab_default_and_scrollable_grid():
+    """详情页：日历是默认 tab，海报墙在板块内滚动，手机两列。"""
+    page = (
+        Path(__file__).resolve().parents[3]
+        / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Page.vue"
+    )
+    text = page.read_text(encoding="utf-8")
+    assert "const viewTab = ref('calendar')" in text, "日历必须是默认 tab"
+    assert "sc-cal-scroll" in text, "海报墙必须在自己板块里滚动"
+    assert "overflow-y: auto" in text
+    assert "grid-template-columns: repeat(5" in text, "桌面 5 列"
+    assert "repeat(2" in text, "手机 2 列"
+    assert "viewTab === 'history'" in text, "发现流水仍可切换"

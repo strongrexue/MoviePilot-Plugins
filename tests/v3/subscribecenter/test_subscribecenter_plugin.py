@@ -218,6 +218,7 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
     assert paths == {
         "/status",
         "/history",
+        "/calendar",
         "/card_theme",
         "/card_theme/save",
         "/run_once",
@@ -249,6 +250,7 @@ def test_every_route_has_a_response_model():
     declared = {
         "/status",
         "/history",
+        "/calendar",
         "/card_theme",
         "/card_theme/save",
         "/run_once",

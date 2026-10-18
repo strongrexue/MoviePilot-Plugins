@@ -92,6 +92,37 @@ class CardTheme(BaseModel):
     applied: bool = Field(default=False, description="是否已写入宿主 CSS")
 
 
+class CalendarItem(BaseModel):
+    """今日日历的一条。"""
+
+    id: int = Field(description="订阅 ID")
+    name: str = Field(description="标题")
+    season: int = Field(default=0, description="季")
+    poster: str = Field(default="", description="海报路径")
+    media_source: str = Field(default="", description="媒体来源")
+    media_id: str = Field(default="", description="媒体 ID")
+    total_episode: int = Field(default=0, description="总集数")
+    lack_episode: int = Field(default=0, description="缺失集数")
+    start_episode: int = Field(default=1, description="起始集")
+    state: str = Field(default="", description="订阅状态")
+    best_version: bool = Field(default=False, description="是否洗版")
+    kind: str = Field(default="updated", description="updated=今日已入库 / pending=今日待播")
+    air_time: str = Field(default="", description="播出时间 HH:MM")
+    air_date: str = Field(default="", description="播出日期")
+    today: str = Field(default="", description="今天的日期")
+
+
+class CalendarView(BaseModel):
+    """今日日历视图。"""
+
+    today: str = Field(description="今天的日期")
+    total: int = Field(default=0)
+    updated: int = Field(default=0, description="今日已入库")
+    pending: int = Field(default=0, description="今日待播")
+    best_version: int = Field(default=0, description="其中洗版条数")
+    items: List[CalendarItem] = Field(default_factory=list)
+
+
 class HistoryPage(BaseModel):
     """分页流水。"""
 
@@ -201,6 +232,7 @@ class MappingFixResult(BaseModel):
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
+    "/calendar": CalendarView,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,
@@ -214,6 +246,8 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
 
 __all__ = [
     "API_RESPONSE_MODELS",
+    "CalendarItem",
+    "CalendarView",
     "HistoryPage",
     "CardTheme",
     "CardThemeRequest",

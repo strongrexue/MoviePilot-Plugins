@@ -21,6 +21,33 @@ const loading = ref(false)
 const busy = ref('')
 const tip = ref({ show: false, ok: true, text: '' })
 const status = ref(null)
+/** 详情页视图：日历（默认）/ 发现流水。 */
+const viewTab = ref('calendar')
+/** 今日日历数据（来自 GET /calendar）。 */
+const calendar = ref(null)
+const calendarLoading = ref(false)
+
+/** 拉今日日历。 */
+async function loadCalendar() {
+  calendarLoading.value = true
+  try {
+    calendar.value = unwrap(await getPluginApi(props.api, props.pluginId, 'calendar'))
+  } catch (error) {
+    calendar.value = { today: '', total: 0, updated: 0, pending: 0, items: [] }
+  } finally {
+    calendarLoading.value = false
+  }
+}
+
+/** 日历条目按 kind 分组（已入库在前）。 */
+const calendarItems = computed(() => calendar.value?.items || [])
+
+/** 切换视图 tab。 */
+function switchView(tab) {
+  viewTab.value = tab
+  if (tab === 'calendar' && !calendar.value) loadCalendar()
+}
+
 const history = ref({ items: [], total: 0, page: 1, count: 20 })
 const filter = ref('')
 const sourceFilter = ref('')
@@ -131,6 +158,7 @@ async function loadHistory() {
 }
 
 async function refreshAll() {
+  if (viewTab.value === 'calendar') loadCalendar()
   await Promise.all([loadStatus(), loadHistory()])
 }
 
@@ -359,6 +387,7 @@ const statCards = computed(() => {
 })
 
 onMounted(() => {
+  loadCalendar()
   refreshAll()
   refreshTimer = setInterval(refreshAll, 30000)
 })
@@ -485,8 +514,98 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- 视图 tab：日历（默认）/ 发现流水 -->
+    <div class="sc-maintabs">
+      <button
+        type="button"
+        class="sc-maintab"
+        :class="{ 'sc-maintab-active': viewTab === 'calendar' }"
+        @click="switchView('calendar')"
+      >
+        <VIcon icon="mdi-calendar-month-outline" size="16" />
+        日历
+      </button>
+      <button
+        type="button"
+        class="sc-maintab"
+        :class="{ 'sc-maintab-active': viewTab === 'history' }"
+        @click="switchView('history')"
+      >
+        <VIcon icon="mdi-history" size="16" />
+        发现流水
+      </button>
+      <span class="sc-dim sc-maintabs-hint">日历只显示今天 · 与 MoviePilot 日历同源</span>
+    </div>
+
+    <!-- 今日日历（海报墙，板块内滚动） -->
+    <div v-if="viewTab === 'calendar'" class="sc-card sc-cal-card">
+      <div class="sc-cal-head">
+        <div>
+          <div class="sc-dim">今天</div>
+          <div class="sc-cal-date">{{ calendar?.today || '—' }}</div>
+        </div>
+        <div class="sc-cal-chips">
+          <span class="sc-cal-chip">今日更新 {{ calendar?.total || 0 }} 部</span>
+          <span class="sc-cal-chip sc-cal-chip-ok">已入库 {{ calendar?.updated || 0 }}</span>
+          <span class="sc-cal-chip sc-cal-chip-wait">待入库 {{ calendar?.pending || 0 }}</span>
+          <span class="sc-cal-chip sc-cal-chip-best">洗版中 {{ calendar?.best_version || 0 }}</span>
+        </div>
+        <VBtn
+          size="x-small"
+          variant="text"
+          class="sc-cal-refresh"
+          :loading="calendarLoading"
+          @click="loadCalendar"
+        >
+          刷新
+        </VBtn>
+      </div>
+
+      <div v-if="!calendarItems.length" class="sc-cal-empty">
+        <VIcon icon="mdi-calendar-blank-outline" size="34" />
+        <div>今天没有需要处理的更新</div>
+        <div class="sc-dim">订阅有新的播出/入库后会出现在这里</div>
+      </div>
+
+      <div v-else class="sc-cal-scroll">
+        <div class="sc-cal-grid">
+          <div
+            v-for="item in calendarItems"
+            :key="item.id + '-' + item.kind"
+            class="sc-cal-item"
+          >
+            <div class="sc-cal-poster">
+              <img
+                v-if="item.poster"
+                :src="posterUrl(item.poster)"
+                alt=""
+                loading="lazy"
+                @error="markPosterFailed($event)"
+              />
+              <VIcon v-else icon="mdi-filmstrip-box-multiple" size="26" class="sc-poster-ph" />
+              <span
+                class="sc-cal-badge"
+                :class="item.kind === 'updated' ? 'sc-cal-badge-ok' : 'sc-cal-badge-wait'"
+              >
+                {{ item.kind === 'updated' ? '今日更新' : '今日待播' }}
+              </span>
+            </div>
+            <div class="sc-cal-title" :title="item.name">{{ item.name }}</div>
+            <div class="sc-cal-sub">
+              第 {{ item.start_episode + Math.max(item.total_episode - item.lack_episode - item.start_episode, 0) }} 集
+              <span v-if="item.air_time"> · {{ item.air_time }}</span>
+            </div>
+            <div class="sc-cal-meta">
+              <span v-if="item.total_episode">{{ item.total_episode - item.lack_episode }}/{{ item.total_episode }}</span>
+              <span v-if="item.best_version" class="sc-cal-best">洗版</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 发现流水：表格式，一眼看全 -->
-    <div class="sc-card">
+    <div v-if="viewTab === 'history'" class="sc-card">
       <div class="sc-card-head">
         <span class="sc-card-title">发现流水</span>
         <!-- 状态 tab：点一下即筛选，比下拉框少一步操作 -->
@@ -1091,5 +1210,177 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+/* 视图 tab（日历 / 发现流水） */
+.sc-maintabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-maintab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(var(--v-border-color), 0.3);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.sc-maintab-active {
+  background: rgb(var(--v-theme-primary));
+  border-color: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+  opacity: 1;
+  font-weight: 600;
+}
+.sc-maintabs-hint {
+  margin-left: auto;
+  font-size: 11.5px;
+}
+
+/* 今日日历：摘要固定、海报墙内部滚动 */
+.sc-cal-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  max-height: calc(100dvh - 420px);
+  overflow: hidden;
+}
+.sc-cal-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  padding-bottom: 8px;
+}
+.sc-cal-date {
+  font-size: 18px;
+  font-weight: 700;
+}
+.sc-cal-refresh {
+  margin-left: auto;
+}
+.sc-cal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sc-cal-chip {
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--v-border-color), 0.3);
+}
+.sc-cal-chip-ok {
+  color: rgb(var(--v-theme-success));
+  border-color: rgba(var(--v-theme-success), 0.5);
+}
+.sc-cal-chip-wait {
+  color: rgb(var(--v-theme-warning));
+  border-color: rgba(var(--v-theme-warning), 0.5);
+}
+.sc-cal-chip-best {
+  color: rgb(var(--v-theme-secondary));
+}
+.sc-cal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.sc-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.sc-cal-item {
+  min-width: 0;
+}
+.sc-cal-poster {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+  background: rgba(var(--v-border-color), 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sc-cal-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sc-cal-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #14141c;
+  font-weight: 600;
+}
+.sc-cal-badge-ok {
+  background: rgb(var(--v-theme-success));
+}
+.sc-cal-badge-wait {
+  background: rgb(var(--v-theme-warning));
+}
+.sc-cal-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-cal-sub {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.sc-cal-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.sc-cal-best {
+  color: rgb(var(--v-theme-secondary));
+}
+.sc-cal-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  opacity: 0.8;
+  padding: 24px 0;
+}
+
+@media (max-width: 900px) {
+  .sc-cal-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sc-cal-card {
+    max-height: calc(100dvh - 360px);
+  }
+  .sc-cal-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .sc-maintabs-hint {
+    display: none;
+  }
 }
 </style>

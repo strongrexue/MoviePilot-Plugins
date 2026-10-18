@@ -61,7 +61,8 @@ onMounted(load)
 
 <template>
   <div class="p9-pane">
-    <VCard flat class="p9-card">
+    <!-- 首张卡只有分区说明，用 p9-intro 收紧下内边距，避免与下方第一张卡片之间空一大截 -->
+    <VCard flat class="p9-card p9-intro">
       <VCardItem>
         <template #prepend>
           <VAvatar color="primary" variant="tonal" size="40" rounded="lg">
@@ -105,7 +106,7 @@ onMounted(load)
           >重新探测</VBtn>
         </template>
       </VCardItem>
-      <VCardText v-if="probe" class="pt-0">
+      <VCardText v-if="probe">
         <div class="p9-probe-summary">
           <VIcon
             :icon="probe.ok ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'"
@@ -142,7 +143,7 @@ onMounted(load)
           改动随底部「保存配置」生效。
         </VCardSubtitle>
       </VCardItem>
-      <VCardText class="pt-0">
+      <VCardText>
         <VSwitch
           v-model="config.form.p9_forward_gate_enabled"
           color="primary"
@@ -180,10 +181,24 @@ onMounted(load)
 
 <style scoped>
 .p9-pane { display: flex; flex-direction: column; gap: 8px; }
+/* 分区卡外观：有底色 + 1px 描边的 10px 圆角块，块与块之间 8px（对齐效果图的分区语言）。
+   Vuetify 的 flat 卡片会把背景重置成与对话框同色的 surface，故用 !important 压过它；
+   描边用 on-surface 的显式 alpha，避免主题变量缺失时整条 border 声明失效（计算值 0px） */
 .p9-card {
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgba(var(--v-theme-on-surface), 0.04) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
   border-radius: 10px;
 }
+/* 卡片内外边距统一压到 10/12（压过 Vuetify 直系子元素的 16/24）；标题区与正文区相邻处只留一份，
+   模板里不再用 pt-0 之类的工具类叠加 */
+.p9-card > .v-card-item { padding: 10px 12px; }
+.p9-card > .v-card-title { padding: 10px 12px; }
+.p9-card > .v-card-text { padding: 10px 12px; }
+.p9-card > .v-card-item + .v-card-text,
+.p9-card > .v-card-title + .v-card-text { padding-top: 0; }
+/* 首张卡只有「分区说明」：下内边距收到 4px，与下方第一张卡片之间合计 12px（4 + 分区 gap 8），
+   不再出现说明下面空一截的样子 */
+.p9-intro > .v-card-item { padding-bottom: 4px; }
 .p9-gate-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .p9-message { margin: 0; }
 .p9-probe-summary {

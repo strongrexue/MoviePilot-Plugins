@@ -36,7 +36,7 @@
           </div>
         </template>
       </VCardItem>
-      <VCardText class="pt-0 cache-body">
+      <VCardText class="cache-body">
         <!-- 2×2 统计块：标签 10.5px 灰 + 值 14px 粗体（与面板同一底色/边框口径） -->
         <div class="cache-stats">
           <div class="cache-stat">
@@ -100,7 +100,7 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">缓存频道与范围</VCardTitle>
       </VCardItem>
-      <VCardText class="pt-0 cache-body">
+      <VCardText class="cache-body">
         <!-- 频道 / 范围 / 天数条数 / 开关同一网格：同一行控件等高，窄屏自动单列 -->
         <div class="cache-fields">
           <div class="cache-field">
@@ -287,7 +287,7 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">缓存管理</VCardTitle>
       </VCardItem>
-      <VCardText class="pt-0 cache-body">
+      <VCardText class="cache-body">
         <div class="cache-field">
           <div class="cache-actions">
             <VBtn
@@ -353,7 +353,7 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">缓存检索</VCardTitle>
       </VCardItem>
-      <VCardText class="pt-0 cache-body">
+      <VCardText class="cache-body">
         <div class="cache-field">
           <div class="cache-search">
             <VTextField
@@ -410,7 +410,7 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">订阅回搜</VCardTitle>
       </VCardItem>
-      <VCardText class="pt-0 cache-body">
+      <VCardText class="cache-body">
         <div class="cache-hint">
           实时路径：MoviePilot 新增订阅 → 插件收到订阅事件 → 防抖后<strong>按该订阅</strong>回搜缓存（删除后重新添加同样回搜，
           已推过的由命中流水拦掉，不会重复推送）。兜底路径：定时对比订阅快照（默认每 30 分钟，
@@ -465,7 +465,7 @@
       <VCardItem>
         <VCardTitle class="text-subtitle-2">存量补扫</VCardTitle>
       </VCardItem>
-      <VCardText class="pt-0 cache-body">
+      <VCardText class="cache-body">
         <div class="cache-hint">
           反扫缓存补缺集：定时捞出<strong>水位之后新入库</strong>的缓存消息，逐条判缺失
           （已订阅 + 媒体库缺，与监控同款判定）→ 过前向闸门（PT 在途不抢）→ 入队推送。
@@ -956,17 +956,34 @@ onUnmounted(() => {
 
 <style scoped>
 .cache-pane { display: flex; flex-direction: column; gap: 8px; }
-.cache-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
+/* 分区卡的外观与内边距：有底色 + 1px 描边的 10px 圆角块（对齐效果图的分区语言，不再与对话框同底）。
+   Vuetify 的 flat 卡片会把背景重置成 surface，故用 !important 压过它；
+   描边用 on-surface 的显式 alpha，避免主题变量缺失时整条 border 声明失效（计算值 0px） */
+.cache-card {
+  background: rgba(var(--v-theme-on-surface), 0.04) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
+  border-radius: 10px;
+}
+/* 内边距统一压到 10/12（压过 Vuetify 直系子元素的 16/24）；标题区与正文区相邻处只留一份，
+   模板里不再用 pt-0 之类的工具类叠加 */
+.cache-card > .v-card-item { padding: 10px 12px; }
+.cache-card > .v-card-title { padding: 10px 12px; }
+.cache-card > .v-card-text { padding: 10px 12px; }
+.cache-card > .v-card-item + .v-card-text,
+.cache-card > .v-card-title + .v-card-text { padding-top: 0; }
 .cache-message { font-size: 13px; }
-/* 卡片内容：纵向堆叠统一 8px（配合 VCardText 的 pt-0 收紧标题下间距） */
+/* 卡片内容：纵向堆叠统一 8px（上下内边距由 .cache-card > .v-card-text 统一控制） */
 .cache-body { display: flex; flex-direction: column; gap: 8px; }
 /* 运行状态卡头部：状态徽章 + 刷新按钮同一行 */
 .cache-head-actions { display: flex; align-items: center; gap: 6px; }
-/* 2×2 统计块（背景/边框/圆角与面板同一口径） */
+/* 统计条：一行 4 个（与订阅中心/豆瓣中心一致），窄屏回落 2×2 */
 .cache-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+@media (max-width: 760px) {
+  .cache-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .cache-stat {
   background: rgba(255, 255, 255, 0.03);

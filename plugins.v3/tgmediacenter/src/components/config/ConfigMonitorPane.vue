@@ -120,8 +120,9 @@
           flat
           class="mon-rule"
         >
-          <VCardText class="pt-0">
-            <!-- 标题行（折叠态唯一一行）：整行点击切换展开，▸/▾ 只是提示 -->
+          <!-- 内边距全部交给头行 / 展开区自己控制（pa-0 清零 VCardText 默认 16px） -->
+          <VCardText class="pa-0">
+            <!-- 折叠态唯一一行：整行点击切换展开，▸/▾ 只是提示；padding 8px 10px，行高约 48-52px -->
             <div
               class="mon-rule-head"
               :class="{ 'mon-rule-head-open': isExpanded(rule) }"
@@ -129,14 +130,15 @@
               @click="toggleRule(rule)"
             >
               <span class="mon-rule-toggle">{{ isExpanded(rule) ? '▾' : '▸' }}</span>
-              <!-- 监听频道下拉保持可操作：阻止冒泡，选频道时不会误触整行折叠 -->
+              <!-- 监听频道下拉保持可操作：阻止冒泡，选频道时不会误触整行折叠。
+                   标签改用 VSelect 自带的 label（少一行小字，头行更矮） -->
               <div class="mon-rule-chatfield" @click.stop>
-                <div class="mon-rule-chatlabel">监听频道 / 群组</div>
                 <VSelect
                   v-model="rule.source_ids"
                   :items="selectItems"
                   item-title="title"
                   item-value="value"
+                  label="监听频道 / 群组"
                   multiple
                   chips
                   closable-chips
@@ -180,66 +182,76 @@
               </VBtn>
             </div>
 
-            <!-- 正文网格（仅展开后可见）：名称 / 缺失判断 / 关键词 / 排除词 四组。
-                 用 v-show 而不是 v-if：输入框实例始终挂载，展开/折叠不会丢表单绑定 -->
-            <div v-show="isExpanded(rule)" class="mon-rule-grid">
-              <div class="mon-field">
-                <VTextField
-                  v-model="rule.name"
-                  label="规则名称"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                />
-              </div>
-
-              <div class="mon-field">
-                <div class="mon-switch-row">
-                  <VSwitch v-model="rule.match_only_if_missing" color="primary" hide-details inset density="compact">
-                    <template #label>
-                      <span class="mon-switch-label">仅缺失时推送</span>
-                    </template>
-                  </VSwitch>
+            <!-- 展开区（仅展开后可见）：按语义拆成 3 个「分组块」——基础 / 关键词过滤 / 排除关键词。
+                 块内 1-2 列网格，块与块 8px；用 v-show 而不是 v-if：输入框实例始终挂载，
+                 展开/折叠不会丢表单绑定（折叠/展开逻辑与 payload 一律未改动） -->
+            <div v-show="isExpanded(rule)" class="mon-rule-body">
+              <!-- ① 基础：名称 + 仅缺失开关，2 列网格 -->
+              <div class="mon-group">
+                <div class="mon-group-head">基础</div>
+                <div class="mon-group-fields">
+                  <VTextField
+                    v-model="rule.name"
+                    label="规则名称"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                  />
+                  <div class="mon-switch-row">
+                    <VSwitch v-model="rule.match_only_if_missing" color="primary" hide-details inset density="compact">
+                      <template #label>
+                        <span class="mon-switch-label">仅缺失时推送</span>
+                      </template>
+                    </VSwitch>
+                    <!-- 行内说明：不另起一行，避免组内文字挤在一起 -->
+                    <span class="mon-group-note">无法判断时跳过</span>
+                  </div>
                 </div>
-                <div class="mon-hint">按 MP 媒体服务器与订阅状态判断；无法判断时命中会跳过。</div>
               </div>
 
-              <div class="mon-field">
-                <div class="mon-switch-row">
-                  <VSwitch v-model="rule.match_custom_keywords" color="primary" hide-details inset density="compact">
-                    <template #label>
-                      <span class="mon-switch-label">自定义关键词过滤</span>
-                    </template>
-                  </VSwitch>
+              <!-- ② 关键词过滤：标题行右侧总开关 + 全宽多值输入 + 11px 提示 -->
+              <div class="mon-group">
+                <div class="mon-group-head">
+                  <span>关键词过滤</span>
+                  <VSwitch
+                    v-model="rule.match_custom_keywords"
+                    color="primary"
+                    hide-details
+                    inset
+                    density="compact"
+                    class="mon-group-switch"
+                    title="开启后只有命中关键词的消息才会推送"
+                  />
                 </div>
                 <VCombobox
-                  v-if="rule.match_custom_keywords"
                   v-model="rule.custom_keywords"
                   multiple
                   chips
                   closable-chips
-                  label="关键词（任一命中即通过）"
+                  label=""
+                  placeholder="输入关键词后回车添加，可多个"
                   density="compact"
                   variant="outlined"
                   hide-details
                 />
+                <div class="mon-group-hint">命中任一关键词即视为通过（留空表示不设限）</div>
               </div>
 
-              <div class="mon-field">
+              <!-- ③ 排除关键词：无开关，全宽多值输入 + 11px 提示（优先级高于关键词） -->
+              <div class="mon-group">
+                <div class="mon-group-head">排除关键词</div>
                 <VCombobox
                   v-model="rule.exclude_keywords"
                   multiple
                   chips
                   closable-chips
-                  label="排除关键词（任一命中即不推送）"
+                  label=""
+                  placeholder="输入排除词后回车添加，可多个"
                   density="compact"
                   variant="outlined"
                   hide-details
                 />
-                <div class="mon-hint">
-                  排除词对整条消息做子串匹配（标题、题材、分类行都算），如「加更」「花絮」「预告」；
-                  即使自定义关键词命中，只要含排除词就不推送。
-                </div>
+                <div class="mon-group-hint">命中即跳过，优先级高于关键词</div>
               </div>
             </div>
           </VCardText>
@@ -878,12 +890,26 @@ onUnmounted(() => {
 
 <style scoped>
 .mon-pane { display: flex; flex-direction: column; gap: 8px; }
-.mon-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
+/* 分区卡外观（照效果图）：有底色的圆角块 + 描边，块与块之间 8px。
+   Vuetify 的 flat 卡片会把背景重置成与对话框同色，故用 !important 压过它，
+   否则分区会粘成一片、看不出边界 */
+.mon-card {
+  background: rgba(var(--v-theme-on-surface), 0.04) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
+  border-radius: 10px;
+}
+.mon-card > .v-card-item { padding: 10px 12px; }
+.mon-card > .v-card-text { padding: 10px 12px; }
+/* 「规则测试」卡直接用 VCardTitle（没有 VCardItem），单独对齐内边距 */
+.mon-card > .v-card-title { padding: 10px 12px 0; }
 .mon-message { font-size: 13px; }
 /* 状态卡头部右侧：两个徽章 + 刷新按钮，窄屏自动换行并右对齐 */
 .mon-status-chips { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
-/* 2×2 统计块：背景/边框/圆角/内边距按效果图固定 */
-.mon-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+/* 统计条：一行 4 个（与订阅中心/豆瓣中心一致），窄屏回落 2×2 */
+.mon-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 760px) {
+  .mon-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .mon-stat {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
@@ -901,9 +927,25 @@ onUnmounted(() => {
 .mon-diag { margin-top: 8px; font-size: 11.5px; }
 .mon-diag-text { margin-top: 6px; font-size: 11.5px; color: rgb(var(--v-theme-warning)); }
 .mon-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
-.mon-rule { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; margin-top: 8px; }
-/* 标题行（折叠态唯一一行）：整行可点，键盘/鼠标都能触发；箭头 + 下拉 + 概览标签 + 开关 + 删除 */
-.mon-rule-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; cursor: pointer; }
+.mon-rule {
+  /* 与分区卡同款边框色 / 圆角，规则自己也是一块有边界的小卡 */
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
+  border-radius: 10px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+/* 规则卡内的 VCardText 归零内边距：头行与展开区各自控制，避免双层 padding */
+.mon-rule > .v-card-text { padding: 0; }
+/* 折叠头行：整行可点，键盘/鼠标都能触发；padding 8px 10px、行高约 48-52px */
+.mon-rule-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  min-height: 48px;
+  cursor: pointer;
+}
 .mon-rule-head-open { cursor: default; }
 .mon-rule-toggle {
   flex: 0 0 14px;
@@ -915,8 +957,7 @@ onUnmounted(() => {
   user-select: none;
 }
 /* 下拉框容器：阻止冒泡，选频道/删 chip 时不会误触整行折叠 */
-.mon-rule-chatfield { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: default; }
-.mon-rule-chatlabel { font-size: 10.5px; line-height: 1.3; color: rgba(var(--v-theme-on-surface), 0.6); }
+.mon-rule-chatfield { flex: 1 1 240px; min-width: 0; cursor: default; }
 .mon-rule-chats { min-width: 0; }
 /* 折叠态概览小标签：按规则内容动态出现，无任何过滤时给一句灰色占位 */
 .mon-rule-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -924,17 +965,35 @@ onUnmounted(() => {
 .mon-rule-switch { display: flex; align-items: center; gap: 2px; cursor: default; }
 .mon-switch-label { font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.7); white-space: nowrap; }
 .mon-rules-hint { margin-top: 8px; }
-/* 正文网格：等宽自适应列，窄屏自动降为单列 */
-.mon-rule-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+/* 展开区：3 个分组块纵向排列，块与块 8px；与头行之间一条极淡分隔线 */
+.mon-rule-body {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin-top: 8px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.06);
 }
-/* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
-.mon-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* 分组块（设计语言同效果图：有底色 + 描边的圆角块） */
+.mon-group {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border-radius: 9px;
+  background: rgba(var(--v-theme-on-surface), 0.02);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.mon-group-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
+/* 组标题行右侧的开关：推到最右，与标题基线对齐 */
+.mon-group-switch { margin-left: auto; }
+.mon-group-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 700px) { .mon-group-fields { grid-template-columns: 1fr; } }
+/* 组内 11px 灰提示：贴着对应输入框，不再堆成一片 */
+.mon-group-hint { font-size: 11px; line-height: 1.45; color: rgba(var(--v-theme-on-surface), 0.55); }
+.mon-group-note { font-size: 11px; line-height: 1.45; color: rgba(var(--v-theme-on-surface), 0.5); }
 /* 开关行与同排输入框（compact + outlined，40px）高度对齐 */
-.mon-switch-row { display: flex; align-items: center; min-height: 40px; }
+.mon-switch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 40px; min-width: 0; }
 .mon-hint { margin-top: 0; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
 .mon-empty {
   padding: 12px;

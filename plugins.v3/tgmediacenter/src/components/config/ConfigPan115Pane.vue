@@ -292,7 +292,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">账号与授权</VCardTitle>
-      <VCardText class="pt-0 p115-body">
+      <VCardText class="p115-body">
         <div class="p115-status">
           <span class="p115-account">{{ accountLine }}</span>
           <span class="p115-sep">|</span>
@@ -392,7 +392,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">任务设置</VCardTitle>
-      <VCardText class="pt-0 p115-body">
+      <VCardText class="p115-body">
         <VRow dense>
           <VCol cols="12" md="8">
             <VTextField v-model="form.pan115_target_cid" label="转存文件夹 CID" density="compact" variant="outlined" hide-details />
@@ -422,7 +422,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">通知</VCardTitle>
-      <VCardText class="pt-0 p115-body">
+      <VCardText class="p115-body">
         <div class="p115-notify">
           <VSwitch v-model="form.notify_on_hit" color="primary" hide-details inset>
             <template #label><span class="p115-switch-label">转存成功后通知我</span></template>
@@ -447,7 +447,7 @@ onUnmounted(qrStopPolling)
 
     <VCard flat class="p115-card">
       <VCardTitle class="text-subtitle-2">推送测试</VCardTitle>
-      <VCardText class="pt-0 p115-body">
+      <VCardText class="p115-body">
         <VTextarea
           v-model="pushText"
           label="粘贴链接（115 分享链接 / 磁力 / ed2k，可多行多条）"
@@ -523,8 +523,22 @@ onUnmounted(qrStopPolling)
 <style scoped>
 /* 分区根容器：卡片之间统一 8px */
 .p115-pane { display: flex; flex-direction: column; gap: 8px; }
-.p115-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
-/* 卡片正文：纵向堆叠统一 8px，顶部内边距由模板上的 pt-0 收掉 */
+/* 分区卡的外观与内边距：有底色 + 1px 描边的 10px 圆角块（对齐效果图的分区语言，不再与对话框同底）。
+   Vuetify 的 flat 卡片会把背景重置成 surface，故用 !important 压过它；
+   描边用 on-surface 的显式 alpha，避免主题变量缺失时整条 border 声明失效（计算值 0px） */
+.p115-card {
+  background: rgba(var(--v-theme-on-surface), 0.04) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
+  border-radius: 10px;
+}
+/* 内边距统一压到 10/12（压过 Vuetify 直系子元素的 16/24）；标题区与正文区相邻处只留一份，
+   模板里不再用 pt-0 之类的工具类叠加 */
+.p115-card > .v-card-item { padding: 10px 12px; }
+.p115-card > .v-card-title { padding: 10px 12px; }
+.p115-card > .v-card-text { padding: 10px 12px; }
+.p115-card > .v-card-item + .v-card-text,
+.p115-card > .v-card-title + .v-card-text { padding-top: 0; }
+/* 卡片正文：纵向堆叠统一 8px（上下内边距由上面的 .p115-card > .v-card-text 统一控制） */
 .p115-body { display: flex; flex-direction: column; gap: 8px; }
 .p115-message { font-size: 13px; }
 /* 同一行内横向元素统一 6px */

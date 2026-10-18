@@ -372,7 +372,7 @@ onUnmounted(() => {
 
     <VCard flat class="tg-card">
       <VCardTitle class="text-subtitle-2">API 凭证</VCardTitle>
-      <VCardText class="pt-0">
+      <VCardText>
         <VRow dense>
           <VCol cols="12" md="6">
             <SecretField v-model="form.tg_api_id" label="API ID" />
@@ -424,7 +424,7 @@ onUnmounted(() => {
 
     <VCard flat class="tg-card">
       <VCardTitle class="text-subtitle-2">登录向导</VCardTitle>
-      <VCardText class="pt-0">
+      <VCardText>
         <!-- 已授权：收起验证码输入与登录按钮，只保留状态与操作（对齐 MA 的"已授权"形态） -->
         <template v-if="status?.authorized">
           <div class="tg-authorized">
@@ -578,7 +578,20 @@ onUnmounted(() => {
 .tg-authorized-name { font-size: 13px; color: rgba(var(--v-theme-on-surface), 0.75); }
 .tg-account,
 .tg-message { font-size: 13px; }
-.tg-card { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 12px; }
+/* 分区卡外观（对齐效果图「豆瓣中心」）：有底色的圆角块 + 1px 描边，块与块之间 8px。
+   Vuetify 的 flat 卡片会把背景重置成与对话框同色的 surface，故用 !important 压过它，
+   描边也改用 on-surface 的显式 alpha，避免主题变量缺失时整条 border 声明失效（计算值 0px） */
+.tg-card {
+  background: rgba(var(--v-theme-on-surface), 0.04) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
+  border-radius: 10px;
+}
+/* 卡片内外边距统一压到 10/12（压过 Vuetify 直系子元素的 16/24）；标题区与正文区相邻处只留一份 */
+.tg-card > .v-card-item { padding: 10px 12px; }
+.tg-card > .v-card-title { padding: 10px 12px; }
+.tg-card > .v-card-text { padding: 10px 12px; }
+.tg-card > .v-card-item + .v-card-text,
+.tg-card > .v-card-title + .v-card-text { padding-top: 0; }
 .tg-wizard { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .tg-wizard-password { margin-top: 6px; }
 .tg-wizard-input { flex: 1 1 200px; min-width: 160px; }

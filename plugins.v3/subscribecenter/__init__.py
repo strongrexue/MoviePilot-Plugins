@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.9.6"
+    plugin_version = "1.9.7"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -609,12 +609,6 @@ class SubscribeCenter(_PluginBase):
             resolver = IdentityResolver(HostTmdbResolver(), self._cache)
             self._resolver = resolver
 
-        first_run = not bool(self._state().get(C.STATE_FIRST_RUN_DONE))
-        if first_run:
-            logger.info(
-                "[SubscribeCenter] 首次运行：强制 dry-run，只记录不写入。"
-                "确认结果后在前端「确认开始写入」再放开。"
-            )
 
         # 映射缓存攒批落盘：一次运行可能解析 200+ 条，逐条落盘等于 200+ 次
         # 数据库写入。batch() 期间只标脏，退出时统一写一次。
@@ -642,8 +636,7 @@ class SubscribeCenter(_PluginBase):
                 future_days_by_source=self._future_days_by_source(),
                 min_rating_by_source=self._min_rating_by_source(),
                 min_popularity_by_source=self._min_popularity_by_source(),
-                dry_run=bool(self._config.get("dry_run")) or force_dry_run,
-                first_run=first_run,
+                dry_run=force_dry_run,
                 already_written_today=self._written_today(),
                 tz_name=self._tz(),
         )
@@ -774,10 +767,7 @@ class SubscribeCenter(_PluginBase):
 
         self._append_history(outcomes, run_at=self._last_run)
 
-        # 首次运行标记：只有**真正跑完一次**才置位
         state = self._state()
-        if summary.first_run:
-            state[C.STATE_FIRST_RUN_DONE] = True
         state["last_run"] = self._last_run
         state["last_summary"] = data
         self._save_state(state)
@@ -917,8 +907,9 @@ class SubscribeCenter(_PluginBase):
             config_issues=[str(item) for item in (state.get("config_issues") or [])],
             plugin_version=self.plugin_version,
             enabled=self._enabled(),
-            dry_run=bool(self._config.get("dry_run")),
-            first_run_completed=bool(state.get(C.STATE_FIRST_RUN_DONE)),
+            dry_run=False,
+            # 不再有「首次试运行」，恒为已完成（前端据此不显示提示）
+            first_run_completed=True,
             busy=self._bridge.busy,
             today=today(self._tz()).isoformat(),
             daily_limit=self._int_config("daily_limit", C.DEFAULT_DAILY_LIMIT),

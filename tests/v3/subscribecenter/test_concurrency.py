@@ -85,7 +85,6 @@ async def test_resolution_is_concurrent():
         min_rating=0.0,
         resolve_concurrency=8,
         dry_run=True,
-        first_run=False,
         tz_name="Asia/Shanghai",
     )
     elapsed = time.monotonic() - start

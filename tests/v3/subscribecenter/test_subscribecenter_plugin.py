@@ -287,7 +287,8 @@ def test_status_snapshot_shape(plugin):
     assert status.plugin_version == C.PLUGIN_VERSION
     assert status.timezone == C.DEFAULT_TIMEZONE
     assert status.daily_limit == C.DEFAULT_DAILY_LIMIT
-    assert status.first_run_completed is False
+    # 已取消「首次试运行」，恒为已完成
+    assert status.first_run_completed is True
     assert status.written_today == 0
     assert len(status.sources) == len(C.ALL_SOURCES)
     assert {s.source for s in status.sources} == set(C.ALL_SOURCES)
@@ -373,30 +374,6 @@ def test_daily_counter_resets_across_days(plugin):
     plugin._bump_daily_counter()
     assert plugin._written_today() == 2
 
-
-@pytest.mark.asyncio
-async def test_run_once_is_dry_run_on_first_run(plugin, monkeypatch):
-    """**首次运行强制 dry-run**：不写入，并置位首次运行标记。"""
-    monkeypatch.setattr(plugin, "_build_sources", lambda: [])
-
-    result = await plugin.run_once()
-    assert result["accepted"] is True
-    assert result["skipped"] is False
-    assert result["summary"]["first_run"] is True
-    assert result["summary"]["dry_run"] is True
-    assert plugin.status_snapshot().first_run_completed is True
-
-
-@pytest.mark.asyncio
-async def test_run_once_second_run_follows_dry_run_config(plugin, monkeypatch):
-    """首次运行完成后按 ``dry_run`` 配置执行。"""
-    monkeypatch.setattr(plugin, "_build_sources", lambda: [])
-    await plugin.run_once()  # 首次：强制 dry-run
-
-    plugin._config["dry_run"] = False
-    result = await plugin.run_once()
-    assert result["summary"]["first_run"] is False
-    assert result["summary"]["dry_run"] is False
 
 
 @pytest.mark.asyncio

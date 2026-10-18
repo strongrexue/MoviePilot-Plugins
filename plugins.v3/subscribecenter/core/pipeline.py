@@ -68,7 +68,6 @@ class RunSummary:
     prefiltered: List[WriteOutcome] = field(default_factory=list)
     report: Optional[WriteReport] = None
     dry_run: bool = False
-    first_run: bool = False
     #: 源内去重时被丢弃的条目数（不进流水，但要计入总数才能对账）
     deduped_out: int = 0
     started_at: str = ""
@@ -91,8 +90,7 @@ class RunSummary:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "dry_run": self.dry_run,
-            "first_run": self.first_run,
-            "fetched": self.fetched_count,
+                "fetched": self.fetched_count,
             "prefiltered": len(self.prefiltered),
             "rejected_reasons": self._rejected_reasons(),
             "sources": [
@@ -472,7 +470,6 @@ async def run_pipeline(
     min_want: float = 0.0,
     resolve_concurrency: int = 8,
     dry_run: bool,
-    first_run: bool,
     already_written_today: int = 0,
     tz_name: Optional[str] = None,
     future_days_by_source: Optional[Dict[str, int]] = None,
@@ -484,7 +481,7 @@ async def run_pipeline(
     顺序（开发文档 §7.1）：拉取 → 源内去重 → 归一（源实现内完成）→ 跨源去重
     → 身份解析 → 过滤 → 额度 → 写入。
     """
-    summary = RunSummary(started_at=local_now_text(tz_name), dry_run=dry_run, first_run=first_run)
+    summary = RunSummary(started_at=local_now_text(tz_name), dry_run=dry_run)
     now = today(tz_name)
 
     # ---- 1. 并发拉取
@@ -539,7 +536,7 @@ async def run_pipeline(
     )
 
     # ---- 5. 写入（dry_run 或首次运行时只判定）
-    effective_dry_run = bool(dry_run or first_run)
+    effective_dry_run = bool(dry_run)
     summary.dry_run = effective_dry_run
     summary.report = await writer.write(
         summary.selected,

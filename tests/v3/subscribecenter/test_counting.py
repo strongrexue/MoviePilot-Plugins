@@ -195,8 +195,8 @@ def test_all_switch_rows_are_rendered():
     """配置页必须把 switchRows 里的开关**全部**渲染出来。
 
     真机回归：0.9.0 重做版面时写成 `switchRows.slice(0, 1)`，只渲染了第一项
-    （enabled，而它已经在顶部栏），导致「在发现分区显示入口」「dry-run」
-    「发送运行摘要通知」三个开关在界面上消失 —— 用户反馈「通知怎么没了」。
+    （enabled，而它已经在顶部栏），导致「在发现分区显示入口」
+    「发送运行摘要通知」等开关在界面上消失 —— 用户反馈「通知怎么没了」。
     """
     source = (
         Path(__file__).resolve().parents[3]
@@ -209,8 +209,9 @@ def test_all_switch_rows_are_rendered():
     assert "switchRows.slice(0, 1)" not in text, "又只用第一项渲染开关了"
     assert "switchRows.filter" in text, "switchRows 应该过滤后逐项渲染"
 
-    # 这三个键必须真的出现在 switchRows 定义里，否则界面上没有对应开关
-    for key in ("discovery_page_enabled", "dry_run", "notify"):
+    # 这几个键必须真的出现在 switchRows 定义里，否则界面上没有对应开关
+    # （dry_run 已于 1.9.7 移除 —— 插件调参阶段结束，不再需要试运行开关）
+    for key in ("discovery_page_enabled", "notify"):
         assert f"key: '{key}'" in text, f"switchRows 缺少 {key}"
 
 

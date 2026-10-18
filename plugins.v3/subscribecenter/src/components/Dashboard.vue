@@ -57,11 +57,7 @@ onMounted(load)
         <VChip size="small" variant="flat" :color="status.enabled ? 'success' : 'default'">
           {{ status.enabled ? '已启用' : '未启用' }}
         </VChip>
-        <VChip v-if="status.dry_run" size="small" variant="flat" color="info">dry-run</VChip>
-        <VChip v-if="status.busy" size="small" variant="flat" color="warning">运行中</VChip>
-        <VChip v-if="!status.first_run_completed" size="small" variant="flat" color="warning">
-          首次将 dry-run
-        </VChip>
+            <VChip v-if="status.busy" size="small" variant="flat" color="warning">运行中</VChip>
       </div>
 
       <div class="sc-hint mb-1">

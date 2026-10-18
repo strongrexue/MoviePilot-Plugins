@@ -39,7 +39,6 @@ const busy = ref('')
 const status = ref(null)
 const tip = ref({ show: false, ok: true, text: '' })
 const previewItems = ref([])
-const activeTab = ref('config')
 const activeSection = ref('overview')
 
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
@@ -111,11 +110,6 @@ const switchRows = [
     hint: '关闭只是不显示入口，插件仍会按时运行',
   },
   {
-    key: 'dry_run',
-    label: 'dry-run（只记录不写入）',
-    hint: '调参阶段建议开启：跑完整流程但不真的建订阅',
-  },
-  {
     key: 'notify_each_subscription',
     label: '每条新订阅都发 MP 原生通知',
     hint: 'MP 自带的「新增订阅」消息；关闭后只有下面的运行摘要',
@@ -138,6 +132,7 @@ const sectionNav = computed(() => [
   { key: 'douban', label: '豆瓣榜单', icon: 'mdi-movie-filter-outline' },
   { key: 'hot_media', label: '热门媒体', icon: 'mdi-fire' },
   { key: 'schedule', label: '写入与调度', icon: 'mdi-calendar-clock' },
+  { key: 'preview', label: '预览结果', icon: 'mdi-eye-outline' },
 ])
 
 const overviewCards = computed(() => {
@@ -189,17 +184,8 @@ const overviewAlerts = computed(() => {
       text: `${versionMismatch.value}：浏览器仍在用缓存的旧联邦组件，请按 Ctrl+Shift+R 硬刷新后再操作。`,
     })
   }
-  if (status.value && !status.value.first_run_completed) {
-    list.push({
-      type: 'info',
-      text: '首次运行会强制 dry-run 一次：只记录不写入，确认结果后再放开。',
-    })
-  }
   if (!form.value.enabled) {
     list.push({ type: 'warning', text: '插件当前未启用，定时任务不会执行。' })
-  }
-  if (form.value.dry_run) {
-    list.push({ type: 'info', text: 'dry-run 已开启：本次运行不会真的建订阅。' })
   }
   if (!cronValid()) {
     list.push({ type: 'error', text: '执行时间不是合法的 5 段式 cron（分 时 日 月 周）。' })
@@ -433,7 +419,7 @@ async function runOnce() {
       setTip(
         `本次完成：拉取 ${s.fetched ?? 0} 条 / 新增 ${s.added ?? 0} 条 / `
           + `跳过 ${s.skipped ?? 0} 条 / 待确认 ${s.pending_review ?? 0} 条`
-          + (s.dry_run ? '（dry-run，未写入）' : ''),
+          ,
       )
     }
     await loadStatus()
@@ -525,18 +511,9 @@ onMounted(() => {
       />
     </div>
 
-    <VTabs v-model="activeTab" density="compact" class="sc-tabs" color="primary">
-      <VTab value="config">
-        <VIcon icon="mdi-tune-variant" size="16" class="mr-1" />订阅配置
-      </VTab>
-      <VTab value="history">
-        <VIcon icon="mdi-history" size="16" class="mr-1" />订阅历史
-      </VTab>
-    </VTabs>
-
     <div class="sc-body">
       <!-- 左侧分区导航 -->
-      <nav v-if="activeTab === 'config'" class="sc-nav">
+      <nav class="sc-nav">
         <button
           v-for="item in sectionNav"
           :key="item.key"
@@ -1293,7 +1270,7 @@ onMounted(() => {
 
             <VDivider class="my-3" />
             <!-- 注意：这里要把 switchRows 里除 enabled 之外的全部渲染出来。
-                 之前写成 slice(0, 1) 只渲染了第一项，导致「发现页入口」「dry-run」
+                 之前写成 slice(0, 1) 只渲染了第一项，导致部分开关渲染不出来。
                  「发送运行摘要通知」三个开关在界面上消失（真机反馈：通知开关没了）。 -->
             <div
               v-for="row in switchRows.filter((item) => item.key !== 'enabled')"
@@ -1317,8 +1294,7 @@ onMounted(() => {
                 <div class="sc-row-label">清零今日写入计数（测试开关）</div>
                 <div class="sc-row-hint">
                   保存后把「今日已写入 N 条」清零，方便同一天反复测；保存即自动置回关闭。
-                  首次运行无论此开关如何都会强制 dry-run 一次。
-                </div>
+                              </div>
               </div>
               <VSwitch
                 v-model="form.reset_daily_counter"
@@ -1331,7 +1307,7 @@ onMounted(() => {
         </template>
 
         <!-- 预览结果 -->
-        <template v-if="activeTab === 'history'">
+        <template v-if="activeSection === 'preview'">
           <div class="sc-card">
             <div class="sc-card-title sc-preview-head">
               <VIcon icon="mdi-eye-outline" size="16" /> 预览结果

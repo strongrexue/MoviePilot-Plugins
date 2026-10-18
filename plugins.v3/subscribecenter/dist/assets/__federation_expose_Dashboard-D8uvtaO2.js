@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi } from './_plugin-vue_export-helper-BzO4zkx6.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi } from './_plugin-vue_export-helper-C1db3rWf.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -97,41 +97,15 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }, 8, ["color"]),
-            (status.value.dry_run)
+            (status.value.busy)
               ? (_openBlock(), _createBlock(_component_VChip, {
                   key: 0,
                   size: "small",
                   variant: "flat",
-                  color: "info"
+                  color: "warning"
                 }, {
                   default: _withCtx(() => [...(_cache[0] || (_cache[0] = [
-                    _createTextVNode("dry-run", -1)
-                  ]))]),
-                  _: 1
-                }))
-              : _createCommentVNode("", true),
-            (status.value.busy)
-              ? (_openBlock(), _createBlock(_component_VChip, {
-                  key: 1,
-                  size: "small",
-                  variant: "flat",
-                  color: "warning"
-                }, {
-                  default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
                     _createTextVNode("运行中", -1)
-                  ]))]),
-                  _: 1
-                }))
-              : _createCommentVNode("", true),
-            (!status.value.first_run_completed)
-              ? (_openBlock(), _createBlock(_component_VChip, {
-                  key: 2,
-                  size: "small",
-                  variant: "flat",
-                  color: "warning"
-                }, {
-                  default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
-                    _createTextVNode(" 首次将 dry-run ", -1)
                   ]))]),
                   _: 1
                 }))
@@ -153,6 +127,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dbb6a260"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b4a4c95d"]]);
 
 export { Dashboard as default };

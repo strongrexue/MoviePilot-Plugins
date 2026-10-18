@@ -60,7 +60,6 @@ export const configDefaults = {
   // ---------------- Simkl
   // ---------------- 写入
   daily_limit: 30,
-  dry_run: false,
   // ---------------- 调度与通知
   cron_tmdb: '',
   cron_anilist: '',

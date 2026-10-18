@@ -1093,7 +1093,10 @@ onUnmounted(() => {
   line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
-.cache-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cache-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* 行内按钮与开关不参与收缩：否则「按钮 + cron 输入」同排时按钮会被压扁、边框互相压住 */
+.cache-actions > .v-btn,
+.cache-actions > .v-switch { flex: 0 0 auto; }
 .cache-table { font-size: 12.5px; }
 .cache-table .cache-nowrap { white-space: nowrap; }
 .cache-mono { font-family: monospace; }

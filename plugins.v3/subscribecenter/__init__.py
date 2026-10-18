@@ -51,7 +51,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.11.0"
+    plugin_version = "1.11.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -356,6 +356,32 @@ class SubscribeCenter(_PluginBase):
         return await api_controller.api_system_share_save(self, request)
 
 
+    async def calendar_month(self, month_text: str = "") -> Dict[str, Any]:
+        """整月日历（复刻 MoviePilot 日历页）：返回 {日期: 条目}。"""
+        import re as _re
+
+        from app.db import async_session_scope
+        from app.db.models.subscribe import Subscribe
+        from sqlalchemy import select
+
+        from .core import calendar as calendar_core
+
+        picked = str(month_text or "").strip()
+        if not _re.fullmatch(r"\d{4}-\d{2}", picked):
+            picked = today(self._tz()).strftime("%Y-%m")
+
+        async with async_session_scope() as session:
+            rows = (
+                await session.execute(
+                    select(Subscribe).where(Subscribe.state.in_(calendar_core.ACTIVE_STATES))
+                )
+            ).scalars().all()
+
+        first_day = f"{picked}-01"
+        index = await self._episode_air_index(rows, first_day)
+        data = calendar_core.build_month(rows, picked, index)
+        return data
+
     async def calendar_today(self, date_text: str = "") -> Dict[str, Any]:
         """某天的日历：默认今天，可传 YYYY-MM-DD 查历史 / 未来。"""
         import re as _re
@@ -450,9 +476,9 @@ class SubscribeCenter(_PluginBase):
                 index[key] = cache[key][1]
         return index
 
-    async def api_calendar(self, date: str = "") -> Any:
-        """日历接口（date 可空，默认今天）。"""
-        return await api_controller.api_calendar(self, date=date)
+    async def api_calendar(self, date: str = "", month: str = "") -> Any:
+        """日历接口：month=YYYY-MM 返回整月；date 返回单日。"""
+        return await api_controller.api_calendar(self, date=date, month=month)
 
     async def api_card_theme(self) -> Any:
         """读取订阅卡片配色。"""

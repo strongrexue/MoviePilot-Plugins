@@ -60,16 +60,28 @@ def test_no_stray_summary_tag():
     assert "<summary>" not in text
 
 
-def test_page_has_calendar_tab_default_and_scrollable_grid():
-    """详情页：日历是默认 tab，海报墙在板块内滚动，手机两列。"""
+def test_page_has_calendar_tab_default_and_month_grid():
+    """详情页：日历是默认 tab，复刻 MP 月历网格（7 列、格子内滚动、可用 +N 展开）。"""
     page = (
         Path(__file__).resolve().parents[3]
         / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Page.vue"
     )
     text = page.read_text(encoding="utf-8")
     assert "const viewTab = ref('calendar')" in text, "日历必须是默认 tab"
-    assert "sc-cal-scroll" in text, "海报墙必须在自己板块里滚动"
+    assert "sc-cal-scroll" in text, "月历要在自己板块里滚动"
     assert "overflow-y: auto" in text
-    assert "repeat(auto-fill, minmax(132px" in text, "海报按列宽自适应（避免过大）"
-    assert "repeat(2" in text, "手机 2 列"
+    assert "grid-template-columns: repeat(7" in text, "月历固定 7 列（周一到周日）"
+    assert "sc-cal-more" in text, "超过每格上限要有 +N 展开"
     assert "viewTab === 'history'" in text, "发现流水仍可切换"
+
+
+def test_calendar_uses_month_api():
+    """前端必须走整月接口，且支持上/下月。"""
+    page = (
+        Path(__file__).resolve().parents[3]
+        / "plugins.v3" / PLUGIN_ID / "src" / "components" / "Page.vue"
+    )
+    text = page.read_text(encoding="utf-8")
+    assert "calendar?month=" in text
+    assert "function shiftMonth(" in text
+    assert "calMonthTitle" in text

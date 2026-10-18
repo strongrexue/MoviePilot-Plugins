@@ -23,33 +23,109 @@ const tip = ref({ show: false, ok: true, text: '' })
 const status = ref(null)
 /** 详情页视图：日历（默认）/ 发现流水。 */
 const viewTab = ref('calendar')
-/** 所选日期（默认今天，可查历史/未来）。 */
-const calDate = ref('')
-
-/** 日历数据（来自 GET /calendar?date=）。 */
+/** 当前月份（YYYY-MM，默认本月）。 */
+const calMonth = ref('')
+/** 某天展开全部条目（key = YYYY-MM-DD）。 */
+const expandedDays = ref({})
+/** 整月日历数据（GET /calendar?month=）。 */
 const calendar = ref(null)
 const calendarLoading = ref(false)
 
-/** 拉今日日历。 */
+/** 拉整月日历。 */
 async function loadCalendar() {
   calendarLoading.value = true
   try {
-    const query = calDate.value ? `calendar?date=${calDate.value}` : 'calendar'
+    const query = calMonth.value ? `calendar?month=${calMonth.value}` : 'calendar?month='
     const data = unwrap(await getPluginApi(props.api, props.pluginId, query))
     calendar.value = data
-    // 后端会回填真实日期（空参数时等于今天）
-    calDate.value = data?.today || calDate.value
+    calMonth.value = data?.month || calMonth.value
   } catch (error) {
-    calendar.value = { today: '', total: 0, updated: 0, pending: 0, items: [] }
+    calendar.value = { month: '', days: {}, total: 0, per_day_limit: 5 }
   } finally {
     calendarLoading.value = false
   }
 }
 
-/** 回到今天。 */
-function goToday() {
-  calDate.value = ''
+/** 上/下个月。 */
+function shiftMonth(delta) {
+  const text = calMonth.value || new Date().toISOString().slice(0, 7)
+  const [year, month] = text.split('-').map(Number)
+  const base = new Date(year, month - 1 + delta, 1)
+  calMonth.value = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`
   loadCalendar()
+}
+
+/** 月份标题：2026年10月。 */
+const calMonthTitle = computed(() => {
+  const text = calMonth.value || ''
+  if (!/^\d{4}-\d{2}$/.test(text)) return '—'
+  const [year, month] = text.split('-')
+  return `${year}年${Number(month)}月`
+})
+
+/** 今天的 YYYY-MM-DD。 */
+const todayText = computed(() => new Date().toISOString().slice(0, 10))
+
+/** 月历格子：周一开头，补齐前后空白。 */
+const calWeeks = computed(() => {
+  const text = calMonth.value
+  if (!/^\d{4}-\d{2}$/.test(text || '')) return []
+  const [year, month] = text.split('-').map(Number)
+  const first = new Date(year, month - 1, 1)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const lead = (first.getDay() + 6) % 7 // 周一=0
+  const cells = []
+  for (let i = 0; i < lead; i += 1) cells.push({ empty: true, key: `lead-${i}` })
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = `${text}-${String(day).padStart(2, '0')}`
+    cells.push({
+      day,
+      date,
+      key: date,
+      items: calendar.value?.days?.[date] || [],
+    })
+  }
+  while (cells.length % 7 !== 0) cells.push({ empty: true, key: `tail-${cells.length}` })
+  const weeks = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
+  return weeks
+})
+
+/** 切到本月。 */
+function goThisMonth() {
+  calMonth.value = ''
+  loadCalendar()
+}
+
+/** 展开/收起某天。 */
+function toggleDay(date) {
+  expandedDays.value = { ...expandedDays.value, [date]: !expandedDays.value[date] }
+}
+
+/** 每格默认展示的条数。 */
+const perDayLimit = computed(() => calendar.value?.per_day_limit || 5)
+
+/** 某一格应该显示的条目。 */
+function dayItems(cell) {
+  const items = cell?.items || []
+  if (expandedDays.value[cell.date]) return items
+  return items.slice(0, perDayLimit.value)
+}
+
+/** 某一格还有多少条被折叠。 */
+function hiddenCount(cell) {
+  const items = cell?.items || []
+  if (expandedDays.value[cell.date]) return 0
+  return Math.max(items.length - perDayLimit.value, 0)
+}
+
+/** 条目上的「第 N 集」文案。 */
+function episodeText(item) {
+  const eps = item?.episodes || []
+  if (eps.length) return `第 ${eps.join('、')} 集`
+  const start = Number(item?.start_episode || 1)
+  const done = Number(item?.total_episode || 0) - Number(item?.lack_episode || 0)
+  return `第 ${Math.max(start, done || start)} 集`
 }
 
 /** 日历筛选：全部 / 今日已入库 / 待入库 / 洗版。 */
@@ -564,101 +640,80 @@ onUnmounted(() => {
       <span class="sc-dim sc-maintabs-hint">可选日期 · 默认今天 · 与 MoviePilot 日历同源</span>
     </div>
 
-    <!-- 今日日历（海报墙，板块内滚动） -->
+    <!-- 日历（复刻 MoviePilot 日历：月历网格 + 每天条目） -->
     <div v-if="viewTab === 'calendar'" class="sc-card sc-cal-card">
       <div class="sc-cal-head">
-        <div class="sc-cal-date-row">
-          <span class="sc-dim">日期</span>
-          <input
-            v-model="calDate"
-            type="date"
-            class="sc-cal-date-input"
-            @change="loadCalendar()"
-          />
-          <VBtn v-if="calendar?.today !== status?.today" size="x-small" variant="text" @click="goToday">
-            今天
-          </VBtn>
-        </div>
-        <div class="sc-cal-chips">
-          <button
-            type="button"
-            class="sc-cal-chip"
-            :class="{ 'sc-cal-chip-active': calFilter === '' }"
-            @click="switchCalFilter('')"
-          >
-            全部 {{ calendar?.total || 0 }}
-          </button>
-          <button
-            type="button"
-            class="sc-cal-chip sc-cal-chip-ok"
-            :class="{ 'sc-cal-chip-active': calFilter === 'updated' }"
-            @click="switchCalFilter('updated')"
-          >
-            已入库 {{ calendar?.updated || 0 }}
-          </button>
-          <button
-            type="button"
-            class="sc-cal-chip sc-cal-chip-wait"
-            :class="{ 'sc-cal-chip-active': calFilter === 'pending' }"
-            @click="switchCalFilter('pending')"
-          >
-            待入库 {{ calendar?.pending || 0 }}
-          </button>
-        </div>
-        <VBtn
-          size="x-small"
-          variant="text"
-          class="sc-cal-refresh"
-          :loading="calendarLoading"
-          @click="loadCalendar"
-        >
+        <VBtn size="x-small" variant="text" icon="mdi-chevron-left" @click="shiftMonth(-1)" />
+        <span class="sc-cal-month">{{ calMonthTitle }}</span>
+        <VBtn size="x-small" variant="text" icon="mdi-chevron-right" @click="shiftMonth(1)" />
+        <VBtn size="x-small" variant="text" @click="goThisMonth">本月</VBtn>
+        <span class="sc-dim sc-cal-total">本月 {{ calendar?.total || 0 }} 条</span>
+        <VBtn size="x-small" variant="text" class="sc-cal-refresh" :loading="calendarLoading" @click="loadCalendar">
           刷新
         </VBtn>
       </div>
 
-      <div v-if="!calendarItems.length" class="sc-cal-empty">
-        <VIcon icon="mdi-calendar-blank-outline" size="34" />
-        <div>{{ calFilter ? '当前筛选下没有条目' : '这一天没有需要处理的更新' }}</div>
-        <div class="sc-dim">
-          {{ calFilter ? '点上方「全部」看这一天的全部条目' : '换一个日期看看，或等订阅有新的播出/入库' }}
-        </div>
+      <div class="sc-cal-weekhead">
+        <span v-for="w in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']" :key="w">{{ w }}</span>
       </div>
 
-      <div v-else class="sc-cal-scroll">
-        <div class="sc-cal-grid">
+      <div class="sc-cal-scroll">
+        <div v-for="(week, wi) in calWeeks" :key="wi" class="sc-cal-week">
           <div
-            v-for="item in calendarItems"
-            :key="item.id + '-' + item.kind"
-            class="sc-cal-item"
+            v-for="cell in week"
+            :key="cell.key"
+            class="sc-cal-day"
+            :class="{ 'sc-cal-day-empty': cell.empty, 'sc-cal-day-today': cell.date === todayText }"
           >
-            <div class="sc-cal-poster">
-              <img
-                v-if="item.poster"
-                :src="posterUrl(item)"
-                alt=""
-                loading="lazy"
-                @error="markPosterFailed($event)"
-              />
-              <VIcon v-else icon="mdi-filmstrip-box-multiple" size="26" class="sc-poster-ph" />
-              <span
-                class="sc-cal-badge"
-                :class="item.kind === 'updated' ? 'sc-cal-badge-ok' : 'sc-cal-badge-wait'"
+            <template v-if="!cell.empty">
+              <div class="sc-cal-daynum">{{ cell.day }}</div>
+              <div
+                v-for="item in dayItems(cell)"
+                :key="cell.date + '-' + item.id + '-' + item.kind"
+                class="sc-cal-ev"
               >
-                {{ item.kind === 'updated' ? '今日更新' : '今日待播' }}
-              </span>
-            </div>
-            <div class="sc-cal-title" :title="item.name">{{ item.name }}</div>
-            <div class="sc-cal-sub">
-              <template v-if="(item.episodes || []).length">第 {{ item.episodes.join('、') }} 集</template>
-              <template v-else>第 {{ item.start_episode + Math.max(item.total_episode - item.lack_episode - item.start_episode, 0) }} 集</template>
-              <span v-if="item.air_time"> · {{ item.air_time }}</span>
-            </div>
-            <div class="sc-cal-meta">
-              <span v-if="item.total_episode">
-                {{ item.kind === 'updated' ? '已入库' : '未入库' }}
-                ({{ item.total_episode - item.lack_episode }}/{{ item.total_episode }})
-              </span>
-            </div>
+                <div class="sc-cal-evposter">
+                  <img
+                    v-if="item.poster"
+                    :src="posterUrl(item)"
+                    alt=""
+                    loading="lazy"
+                    @error="markPosterFailed($event)"
+                  />
+                  <VIcon v-else icon="mdi-filmstrip-box-multiple" size="16" />
+                </div>
+                <div class="sc-cal-evbody">
+                  <div class="sc-cal-evtitle" :title="item.name">{{ item.name }}</div>
+                  <div class="sc-cal-evline">
+                    <VIcon icon="mdi-card-text-outline" size="11" />{{ episodeText(item) }}
+                  </div>
+                  <div class="sc-cal-evline" :class="item.kind === 'updated' ? 'sc-cal-done' : 'sc-cal-wait'">
+                    <VIcon :icon="item.kind === 'updated' ? 'mdi-check' : 'mdi-close'" size="11" />
+                    {{ item.kind === 'updated' ? '已入库' : '未入库' }}
+                    ({{ item.total_episode - item.lack_episode }}/{{ item.total_episode }})
+                  </div>
+                  <div class="sc-cal-evline sc-cal-time">
+                    <VIcon icon="mdi-clock-outline" size="11" />{{ item.air_time || item.air_date }}
+                  </div>
+                </div>
+              </div>
+              <button
+                v-if="hiddenCount(cell)"
+                type="button"
+                class="sc-cal-more"
+                @click="toggleDay(cell.date)"
+              >
+                <VIcon icon="mdi-unfold-more-horizontal" size="12" /> +{{ hiddenCount(cell) }}
+              </button>
+              <button
+                v-else-if="expandedDays[cell.date]"
+                type="button"
+                class="sc-cal-more"
+                @click="toggleDay(cell.date)"
+              >
+                <VIcon icon="mdi-unfold-less-horizontal" size="12" /> 收起
+              </button>
+            </template>
           </div>
         </div>
       </div>
@@ -1303,67 +1358,40 @@ onUnmounted(() => {
   font-size: 11.5px;
 }
 
-/* 今日日历：摘要固定、海报墙内部滚动 */
+/* 日历：月历网格（复刻 MoviePilot 日历页） */
 .sc-cal-card {
   display: flex;
   flex-direction: column;
-  min-height: 260px;
+  min-height: 320px;
   max-height: calc(100dvh - 420px);
   overflow: hidden;
 }
 .sc-cal-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 6px;
   flex: 0 0 auto;
-  padding-bottom: 8px;
+  padding-bottom: 6px;
 }
-.sc-cal-date-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.sc-cal-date {
-  font-size: 18px;
+.sc-cal-month {
+  font-size: 17px;
   font-weight: 700;
+}
+.sc-cal-total {
+  font-size: 11.5px;
 }
 .sc-cal-refresh {
   margin-left: auto;
 }
-.sc-cal-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.sc-cal-chip {
+.sc-cal-weekhead {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 2px 0 4px;
   font-size: 11.5px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--v-border-color), 0.3);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  opacity: 0.8;
-}
-.sc-cal-chip:hover {
-  opacity: 1;
-}
-.sc-cal-chip-active {
-  background: rgba(var(--v-border-color), 0.22);
-  border-color: rgb(var(--v-theme-primary));
-  opacity: 1;
-  font-weight: 600;
-}
-.sc-cal-chip-ok {
-  color: rgb(var(--v-theme-success));
-  border-color: rgba(var(--v-theme-success), 0.5);
-}
-.sc-cal-chip-wait {
-  color: rgb(var(--v-theme-warning));
-  border-color: rgba(var(--v-theme-warning), 0.5);
-}
-.sc-cal-chip-best {
-  color: rgb(var(--v-theme-secondary));
+  text-align: center;
+  opacity: 0.7;
 }
 .sc-cal-scroll {
   flex: 1 1 auto;
@@ -1372,91 +1400,113 @@ onUnmounted(() => {
   overscroll-behavior: contain;
   padding-right: 4px;
 }
-.sc-cal-grid {
+.sc-cal-week {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 10px 8px;
-  align-items: start;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 4px;
 }
-.sc-cal-item {
-  min-width: 0;
-}
-.sc-cal-poster {
-  position: relative;
+.sc-cal-day {
+  min-height: 92px;
+  border: 1px solid rgba(var(--v-border-color), 0.18);
   border-radius: 8px;
+  padding: 4px 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(var(--v-border-color), 0.05);
+}
+.sc-cal-day-empty {
+  border: none;
+  background: transparent;
+}
+.sc-cal-day-today {
+  border-color: rgb(var(--v-theme-primary));
+  box-shadow: inset 0 0 0 1px rgb(var(--v-theme-primary));
+}
+.sc-cal-daynum {
+  font-size: 11.5px;
+  opacity: 0.75;
+  text-align: right;
+}
+.sc-cal-ev {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+.sc-cal-evposter {
+  width: 30px;
+  height: 42px;
+  border-radius: 4px;
   overflow: hidden;
-  aspect-ratio: 2 / 3;
+  flex: 0 0 auto;
   background: rgba(var(--v-border-color), 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.sc-cal-poster img {
+.sc-cal-evposter img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-.sc-cal-badge {
-  position: absolute;
-  left: 4px;
-  top: 4px;
-  font-size: 10.5px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  color: #14141c;
+.sc-cal-evbody {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.sc-cal-evtitle {
+  font-size: 11.5px;
   font-weight: 600;
-}
-.sc-cal-badge-ok {
-  background: rgb(var(--v-theme-success));
-}
-.sc-cal-badge-wait {
-  background: rgb(var(--v-theme-warning));
-}
-.sc-cal-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  margin-top: 5px;
+  line-height: 1.25;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
-.sc-cal-sub {
-  font-size: 11px;
-  opacity: 0.7;
-}
-.sc-cal-meta {
+.sc-cal-evline {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  opacity: 0.75;
+  gap: 3px;
+  font-size: 10.5px;
+  opacity: 0.8;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
 }
-.sc-cal-best {
-  color: rgb(var(--v-theme-secondary));
+.sc-cal-done {
+  color: rgb(var(--v-theme-success));
+  opacity: 1;
 }
-.sc-cal-empty {
-  flex: 1 1 auto;
+.sc-cal-wait {
+  color: rgb(var(--v-theme-warning));
+  opacity: 1;
+}
+.sc-cal-time {
+  opacity: 0.6;
+}
+.sc-cal-more {
+  border: 1px dashed rgba(var(--v-theme-primary), 0.6);
+  background: transparent;
+  color: rgb(var(--v-theme-primary));
+  border-radius: 6px;
+  font-size: 10.5px;
+  padding: 2px 0;
+  cursor: pointer;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 13px;
-  opacity: 0.8;
-  padding: 24px 0;
+  gap: 2px;
 }
-
 @media (max-width: 900px) {
-  .sc-cal-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .sc-cal-card {
-    max-height: calc(100dvh - 360px);
+    max-height: calc(100dvh - 340px);
   }
-  .sc-cal-head {
-    flex-wrap: wrap;
-    gap: 8px;
+  .sc-cal-day {
+    min-height: 72px;
+  }
+  .sc-cal-evposter {
+    display: none;
   }
   .sc-maintabs-hint {
     display: none;

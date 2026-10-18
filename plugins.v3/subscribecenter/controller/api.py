@@ -174,14 +174,17 @@ __all__ = [
 ]
 
 
-async def api_calendar(plugin, date: str = "") -> Any:
-    """日历：某天已入库 / 待播的订阅（date 为空=今天）。"""
+async def api_calendar(plugin, date: str = "", month: str = "") -> Any:
+    """日历：``month=YYYY-MM`` 返回整月；否则按 ``date``（空=今天）返回单日。"""
     try:
+        if month:
+            data = await plugin.calendar_month(month_text=month)
+            return schemas.Response(success=True, data=api_schemas.CalendarMonth(**data))
         data = await plugin.calendar_today(date_text=date)
         return schemas.Response(success=True, data=api_schemas.CalendarView(**data))
     except Exception as err:  # noqa: BLE001
-        logger.error(f"[SubscribeCenter] 读取今日日历失败：{err}", exc_info=True)
-        raise HTTPException(status_code=500, detail="读取今日日历失败") from err
+        logger.error(f"[SubscribeCenter] 读取日历失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取日历失败") from err
 
 
 async def api_card_theme(plugin) -> Any:

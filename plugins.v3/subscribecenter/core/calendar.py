@@ -117,3 +117,34 @@ def summarize(items: List[Dict[str, Any]]) -> Dict[str, int]:
         "pending": len(items) - len(updated),
         "best_version": len([item for item in items if item["best_version"]]),
     }
+
+
+def month_bounds(month: str) -> List[str]:
+    """返回该月所有日期（YYYY-MM-DD）；month 形如 2026-10。"""
+    import calendar as _calendar
+    from datetime import date as _date
+
+    year_text, month_text = month.split("-")
+    year, mon = int(year_text), int(month_text)
+    days = _calendar.monthrange(year, mon)[1]
+    return [_date(year, mon, day).isoformat() for day in range(1, days + 1)]
+
+
+def build_month(
+    rows: Iterable[Any],
+    month: str,
+    episode_index: Optional[Dict[Any, List[Any]]] = None,
+) -> Dict[str, Any]:
+    """整月日历：{日期: [条目]}，只有有内容的天才出现在结果里。"""
+    rows = list(rows)
+    days: Dict[str, List[Dict[str, Any]]] = {}
+    for day in month_bounds(month):
+        items = build_today(rows, day, episode_index)
+        if items:
+            days[day] = items
+    return {
+        "month": month,
+        "days": days,
+        "total": sum(len(items) for items in days.values()),
+        "per_day_limit": 5,
+    }

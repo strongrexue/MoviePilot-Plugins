@@ -124,6 +124,17 @@ class CalendarView(BaseModel):
     items: List[CalendarItem] = Field(default_factory=list)
 
 
+class CalendarMonth(BaseModel):
+    """整月日历（复刻 MoviePilot 日历页）。"""
+
+    month: str = Field(description="月份 YYYY-MM")
+    total: int = Field(default=0, description="本月条目总数")
+    per_day_limit: int = Field(default=5, description="每格默认展示条数")
+    days: Dict[str, List[CalendarItem]] = Field(
+        default_factory=dict, description="日期 → 当天条目"
+    )
+
+
 class HistoryPage(BaseModel):
     """分页流水。"""
 
@@ -248,6 +259,7 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
 __all__ = [
     "API_RESPONSE_MODELS",
     "CalendarItem",
+    "CalendarMonth",
     "CalendarView",
     "HistoryPage",
     "CardTheme",

@@ -948,13 +948,21 @@ onUnmounted(() => {
 }
 .mon-rule-head-open { cursor: default; }
 .mon-rule-toggle {
-  flex: 0 0 14px;
-  width: 14px;
-  text-align: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
   font-size: 12px;
   line-height: 1;
-  opacity: 0.65;
+  opacity: 0.75;
   user-select: none;
+}
+.mon-rule-head:hover .mon-rule-toggle {
+  opacity: 1;
+  background: rgba(var(--v-theme-on-surface), 0.08);
 }
 /* 下拉框容器：阻止冒泡，选频道/删 chip 时不会误触整行折叠 */
 .mon-rule-chatfield { flex: 1 1 240px; min-width: 0; cursor: default; }

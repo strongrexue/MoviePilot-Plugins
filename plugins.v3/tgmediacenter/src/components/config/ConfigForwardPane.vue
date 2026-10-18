@@ -1047,8 +1047,10 @@ onUnmounted(() => {
   cursor: pointer;
   padding: 8px 10px;
 }
-.fwd-rule-caret { flex: 0 0 auto; width: 12px; font-size: 12px; line-height: 1; text-align: center; opacity: 0.65; user-select: none; }
-.fwd-rule-head:hover .fwd-rule-caret { opacity: 1; }
+.fwd-rule-caret { flex: 0 0 24px; width: 24px; height: 24px; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 6px; font-size: 12px; line-height: 1; text-align: center;
+  opacity: 0.75; user-select: none; }
+.fwd-rule-head:hover .fwd-rule-caret { opacity: 1; background: rgba(var(--v-theme-on-surface), 0.08); }
 /* 下拉自身要能正常点击，所以这一格不继承整行的 pointer */
 .fwd-rule-source { flex: 1 1 260px; min-width: 200px; cursor: default; }
 .fwd-rule-tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }

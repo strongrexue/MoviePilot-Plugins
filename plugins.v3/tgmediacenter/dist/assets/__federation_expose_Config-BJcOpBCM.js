@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.16';
+const FRONTEND_VERSION = '1.13.17';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -108,7 +108,7 @@ const _hoisted_16$5 = {
 };
 const _hoisted_17$5 = { class: "tg-wizard-actions" };
 const _hoisted_18$5 = { class: "tg-dialogs" };
-const _hoisted_19$5 = { class: "tg-hint" };
+const _hoisted_19$4 = { class: "tg-hint" };
 
 const {computed: computed$6,onMounted: onMounted$6,onUnmounted: onUnmounted$4,ref: ref$7} = await importShared('vue');
 
@@ -884,7 +884,7 @@ return (_ctx, _cache) => {
         "menu-props": { maxHeight: 320 },
         "no-data-text": dialogs.value.length ? '没有匹配的对话' : '暂无缓存：登录后点「刷新对话列表」拉取'
       }, null, 8, ["items", "label", "no-data-text"]),
-      _createElementVNode$6("div", _hoisted_19$5, [
+      _createElementVNode$6("div", _hoisted_19$4, [
         (dialogsUpdatedAt.value)
           ? (_openBlock$6(), _createElementBlock$6(_Fragment$6, { key: 0 }, [
               _createTextVNode$6("更新于 " + _toDisplayString$6(dialogsUpdatedAt.value) + "。 ", 1)
@@ -900,7 +900,7 @@ return (_ctx, _cache) => {
 };
 const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$6, [['__scopeId',"data-v-401485ef"]]);
 
-const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,createTextVNode:_createTextVNode$5,withCtx:_withCtx$5,toDisplayString:_toDisplayString$5,openBlock:_openBlock$5,createBlock:_createBlock$5,createCommentVNode:_createCommentVNode$5,createElementVNode:_createElementVNode$5,createElementBlock:_createElementBlock$5,Transition:_Transition,normalizeClass:_normalizeClass$1,renderList:_renderList$5,Fragment:_Fragment$5} = await importShared('vue');
+const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,createTextVNode:_createTextVNode$5,withCtx:_withCtx$5,toDisplayString:_toDisplayString$5,openBlock:_openBlock$5,createBlock:_createBlock$5,createCommentVNode:_createCommentVNode$5,createElementVNode:_createElementVNode$5,createElementBlock:_createElementBlock$5,Transition:_Transition,normalizeClass:_normalizeClass$2,renderList:_renderList$5,Fragment:_Fragment$5} = await importShared('vue');
 
 
 const _hoisted_1$5 = { class: "p115-pane" };
@@ -936,7 +936,7 @@ const _hoisted_15$4 = {
 const _hoisted_16$4 = { class: "p115-actions" };
 const _hoisted_17$4 = { class: "p115-task-row" };
 const _hoisted_18$4 = { class: "p115-task-cid" };
-const _hoisted_19$4 = { class: "p115-task-verify" };
+const _hoisted_19$3 = { class: "p115-task-verify" };
 const _hoisted_20$3 = { class: "p115-task-batch" };
 const _hoisted_21$3 = { class: "p115-notify" };
 const _hoisted_22$3 = { class: "p115-actions" };
@@ -1314,7 +1314,7 @@ return (_ctx, _cache) => {
             (status.value?.cookie_configured)
               ? (_openBlock$5(), _createElementBlock$5("div", {
                   key: 0,
-                  class: _normalizeClass$1(["p115-ck", { 'p115-ck--open': ckRevealed.value }])
+                  class: _normalizeClass$2(["p115-ck", { 'p115-ck--open': ckRevealed.value }])
                 }, [
                   _createVNode$5(_component_VIcon, {
                     size: "16",
@@ -1490,7 +1490,7 @@ return (_ctx, _cache) => {
                   "hide-details": ""
                 }, null, 8, ["modelValue"])
               ]),
-              _createElementVNode$5("div", _hoisted_19$4, [
+              _createElementVNode$5("div", _hoisted_19$3, [
                 _createVNode$5(_component_VBtn, {
                   size: "small",
                   variant: "tonal",
@@ -1737,7 +1737,7 @@ return (_ctx, _cache) => {
 };
 const ConfigPan115Pane = /*#__PURE__*/_export_sfc(_sfc_main$5, [['__scopeId',"data-v-df768879"]]);
 
-const {resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,toDisplayString:_toDisplayString$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementVNode:_createElementVNode$4,normalizeClass:_normalizeClass,createElementBlock:_createElementBlock$4,renderList:_renderList$4,Fragment:_Fragment$4,withModifiers:_withModifiers$1,vShow:_vShow$1,withDirectives:_withDirectives$1,unref:_unref$2} = await importShared('vue');
+const {resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,toDisplayString:_toDisplayString$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementVNode:_createElementVNode$4,normalizeClass:_normalizeClass$1,createElementBlock:_createElementBlock$4,renderList:_renderList$4,Fragment:_Fragment$4,withModifiers:_withModifiers$1,vShow:_vShow$1,withDirectives:_withDirectives$1,unref:_unref$2} = await importShared('vue');
 
 
 const _hoisted_1$4 = { class: "mon-pane" };
@@ -1767,7 +1767,7 @@ const _hoisted_17$3 = {
   class: "mon-empty"
 };
 const _hoisted_18$3 = ["title", "onClick"];
-const _hoisted_19$3 = { class: "mon-rule-toggle" };
+const _hoisted_19$2 = { class: "mon-rule-toggle" };
 const _hoisted_20$2 = { class: "mon-rule-tags" };
 const _hoisted_21$2 = {
   key: 3,
@@ -2244,7 +2244,7 @@ return (_ctx, _cache) => {
             ]),
             _createElementVNode$4("div", _hoisted_12$3, [
               _createElementVNode$4("span", {
-                class: _normalizeClass(status.value?.pipeline?.handler_registered ? '' : 'mon-foot-warn')
+                class: _normalizeClass$1(status.value?.pipeline?.handler_registered ? '' : 'mon-foot-warn')
               }, " 消息监听" + _toDisplayString$4(status.value?.pipeline?.handler_registered ? '已注册' : '未注册'), 3),
               (status.value?.pipeline?.started_at)
                 ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_13$3, "启动于 " + _toDisplayString$4(status.value.pipeline.started_at), 1))
@@ -2315,11 +2315,11 @@ return (_ctx, _cache) => {
                   _createVNode$4(_component_VCardText, { class: "pa-0" }, {
                     default: _withCtx$4(() => [
                       _createElementVNode$4("div", {
-                        class: _normalizeClass(["mon-rule-head", { 'mon-rule-head-open': isExpanded(rule) }]),
+                        class: _normalizeClass$1(["mon-rule-head", { 'mon-rule-head-open': isExpanded(rule) }]),
                         title: isExpanded(rule) ? '点击收起这条规则的编辑表单' : '点击展开编辑这条规则',
                         onClick: $event => (toggleRule(rule))
                       }, [
-                        _createElementVNode$4("span", _hoisted_19$3, _toDisplayString$4(isExpanded(rule) ? '▾' : '▸'), 1),
+                        _createElementVNode$4("span", _hoisted_19$2, _toDisplayString$4(isExpanded(rule) ? '▾' : '▸'), 1),
                         _createElementVNode$4("div", {
                           class: "mon-rule-chatfield",
                           onClick: _cache[1] || (_cache[1] = _withModifiers$1(() => {}, ["stop"]))
@@ -2681,7 +2681,7 @@ const _hoisted_15$2 = { key: 2 };
 const _hoisted_16$2 = { key: 3 };
 const _hoisted_17$2 = { key: 4 };
 const _hoisted_18$2 = { class: "cache-fields" };
-const _hoisted_19$2 = { class: "cache-field" };
+const _hoisted_19$1 = { class: "cache-field" };
 const _hoisted_20$1 = { class: "cache-field" };
 const _hoisted_21$1 = {
   key: 0,
@@ -3351,7 +3351,7 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardText, { class: "cache-body" }, {
           default: _withCtx$3(() => [
             _createElementVNode$3("div", _hoisted_18$2, [
-              _createElementVNode$3("div", _hoisted_19$2, [
+              _createElementVNode$3("div", _hoisted_19$1, [
                 _createVNode$3(_component_VSelect, {
                   modelValue: settings.value.chat_ids,
                   "onUpdate:modelValue": [
@@ -4061,7 +4061,7 @@ const _hoisted_16$1 = {
 };
 const _hoisted_17$1 = { class: "fwd-rule-groups" };
 const _hoisted_18$1 = { class: "fwd-group" };
-const _hoisted_19$1 = { class: "fwd-group-fields" };
+const _hoisted_19 = { class: "fwd-group-fields" };
 const _hoisted_20 = { class: "fwd-field" };
 const _hoisted_21 = {
   key: 1,
@@ -4753,7 +4753,7 @@ return (_ctx, _cache) => {
                       _withDirectives(_createElementVNode$2("div", _hoisted_17$1, [
                         _createElementVNode$2("div", _hoisted_18$1, [
                           _cache[20] || (_cache[20] = _createElementVNode$2("div", { class: "fwd-group-head" }, "转发", -1)),
-                          _createElementVNode$2("div", _hoisted_19$1, [
+                          _createElementVNode$2("div", _hoisted_19, [
                             _createVNode$2(_component_VTextField, {
                               modelValue: rule.name,
                               "onUpdate:modelValue": $event => ((rule.name) = $event),
@@ -5086,7 +5086,7 @@ return (_ctx, _cache) => {
 };
 const ConfigForwardPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-c5584761"]]);
 
-const {toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createVNode:_createVNode$1,renderList:_renderList$1,Fragment:_Fragment$1,createElementBlock:_createElementBlock$1,createElementVNode:_createElementVNode$1} = await importShared('vue');
+const {toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createVNode:_createVNode$1,renderList:_renderList$1,Fragment:_Fragment$1,createElementBlock:_createElementBlock$1,createElementVNode:_createElementVNode$1,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
 const _hoisted_1$1 = { class: "p9-pane" };
@@ -5105,15 +5105,11 @@ const _hoisted_10 = { class: "p9-stat" };
 const _hoisted_11 = { class: "p9-stat-value" };
 const _hoisted_12 = { class: "p9-stat" };
 const _hoisted_13 = { class: "p9-stat-value" };
-const _hoisted_14 = { class: "p9-probe-summary" };
-const _hoisted_15 = { class: "p9-probe-line" };
-const _hoisted_16 = { class: "p9-probe-label" };
-const _hoisted_17 = ["aria-expanded", "onClick"];
-const _hoisted_18 = {
-  key: 0,
-  class: "p9-probe-detail"
-};
-const _hoisted_19 = { class: "p9-gate-fields" };
+const _hoisted_14 = { class: "p9-probe-chips" };
+const _hoisted_15 = ["title"];
+const _hoisted_16 = { class: "p9-flow-hint" };
+const _hoisted_17 = { class: "p9-gate-grid" };
+const _hoisted_18 = { class: "p9-gate-switch" };
 
 const {computed: computed$1,onMounted: onMounted$1,ref: ref$2} = await importShared('vue');
 
@@ -5131,8 +5127,8 @@ const {computed: computed$1,onMounted: onMounted$1,ref: ref$2} = await importSha
  * - **反向闸门 R1**（1.13.8 提供）：开关已迁到「消息缓存 → 缓存频道与范围」，
  *   本分区只保留探针与前向闸门。
  *
- * 版面（对齐豆瓣中心「运行总览」）：四张分区卡——运行链路 / 状态 / 宿主能力探针 /
- * 前向闸门；说明一律压到一行小字，探针详情按行展开，默认不占屏。
+ * 版面（对齐豆瓣中心「运行总览」）：运行链路 / 状态 / 宿主能力探针 / 前向闸门。
+ * 探针结果按效果图只展示 chips（详情走 hover title），不再逐行展开占屏。
  */
 
 const _sfc_main$1 = {
@@ -5159,23 +5155,9 @@ const flowSteps = ['媒体库已有？', '下载历史近 T', '活跃种？', 'P
 
 /** 探针通过数 / 总数（只读现有 probe.items） */
 const probeOkCount = computed$1(() => items.value.filter(item => item.ok).length);
+const probeBadCount = computed$1(() => items.value.filter(item => !item.ok).length);
 const probeTotal = computed$1(() => items.value.length);
 const probeCountText = computed$1(() => (probe.value ? `${probeOkCount.value}/${probeTotal.value}` : '—'));
-
-/** 顶部汇总一行：全部通过 / N 项未通过 + 探测时间 */
-const probeSummary = computed$1(() => {
-  const data = probe.value;
-  if (!data) return ''
-  const bad = items.value.filter(item => !item.ok).length;
-  const text = data.ok ? '全部通过' : `${bad} 项未通过`;
-  return data.checked_at ? `${text} · 探测于 ${data.checked_at}` : text
-});
-
-/** 探针详情按行展开，默认全部收起（避免大段 app.sdk... 文字占屏） */
-const expanded = ref$2({});
-function toggleDetail(key) {
-  expanded.value = { ...expanded.value, [key]: !expanded.value[key] };
-}
 
 function setMessage(text, ok = true) {
   message.value = text;
@@ -5204,7 +5186,6 @@ return (_ctx, _cache) => {
   const _component_VCardText = _resolveComponent$1("VCardText");
   const _component_VCard = _resolveComponent$1("VCard");
   const _component_VBtn = _resolveComponent$1("VBtn");
-  const _component_VIcon = _resolveComponent$1("VIcon");
   const _component_VSwitch = _resolveComponent$1("VSwitch");
   const _component_VTextField = _resolveComponent$1("VTextField");
 
@@ -5327,15 +5308,21 @@ return (_ctx, _cache) => {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardItem, null, {
           append: _withCtx$1(() => [
+            (probe.value)
+              ? (_openBlock$1(), _createElementBlock$1("span", {
+                  key: 0,
+                  class: _normalizeClass(["p9-badge", probe.value.ok ? 'p9-badge-ok' : 'p9-badge-warn'])
+                }, _toDisplayString$1(probe.value.ok ? '全部通过' : `${probeBadCount.value} 项未通过`), 3))
+              : _createCommentVNode$1("", true),
             _createVNode$1(_component_VBtn, {
               size: "small",
-              variant: "text",
+              variant: "tonal",
               "prepend-icon": "mdi-radar",
               loading: loading.value,
               onClick: load
             }, {
               default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
-                _createTextVNode$1("重新探测", -1)
+                _createTextVNode$1(" 重新探测 ", -1)
               ]))]),
               _: 1
             }, 8, ["loading"])
@@ -5349,7 +5336,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "p9-card-sub" }, {
               default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
-                _createTextVNode$1("闸门依赖的宿主能力，只读探测，不改任何状态。", -1)
+                _createTextVNode$1("只读：确认闸门依赖的宿主接口是否还在", -1)
               ]))]),
               _: 1
             })
@@ -5360,38 +5347,15 @@ return (_ctx, _cache) => {
           ? (_openBlock$1(), _createBlock$1(_component_VCardText, { key: 0 }, {
               default: _withCtx$1(() => [
                 _createElementVNode$1("div", _hoisted_14, [
-                  _createVNode$1(_component_VIcon, {
-                    icon: probe.value.ok ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline',
-                    color: probe.value.ok ? 'success' : 'warning',
-                    size: "14"
-                  }, null, 8, ["icon", "color"]),
-                  _createElementVNode$1("span", null, _toDisplayString$1(probeSummary.value), 1)
+                  (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(items.value, (item) => {
+                    return (_openBlock$1(), _createElementBlock$1("span", {
+                      key: item.key,
+                      class: _normalizeClass(["p9-probe-chip", item.ok ? 'p9-probe-chip-ok' : 'p9-probe-chip-bad']),
+                      title: item.detail
+                    }, _toDisplayString$1(item.ok ? '✓' : '✗') + " " + _toDisplayString$1(item.label), 11, _hoisted_15))
+                  }), 128))
                 ]),
-                (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(items.value, (item) => {
-                  return (_openBlock$1(), _createElementBlock$1("div", {
-                    key: item.key,
-                    class: "p9-probe-row"
-                  }, [
-                    _createElementVNode$1("div", _hoisted_15, [
-                      _createVNode$1(_component_VIcon, {
-                        icon: item.ok ? 'mdi-check' : 'mdi-close',
-                        color: item.ok ? 'success' : 'error',
-                        size: "14",
-                        class: "p9-probe-icon"
-                      }, null, 8, ["icon", "color"]),
-                      _createElementVNode$1("span", _hoisted_16, _toDisplayString$1(item.label), 1),
-                      _createElementVNode$1("button", {
-                        type: "button",
-                        class: "p9-probe-toggle",
-                        "aria-expanded": Boolean(expanded.value[item.key]),
-                        onClick: $event => (toggleDetail(item.key))
-                      }, _toDisplayString$1(expanded.value[item.key] ? '收起' : '详情'), 9, _hoisted_17)
-                    ]),
-                    (expanded.value[item.key])
-                      ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_18, _toDisplayString$1(item.detail), 1))
-                      : _createCommentVNode$1("", true)
-                  ]))
-                }), 128))
+                _createElementVNode$1("div", _hoisted_16, " 探测于 " + _toDisplayString$1(probe.value.checked_at || '—') + " · 任一红项会让闸门按 fail-open 放行，不会拦截推送。 ", 1)
               ]),
               _: 1
             }))
@@ -5405,6 +5369,17 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$1(() => [
         _createVNode$1(_component_VCardItem, null, {
+          append: _withCtx$1(() => [
+            _createVNode$1(_component_VSwitch, {
+              modelValue: __props.config.form.p9_forward_gate_enabled,
+              "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((__props.config.form.p9_forward_gate_enabled) = $event)),
+              color: "primary",
+              inset: "",
+              "hide-details": "",
+              disabled: !__props.config.form.enabled,
+              label: __props.config.form.p9_forward_gate_enabled ? '启用' : '停用'
+            }, null, 8, ["modelValue", "disabled", "label"])
+          ]),
           default: _withCtx$1(() => [
             _createVNode$1(_component_VCardTitle, { class: "p9-card-title" }, {
               default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
@@ -5414,7 +5389,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode$1(_component_VCardSubtitle, { class: "p9-card-sub" }, {
               default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
-                _createTextVNode$1(" TG 推送前先看 PT 路是否在管：有活跃种记「PT 在途」，没取到则等过成熟期 T，记录已死立即放行。 ", -1)
+                _createTextVNode$1(" PT 在管就让位：有活跃种记「PT 在途」，没取到则等过成熟期 ", -1)
               ]))]),
               _: 1
             })
@@ -5423,16 +5398,7 @@ return (_ctx, _cache) => {
         }),
         _createVNode$1(_component_VCardText, null, {
           default: _withCtx$1(() => [
-            _createVNode$1(_component_VSwitch, {
-              modelValue: __props.config.form.p9_forward_gate_enabled,
-              "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((__props.config.form.p9_forward_gate_enabled) = $event)),
-              color: "primary",
-              inset: "",
-              disabled: !__props.config.form.enabled,
-              "hide-details": "",
-              label: "启用前向闸门（默认关，开启后 TG 路让位给 PT 路）"
-            }, null, 8, ["modelValue", "disabled"]),
-            _createElementVNode$1("div", _hoisted_19, [
+            _createElementVNode$1("div", _hoisted_17, [
               _createVNode$1(_component_VTextField, {
                 modelValue: __props.config.form.p9_maturity_hours,
                 "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((__props.config.form.p9_maturity_hours) = $event)),
@@ -5441,22 +5407,25 @@ return (_ctx, _cache) => {
                 min: "0",
                 max: "72",
                 step: "1",
-                density: "comfortable",
+                density: "compact",
+                variant: "outlined",
+                "hide-details": "",
                 label: "成熟期 T（小时）",
-                hint: "PT 完全没有本集下载记录时等多久才让 TG 补，从该集第一次发现缺失起算（每集独立计时）。0 = 不等待；RSS 间隔 20 分钟左右时 2 小时通常足够。",
-                "persistent-hint": "",
                 disabled: !__props.config.form.p9_forward_gate_enabled
               }, null, 8, ["modelValue", "disabled"]),
-              _createVNode$1(_component_VSwitch, {
-                modelValue: __props.config.form.p9_check_downloader,
-                "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((__props.config.form.p9_check_downloader) = $event)),
-                color: "primary",
-                inset: "",
-                "hide-details": "",
-                label: "下载器活跃性细化（用 hash 查活种，区分「在途」与「死种」）",
-                disabled: !__props.config.form.p9_forward_gate_enabled
-              }, null, 8, ["modelValue", "disabled"])
-            ])
+              _createElementVNode$1("div", _hoisted_18, [
+                _createVNode$1(_component_VSwitch, {
+                  modelValue: __props.config.form.p9_check_downloader,
+                  "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((__props.config.form.p9_check_downloader) = $event)),
+                  color: "primary",
+                  inset: "",
+                  "hide-details": "",
+                  label: "下载器活跃性细化（用 hash 查活种）",
+                  disabled: !__props.config.form.p9_forward_gate_enabled
+                }, null, 8, ["modelValue", "disabled"])
+              ])
+            ]),
+            _cache[17] || (_cache[17] = _createElementVNode$1("div", { class: "p9-flow-hint" }, " 成熟期 = PT 完全没有本集下载记录时等多久才让 TG 补，从该集第一次发现缺失起算（每集独立计时）； 0 = 不等待，RSS 间隔 20 分钟左右时 2 小时通常足够。 ", -1))
           ]),
           _: 1
         })
@@ -5468,7 +5437,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigP9Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cf00d3a1"]]);
+const ConfigP9Pane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-d87194f2"]]);
 
 const {reactive,ref: ref$1} = await importShared('vue');
 

@@ -786,40 +786,39 @@
 .fwd-test-msg[data-v-c5584761] { font-size: 12px; opacity: 0.75; white-space: normal; word-break: break-all;
 }
 
-.p9-pane[data-v-cf00d3a1] { display: flex; flex-direction: column; gap: 8px;
+.p9-pane[data-v-d87194f2] { display: flex; flex-direction: column; gap: 8px;
 }
 /* 分区卡外观：有底色 + 1px 描边的 10px 圆角块，块与块之间 8px（对齐效果图的分区语言）。
    Vuetify 的 flat 卡片会把背景重置成与对话框同色的 surface，故用 !important 压过它；
    描边用 on-surface 的显式 alpha，避免主题变量缺失时整条 border 声明失效（计算值 0px） */
-.p9-card[data-v-cf00d3a1] {
+.p9-card[data-v-d87194f2] {
   background: rgba(var(--v-theme-on-surface), 0.04) !important;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
   border-radius: 10px;
 }
-/* 卡片内外边距统一压到 10/12（压过 Vuetify 直系子元素的 16/24）；标题区与正文区相邻处只留一份，
-   模板里不再用 pt-0 之类的工具类叠加 */
-.p9-card > .v-card-item[data-v-cf00d3a1] { padding: 10px 12px;
+/* 卡片内外边距统一压到 10/12（压过 Vuetify 直系子元素的 16/24）；标题区与正文区相邻处只留一份 */
+.p9-card > .v-card-item[data-v-d87194f2] { padding: 10px 12px;
 }
-.p9-card > .v-card-title[data-v-cf00d3a1] { padding: 10px 12px;
+.p9-card > .v-card-title[data-v-d87194f2] { padding: 10px 12px;
 }
-.p9-card > .v-card-text[data-v-cf00d3a1] { padding: 10px 12px;
+.p9-card > .v-card-text[data-v-d87194f2] { padding: 10px 12px;
 }
-.p9-card > .v-card-item + .v-card-text[data-v-cf00d3a1],
-.p9-card > .v-card-title + .v-card-text[data-v-cf00d3a1] { padding-top: 0;
+.p9-card > .v-card-item + .v-card-text[data-v-d87194f2],
+.p9-card > .v-card-title + .v-card-text[data-v-d87194f2] { padding-top: 0;
 }
-/* 卡头：12.5px 标题 + 10.5px 灰色副标题（压过 Vuetify 的 1.25rem 标题与 0.75rem 副标题） */
-.p9-card-title[data-v-cf00d3a1] { font-size: 12.5px; font-weight: 600; line-height: 1.4;
+/* 卡头：12.5px 标题 + 10.5px 灰色副标题 */
+.p9-card-title[data-v-d87194f2] { font-size: 12.5px; font-weight: 600; line-height: 1.4;
 }
-.p9-card-sub[data-v-cf00d3a1] {
+.p9-card-sub[data-v-d87194f2] {
   font-size: 10.5px; line-height: 1.5; opacity: 1;
   color: rgba(var(--v-theme-on-surface), 0.6);
   white-space: normal;
   word-break: break-word;
 }
 /* 运行链路：一行流程 chips，用箭头连接，窄屏自动换行 */
-.p9-flow[data-v-cf00d3a1] { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+.p9-flow[data-v-d87194f2] { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
 }
-.p9-flow-chip[data-v-cf00d3a1] {
+.p9-flow-chip[data-v-d87194f2] {
   padding: 3px 8px;
   font-size: 11px; line-height: 1.5;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
@@ -827,74 +826,69 @@
   background: transparent;
   white-space: nowrap;
 }
-.p9-flow-arrow[data-v-cf00d3a1] { font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.45);
+.p9-flow-arrow[data-v-d87194f2] { font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.45);
 }
-.p9-flow-hint[data-v-cf00d3a1] {
+.p9-flow-hint[data-v-d87194f2] {
   margin-top: 6px;
   font-size: 10.5px; line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
 /* 状态条：一行 4 个（与缓存/监控面板一致），窄屏回落 2×2 */
-.p9-stat-grid[data-v-cf00d3a1] { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+.p9-stat-grid[data-v-d87194f2] { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
 }
 @media (max-width: 760px) {
-.p9-stat-grid[data-v-cf00d3a1] { grid-template-columns: repeat(2, minmax(0, 1fr));
+.p9-stat-grid[data-v-d87194f2] { grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 }
-.p9-stat[data-v-cf00d3a1] {
+.p9-stat[data-v-d87194f2] {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   padding: 7px 9px;
   min-width: 0;
 }
-.p9-stat-label[data-v-cf00d3a1] { font-size: 10.5px; line-height: 1.3; color: rgba(var(--v-theme-on-surface), 0.6);
+.p9-stat-label[data-v-d87194f2] { font-size: 10.5px; line-height: 1.3; color: rgba(var(--v-theme-on-surface), 0.6);
 }
-.p9-stat-value[data-v-cf00d3a1] { font-size: 14px; font-weight: 700; line-height: 1.4; margin-top: 2px;
+.p9-stat-value[data-v-d87194f2] { font-size: 14px; font-weight: 700; line-height: 1.4; margin-top: 2px;
 }
-/* 探针：顶部一行小字汇总 + 紧凑行；行与行之间一条极淡分隔线 */
-.p9-probe-summary[data-v-cf00d3a1] {
-  display: flex; align-items: center; gap: 6px;
-  margin-bottom: 6px;
-  font-size: 10.5px; line-height: 1.4;
-  color: rgba(var(--v-theme-on-surface), 0.6);
+/* 探针结论徽章（卡头右侧） */
+.p9-badge[data-v-d87194f2] {
+  padding: 2px 8px;
+  font-size: 10.5px; line-height: 1.6;
+  border-radius: 6px;
+  white-space: nowrap;
 }
-.p9-probe-row[data-v-cf00d3a1] { padding: 3px 0;
+.p9-badge-ok[data-v-d87194f2] { background: rgba(49, 196, 141, 0.15); color: #6ee7b7;
 }
-.p9-probe-row + .p9-probe-row[data-v-cf00d3a1] {
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+.p9-badge-warn[data-v-d87194f2] { background: rgba(240, 164, 74, 0.15); color: #f6c78a;
 }
-.p9-probe-line[data-v-cf00d3a1] { display: flex; align-items: center; gap: 6px; min-width: 0;
+/* 探针结果：一行 chips（详情走 hover title），不再逐行展开 */
+.p9-probe-chips[data-v-d87194f2] { display: flex; flex-wrap: wrap; gap: 6px;
 }
-.p9-probe-icon[data-v-cf00d3a1] { flex: 0 0 auto;
+.p9-probe-chip[data-v-d87194f2] {
+  padding: 3px 8px;
+  font-size: 11px; line-height: 1.5;
+  border-radius: 6px;
+  white-space: nowrap;
 }
-.p9-probe-label[data-v-cf00d3a1] {
-  flex: 1 1 auto; min-width: 0;
-  font-size: 12px; line-height: 1.4;
-  overflow-wrap: anywhere;
+.p9-probe-chip-ok[data-v-d87194f2] { background: rgba(49, 196, 141, 0.15); color: #6ee7b7;
 }
-/* 「详情」按钮：10.5px 灰色纯文字，点开才出现该行的导入路径/字段说明 */
-.p9-probe-toggle[data-v-cf00d3a1] {
-  flex: 0 0 auto;
-  padding: 2px 5px;
-  background: transparent;
-  border: 0;
-  border-radius: 4px;
-  font-size: 10.5px; line-height: 1.4;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  cursor: pointer;
+.p9-probe-chip-bad[data-v-d87194f2] { background: rgba(244, 67, 54, 0.15); color: #f19a93;
 }
-.p9-probe-toggle[data-v-cf00d3a1]:hover { color: rgba(var(--v-theme-on-surface), 0.85); background: rgba(var(--v-theme-on-surface), 0.06);
+/* 前向闸门：两列（成熟期 T ｜ 活跃性细化），窄屏单列 */
+.p9-gate-grid[data-v-d87194f2] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
 }
-.p9-probe-detail[data-v-cf00d3a1] {
-  padding: 2px 0 2px 20px;
-  font-size: 10.5px; line-height: 1.5;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  word-break: break-all; white-space: normal;
+@media (max-width: 700px) {
+.p9-gate-grid[data-v-d87194f2] { grid-template-columns: 1fr;
 }
-.p9-gate-fields[data-v-cf00d3a1] { display: flex; flex-direction: column; gap: 8px; margin-top: 8px;
 }
-.p9-message[data-v-cf00d3a1] { margin: 0;
+.p9-gate-switch[data-v-d87194f2] { display: flex; align-items: center;
+}
+.p9-message[data-v-d87194f2] { margin: 0;
 }
 
 .tg-config[data-v-29212c06] { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px;

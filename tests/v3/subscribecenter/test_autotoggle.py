@@ -176,7 +176,7 @@ def test_best_version_ignores_note_and_keeps_searching():
         episode_priority={str(ep): 60 for ep in range(1, 13)},
         lack_episode=0,
     )
-    eps = [("2026-10-%02d" % day, day) for day in range(8, 20)]
+    eps = [("2026-10-%02d" % (7 + ep), ep) for ep in range(1, 13)]
     result = autotoggle.decide(row, eps, TODAY, keep_days=3, best_keep_days=90)
     assert result.target == autotoggle.STATE_RUN
     assert result.action == autotoggle.ACTION_KEEP
@@ -197,6 +197,76 @@ def test_best_version_pauses_after_wash_window():
     assert result.reason == autotoggle.REASON_BEST_OVERDUE
 
 
+def test_best_version_during_airing_uses_note_unless_always():
+    """播出期（索引里还有未来集）默认按普通订阅判：全部下完就先暂停。
+
+    宿主在播出期只下「首个可用版本」，真正的洗版（原盘/REMUX）是季终之后
+    才陆续有资源。播出期就按洗版判，等于所有洗版订阅长期 ``R``，正好抵消
+    「按播出日暂停」。``best_mode="always"`` 是留给想全程蹲洗版的人。
+    """
+    row = _row(
+        best_version=1,
+        note=list(range(1, 13)),
+        episode_priority={str(ep): 60 for ep in range(1, 13)},
+    )
+    eps = [("2026-10-%02d" % (7 + ep), ep) for ep in range(1, 13)]
+    eps.append(("2026-10-21", 13))
+
+    result = autotoggle.decide(row, eps, TODAY, keep_days=3, best_keep_days=90)
+    assert result.action == autotoggle.ACTION_PAUSE
+    assert result.reason == autotoggle.REASON_ALL_DONE
+
+    always = autotoggle.decide(
+        row,
+        eps,
+        TODAY,
+        keep_days=3,
+        best_keep_days=90,
+        best_mode=autotoggle.BEST_MODE_ALWAYS,
+    )
+    assert always.target == autotoggle.STATE_RUN
+    assert always.reason == autotoggle.REASON_BEST_PENDING
+
+
+def test_best_version_after_finale_enters_wash_window():
+    """季终后（索引里没有未来集）才进洗版窗口：还没洗到顶 → 保持 R。"""
+    row = _row(
+        best_version=1,
+        note=list(range(1, 13)),
+        episode_priority={str(ep): 60 for ep in range(1, 13)},
+    )
+    eps = [("2026-10-%02d" % (7 + ep), ep) for ep in range(1, 13)]
+    result = autotoggle.decide(row, eps, TODAY, keep_days=3, best_keep_days=90)
+    assert result.target == autotoggle.STATE_RUN
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.reason == autotoggle.REASON_BEST_PENDING
+
+
+def test_plan_passes_best_mode():
+    """``plan()`` 要把洗版模式透传给 ``decide()``（曾漏传导致配置无效）。"""
+    row = _row(
+        best_version=1,
+        note=list(range(1, 13)),
+        episode_priority={str(ep): 60 for ep in range(1, 13)},
+    )
+    eps = [("2026-10-%02d" % (7 + ep), ep) for ep in range(1, 13)]
+    eps.append(("2026-10-21", 13))
+    index = {("1234", 1): eps}
+
+    default = autotoggle.plan([row], index, TODAY, keep_days=3, best_keep_days=90)
+    assert default["paused"] == 1
+
+    always = autotoggle.plan(
+        [row],
+        index,
+        TODAY,
+        keep_days=3,
+        best_keep_days=90,
+        best_mode=autotoggle.BEST_MODE_ALWAYS,
+    )
+    assert always["paused"] == 0
+
+
 def test_best_version_completed_when_priority_reaches_100():
     """``episode_priority`` 全到 100 = 洗到头 → 按「已播剧集全部入库」暂停。"""
     row = _row(best_version=1, note=[1, 2], episode_priority={"1": 100, "2": 100})
@@ -211,9 +281,9 @@ def test_best_version_completed_when_priority_reaches_100():
 def test_best_version_current_priority_seed():
     """还没建 ``episode_priority`` 映射时，宿主的 ``current_priority`` 是种子值。"""
     low = _row(best_version=1, current_priority=60, total_episode=2)
-    assert autotoggle.episode_numbers(low) == set()
+    assert autotoggle.best_version_done(low) == set()
     high = _row(best_version=1, current_priority=100, total_episode=2)
-    assert autotoggle.episode_numbers(high) == {1, 2}
+    assert autotoggle.best_version_done(high) == {1, 2}
 
 
 def test_normal_subscription_still_trusts_note():

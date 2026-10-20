@@ -73,6 +73,12 @@ const RELEASE_KIND_LABELS = {
   general: '上映',
 }
 
+/** 洗版判定模式 -> 中文（与 constants.py 的 auto_toggle_best_version_mode 对应）。 */
+const BEST_MODE_OPTIONS = [
+  { title: '季终后才按洗版判（推荐）', value: 'after_finale' },
+  { title: '播出期也算未洗到顶', value: 'always' },
+]
+
 const autoToggleItems = computed(() => {
   const data = autoToggle.value
   if (!data) return []
@@ -1463,6 +1469,17 @@ onMounted(() => {
                   type="number"
                   min="0"
                   max="365"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VSelect
+                  v-model="form.auto_toggle_best_version_mode"
+                  :items="BEST_MODE_OPTIONS"
+                  label="洗版判定时机"
                   density="compact"
                   hide-details
                   variant="outlined"

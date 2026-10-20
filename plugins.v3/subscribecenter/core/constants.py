@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.13.3"
+PLUGIN_VERSION = "1.13.4"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -260,7 +260,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 7
+CONFIG_VERSION = 8
 
 
 def default_config() -> Dict[str, Any]:
@@ -381,6 +381,14 @@ def default_config() -> Dict[str, Any]:
         #: 不是「缺集」，用 3 天窗口会在季终后立刻把它停掉。设 0 表示跟随上面
         #: 的 ``auto_toggle_keep_days``。
         "auto_toggle_best_version_keep_days": DEFAULT_AUTO_TOGGLE_BEST_KEEP,
+        #: 洗版判定模式：什么时候把「没洗到顶」当成「还要继续搜」。
+        #:
+        #: - ``after_finale``（默认）：只在**本季已完结**后才按洗版算。播出期
+        #:   宿主只下「首个可用版本」，真正的洗版（原盘/REMUX）是季终之后才
+        #:   陆续有资源；播出期就按洗版判，等于所有洗版订阅长期 ``R``。
+        #: - ``always``：播出期也算（想全程蹲洗版的人用，代价是这些订阅基本
+        #:   不会被暂停）。
+        "auto_toggle_best_version_mode": "after_finale",
         #: 是否连电影订阅一起管（默认开）。
         #:
         #: 电影没有「集」，基准日取 TMDB 发行日：普通订阅看数字发行（type=4，

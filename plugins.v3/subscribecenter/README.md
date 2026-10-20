@@ -274,7 +274,7 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
   拿「已入库」当停止信号，洗版电影会永远搜下去。
 
 
-### 洗版订阅（`auto_toggle_best_version_keep_days`，默认 90 天）
+### 洗版订阅（`auto_toggle_best_version_mode` / `auto_toggle_best_version_keep_days`）
 
 开了洗版（含**按分集洗版**）的订阅，判定口径不一样 ——「下了 1080」不等于
 「不用再搜」：
@@ -282,12 +282,18 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 - 宿主对洗版订阅**入库后不归档**，而是继续找 `priority` 更高的资源
   （`priority.py` 的 `get_best_version_interested_episodes`）；只有
   `episode_priority` 里 `priority == 100` 才算洗到头；
-- 所以洗版订阅的「已入库」一律按 `priority == 100` 算，**忽略 `note`**；
-- 「还没洗到顶」的集在 `auto_toggle_best_version_keep_days`（默认 90 天）内
-  继续 `R`，超过才暂停 `S`（`best_overdue`）。
+- 「洗到顶没有」按 `episode_priority` 算，**不看 `note`**。
 
-反例（真机反馈）：一集刚下完 1080、下一集明晚才播。按 `note` 判就会得出
-「已播剧集全部入库」并暂停订阅 —— 洗版等于白开。
+**什么时候按洗版口径判**由 `auto_toggle_best_version_mode` 决定：
+
+| 取值 | 行为 | 适用 |
+|---|---|---|
+| `after_finale`（默认） | 本季**已完结**（TMDB 播出表里没有晚于今天的集）后才按洗版判：没洗到顶就继续 `R`，最多 `auto_toggle_best_version_keep_days` 天（默认 90）；播出期照普通订阅判 | 绝大多数人 |
+| `always` | 播出期也算「没洗到顶 = 还要搜」 | 想全程蹲洗版的人，代价是这些订阅基本不会被暂停 |
+
+为什么默认 `after_finale`：宿主在播出期只下「首个可用版本」，真正的洗版
+（原盘/REMUX/BD）是季终之后才陆续有资源。播出期就按洗版判，等于让所有洗版
+订阅长期 `R`，与「按播出日暂停」的初衷正好相反。
 
 
 ### 三条安全约束（都踩过坑才知道要写）
@@ -312,9 +318,9 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 - 把**全部**订阅都暂停时，宿主的 `get_subscribed_sites()` 会返回空集合，
   而这个空集合的语义是「所有站点」—— 订阅刷新仍会抓一遍全站 RSS，
   只是不再逐条匹配。所以别指望「全暂停 = 零流量」。
-- 洗版订阅按 `episode_priority` 的 `priority == 100` 判「不用再搜」，
-  `note` 只说明下过某个版本；普通订阅仍按 `note`，`note` 为空但
-  `lack_episode <= 0` 时按「整季已下完」处理。
+- 洗版订阅在**季终后**按 `episode_priority` 的 `priority == 100` 判「不用再搜」
+  （`auto_toggle_best_version_mode=always` 时播出期也按这套判）；播出期按
+  `note` 判，与普通订阅一致。
 - 「全部已播已入库」是暂停（`S`），不是标记完成：宿主的完成归档只在 `R`/`P`
   的匹配流程里发生，暂停后就轮不到它归档了。日历不受影响（日历本身包含 `S`），
   但这些条目会继续留在订阅列表里、不会自己进订阅历史。
@@ -348,6 +354,7 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 | `auto_toggle_lookahead_days` | `0` | 提前几天开始搜（0 = 只在播出当天） |
 | `auto_toggle_keep_days` | `3` | 已播未入库的集保留几天（PT 出种有延迟）；电影的「发行后继续搜几天」也用它 |
 | `auto_toggle_best_version_keep_days` | `90` | 洗版订阅的保留天数（等更好的版本，别按 3 天停） |
+| `auto_toggle_best_version_mode` | `after_finale` | 洗版判定时机：`after_finale` 季终后才按洗版判，`always` 播出期也算 |
 | `auto_toggle_movie_enabled` | `true` | 是否连电影订阅一起管（按 TMDB 发行日判） |
 | `auto_toggle_max_changes` | `0` | 单次最多改多少条（0 = 不限，恢复优先于暂停） |
 | `auto_toggle_notify` | `false` | 有实际改动时发通知 |

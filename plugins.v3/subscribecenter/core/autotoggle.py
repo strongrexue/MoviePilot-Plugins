@@ -50,6 +50,17 @@ STATE_PENDING = "P"
 #: 宿主订阅状态：暂停（被订阅刷新排除）
 STATE_PAUSED = "S"
 
+#: 洗版判定模式：只在「本季已完结」后按洗版口味算（默认）。
+#:
+#: 宿主在播出期本来就只下「首个可用版本」，真正的洗版（等原盘/REMUX/更好
+#: 的版本）是季终之后才有资源。播出期按洗版算，等于让所有洗版订阅长期 R，
+#: 与「按播出日暂停」的初衷相悖。
+BEST_MODE_AFTER_FINALE = "after_finale"
+#: 洗版判定模式：播出期也算「未洗到顶 = 还要搜」（老行为，想全程蹲洗版的选它）
+BEST_MODE_ALWAYS = "always"
+#: 允许的洗版判定模式
+BEST_MODES = (BEST_MODE_AFTER_FINALE, BEST_MODE_ALWAYS)
+
 #: 参与自动启停决策的订阅状态。
 #:
 #: 排除 ``N``（新建、还没有播出信息）与完成态（已移入订阅历史表）。
@@ -242,21 +253,13 @@ def episode_numbers(row: Any) -> set:
     关键在于区分「下载过」与「不用再搜」—— 两者对普通订阅相同，对洗版订阅
     完全不同：
 
-    - **普通订阅**：``note``（宿主写的「已下载集号」清单）就是权威答案，
-      ``note`` 为空但 ``lack_episode <= 0`` 时按整季下全处理；
-    - **洗版订阅**：下了 1080 只是「有资格升级到更好的版本」，宿主会继续找
-      ``priority`` 更高的资源（``app/application/subscription/priority.py`` 的
-      ``get_best_version_interested_episodes``），只有 ``episode_priority`` 里
-      ``priority == 100`` 才算洗到头（同文件 ``get_best_version_completed_episodes``）。
-      所以洗版订阅**必须忽略 note**：否则「刚下完 1080、下一集明晚才播」会被判成
-      「已播剧集全部入库」，反过来把洗版订阅暂停掉 —— 洗版等于白开。
+    这里只算「下过没有」（``note``）。洗版订阅「洗到顶没有」是另一个问题，
+    由 ``best_version_done`` 回答 —— 两者不能混用：``note`` 里有 1080 不等于
+    洗到 100，但也不等于没下过。
 
     .. warning::
         只读不写。任何情况下都不要往 ``note`` 里写本插件的标记。
     """
-    if is_best_version(row):
-        return _best_version_done(row)
-
     note = _get(row, "note")
     if isinstance(note, (list, tuple, set)):
         numbers = {_int(item, -1) for item in note}
@@ -282,7 +285,7 @@ def episode_numbers(row: Any) -> set:
     return set()
 
 
-def _best_version_done(row: Any) -> set:
+def best_version_done(row: Any) -> set:
     """洗版订阅里「已经洗到顶」的集号。
 
     数据来源与宿主的 ``priority.py:get_episode_priority`` 一致：
@@ -610,6 +613,7 @@ def decide(
     lookahead_days: int = 0,
     keep_days: int = 3,
     best_keep_days: int = 0,
+    best_mode: str = BEST_MODE_AFTER_FINALE,
     owned: Optional[Mapping[Any, Any]] = None,
     releases: Optional[Iterable[Any]] = None,
     movie_enabled: bool = True,
@@ -622,6 +626,8 @@ def decide(
     :param lookahead_days: 提前几天开启（0 = 只在播出当天开启）
     :param keep_days: 已播未入库的集最多保留几天继续搜索
     :param best_keep_days: 洗版订阅的保留窗口（0 = 跟随 ``keep_days``）
+    :param best_mode: 洗版判定模式，见 ``BEST_MODE_AFTER_FINALE`` /
+        ``BEST_MODE_ALWAYS``
     :param owned: 本插件的接管表 ``{订阅 ID: {"state": 我们写入的状态, ...}}``；
         ``None`` 表示空表（预览时也传真实表，判定才一致）
     :param releases: 电影的发行记录 ``[(date, type), ...]``（见 ``movie_basis``）
@@ -669,7 +675,7 @@ def decide(
     if state == STATE_PAUSED and not is_owned:
         return skip(REASON_USER_PAUSED)
 
-    #: 保留窗口：洗版订阅等的是「更好的版本」，窗口要比缺集窗口长得多
+    #: 保留窗口（电影用；剧集的窗口要等知道「是否已完结」后再定）
     window = max(0, keep_days)
     if best and best_keep_days and best_keep_days > 0:
         window = max(0, best_keep_days)
@@ -694,7 +700,14 @@ def decide(
 
     air.sort(key=lambda pair: (pair[0], pair[1]))
     today_text = today.isoformat()
-    downloaded = episode_numbers(row)
+    #: 索引里还有晚于今天的集 = 本季还在播（TMDb 会给出已排期的下一集）
+    still_airing = any(day > today_text for day, _ in air)
+    #: 是否按洗版口味判定：播出期是「找新集」，季终后才是「洗版」
+    wash = bool(best) and (best_mode == BEST_MODE_ALWAYS or not still_airing)
+    #: 洗版窗口只在洗版模式下生效，播出期仍用缺集窗口
+    if wash and best_keep_days and best_keep_days > 0:
+        window = max(0, best_keep_days)
+    downloaded = best_version_done(row) if wash else episode_numbers(row)
     start_episode = _int(_get(row, "start_episode"), 1)
 
     aired = [(day, number) for day, number in air if day <= today_text]
@@ -728,7 +741,7 @@ def decide(
         if gap <= window:
             # 洗版订阅的 pending 是「还没洗到顶」的集，不是「缺集」：
             # 已经下过 1080 也算 pending，只是还在等更高优先级的版本。
-            if best:
+            if wash:
                 target, reason = STATE_RUN, REASON_BEST_PENDING
                 detail = _describe(
                     REASON_BEST_PENDING, ep=number, air=day, days=gap, keep=window
@@ -740,7 +753,7 @@ def decide(
             day2, number2 = upcoming[0]
             target, reason = STATE_RUN, REASON_UPCOMING
             detail = _describe(REASON_UPCOMING, ep=number2, air=day2)
-        elif best:
+        elif wash:
             target, reason = STATE_PAUSED, REASON_BEST_OVERDUE
             detail = _describe(REASON_BEST_OVERDUE, ep=number, air=day, keep=window)
         else:
@@ -790,6 +803,7 @@ def plan(
     lookahead_days: int = 0,
     keep_days: int = 3,
     best_keep_days: int = 0,
+    best_mode: str = BEST_MODE_AFTER_FINALE,
     owned: Optional[Mapping[Any, Any]] = None,
     max_changes: int = 0,
     release_index: Optional[Mapping[str, Any]] = None,
@@ -824,6 +838,7 @@ def plan(
                 lookahead_days=lookahead_days,
                 keep_days=keep_days,
                 best_keep_days=best_keep_days,
+                best_mode=best_mode,
                 owned=owned,
                 releases=(release_index or {}).get(media_id),
                 movie_enabled=movie_enabled,
@@ -915,6 +930,9 @@ __all__ = [
     "ACTION_PAUSE",
     "ACTION_RESUME",
     "ACTION_SKIP",
+    "BEST_MODES",
+    "BEST_MODE_AFTER_FINALE",
+    "BEST_MODE_ALWAYS",
     "Decision",
     "REASON_ALL_DONE",
     "REASON_BEST_OVERDUE",
@@ -941,6 +959,7 @@ __all__ = [
     "STATE_RUN",
     "WRITABLE_STATES",
     "WRITE_ACTIONS",
+    "best_version_done",
     "decide",
     "episode_numbers",
     "is_best_version",

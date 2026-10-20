@@ -71,6 +71,8 @@ export const configDefaults = {
   auto_toggle_keep_days: 3,
   //: 洗版订阅的保留窗口（等更好的版本，默认三个月）
   auto_toggle_best_version_keep_days: 90,
+  //: 洗版判定模式（after_finale = 季终后才按洗版算，always = 播出期也算）
+  auto_toggle_best_version_mode: 'after_finale',
   //: 是否连电影订阅一起管（按 TMDB 发行日判，默认开）
   auto_toggle_movie_enabled: true,
   //: 单次最多改多少条（0 = 不限）
@@ -90,7 +92,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 7,
+  config_version: 8,
   // ---------------- 一次性执行
   onlyonce: false,
 }

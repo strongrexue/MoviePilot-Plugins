@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.13.3"
+    plugin_version = "1.13.4"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -454,11 +454,26 @@ class SubscribeCenter(_PluginBase):
                 365,
             ),
             "movie_enabled": bool(self._config.get("auto_toggle_movie_enabled", True)),
+            "best_mode": self._best_toggle_mode(),
             "max_changes": min(
                 max(self._int_config("auto_toggle_max_changes", 0), 0), 2000
             ),
             "notify": bool(self._config.get("auto_toggle_notify")),
         }
+
+    def _best_toggle_mode(self) -> str:
+        """洗版判定模式：播出期也按「未洗到顶」判，还是只在季终后判。
+
+        默认 ``after_finale``：宿主在播出期只下「首个可用版本」，真正的洗版
+        （原盘/REMUX）是季终之后才陆续有资源。播出期就按洗版判，等于让所有
+        洗版订阅长期 ``R``，跟「按播出日暂停」的初衷正好相反。
+        """
+        from .core import autotoggle
+
+        value = str(self._config.get("auto_toggle_best_version_mode") or "").strip()
+        if value in autotoggle.BEST_MODES:
+            return value
+        return autotoggle.BEST_MODE_AFTER_FINALE
 
     def _auto_toggle_state(self) -> Dict[str, Any]:
         """读取接管表与上次运行摘要。"""
@@ -603,6 +618,7 @@ class SubscribeCenter(_PluginBase):
             lookahead_days=cfg["lookahead_days"],
             keep_days=cfg["keep_days"],
             best_keep_days=cfg["best_keep_days"],
+            best_mode=cfg["best_mode"],
             owned=owned if isinstance(owned, dict) else None,
             max_changes=cfg["max_changes"],
             release_index=release_index,

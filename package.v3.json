@@ -78,7 +78,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.13.3",
+        "version": "1.13.4",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -86,6 +86,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.4": "修洗版判定时机 —— 新增 auto_toggle_best_version_mode：默认 after_finale（季终后才按洗版口径判，播出期仍按 note 判），避免所有洗版订阅因「永远没洗到 100」而长期停在 R；想全程蹲洗版的选 always。洗版保留天数只在洗版模式下生效，界面新增「洗版判定时机」下拉。",
             "v1.13.3": "修洗版剧集订阅被误判为「已播全部入库」而暂停 —— 洗版订阅的「已入库」改按宿主 episode_priority 的 priority==100 判定，忽略 note（下了 1080 只是有资格升级，宿主还会继续找更好的版本）；未洗到顶的集在 auto_toggle_best_version_keep_days（默认 90 天）内继续订阅，超过才暂停并标注「洗版超过保留窗口」。",
             "v1.13.2": "自动启停支持电影订阅（按 TMDB 发行日）；洗版订阅独立的长保留窗口",
             "v1.13.1": "修 type 判定：宿主存的是中文 MediaType 值（电视剧），不是 tv —— 1.13.0 拿 tv 比较，预览里所有订阅都被判成「非剧集」一条不动。现按 MediaType 的 name/value 归一（电视剧/tv/枚举都认），电影与音乐按「电影/音乐」跳过，type 缺失或陌生时照常判定而不贸然跳过。另：写入口抽成 _apply_with_scope，提交失败整批回滚、不再把已写入的算成功。",

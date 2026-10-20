@@ -129,6 +129,11 @@ class CredentialsModule:
         )
         if not runtime.start(connect_timeout=connect_timeout):
             self._runtime = None
+            hint = runtime.proxy_ignored_hint()
+            if hint:
+                raise tg.TelegramOperationError(
+                    f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）：{hint}"
+                )
             raise tg.TelegramOperationError(
                 f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）："
                 "请检查服务器网络与代理设置（代理继承 MoviePilot 设置）后重试"

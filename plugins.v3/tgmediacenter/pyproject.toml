@@ -4,4 +4,8 @@ dynamic = ["version"]
 requires-python = ">=3.14"
 dependencies = [
     "telethon>=1.36.0",
+    # Telethon 的代理支持是软依赖：缺它时只打一行 UserWarning 就把 proxy 参数丢掉直连。
+    # 机房直连 Telegram 基本不通，表现为「代理配了却 45 秒连接失败」。必须显式声明。
+    # 3.x 改了 python_socks.async_ 的模块路径，Telethon 1.4x 仍按 2.x 的接口导入，故锁 <3。
+    "python-socks[asyncio]>=2.4.4,<3",
 ]

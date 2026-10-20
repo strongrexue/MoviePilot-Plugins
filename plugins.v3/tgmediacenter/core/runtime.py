@@ -27,6 +27,14 @@ except Exception:  # pragma: no cover - 环境缺依赖时的降级分支
     StringSession = None  # type: ignore[assignment]
     TELETHON_AVAILABLE = False
 
+try:  # Telethon 只在装上 python-socks 时才会真正使用代理
+    from python_socks.async_.asyncio import Proxy as _PythonSocksProxy
+
+    PROXY_SUPPORT_AVAILABLE = True
+except Exception:  # pragma: no cover - 缺依赖或版本不兼容（3.x 改了模块路径）
+    _PythonSocksProxy = None  # type: ignore[assignment]
+    PROXY_SUPPORT_AVAILABLE = False
+
 
 class TelegramRuntime:
     """管理单个插件实例的 Telethon 客户端与专属事件循环。"""
@@ -78,6 +86,28 @@ class TelegramRuntime:
         容易在组装响应时静默出错。
         """
         return TELETHON_AVAILABLE
+
+    @staticmethod
+    def proxy_support_available() -> bool:
+        """当前环境是否具备 Telethon 走代理所需的 python-socks。
+
+        Telethon 的代理支持是"软依赖"：缺 ``python-socks`` 时它只打一行
+        ``UserWarning`` 就把 proxy 参数丢掉直连出去。宿主机房网络通常直连不通
+        Telegram，于是表现为"代理明明配了、却在 45 秒后报连接失败"。
+        这里显式探测一次，便于给出可读的提示。
+        """
+        return PROXY_SUPPORT_AVAILABLE
+
+    def proxy_ignored_hint(self) -> str:
+        """代理已配置但环境不支持代理时，返回给用户看的说明；否则返回空串。"""
+        if not self._proxy or PROXY_SUPPORT_AVAILABLE:
+            return ""
+        addr = self._proxy.get("addr") or ""
+        port = self._proxy.get("port") or ""
+        return (
+            f"已配置代理 {addr}:{port}，但当前环境缺少 python-socks（或版本不兼容），"
+            "Telethon 会忽略代理直连——请更新/重装插件以安装依赖 python-socks[asyncio]<3"
+        )
 
     @property
     def credentials_ready(self) -> bool:
@@ -167,6 +197,9 @@ class TelegramRuntime:
             if not self.credentials_ready:
                 logger.info(f"[{self._plugin_id}] 未配置 TG 凭证，跳过运行时启动")
                 return False
+            hint = self.proxy_ignored_hint()
+            if hint:
+                logger.warning(f"[{self._plugin_id}] {hint}")
 
             self._loop = asyncio.new_event_loop()
             self._thread = threading.Thread(
@@ -180,6 +213,8 @@ class TelegramRuntime:
             client = self.call(self._connect_client(), timeout=max(5, int(connect_timeout)))
         except Exception as err:
             logger.warning(f"[{self._plugin_id}] TG 客户端连接失败：{err}")
+            if hint:
+                logger.warning(f"[{self._plugin_id}] {hint}")
             self.stop()
             return False
 

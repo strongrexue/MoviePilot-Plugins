@@ -322,6 +322,88 @@ def test_runtime_api_id_normalization():
     assert TelegramRuntime(api_id="", api_hash="x").credentials_ready is False
 
 
+def test_runtime_proxy_support_probe_is_bool():
+    """代理依赖探测也必须是静态方法，返回布尔值。"""
+    assert isinstance(TelegramRuntime.proxy_support_available(), bool)
+
+
+def test_proxy_ignored_hint_names_missing_dependency(monkeypatch):
+    """缺少 python-socks 时，提示必须点名依赖与代理地址，而不是笼统说"检查网络"。
+
+    回归保护：Telethon 把代理当软依赖，缺 python-socks 时只打一行 UserWarning
+    就直连；机房直连不通时用户只会看到"45 秒连接失败"，误以为是代理配错了。
+    """
+    from app.plugins.tgmediacenter.core import runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "PROXY_SUPPORT_AVAILABLE", False)
+    runtime = TelegramRuntime(
+        api_id=1,
+        api_hash="x",
+        proxy={"proxy_type": "http", "addr": "192.168.1.9", "port": 7890, "rdns": True},
+    )
+    hint = runtime.proxy_ignored_hint()
+    assert "python-socks" in hint
+    assert "192.168.1.9:7890" in hint
+
+
+def test_proxy_ignored_hint_silent_without_proxy_or_with_support(monkeypatch):
+    """没有配代理、或环境支持代理时不应骚扰用户。"""
+    from app.plugins.tgmediacenter.core import runtime as runtime_module
+
+    proxy = {"proxy_type": "http", "addr": "1.2.3.4", "port": 7890, "rdns": True}
+    monkeypatch.setattr(runtime_module, "PROXY_SUPPORT_AVAILABLE", False)
+    assert TelegramRuntime(api_id=1, api_hash="x").proxy_ignored_hint() == ""
+    monkeypatch.setattr(runtime_module, "PROXY_SUPPORT_AVAILABLE", True)
+    assert TelegramRuntime(api_id=1, api_hash="x", proxy=proxy).proxy_ignored_hint() == ""
+
+
+def test_ensure_runtime_surfaces_proxy_hint(monkeypatch):
+    """连接失败且代理被忽略时，异常文案要带上依赖提示。"""
+    module = CredentialsModule(_StubCredPlugin(config={"tg_api_id": 1, "tg_api_hash": "x"}))
+
+    # 测试环境（宿主 venv）没装 telethon，这里只验证分支逻辑，把依赖探针打桩。
+    monkeypatch.setattr(TelegramRuntime, "telethon_available", staticmethod(lambda: True))
+    monkeypatch.setattr(TelegramRuntime, "start", lambda self, connect_timeout=30: False)
+    monkeypatch.setattr(
+        TelegramRuntime,
+        "proxy_ignored_hint",
+        lambda self: "已配置代理 1.2.3.4:7890，但当前环境缺少 python-socks",
+    )
+    with pytest.raises(tg.TelegramOperationError) as err:
+        module.ensure_runtime(connect_timeout=3)
+    assert "python-socks" in str(err.value)
+
+
+def test_ensure_runtime_keeps_generic_message_without_proxy_hint(monkeypatch):
+    """没有代理依赖线索时保持原来的通用提示。"""
+    module = CredentialsModule(_StubCredPlugin(config={"tg_api_id": 1, "tg_api_hash": "x"}))
+
+    monkeypatch.setattr(TelegramRuntime, "telethon_available", staticmethod(lambda: True))
+    monkeypatch.setattr(TelegramRuntime, "start", lambda self, connect_timeout=30: False)
+    monkeypatch.setattr(TelegramRuntime, "proxy_ignored_hint", lambda self: "")
+    with pytest.raises(tg.TelegramOperationError) as err:
+        module.ensure_runtime(connect_timeout=3)
+    assert "请检查服务器网络与代理设置" in str(err.value)
+
+
+def test_runtime_start_warns_when_proxy_dependency_missing(monkeypatch, caplog):
+    """start() 在连接前先告警，避免用户只看得到 45 秒超时。"""
+    from app.plugins.tgmediacenter.core import runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "PROXY_SUPPORT_AVAILABLE", False)
+    monkeypatch.setattr(runtime_module, "TELETHON_AVAILABLE", True)
+    runtime = TelegramRuntime(
+        api_id=1,
+        api_hash="x",
+        proxy={"proxy_type": "http", "addr": "1.2.3.4", "port": 7890, "rdns": True},
+    )
+    monkeypatch.setattr(TelegramRuntime, "call", lambda self, coro, timeout=None: (_ for _ in ()).throw(RuntimeError("boom")))
+    caplog.set_level("WARNING")
+    assert runtime.start(connect_timeout=1) is False
+    assert any("python-socks" in (record.getMessage() or "") for record in caplog.records)
+
+
+
 # --------------------------------------------------------------------- 投递渠道
 
 

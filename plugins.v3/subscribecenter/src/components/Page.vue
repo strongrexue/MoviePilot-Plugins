@@ -19,6 +19,8 @@ const emit = defineEmits(['close', 'switch'])
 
 const loading = ref(false)
 const busy = ref('')
+/** 正在清空发现流水 */
+const clearing = ref(false)
 const tip = ref({ show: false, ok: true, text: '' })
 const status = ref(null)
 /** 详情页视图：日历（默认）/ 发现流水。 */
@@ -245,6 +247,7 @@ const DECISION_LABELS = {
   skipped_first_run_dry: '首次试运行',
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
+  skipped_recorded: '流水已记录',
   skipped_duplicate: '跨源重复',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
@@ -332,6 +335,30 @@ async function loadHistory() {
     setTip(error?.message || '流水加载失败', false)
   } finally {
     loading.value = false
+  }
+}
+
+/** 清空发现流水。
+ *
+ * 这是「流水记过就不再自动重订」的解锁方式：清空之后，之前订过又被删掉的
+ * 订阅会在下一轮重新被发现。所以必须二次确认，且把后果写清。
+ */
+async function clearHistory() {
+  if (!window.confirm(
+    '清空发现流水？\n\n' +
+    '清空后，之前订阅过（后来被你删掉）的作品会重新被自动订阅。',
+  )) return
+  clearing.value = true
+  try {
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'history/clear', {}))
+    setTip(`已清空 ${result?.removed ?? 0} 条流水`)
+    history.value.page = 1
+    await loadHistory()
+    await loadStatus()
+  } catch (error) {
+    setTip(error?.message || '清空流水失败', false)
+  } finally {
+    clearing.value = false
   }
 }
 
@@ -958,6 +985,17 @@ onUnmounted(() => {
         </div>
         <VChip size="x-small" variant="tonal">共 {{ history.total }} 部作品</VChip>
         <VChip size="x-small" variant="text">每部只显示最新状态</VChip>
+        <VBtn
+          size="x-small"
+          variant="text"
+          color="warning"
+          prepend-icon="mdi-delete-sweep-outline"
+          :loading="clearing"
+          :disabled="clearing || loading || !history.total"
+          @click="clearHistory"
+        >
+          清空流水
+        </VBtn>
       </div>
 
       <div v-if="!history.items.length" class="sc-empty">

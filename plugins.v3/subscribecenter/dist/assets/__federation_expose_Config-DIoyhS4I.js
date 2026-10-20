@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-Cj979-HJ.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-CUGvh76V.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -60,6 +60,8 @@ const configDefaults = {
   resolve_concurrency: 8,
   prefer_episode_group: true,
   resubscribe_completed: true,
+  //: 发现流水里记着「订过」的就不再自动订回来（删掉订阅也拦，清空流水才解锁）
+  dedupe_by_history: true,
   // ---------------- Simkl
   // ---------------- 写入
   daily_limit: 30,
@@ -95,7 +97,7 @@ const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 8,
+  config_version: 9,
   // ---------------- 一次性执行
   onlyonce: false,
 };
@@ -354,6 +356,7 @@ const DECISION_LABELS = {
   skipped_daily_limit: '触达上限',
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
+  skipped_recorded: '流水已记录',
 };
 
 /** 后端版本号；与前端不一致时提示硬刷新。 */
@@ -401,6 +404,13 @@ const switchRows = [
     key: 'notify',
     label: '发送运行摘要通知',
     hint: '每次运行结束把「新增/跳过/失败」摘要发到 MoviePilot 通知渠道',
+  },
+  {
+    key: 'dedupe_by_history',
+    label: '发现流水记过的就不再自动订阅',
+    hint:
+      '流水里记着这部订阅过，就算你后来把订阅删了，也不会再自动订回来 —— ' +
+      '想重新订就去「发现流水」里清空流水（或删掉那几条记录）',
   },
 ];
 
@@ -1311,7 +1321,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[79] || (_cache[79] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-c7ed67d8><b data-v-c7ed67d8>电影上映类</b>（<code data-v-c7ed67d8>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-c7ed67d8><b data-v-c7ed67d8>剧集类</b>（<code data-v-c7ed67d8>/douban/tv/coming</code>、<code data-v-c7ed67d8>/douban/list/tv_*</code>、 <code data-v-c7ed67d8>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-c7ed67d8><b data-v-c7ed67d8>电影榜单类</b>没有日期，会被跳过。<code data-v-c7ed67d8>ustop250</code> 与 <code data-v-c7ed67d8>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[79] || (_cache[79] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-13a41826><b data-v-13a41826>电影上映类</b>（<code data-v-13a41826>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-13a41826><b data-v-13a41826>剧集类</b>（<code data-v-13a41826>/douban/tv/coming</code>、<code data-v-13a41826>/douban/list/tv_*</code>、 <code data-v-13a41826>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-13a41826><b data-v-13a41826>电影榜单类</b>没有日期，会被跳过。<code data-v-13a41826>ustop250</code> 与 <code data-v-13a41826>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2428,6 +2438,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c7ed67d8"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-13a41826"]]);
 
 export { Config as default };

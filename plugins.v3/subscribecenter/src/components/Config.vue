@@ -104,6 +104,7 @@ const DECISION_LABELS = {
   skipped_daily_limit: '触达上限',
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
+  skipped_recorded: '流水已记录',
 }
 
 /** 后端版本号；与前端不一致时提示硬刷新。 */
@@ -151,6 +152,13 @@ const switchRows = [
     key: 'notify',
     label: '发送运行摘要通知',
     hint: '每次运行结束把「新增/跳过/失败」摘要发到 MoviePilot 通知渠道',
+  },
+  {
+    key: 'dedupe_by_history',
+    label: '发现流水记过的就不再自动订阅',
+    hint:
+      '流水里记着这部订阅过，就算你后来把订阅删了，也不会再自动订回来 —— ' +
+      '想重新订就去「发现流水」里清空流水（或删掉那几条记录）',
   },
 ]
 

@@ -247,12 +247,19 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
 
 
 def test_every_route_has_a_response_model():
-    """路由与响应模型映射不得有缺口。"""
+    """路由与响应模型映射不得有缺口。
+
+    **新增路由必须同时加到这里和 ``API_RESPONSE_MODELS``** —— 这张表就是
+    「谁忘了配响应模型」的清单，也是唯一不依赖插件实例就能跑的哨兵。
+    """
     declared = {
         "/status",
         "/history",
+        "/history/clear",
         "/calendar",
         "/calendar/day",
+        "/auto_toggle",
+        "/auto_toggle/apply",
         "/card_theme",
         "/card_theme/save",
         "/run_once",
@@ -390,6 +397,53 @@ def test_scheduled_entry_is_sync_and_respects_enabled(plugin, monkeypatch):
     plugin._config["enabled"] = False
     plugin.run_scheduled()
     assert calls == []
+
+
+# --------------------------------------------------------------------- 流水去重
+
+def test_recorded_keys_only_counts_real_writes(plugin):
+    """只有「真订上了」的记录才算数。
+
+    「待确认」「窗口外」「评分不足」这些都没动过手，不能让它们永久拦着 ——
+    否则一部片在窗口外被扫到一次，就再也订不上了。
+    """
+    plugin.save_data(
+        "run_history",
+        [
+            {"decision": C.DECISION_ADDED, "media_source": "themoviedb",
+             "media_id": "1", "season": 1, "title": "订上了"},
+            {"decision": C.DECISION_SKIPPED_ALREADY_SUBSCRIBED, "media_source": "themoviedb",
+             "media_id": "2", "season": 0, "title": "本来就订着"},
+            {"decision": C.DECISION_PENDING_REVIEW, "media_source": "themoviedb",
+             "media_id": "3", "season": 0, "title": "待确认"},
+            {"decision": C.DECISION_SKIPPED_OUT_OF_WINDOW, "media_source": "themoviedb",
+             "media_id": "4", "season": 0, "title": "窗口外"},
+            {"decision": C.DECISION_ADDED, "media_source": "", "media_id": "",
+             "season": 0, "title": "没有身份"},
+        ],
+    )
+    assert plugin._recorded_keys() == {"themoviedb:1:1", "themoviedb:2:0"}
+
+
+def test_clear_history_unlocks_recorded(plugin):
+    """清空流水 = 解锁：之前订过的不再被拦。"""
+    plugin.save_data(
+        "run_history",
+        [{"decision": C.DECISION_ADDED, "media_source": "themoviedb",
+          "media_id": "1", "season": 1, "title": "订上了"}],
+    )
+    assert plugin._recorded_keys() == {"themoviedb:1:1"}
+
+    result = plugin.clear_history()
+    assert result.removed == 1
+    assert plugin._recorded_keys() == set()
+    assert plugin.history_page().total == 0
+
+
+def test_clear_history_on_empty_history_is_harmless(plugin):
+    """没有流水时点「清空」不能报错。"""
+    result = plugin.clear_history()
+    assert result.removed == 0 and result.remaining == 0
 
 
 # --------------------------------------------------------------------- 配置一致性

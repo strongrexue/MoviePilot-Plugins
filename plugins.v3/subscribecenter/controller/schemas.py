@@ -160,6 +160,13 @@ class HistoryPage(BaseModel):
 
 # --------------------------------------------------------------------- 手动运行
 
+class HistoryClearResult(BaseModel):
+    """清空发现流水的结果。"""
+
+    removed: int = Field(default=0, description="被清掉的记录条数")
+    remaining: int = Field(default=0, description="清空后剩余的记录条数")
+
+
 class SystemShareState(BaseModel):
     """订阅数据共享开关状态。"""
 
@@ -350,6 +357,7 @@ class AutoToggleResult(BaseModel):
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
+    "/history/clear": HistoryClearResult,
     "/calendar": CalendarMonth,
     "/calendar/day": CalendarView,
     "/auto_toggle": AutoToggleView,
@@ -376,6 +384,7 @@ __all__ = [
     "CalendarMonth",
     "CalendarView",
     "HistoryPage",
+    "HistoryClearResult",
     "CardTheme",
     "CardThemeRequest",
     "CardThemeResult",

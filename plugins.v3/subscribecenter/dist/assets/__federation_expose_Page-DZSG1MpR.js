@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Cj979-HJ.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-CUGvh76V.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -149,6 +149,8 @@ const emit = __emit;
 
 const loading = ref(false);
 const busy = ref('');
+/** 正在清空发现流水 */
+const clearing = ref(false);
 const tip = ref({ show: false, ok: true, text: '' });
 const status = ref(null);
 /** 详情页视图：日历（默认）/ 发现流水。 */
@@ -370,6 +372,7 @@ const DECISION_LABELS = {
   skipped_first_run_dry: '首次试运行',
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
+  skipped_recorded: '流水已记录',
   skipped_duplicate: '跨源重复',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
@@ -457,6 +460,30 @@ async function loadHistory() {
     setTip(error?.message || '流水加载失败', false);
   } finally {
     loading.value = false;
+  }
+}
+
+/** 清空发现流水。
+ *
+ * 这是「流水记过就不再自动重订」的解锁方式：清空之后，之前订过又被删掉的
+ * 订阅会在下一轮重新被发现。所以必须二次确认，且把后果写清。
+ */
+async function clearHistory() {
+  if (!window.confirm(
+    '清空发现流水？\n\n' +
+    '清空后，之前订阅过（后来被你删掉）的作品会重新被自动订阅。',
+  )) return
+  clearing.value = true;
+  try {
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'history/clear', {}));
+    setTip(`已清空 ${result?.removed ?? 0} 条流水`);
+    history.value.page = 1;
+    await loadHistory();
+    await loadStatus();
+  } catch (error) {
+    setTip(error?.message || '清空流水失败', false);
+  } finally {
+    clearing.value = false;
   }
 }
 
@@ -1236,7 +1263,7 @@ return (_ctx, _cache) => {
     (viewTab.value === 'history')
       ? (_openBlock(), _createElementBlock("div", _hoisted_51, [
           _createElementVNode("div", _hoisted_52, [
-            _cache[44] || (_cache[44] = _createElementVNode("span", { class: "sc-card-title" }, "发现流水", -1)),
+            _cache[45] || (_cache[45] = _createElementVNode("span", { class: "sc-card-title" }, "发现流水", -1)),
             _createElementVNode("div", _hoisted_53, [
               _cache[41] || (_cache[41] = _createElementVNode("span", { class: "sc-tabs-label" }, "数据源", -1)),
               _createElementVNode("button", {
@@ -1319,7 +1346,21 @@ return (_ctx, _cache) => {
                 _createTextVNode("每部只显示最新状态", -1)
               ]))]),
               _: 1
-            })
+            }),
+            _createVNode(_component_VBtn, {
+              size: "x-small",
+              variant: "text",
+              color: "warning",
+              "prepend-icon": "mdi-delete-sweep-outline",
+              loading: clearing.value,
+              disabled: clearing.value || loading.value || !history.value.total,
+              onClick: clearHistory
+            }, {
+              default: _withCtx(() => [...(_cache[44] || (_cache[44] = [
+                _createTextVNode(" 清空流水 ", -1)
+              ]))]),
+              _: 1
+            }, 8, ["loading", "disabled"])
           ]),
           (!history.value.items.length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_61, " 还没有流水。点「立即运行一次」即可看到发现结果。 "))
@@ -1393,7 +1434,7 @@ return (_ctx, _cache) => {
                           "prepend-icon": "mdi-pencil-outline",
                           onClick: $event => (fixMapping(item))
                         }, {
-                          default: _withCtx(() => [...(_cache[45] || (_cache[45] = [
+                          default: _withCtx(() => [...(_cache[46] || (_cache[46] = [
                             _createTextVNode(" 修正映射 ", -1)
                           ]))]),
                           _: 1
@@ -1411,7 +1452,7 @@ return (_ctx, _cache) => {
                   disabled: history.value.page <= 1,
                   onClick: prevPage
                 }, {
-                  default: _withCtx(() => [...(_cache[46] || (_cache[46] = [
+                  default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
                     _createTextVNode("上一页", -1)
                   ]))]),
                   _: 1
@@ -1423,7 +1464,7 @@ return (_ctx, _cache) => {
                   disabled: history.value.page * history.value.count >= history.value.total,
                   onClick: nextPage
                 }, {
-                  default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
+                  default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
                     _createTextVNode(" 下一页 ", -1)
                   ]))]),
                   _: 1
@@ -1437,6 +1478,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-230b8130"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-616fabd4"]]);
 
 export { Page as default };

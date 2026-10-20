@@ -203,9 +203,33 @@ esubscribe_completed
 默认开）。真正「已经播完」的剧不会因此重复订阅 —— 它们会先被
 「TMDB 已无未播内容」拦住。
 
+### 流水记过就不再自动重订（1.13.6）
+
+宿主的「这条订阅还在不在」只反映**当下**：用户把订阅删了，宿主就查不到了，
+下一轮发现又会把它订回来。反复删、反复订，是这套自动化的老毛病。
+
+1.13.6 起，写入前多查一道**插件自己的发现流水**：
+
+| 情况 | 结果 |
+| --- | --- |
+| 流水里记着这部（`added` / `skipped_already_subscribed`） | 跳过，决策 `skipped_recorded`（「流水已记录」） |
+| 流水里没有记录 | 正常订阅 |
+| 「待确认」「窗口外」「评分不足」这类记录 | **不算**，照常继续判 |
+
+只认「真的动过手」的两条决策：`added`（订上了）与
+`skipped_already_subscribed`（宿主那边本来就有）。「待确认」「窗口外」「评分
+不足」这些都没订过，不能因为它们出现过就永久拒绝 —— 否则一部片在窗口外被扫到
+一次，就再也订不上了。
+
+**解锁方式就是清空流水**：发现流水页右上角的「清空流水」（`POST
+/history/clear`）。清掉之后，「流水记过」这条规则立刻失效，之前订过又被删掉的
+作品会在下一轮重新被订阅。删掉单条记录同理。
+
+开关是 `dedupe_by_history`（默认开）。键里带季号，第 1 季的记录不会挡住第 2 季。
+
 ### 结构哨兵（0.8.5）
 
-	ests/v3/subscribecenter/test_host_structure.py 只做结构断言：HostTmdbResolver
+	tests/v3/subscribecenter/test_host_structure.py 只做结构断言：HostTmdbResolver
 必须提供 search / search_raw / convert_to_tmdb / 
 esolve_target_season
 等方法，HostSubscribeBackend.add 必须接受 episode_group。
@@ -372,6 +396,7 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 | `auto_toggle_movie_enabled` | `true` | 是否连电影订阅一起管（按 TMDB 发行日判） |
 | `auto_toggle_max_changes` | `0` | 单次最多改多少条（0 = 不限，恢复优先于暂停） |
 | `auto_toggle_notify` | `false` | 有实际改动时发通知 |
+| `dedupe_by_history` | `true` | 发现流水记过（订过）的不再自动重订；清空流水即解锁 |
 
 **修改 `cron` 后必须重新保存配置**才会重建定时任务（cron 在注册时读取）。
 
@@ -401,6 +426,7 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 |---|---|---|
 | `/status` | GET | 运行状态、各源情况、今日写入计数、首次运行标记 |
 | `/history` | GET | 分页流水，支持 `decision` / `source` / `keyword` 筛选 |
+| `/history/clear` | POST | 清空发现流水（同时解锁「流水记过就不再自动重订」） |
 | `/run_once` | POST | 手动触发一次发现（与定时任务互斥） |
 | `/mapping_cache` | GET | 查看身份映射缓存 |
 | `/mapping_cache/fix` | POST | 人工修正一条身份映射 |

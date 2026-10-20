@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.13.5"
+PLUGIN_VERSION = "1.13.6"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -90,6 +90,11 @@ DECISION_SKIPPED_NO_DATE = "skipped_no_date"
 #: 豆瓣想看人数不足
 DECISION_SKIPPED_WANT = "skipped_want"
 DECISION_SKIPPED_SOURCE_DISABLED = "skipped_source_disabled"
+#: 发现流水里已经记着「订阅过」这一部 —— 用户把订阅删了也不再自动订回来
+#:
+#: 与 ``skipped_already_subscribed`` 的区别：那条是「宿主当前就有这条订阅」，
+#: 删掉订阅后就会消失；这条记的是**历史**，只有清空流水才会忘掉。
+DECISION_SKIPPED_RECORDED = "skipped_recorded"
 
 #: 身份解析级别
 CONFIDENCE_L1 = "L1"  # 确定性 ID 直通
@@ -260,7 +265,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 8
+CONFIG_VERSION = 9
 
 
 def default_config() -> Dict[str, Any]:
@@ -349,6 +354,13 @@ def default_config() -> Dict[str, Any]:
         #: 注意：真正「已经播完」的剧会先被 finished 判定拦住
         #: （TMDB 无未播集），所以不会每轮都重复建订阅。
         "resubscribe_completed": True,
+        #: 「发现流水里记录过订阅过的，就不再自动订回来」。
+        #:
+        #: 默认**开启**：流水是本插件自己的账本，记着「这部我订过」。用户主动
+        #: 把订阅删掉通常就是不想再要它 —— 宿主那边的 ``subscription_exists``
+        #: 已经查不到了，只有流水还记得。想让它重新订，就清空流水（或删掉对应
+        #: 的那几条记录）：流水里没有记录，才会重新订阅。
+        "dedupe_by_history": True,
         # ---------------- Simkl
         # ---------------- 写入
         "daily_limit": DEFAULT_DAILY_LIMIT,

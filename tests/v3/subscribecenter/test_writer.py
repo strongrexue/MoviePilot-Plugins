@@ -21,6 +21,7 @@ from core.writer import (  # noqa: E402
     MESSAGE_ADDED,
     MESSAGE_EXISTS,
     SubscriptionWriter,
+    recorded_key,
 )
 
 #: 相对**真实今天**计算，避免测试与系统日期耦合（写死日期会随运行日漂移而失效）
@@ -417,3 +418,104 @@ async def test_history_still_blocks_when_resubscribe_disabled():
 
     assert backend.add_calls == []
     assert report.outcomes[0].decision == C.DECISION_SKIPPED_ALREADY_COMPLETED
+
+
+# ------------------------------------------------------- 流水去重（订过就别再订回来）
+
+def test_recorded_key_separates_seasons():
+    """去重键必须带季号：同一部剧的不同季是不同订阅。"""
+    assert recorded_key("themoviedb", "123", 1) != recorded_key("themoviedb", "123", 2)
+    assert recorded_key("themoviedb", "123") == recorded_key("themoviedb", "123", 0)
+    assert recorded_key("themoviedb", "123", None) == "themoviedb:123:0"
+    assert recorded_key("themoviedb", "123", "2") == "themoviedb:123:2"
+
+
+@pytest.mark.asyncio
+async def test_recorded_item_is_not_resubscribed():
+    """流水里记着订过 → 就算宿主现在没有这条订阅，也不再自动订。"""
+    backend = FakeBackend(exists=False, history=False)
+    writer = SubscriptionWriter(
+        backend,
+        daily_limit=30,
+        recorded_keys=lambda: {recorded_key("themoviedb", "693134", None)},
+    )
+    report = await writer.write([item()], dry_run=False)
+
+    assert backend.add_calls == []
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_RECORDED
+    assert "清空流水" in report.outcomes[0].reason
+
+
+@pytest.mark.asyncio
+async def test_unrecorded_item_is_written():
+    """流水里没有记录 → 正常订阅。"""
+    backend = FakeBackend(exists=False, history=False)
+    writer = SubscriptionWriter(
+        backend,
+        daily_limit=30,
+        recorded_keys=lambda: {recorded_key("themoviedb", "999", None)},
+    )
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 1
+    assert len(backend.add_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_recorded_season_does_not_block_other_season():
+    """第 1 季记过，不妨碍第 2 季订阅。"""
+    backend = FakeBackend(exists=False, history=False)
+    writer = SubscriptionWriter(
+        backend,
+        daily_limit=30,
+        recorded_keys=lambda: {recorded_key("themoviedb", "693134", 1)},
+    )
+    report = await writer.write(
+        [item(media_type=C.MEDIA_TYPE_TV, season=2, release_date=None)],
+        dry_run=False,
+    )
+
+    assert report.added_count == 1
+
+
+@pytest.mark.asyncio
+async def test_dedupe_switch_off_ignores_recorded():
+    """关掉开关后，流水不再拦截。"""
+    backend = FakeBackend(exists=False, history=False)
+    writer = SubscriptionWriter(
+        backend,
+        daily_limit=30,
+        dedupe_history=False,
+        recorded_keys=lambda: {recorded_key("themoviedb", "693134", None)},
+    )
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 1
+
+
+@pytest.mark.asyncio
+async def test_recorded_key_provider_failure_fails_open():
+    """读流水失败不该拖垮整轮写入（宁可多订一条）。"""
+    def boom():
+        raise RuntimeError("插件数据读不出来")
+
+    backend = FakeBackend(exists=False, history=False)
+    writer = SubscriptionWriter(backend, daily_limit=30, recorded_keys=boom)
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 1
+    assert writer.recorded_key_set() == set()
+
+
+def test_recorded_key_set_reads_once_per_batch():
+    """每批只读一次流水，不是每条都读（200 条订阅不该读 200 次插件数据）。"""
+    calls = []
+
+    def provider():
+        calls.append(1)
+        return {"themoviedb:1:0"}
+
+    writer = SubscriptionWriter(FakeBackend(), daily_limit=0, recorded_keys=provider)
+    writer.recorded_key_set()
+    assert len(calls) == 1
+    assert writer.recorded_key_set() == {"themoviedb:1:0"}

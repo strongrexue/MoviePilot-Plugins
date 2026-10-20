@@ -57,6 +57,8 @@ export const configDefaults = {
   resolve_concurrency: 8,
   prefer_episode_group: true,
   resubscribe_completed: true,
+  //: 发现流水里记着「订过」的就不再自动订回来（删掉订阅也拦，清空流水才解锁）
+  dedupe_by_history: true,
   // ---------------- Simkl
   // ---------------- 写入
   daily_limit: 30,
@@ -92,7 +94,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 8,
+  config_version: 9,
   // ---------------- 一次性执行
   onlyonce: false,
 }

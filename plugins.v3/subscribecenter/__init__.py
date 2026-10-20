@@ -14,7 +14,7 @@ Bangumi / 豆瓣 RSS / Simkl / 前端联邦组件 尚未实现（见开发文档
 - ``get_sidebar_nav()`` 不是基类方法，而是契约钩子，由宿主 ``getattr`` 调用；
 - 写入订阅走 ``SubscribeChain().async_add()``，身份是 ``media_source``+``media_id``。
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.sdk.logging import logger
 from app.sdk.plugin import _PluginBase
@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.13.5"
+    plugin_version = "1.13.6"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -144,6 +144,8 @@ class SubscribeCenter(_PluginBase):
                 self._config.get("resubscribe_completed", True)
             ),
             notify_each=True,
+            dedupe_history=bool(self._config.get("dedupe_by_history", True)),
+            recorded_keys=self._recorded_keys,
         )
         self._last_run = self._state().get("last_run")
 
@@ -1157,6 +1159,10 @@ class SubscribeCenter(_PluginBase):
         """手动触发一次发现任务（可只跑某个源）。"""
         return await api_controller.api_run_once(self, source=source)
 
+    async def api_history_clear(self) -> Any:
+        """清空发现流水（清掉之后之前订过的作品才会被重新发现）。"""
+        return await api_controller.api_history_clear(self)
+
     async def api_preview(self) -> Any:
         """只读预览：跑一次但不写入。"""
         return await api_controller.api_preview(self)
@@ -1869,6 +1875,48 @@ class SubscribeCenter(_PluginBase):
         """读取流水列表。"""
         value = self.get_data(DATA_KEY_HISTORY)
         return list(value) if isinstance(value, list) else []
+
+    def _recorded_keys(self) -> Set[str]:
+        """流水里「我订过」的键集合，供写入前查重。
+
+        只认**真的动过手**的决策：``added``（订上了）与
+        ``skipped_already_subscribed``（宿主那边本来就有，说明用户/宿主要它）。
+        「待确认」「窗口外」「评分不够」这些都没订过，不能因为它们出现过就永久
+        拒绝 —— 否则一部片在窗口外被扫到一次，就再也订不上了。
+
+        键里带季号（见 :func:`core.writer.recorded_key`）：同一部剧的第二季是
+        另一条订阅，不能被第一季的记录拦住。
+        """
+        from .core.writer import recorded_key
+
+        keys: Set[str] = set()
+        for record in self._history():
+            decision = str(record.get("decision") or "")
+            if decision not in (C.DECISION_ADDED, C.DECISION_SKIPPED_ALREADY_SUBSCRIBED):
+                continue
+            media_source = record.get("media_source")
+            media_id = record.get("media_id")
+            if not media_source or not media_id:
+                continue
+            keys.add(recorded_key(media_source, media_id, record.get("season")))
+        return keys
+
+    def clear_history(self) -> api_schemas.HistoryClearResult:
+        """清空发现流水。
+
+        这是「不再自动重订」的**唯一解锁方式**：流水里的记录删了，下一轮发现
+        才会把之前订过的作品重新当成新发现。顺手也把「已处理」的运行时状态
+        清掉，否则页面上的计数与实际记录对不上。
+        """
+        removed = len(self._history())
+        self.save_data(DATA_KEY_HISTORY, [])
+        state = self._state()
+        if "last_run" in state:
+            # last_run 只是摘要，里面的 added 计数已经没有对应的记录了
+            state.pop("last_run", None)
+            self._save_state(state)
+        logger.info("[SubscribeCenter] 发现流水已清空（%s 条）" % removed)
+        return api_schemas.HistoryClearResult(removed=removed, remaining=0)
 
     def _append_history(self, outcomes: List[WriteOutcome], *, run_at: str) -> None:
         """写入流水：**同一部作品只保留最新一条**，再截断到上限。

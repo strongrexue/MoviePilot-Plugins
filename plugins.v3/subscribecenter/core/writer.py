@@ -14,7 +14,17 @@
 注入，因此可离线单测。
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Sequence
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    Sequence,
+    Set,
+)
 
 from .constants import (
     DECISION_ADDED,
@@ -26,6 +36,7 @@ from .constants import (
     DECISION_SKIPPED_FINISHED,
     DECISION_SKIPPED_NOT_FUTURE,
     DECISION_SKIPPED_OUT_OF_WINDOW,
+    DECISION_SKIPPED_RECORDED,
     DECISION_SKIPPED_SPECIAL,
     WRITABLE_CONFIDENCE,
 )
@@ -176,6 +187,20 @@ def _pending_reason(item: DiscoveredItem, confidence: str) -> str:
     return f"无确定性身份（{confidence}），未写入 —— 需要请手动订阅"
 
 
+def recorded_key(media_source: Any, media_id: Any, season: Any = None) -> str:
+    """发现流水里的「这一部」键：``来源:ID:季``（没有季号记 ``0``）。
+
+    去重**必须带季号**：同一部剧的不同季是不同订阅。真机事故：按 ``media_id``
+    去重会把「第 1 季已完成」当成「整部剧都处理过」，第 2 季永远订不上。
+    """
+    number = 0
+    try:
+        number = int(season or 0)
+    except (TypeError, ValueError):
+        number = 0
+    return "{}:{}:{}".format(str(media_source or ""), str(media_id or ""), max(0, number))
+
+
 class SubscriptionWriter:
     """把发现条目写成宿主订阅。
 
@@ -190,6 +215,8 @@ class SubscriptionWriter:
         daily_limit: int = 30,
         resubscribe_completed: bool = True,
         notify_each: bool = True,
+        dedupe_history: bool = True,
+        recorded_keys: Optional[Callable[[], Iterable[str]]] = None,
     ) -> None:
         self._backend = backend
         #: 是否让宿主为每条新增订阅发原生通知（以前固定静默，只发插件汇总）
@@ -197,6 +224,10 @@ class SubscriptionWriter:
         self._daily_limit = daily_limit
         #: 是否允许重新订阅「已完成过」的条目（忽略 subscribehistory）
         self._resubscribe_completed = resubscribe_completed
+        #: 是否用插件自己的发现流水做去重（「订过就别再订回来」）
+        self._dedupe_history = bool(dedupe_history)
+        #: 流水键的提供者：每次写入前实时读，删了流水就立刻不再拦
+        self._recorded_keys = recorded_keys
 
     # ------------------------------------------------------------------ 主入口
 
@@ -218,6 +249,8 @@ class SubscriptionWriter:
         report = WriteReport(dry_run=dry_run)
         budget = self._remaining_budget(already_written_today)
         current_day = today(tz_name)
+        # 流水键每批只读一次：写入口是串行的，逐条去读插件数据没必要
+        recorded = self.recorded_key_set()
 
         for item in items:
             # 额度必须在**写入之前**检查：否则超限批次仍会真的调用宿主 add()
@@ -232,12 +265,34 @@ class SubscriptionWriter:
                 )
                 report.limit_hit = True
                 continue
-            outcome = await self._write_one(item, dry_run=dry_run, today_value=current_day)
+            outcome = await self._write_one(
+                item,
+                dry_run=dry_run,
+                today_value=current_day,
+                recorded_keys=recorded,
+            )
             if outcome.decision == DECISION_ADDED:
                 budget -= 1
             report.outcomes.append(outcome)
 
         return report
+
+    # ------------------------------------------------------------- 流水去重
+
+    def recorded_key_set(self) -> Set[str]:
+        """读出「流水里记着订阅过」的键集合。
+
+        每次写入前实时读：用户清空流水之后，下一轮就该重新订阅，不能缓存。
+        读失败按「没有记录」处理 —— 宁可多订一条，也不能因为读不到插件数据
+        就把整轮发现全停掉。
+        """
+        if not self._dedupe_history or self._recorded_keys is None:
+            return set()
+        try:
+            keys = self._recorded_keys() or ()
+        except Exception:  # noqa: BLE001 - 读流水失败不该拦写入
+            return set()
+        return {str(key) for key in keys if key}
 
     # ------------------------------------------------------------------ 单条
 
@@ -247,6 +302,7 @@ class SubscriptionWriter:
         *,
         dry_run: bool,
         today_value: Any,
+        recorded_keys: Optional[Set[str]] = None,
     ) -> WriteOutcome:
         """判定单条条目并（在允许时）写入。"""
         # ---- 特别篇 / OVA / 番外：设计上不处理
@@ -334,6 +390,19 @@ class SubscriptionWriter:
                 )
         except Exception as err:  # noqa: BLE001 - 复查失败按 fail-open 交给 add() 幂等兜底
             return await self._do_write(item, dry_run=dry_run, precheck_error=str(err))
+
+        # ---- 流水去重（最后一道，且不受上面异常影响）
+        #
+        # 与「宿主已有该订阅」是两回事：那条查的是**当下**，用户把订阅一删就
+        # 查不到了，下一轮又会自动订回来。这里查的是**历史** —— 只要流水里还
+        # 记着「这部我订过」，就不订；清空流水（或删掉那条记录）之后才会重新订。
+        key = recorded_key(identity.media_source, identity.media_id, item.season)
+        if recorded_keys and key in recorded_keys:
+            return WriteOutcome(
+                item=item,
+                decision=DECISION_SKIPPED_RECORDED,
+                reason="发现流水里记着这部订阅过（删掉订阅后不再自动重订，清空流水可恢复）",
+            )
 
         return await self._do_write(item, dry_run=dry_run, precheck_error="")
 

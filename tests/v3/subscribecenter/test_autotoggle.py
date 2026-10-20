@@ -155,13 +155,71 @@ def test_episodes_before_start_episode_are_ignored():
 def test_best_version_uses_episode_priority():
     """洗版订阅不用 ``note``，靠 ``episode_priority == 100`` 记进度。"""
     result = autotoggle.decide(
-        _row(note=[], episode_priority={"1": 100, "2": 40}),
+        _row(best_version=1, note=[], episode_priority={"1": 100, "2": 40}),
         _eps(("2026-10-19", 1), ("2026-10-20", 2)),
         TODAY,
     )
     assert result.downloaded == 1
     assert result.pending == (2,)
     assert result.action == autotoggle.ACTION_KEEP
+
+
+def test_best_version_ignores_note_and_keeps_searching():
+    """洗版订阅「刚下完 1080」不等于「不用再搜」（真机反馈的那个坑）。
+
+    ``note`` 里 12 集都在 —— 换成普通订阅就是「已播剧集全部入库」该暂停；
+    但洗版订阅还要等更好的版本（``episode_priority`` 没到 100），必须继续 R。
+    """
+    row = _row(
+        best_version=1,
+        note=list(range(1, 13)),
+        episode_priority={str(ep): 60 for ep in range(1, 13)},
+        lack_episode=0,
+    )
+    eps = [("2026-10-%02d" % day, day) for day in range(8, 20)]
+    result = autotoggle.decide(row, eps, TODAY, keep_days=3, best_keep_days=90)
+    assert result.target == autotoggle.STATE_RUN
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.reason == autotoggle.REASON_BEST_PENDING
+    assert result.downloaded == 0
+    assert len(result.pending) == 12
+    assert "洗到顶" in result.detail
+
+
+def test_best_version_pauses_after_wash_window():
+    """洗版窗口也过了（90 天没等到更好版本）→ 先暂停，别永远搜。"""
+    row = _row(best_version=1, note=[1], episode_priority={"1": 60})
+    result = autotoggle.decide(
+        row, _eps(("2026-06-01", 1)), TODAY, keep_days=3, best_keep_days=90
+    )
+    assert result.target == autotoggle.STATE_PAUSED
+    assert result.action == autotoggle.ACTION_PAUSE
+    assert result.reason == autotoggle.REASON_BEST_OVERDUE
+
+
+def test_best_version_completed_when_priority_reaches_100():
+    """``episode_priority`` 全到 100 = 洗到头 → 按「已播剧集全部入库」暂停。"""
+    row = _row(best_version=1, note=[1, 2], episode_priority={"1": 100, "2": 100})
+    result = autotoggle.decide(
+        row, _eps(("2026-10-18", 1), ("2026-10-19", 2)), TODAY, best_keep_days=90
+    )
+    assert result.downloaded == 2
+    assert result.target == autotoggle.STATE_PAUSED
+    assert result.reason == autotoggle.REASON_ALL_DONE
+
+
+def test_best_version_current_priority_seed():
+    """还没建 ``episode_priority`` 映射时，宿主的 ``current_priority`` 是种子值。"""
+    low = _row(best_version=1, current_priority=60, total_episode=2)
+    assert autotoggle.episode_numbers(low) == set()
+    high = _row(best_version=1, current_priority=100, total_episode=2)
+    assert autotoggle.episode_numbers(high) == {1, 2}
+
+
+def test_normal_subscription_still_trusts_note():
+    """回归锁：普通订阅照旧按 ``note`` 判定，别被洗版逻辑带偏。"""
+    row = _row(note=[1, 2], episode_priority={"1": 60, "2": 60})
+    assert autotoggle.episode_numbers(row) == {1, 2}
 
 
 def test_empty_note_with_lack_zero_means_all_downloaded():

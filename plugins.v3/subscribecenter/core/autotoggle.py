@@ -77,6 +77,10 @@ REASON_UPCOMING = "upcoming"
 REASON_ALL_DONE = "all_done"
 #: 缺集已超过 keep 窗口（PT 迟迟没有资源）
 REASON_MISSING_OVERDUE = "missing_overdue"
+#: 洗版订阅：已入库但还没洗到顶（priority < 100），在洗版窗口内继续等
+REASON_BEST_PENDING = "best_pending"
+#: 洗版订阅：超过洗版窗口仍未洗到顶，先暂停（别永远搜）
+REASON_BEST_OVERDUE = "best_overdue"
 #: 首集还没播出
 REASON_PREMIERE = "premiere"
 #: 拿不到播出表（TMDB 失败 / 该季无 air_date）
@@ -109,6 +113,8 @@ REASON_LABELS: Dict[str, str] = {
     REASON_UPCOMING: "临近播出",
     REASON_ALL_DONE: "已播剧集全部入库",
     REASON_MISSING_OVERDUE: "缺集超过保留窗口",
+    REASON_BEST_PENDING: "洗版中，等更好的版本",
+    REASON_BEST_OVERDUE: "洗版超过保留窗口",
     REASON_PREMIERE: "首集尚未播出",
     REASON_NO_SCHEDULE: "取不到播出表",
     REASON_MOVIE: "非剧集",
@@ -231,19 +237,26 @@ def _episode_pair(item: Any) -> Optional[Tuple[str, int]]:
 
 
 def episode_numbers(row: Any) -> set:
-    """返回该订阅**已入库**的集号集合。
+    """返回该订阅**已经不需要再搜**的集号集合。
 
-    三个来源按可靠性排序：
+    关键在于区分「下载过」与「不用再搜」—— 两者对普通订阅相同，对洗版订阅
+    完全不同：
 
-    1. ``note`` —— 宿主自己写的「已下载集号」清单，最准；
-    2. ``episode_priority`` —— 洗版订阅不用 ``note``，靠「优先级 100 = 完成」
-       的映射记录进度（见 ``policy.py`` 的 ``_get_best_version_completed_episodes``）；
-    3. 兜底 —— ``note`` 为空但 ``lack_episode <= 0`` 且 ``total_episode > 0``：
-       视为整季已下全（真机上「已完成」的订阅 note 会被清空）。
+    - **普通订阅**：``note``（宿主写的「已下载集号」清单）就是权威答案，
+      ``note`` 为空但 ``lack_episode <= 0`` 时按整季下全处理；
+    - **洗版订阅**：下了 1080 只是「有资格升级到更好的版本」，宿主会继续找
+      ``priority`` 更高的资源（``app/application/subscription/priority.py`` 的
+      ``get_best_version_interested_episodes``），只有 ``episode_priority`` 里
+      ``priority == 100`` 才算洗到头（同文件 ``get_best_version_completed_episodes``）。
+      所以洗版订阅**必须忽略 note**：否则「刚下完 1080、下一集明晚才播」会被判成
+      「已播剧集全部入库」，反过来把洗版订阅暂停掉 —— 洗版等于白开。
 
     .. warning::
-       只读不写。任何情况下都不要往 ``note`` 里写本插件的标记。
+        只读不写。任何情况下都不要往 ``note`` 里写本插件的标记。
     """
+    if is_best_version(row):
+        return _best_version_done(row)
+
     note = _get(row, "note")
     if isinstance(note, (list, tuple, set)):
         numbers = {_int(item, -1) for item in note}
@@ -266,6 +279,34 @@ def episode_numbers(row: Any) -> set:
     lack = _int(_get(row, "lack_episode"))
     if total > 0 and lack <= 0:
         return set(range(1, total + 1))
+    return set()
+
+
+def _best_version_done(row: Any) -> set:
+    """洗版订阅里「已经洗到顶」的集号。
+
+    数据来源与宿主的 ``priority.py:get_episode_priority`` 一致：
+
+    - ``episode_priority``：``{集号: 已下到的最好优先级}``，只有 ``== 100`` 算完成；
+      按集洗版但还没建立映射时，宿主用 ``current_priority`` 兜底（通常远低于 100）。
+
+    取不到时返回空集 —— 空集表示「还没洗到顶」，判定会保持搜索并受洗版保留
+    窗口约束。宁可多搜，也不要把还在洗的订阅停掉。
+    """
+    priority = _get(row, "episode_priority")
+    if isinstance(priority, Mapping) and priority:
+        done = set()
+        for key, value in priority.items():
+            number = _int(key, -1)
+            if number > 0 and _int(value) >= 100:
+                done.add(number)
+        return done
+
+    if _int(_get(row, "current_priority"), 0) >= 100:
+        total = _int(_get(row, "total_episode"))
+        start = _int(_get(row, "start_episode"), 1)
+        if total >= start > 0:
+            return set(range(start, total + 1))
     return set()
 
 
@@ -451,6 +492,10 @@ def _describe(reason: str, **values: Any) -> str:
         return "已播 {aired} 集全部入库".format(**values)
     if reason == REASON_MISSING_OVERDUE:
         return "第 {ep} 集 {air} 未入库（超 {keep} 天窗口）".format(**values)
+    if reason == REASON_BEST_PENDING:
+        return "第 {ep} 集 {air} 已入库但未洗到顶（{days} 天，窗口 {keep} 天）".format(**values)
+    if reason == REASON_BEST_OVERDUE:
+        return "第 {ep} 集 {air} 超过 {keep} 天仍未洗到顶".format(**values)
     if reason == REASON_PREMIERE:
         return "首集 {air} 才播出".format(**values)
     if reason == REASON_NO_SCHEDULE:
@@ -680,17 +725,28 @@ def decide(
     if pending:
         day, number = pending[-1]
         gap = (today - (parse_date(day) or today)).days
-        if gap <= max(0, keep_days):
-            target, reason = STATE_RUN, REASON_PENDING
-            detail = _describe(REASON_PENDING, ep=number, air=day, days=gap)
+        if gap <= window:
+            # 洗版订阅的 pending 是「还没洗到顶」的集，不是「缺集」：
+            # 已经下过 1080 也算 pending，只是还在等更高优先级的版本。
+            if best:
+                target, reason = STATE_RUN, REASON_BEST_PENDING
+                detail = _describe(
+                    REASON_BEST_PENDING, ep=number, air=day, days=gap, keep=window
+                )
+            else:
+                target, reason = STATE_RUN, REASON_PENDING
+                detail = _describe(REASON_PENDING, ep=number, air=day, days=gap)
         elif upcoming:
             day2, number2 = upcoming[0]
             target, reason = STATE_RUN, REASON_UPCOMING
             detail = _describe(REASON_UPCOMING, ep=number2, air=day2)
+        elif best:
+            target, reason = STATE_PAUSED, REASON_BEST_OVERDUE
+            detail = _describe(REASON_BEST_OVERDUE, ep=number, air=day, keep=window)
         else:
             target, reason = STATE_PAUSED, REASON_MISSING_OVERDUE
             detail = _describe(
-                REASON_MISSING_OVERDUE, ep=number, air=day, keep=max(0, keep_days)
+                REASON_MISSING_OVERDUE, ep=number, air=day, keep=window
             )
     elif upcoming:
         day, number = upcoming[0]
@@ -861,6 +917,8 @@ __all__ = [
     "ACTION_SKIP",
     "Decision",
     "REASON_ALL_DONE",
+    "REASON_BEST_OVERDUE",
+    "REASON_BEST_PENDING",
     "REASON_LABELS",
     "REASON_MANUAL",
     "REASON_MISSING_OVERDUE",

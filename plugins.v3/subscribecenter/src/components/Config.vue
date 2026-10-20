@@ -453,6 +453,21 @@ function autoToggleCronValid() {
 }
 
 /**
+ * 待处理集号的中文说明。
+ *
+ * 洗版订阅的 pending 不是「缺集」，而是「还没洗到顶」（已下 1080、还在等更好
+ * 的版本），用「缺」会让用户以为 PT 上没资源。所以按原因码分两种说法。
+ */
+function pendingText(row) {
+  const list = row?.pending || []
+  if (!list.length) return ''
+  const label = String(row.reason || '').startsWith('best_') ? '待升级' : '缺'
+  const head = list.slice(0, 12).join(', ')
+  const tail = list.length > 12 ? ` 等 ${list.length} 集` : ' 集'
+  return `${label} ${head}${tail}`
+}
+
+/**
  * 自动启停：GET 只算不写。
  *
  * 判定的依据是「今天到底有没有该搜的集」，所以这一步会去查 TMDB 播出表，
@@ -1540,7 +1555,7 @@ onMounted(() => {
                   <span class="sc-hint">{{ row.state }} → {{ row.target }}</span>
                   <VChip size="x-small" variant="tonal">{{ row.reason_label || row.reason }}</VChip>
                   <span v-if="row.pending && row.pending.length" class="sc-hint">
-                    缺 {{ row.pending.join(', ') }} 集
+                    {{ pendingText(row) }}
                   </span>
                   <span v-if="row.basis" class="sc-hint">
                     {{ RELEASE_KIND_LABELS[row.basis_kind] || '上映' }} {{ row.basis }}

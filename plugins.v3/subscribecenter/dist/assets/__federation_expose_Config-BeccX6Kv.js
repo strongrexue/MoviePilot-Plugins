@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-DgYFVcz2.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-JXXk6GTW.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -686,6 +686,21 @@ function autoToggleCronValid() {
 }
 
 /**
+ * 待处理集号的中文说明。
+ *
+ * 洗版订阅的 pending 不是「缺集」，而是「还没洗到顶」（已下 1080、还在等更好
+ * 的版本），用「缺」会让用户以为 PT 上没资源。所以按原因码分两种说法。
+ */
+function pendingText(row) {
+  const list = row?.pending || [];
+  if (!list.length) return ''
+  const label = String(row.reason || '').startsWith('best_') ? '待升级' : '缺';
+  const head = list.slice(0, 12).join(', ');
+  const tail = list.length > 12 ? ` 等 ${list.length} 集` : ' 集';
+  return `${label} ${head}${tail}`
+}
+
+/**
  * 自动启停：GET 只算不写。
  *
  * 判定的依据是「今天到底有没有该搜的集」，所以这一步会去查 TMDB 播出表，
@@ -1288,7 +1303,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[78] || (_cache[78] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-188f24e2><b data-v-188f24e2>电影上映类</b>（<code data-v-188f24e2>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-188f24e2><b data-v-188f24e2>剧集类</b>（<code data-v-188f24e2>/douban/tv/coming</code>、<code data-v-188f24e2>/douban/list/tv_*</code>、 <code data-v-188f24e2>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-188f24e2><b data-v-188f24e2>电影榜单类</b>没有日期，会被跳过。<code data-v-188f24e2>ustop250</code> 与 <code data-v-188f24e2>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[78] || (_cache[78] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-b3f77e9a><b data-v-b3f77e9a>电影上映类</b>（<code data-v-b3f77e9a>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-b3f77e9a><b data-v-b3f77e9a>剧集类</b>（<code data-v-b3f77e9a>/douban/tv/coming</code>、<code data-v-b3f77e9a>/douban/list/tv_*</code>、 <code data-v-b3f77e9a>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-b3f77e9a><b data-v-b3f77e9a>电影榜单类</b>没有日期，会被跳过。<code data-v-b3f77e9a>ustop250</code> 与 <code data-v-b3f77e9a>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2231,7 +2246,7 @@ return (_ctx, _cache) => {
                             _: 2
                           }, 1024),
                           (row.pending && row.pending.length)
-                            ? (_openBlock(), _createElementBlock("span", _hoisted_72, " 缺 " + _toDisplayString(row.pending.join(', ')) + " 集 ", 1))
+                            ? (_openBlock(), _createElementBlock("span", _hoisted_72, _toDisplayString(pendingText(row)), 1))
                             : _createCommentVNode("", true),
                           (row.basis)
                             ? (_openBlock(), _createElementBlock("span", _hoisted_73, _toDisplayString(RELEASE_KIND_LABELS[row.basis_kind] || '上映') + " " + _toDisplayString(row.basis), 1))
@@ -2387,6 +2402,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-188f24e2"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b3f77e9a"]]);
 
 export { Config as default };

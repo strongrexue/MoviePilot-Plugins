@@ -293,7 +293,9 @@ const chips = computed(() => {
       : { text: 'TG 未启动', color: 'default' }
   return [
     { text: info.telethon_available ? 'telethon 已安装' : 'telethon 未安装', color: info.telethon_available ? 'success' : 'error' },
-    { text: info.api_configured ? 'API 凭证已填' : 'API 凭证未填', color: info.api_configured ? 'success' : 'warning' },
+    info.api_id_issue
+      ? { text: 'API ID 格式不对', color: 'error' }
+      : { text: info.api_configured ? 'API 凭证已填' : 'API 凭证未填', color: info.api_configured ? 'success' : 'warning' },
     { text: info.session_present ? '会话已保存' : '无会话', color: info.session_present ? 'success' : 'default' },
     connection,
     { text: info.authorized ? '已登录' : '未登录', color: info.authorized ? 'success' : 'warning' },
@@ -375,7 +377,15 @@ onUnmounted(() => {
       <VCardText>
         <VRow dense>
           <VCol cols="12" md="6">
-            <SecretField v-model="form.tg_api_id" label="API ID" />
+            <VTextField
+              v-model="form.tg_api_id"
+              label="API ID（纯数字）"
+              type="number"
+              placeholder="12345678"
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
           </VCol>
           <VCol cols="12" md="6">
             <SecretField v-model="form.tg_api_hash" label="API Hash" />
@@ -415,6 +425,13 @@ onUnmounted(() => {
             />
           </VCol>
         </VRow>
+        <VAlert
+          v-if="status && status.api_id_issue"
+          type="error"
+          variant="tonal"
+          density="compact"
+          class="tg-message"
+        >{{ status.api_id_issue }}</VAlert>
         <div class="tg-hint">
           API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。
           API ID、API Hash、手机号默认打码，点右侧眼睛可查看（打码只影响显示，保存的仍是真实值）。

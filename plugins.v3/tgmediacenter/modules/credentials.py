@@ -94,6 +94,24 @@ class CredentialsModule:
         """是否已配置可用的 TG API 凭证。"""
         return bool(self._cfg("tg_api_id") and self._cfg("tg_api_hash"))
 
+    def api_id_issue(self) -> str:
+        """API ID 不是数字时返回可读说明，正常时返回空串。
+
+        真实案例：用户把别处的口令粘进了「API ID」输入框。此时凭证"看起来填了"
+        （``api_configured()`` 为真），但运行时解析不出整数于是立刻判定未配置并
+        返回 False —— 上层若把 False 一律当"连接超时"，用户就会看到
+        「超过 45 秒未成功，请检查代理」，而真正的错因是填错了字段。
+        """
+        raw = self._cfg("tg_api_id")
+        if raw is None or raw == "":
+            return ""
+        if TelegramRuntime.parse_api_id(raw) is not None:
+            return ""
+        return (
+            "API ID 必须是纯数字（my.telegram.org 里应用详情页那串 7-8 位数字），"
+            f"当前填的是「{mask_secret(str(raw))}」，看起来不像 API ID，请改正后保存配置"
+        )
+
     def ensure_runtime(self, connect_timeout: int = 30) -> TelegramRuntime:
         """按当前配置建立运行时并连接。
 
@@ -105,6 +123,9 @@ class CredentialsModule:
         """
         if not self.api_configured():
             raise tg.TelegramOperationError("请先填写 API ID / API Hash 并保存配置")
+        issue = self.api_id_issue()
+        if issue:
+            raise tg.TelegramOperationError(issue)
         if not TelegramRuntime.telethon_available():
             raise tg.TelegramOperationError("telethon 依赖未安装，请重新安装插件以拉取依赖")
 
@@ -129,13 +150,21 @@ class CredentialsModule:
         )
         if not runtime.start(connect_timeout=connect_timeout):
             self._runtime = None
+            reason = str(getattr(runtime, "last_start_error", "") or "")
             hint = runtime.proxy_ignored_hint()
+            if reason and not runtime.credentials_ready:
+                # 凭证层面的问题：报"连接超时"会把人带去查网络，必须在源头说清
+                raise tg.TelegramOperationError(
+                    f"TG 凭证不可用（{reason}）：请检查 API ID / API Hash 是否正确，"
+                    "API ID 是 my.telegram.org 里那串纯数字"
+                )
             if hint:
                 raise tg.TelegramOperationError(
                     f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）：{hint}"
                 )
+            detail = f"（{reason}）" if reason else ""
             raise tg.TelegramOperationError(
-                f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）："
+                f"连接 Telegram 失败（超过 {connect_timeout} 秒未成功）{detail}："
                 "请检查服务器网络与代理设置（代理继承 MoviePilot 设置）后重试"
             )
         self._runtime = runtime
@@ -237,6 +266,8 @@ class CredentialsModule:
             "enabled": bool(self._plugin.get_state()),
             "telethon_available": TelegramRuntime.telethon_available(),
             "api_configured": bool(self._cfg("tg_api_id") and self._cfg("tg_api_hash")),
+            # 凭证"填了但不合法"是静默失败的来源，前端据此直接提示，别等连接超时
+            "api_id_issue": self.api_id_issue(),
             "session_present": bool(self.session_string()),
             "running": running,
             "connected": connected,

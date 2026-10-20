@@ -65,12 +65,25 @@ class TelegramRuntime:
         self._thread: Optional[threading.Thread] = None
         self._client: Any = None
         self._keep_alive_task: Any = None
+        # 最近一次 start() 未成功的原因：调用方据此给出可读错误，
+        # 而不是把"凭证不合法"一律说成"连接超时"。
+        self.last_start_error: str = ""
 
     # ------------------------------------------------------------------ 基础属性
 
     @staticmethod
     def _normalize_api_id(value: Any) -> Optional[int]:
         """把配置里的 api_id 归一为整数；非法值返回 None。"""
+        return TelegramRuntime.parse_api_id(value)
+
+    @staticmethod
+    def parse_api_id(value: Any) -> Optional[int]:
+        """把配置里的 api_id 归一为整数；非法值（如粘错成密码）返回 None。
+
+        对外暴露：调用方需要在「建运行时之前」就判断出 api_id 不是数字，
+        否则会掉进 ``start()`` 的 ``credentials_ready`` 分支静默返回 False，
+        再被上层误报成「连接超时」。
+        """
         if value is None or value == "":
             return None
         try:
@@ -113,6 +126,16 @@ class TelegramRuntime:
     def credentials_ready(self) -> bool:
         """是否已具备启动客户端所需的最小凭证。"""
         return bool(TELETHON_AVAILABLE and self._api_id and self._api_hash)
+
+    def _creds_issue(self) -> str:
+        """``credentials_ready`` 为假时的具体原因（用于日志与上层报错）。"""
+        if not TELETHON_AVAILABLE:
+            return "telethon 依赖未安装"
+        if not self._api_hash:
+            return "API Hash 为空"
+        if not self._api_id:
+            return "API ID 缺失或不是纯数字"
+        return "凭证不可用"
 
     @property
     def client(self) -> Any:
@@ -195,7 +218,9 @@ class TelegramRuntime:
             if self.is_running():
                 return True
             if not self.credentials_ready:
-                logger.info(f"[{self._plugin_id}] 未配置 TG 凭证，跳过运行时启动")
+                reason = self._creds_issue()
+                self.last_start_error = reason
+                logger.info(f"[{self._plugin_id}] 未配置 TG 凭证，跳过运行时启动：{reason}")
                 return False
             hint = self.proxy_ignored_hint()
             if hint:
@@ -212,6 +237,7 @@ class TelegramRuntime:
         try:
             client = self.call(self._connect_client(), timeout=max(5, int(connect_timeout)))
         except Exception as err:
+            self.last_start_error = str(err)
             logger.warning(f"[{self._plugin_id}] TG 客户端连接失败：{err}")
             if hint:
                 logger.warning(f"[{self._plugin_id}] {hint}")

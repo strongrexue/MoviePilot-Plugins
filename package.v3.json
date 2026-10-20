@@ -3,7 +3,7 @@
         "name": "胖虎媒体中心",
         "description": "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。",
         "labels": "工具,媒体",
-        "version": "1.13.19",
+        "version": "1.13.20",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.20": "修掉「凭证填错却报连接超时」（1.13.20）：容器里 TG 预连接在同一毫秒先打「未配置 TG 凭证，跳过运行时启动」再打「连接 Telegram 失败（超过 45 秒未成功）：请检查服务器网络与代理设置」——真实原因是 API ID 里粘了别的口令（非数字），runtime 解析不出整数直接判定未配置并立刻返回 False，上层却把 False 一律当成「连了 45 秒没连上」，把人全带去查网络。1. core/runtime.py 暴露 parse_api_id()，start() 早退时记 last_start_error（缺 API ID / API Hash 为空 / 缺 telethon 分别说清）。2. modules/credentials.py 新增 api_id_issue()：API ID 不是纯数字时在建立运行时之前就抛「API ID 必须是纯数字…当前填的不是数字」，状态接口一并返回该字段供前端提前提示。3. 连接失败文案按凭证问题 / 代理依赖缺失 / 网络三层分别成文，不再混用。4. 配置页「API ID」不再是打码输入框，改为数字输入并附「API ID 格式不对」红条提示。5. 新增 5 项单测覆盖归一化、错因文案、早退原因与状态字段。",
             "v1.13.19": "修复「代理明明配了、TG 却 45 秒连接失败」：插件此前只在 pyproject 里声明 telethon，容器 venv 缺 python-socks 时 Telethon 会把代理参数当软依赖直接丢掉（只打一行 UserWarning）然后直连 Telegram，机房直连不通就超时报「请检查服务器网络与代理设置」——用户看到的提示与真实原因完全对不上。1. pyproject.toml 显式声明 python-socks[asyncio]>=2.4.4,<3，插件更新时由宿主装进容器；锁 <3 是因为 3.x 改了 python_socks.async_ 的模块路径，Telethon 1.4x 仍按 2.x 接口导入。2. core/runtime.py 新增 proxy_support_available() 与 proxy_ignored_hint()：启动前先探测 python-socks，缺失时记 WARNING，连接失败再补一条同因告警。3. modules/credentials.py 在连接失败且代理被忽略时，错误文案直接点名缺少的依赖与代理地址，替代原来的「请检查网络与代理设置」。4. 新增 6 项单测覆盖探测、提示文案与异常分支。",
             "v1.13.18": "发现页入口并入「启用」开关（1.13.18）：配置页标题栏去掉单独的「发现页」开关，插件启用时自动在 MP 左侧「发现」分区注册本插件整页入口，停用即自动移除；配置键 discovery_page_enabled 一并删除（老配置里残留的值不再生效）。",
             "v1.13.17": "重复获取治理按效果图重排（1.13.17）：宿主能力探针不再逐行列表 +「详情」展开，改成一行 ✓/✗ chips（悬停看导入路径），卡头右侧放「全部通过 / N 项未通过」徽章与「重新探测」；前向闸门的开关移到卡头右侧，正文改两列（成熟期 T ｜ 活跃性细化），说明压到一行小字。",

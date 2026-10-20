@@ -403,6 +403,70 @@ def test_runtime_start_warns_when_proxy_dependency_missing(monkeypatch, caplog):
     assert any("python-socks" in (record.getMessage() or "") for record in caplog.records)
 
 
+# --------------------------------------------------- API ID 填错（真实故障复现）
+
+
+def test_parse_api_id_accepts_numbers_only():
+    """api_id 必须能归一成整数；把口令粘进来这种是真实发生过的故障。"""
+    assert TelegramRuntime.parse_api_id("12345678") == 12345678
+    assert TelegramRuntime.parse_api_id(12345678) == 12345678
+    assert TelegramRuntime.parse_api_id(" 678 ") == 678
+    assert TelegramRuntime.parse_api_id("Ldb456090") is None
+    assert TelegramRuntime.parse_api_id("") is None
+    assert TelegramRuntime.parse_api_id(None) is None
+
+
+def test_api_id_issue_names_the_problem_and_masks_value():
+    """凭证"填了但不是数字"要能单独识别出来，且不能把原值打进提示里。"""
+    module = CredentialsModule(
+        _StubCredPlugin(config={"tg_api_id": "Ldb456090", "tg_api_hash": "x"})
+    )
+    issue = module.api_id_issue()
+    assert "纯数字" in issue
+    assert "Ldb456090" not in issue
+
+    ok = CredentialsModule(_StubCredPlugin(config={"tg_api_id": "12345678", "tg_api_hash": "x"}))
+    assert ok.api_id_issue() == ""
+
+    empty = CredentialsModule(_StubCredPlugin(config={"tg_api_id": "", "tg_api_hash": "x"}))
+    assert empty.api_id_issue() == ""
+
+
+def test_ensure_runtime_rejects_non_numeric_api_id():
+    """错误必须在建运行时之前暴露，而不是被报成"45 秒连接失败"。"""
+    module = CredentialsModule(
+        _StubCredPlugin(config={"tg_api_id": "Ldb456090", "tg_api_hash": "x"})
+    )
+    with pytest.raises(tg.TelegramOperationError) as err:
+        module.ensure_runtime(connect_timeout=3)
+    message = str(err.value)
+    assert "纯数字" in message
+    assert "45 秒" not in message
+    assert "代理" not in message
+
+
+def test_status_exposes_api_id_issue():
+    """状态接口要带出该问题，前端才能提前提示而不是等连接超时。"""
+    module = CredentialsModule(
+        _StubCredPlugin(config={"tg_api_id": "Ldb456090", "tg_api_hash": "x"})
+    )
+    assert "纯数字" in module.status()["api_id_issue"]
+
+    ok = CredentialsModule(_StubCredPlugin(config={"tg_api_id": "12345678", "tg_api_hash": "x"}))
+    assert ok.status()["api_id_issue"] == ""
+
+
+def test_runtime_start_records_reason_when_credentials_unusable(monkeypatch):
+    """start() 早退时要把原因留给调用方，日志里也不能只说"未配置"。"""
+    from app.plugins.tgmediacenter.core import runtime as runtime_module
+
+    # 宿主 venv 无 telethon，否则原因会被"依赖未安装"抢先命中
+    monkeypatch.setattr(runtime_module, "TELETHON_AVAILABLE", True)
+    runtime = TelegramRuntime(api_id="Ldb456090", api_hash="x")
+    assert runtime.start(connect_timeout=1) is False
+    assert "API ID" in runtime.last_start_error
+
+
 
 # --------------------------------------------------------------------- 投递渠道
 

@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.19';
+const FRONTEND_VERSION = '1.13.20';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -407,7 +407,9 @@ const chips = computed$6(() => {
       : { text: 'TG 未启动', color: 'default' };
   return [
     { text: info.telethon_available ? 'telethon 已安装' : 'telethon 未安装', color: info.telethon_available ? 'success' : 'error' },
-    { text: info.api_configured ? 'API 凭证已填' : 'API 凭证未填', color: info.api_configured ? 'success' : 'warning' },
+    info.api_id_issue
+      ? { text: 'API ID 格式不对', color: 'error' }
+      : { text: info.api_configured ? 'API 凭证已填' : 'API 凭证未填', color: info.api_configured ? 'success' : 'warning' },
     { text: info.session_present ? '会话已保存' : '无会话', color: info.session_present ? 'success' : 'default' },
     connection,
     { text: info.authorized ? '已登录' : '未登录', color: info.authorized ? 'success' : 'warning' },
@@ -447,8 +449,8 @@ return (_ctx, _cache) => {
   const _component_VAlert = _resolveComponent$6("VAlert");
   const _component_VIcon = _resolveComponent$6("VIcon");
   const _component_VCardTitle = _resolveComponent$6("VCardTitle");
-  const _component_VCol = _resolveComponent$6("VCol");
   const _component_VTextField = _resolveComponent$6("VTextField");
+  const _component_VCol = _resolveComponent$6("VCol");
   const _component_VRow = _resolveComponent$6("VRow");
   const _component_VCardText = _resolveComponent$6("VCardText");
   const _component_VCard = _resolveComponent$6("VCard");
@@ -582,10 +584,15 @@ return (_ctx, _cache) => {
                   md: "6"
                 }, {
                   default: _withCtx$6(() => [
-                    _createVNode$6(SecretField, {
+                    _createVNode$6(_component_VTextField, {
                       modelValue: form.value.tg_api_id,
                       "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((form.value.tg_api_id) = $event)),
-                      label: "API ID"
+                      label: "API ID（纯数字）",
+                      type: "number",
+                      placeholder: "12345678",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": ""
                     }, null, 8, ["modelValue"])
                   ]),
                   _: 1
@@ -675,6 +682,20 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }),
+            (status.value && status.value.api_id_issue)
+              ? (_openBlock$6(), _createBlock$6(_component_VAlert, {
+                  key: 0,
+                  type: "error",
+                  variant: "tonal",
+                  density: "compact",
+                  class: "tg-message"
+                }, {
+                  default: _withCtx$6(() => [
+                    _createTextVNode$6(_toDisplayString$6(status.value.api_id_issue), 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode$6("", true),
             _cache[12] || (_cache[12] = _createElementVNode$6("div", { class: "tg-hint" }, " API ID / Hash 需在 my.telegram.org 申请；代理自动继承 MoviePilot 的系统代理设置。 API ID、API Hash、手机号默认打码，点右侧眼睛可查看（打码只影响显示，保存的仍是真实值）。 ", -1))
           ]),
           _: 1
@@ -898,7 +919,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$6, [['__scopeId',"data-v-401485ef"]]);
+const ConfigTgPane = /*#__PURE__*/_export_sfc(_sfc_main$6, [['__scopeId',"data-v-54aabc3a"]]);
 
 const {resolveComponent:_resolveComponent$5,createVNode:_createVNode$5,createTextVNode:_createTextVNode$5,withCtx:_withCtx$5,toDisplayString:_toDisplayString$5,openBlock:_openBlock$5,createBlock:_createBlock$5,createCommentVNode:_createCommentVNode$5,createElementVNode:_createElementVNode$5,createElementBlock:_createElementBlock$5,Transition:_Transition,normalizeClass:_normalizeClass$2,renderList:_renderList$5,Fragment:_Fragment$5} = await importShared('vue');
 

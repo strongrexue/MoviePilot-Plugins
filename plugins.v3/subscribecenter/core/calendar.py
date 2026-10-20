@@ -69,6 +69,8 @@ def build_today(
     rows: Iterable[Any],
     today: str,
     episode_index: Optional[Dict[Any, List[Any]]] = None,
+    search_flags: Optional[Dict[int, Dict[str, Any]]] = None,
+    movie_kinds: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """某一天有哪些剧在播（复刻 MoviePilot 日历的数据口径）。
 
@@ -82,9 +84,17 @@ def build_today(
 
        入库状态按**集号 vs 已入库集数**（``total_episode - lack_episode``）判断，
        与 MP 前端 ``libraryState`` 口径一致。
+
+    :param search_flags: ``{订阅 id: {"searched": bool, "note": "原因"}}``，
+        由调用方用自动启停的同一套判定算出；**只有「今天」才有**，查历史/未来
+        日期时不传（那时的「今天会不会搜」没有意义）。
+    :param movie_kinds: ``{media_id: "digital"/"physical"/...}``，电影的发行
+        基准类型，用于界面显示「数字发行 / 实体发行」。
     """
     rows = list(rows)
     index = episode_index or {}
+    flags = search_flags or {}
+    kinds = movie_kinds or {}
     items: List[Dict[str, Any]] = []
 
     for row in rows:
@@ -105,6 +115,15 @@ def build_today(
             done = downloaded > 0 and max(air_eps) <= downloaded
         item = _row_to_item(row, KIND_UPDATED if done else KIND_PENDING, today)
         item["episodes"] = sorted(air_eps)
+        item["searched"] = None
+        item["search_note"] = ""
+        item["release_kind"] = ""
+        flag = flags.get(_int(getattr(row, "id", 0)))
+        if isinstance(flag, dict):
+            item["searched"] = bool(flag.get("searched"))
+            item["search_note"] = _text(flag.get("note"))
+        if season <= 0:
+            item["release_kind"] = _text(kinds.get(media_id))
         items.append(item)
 
     items.sort(key=lambda item: (item["kind"] != KIND_UPDATED, item["name"]))
@@ -137,12 +156,13 @@ def build_month(
     rows: Iterable[Any],
     month: str,
     episode_index: Optional[Dict[Any, List[Any]]] = None,
+    movie_kinds: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """整月日历：{日期: [条目]}，只有有内容的天才出现在结果里。"""
     rows = list(rows)
     days: Dict[str, List[Dict[str, Any]]] = {}
     for day in month_bounds(month):
-        items = build_today(rows, day, episode_index)
+        items = build_today(rows, day, episode_index, movie_kinds=movie_kinds)
         if items:
             days[day] = items
     # 不截断：以前截到 20 条会让「+N」永远显示 +15，和 MP 的真实折叠数对不上。

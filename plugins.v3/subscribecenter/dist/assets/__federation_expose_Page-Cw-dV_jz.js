@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-pyLMZwDt.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Cj979-HJ.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -54,64 +54,75 @@ const _hoisted_32 = ["src"];
 const _hoisted_33 = ["title"];
 const _hoisted_34 = { class: "sc-today-sub" };
 const _hoisted_35 = {
+  key: 0,
+  class: "sc-today-sub sc-dim"
+};
+const _hoisted_36 = {
+  key: 1,
+  class: "sc-today-sub sc-cal-done",
+  title: "按自动启停的判定，今天会被订阅刷新搜到"
+};
+const _hoisted_37 = ["title"];
+const _hoisted_38 = { key: 0 };
+const _hoisted_39 = {
   key: 1,
   class: "sc-cal-weekhead"
 };
-const _hoisted_36 = {
+const _hoisted_40 = {
   key: 2,
   class: "sc-cal-scroll"
 };
-const _hoisted_37 = ["id"];
-const _hoisted_38 = { class: "sc-cal-daynum" };
-const _hoisted_39 = { class: "sc-cal-evposter" };
-const _hoisted_40 = ["src"];
-const _hoisted_41 = { class: "sc-cal-evbody" };
-const _hoisted_42 = ["title"];
-const _hoisted_43 = { class: "sc-cal-evline" };
-const _hoisted_44 = { class: "sc-cal-evline sc-cal-time" };
-const _hoisted_45 = ["onClick"];
-const _hoisted_46 = ["onClick"];
-const _hoisted_47 = {
+const _hoisted_41 = ["id"];
+const _hoisted_42 = { class: "sc-cal-daynum" };
+const _hoisted_43 = { class: "sc-cal-evposter" };
+const _hoisted_44 = ["src"];
+const _hoisted_45 = { class: "sc-cal-evbody" };
+const _hoisted_46 = ["title"];
+const _hoisted_47 = { class: "sc-cal-evline" };
+const _hoisted_48 = { class: "sc-cal-evline sc-cal-time" };
+const _hoisted_49 = ["onClick"];
+const _hoisted_50 = ["onClick"];
+const _hoisted_51 = {
   key: 4,
   class: "sc-card"
 };
-const _hoisted_48 = { class: "sc-card-head" };
-const _hoisted_49 = { class: "sc-tabs sc-tabs-source" };
-const _hoisted_50 = ["onClick"];
-const _hoisted_51 = { class: "sc-tab-count" };
-const _hoisted_52 = { class: "sc-search" };
-const _hoisted_53 = { class: "sc-tabs" };
-const _hoisted_54 = { class: "sc-tab-count" };
-const _hoisted_55 = ["onClick"];
-const _hoisted_56 = { class: "sc-tab-count" };
-const _hoisted_57 = {
+const _hoisted_52 = { class: "sc-card-head" };
+const _hoisted_53 = { class: "sc-tabs sc-tabs-source" };
+const _hoisted_54 = ["onClick"];
+const _hoisted_55 = { class: "sc-tab-count" };
+const _hoisted_56 = { class: "sc-search" };
+const _hoisted_57 = { class: "sc-tabs" };
+const _hoisted_58 = { class: "sc-tab-count" };
+const _hoisted_59 = ["onClick"];
+const _hoisted_60 = { class: "sc-tab-count" };
+const _hoisted_61 = {
   key: 0,
   class: "sc-empty"
 };
-const _hoisted_58 = {
+const _hoisted_62 = {
   key: 1,
   class: "sc-grid"
 };
-const _hoisted_59 = { class: "sc-card-poster" };
-const _hoisted_60 = ["src"];
-const _hoisted_61 = { class: "sc-card-badge" };
-const _hoisted_62 = { class: "sc-card-body" };
-const _hoisted_63 = ["title"];
-const _hoisted_64 = { class: "sc-card-meta" };
-const _hoisted_65 = { key: 0 };
-const _hoisted_66 = { key: 1 };
-const _hoisted_67 = { key: 2 };
-const _hoisted_68 = {
+const _hoisted_63 = { class: "sc-card-poster" };
+const _hoisted_64 = ["src"];
+const _hoisted_65 = { class: "sc-card-badge" };
+const _hoisted_66 = { class: "sc-card-body" };
+const _hoisted_67 = ["title"];
+const _hoisted_68 = { class: "sc-card-meta" };
+const _hoisted_69 = { key: 0 };
+const _hoisted_70 = { key: 1 };
+const _hoisted_71 = { key: 2 };
+const _hoisted_72 = {
   key: 0,
   class: "sc-card-meta"
 };
-const _hoisted_69 = ["title"];
-const _hoisted_70 = { class: "sc-card-actions" };
-const _hoisted_71 = {
+const _hoisted_73 = ["title"];
+const _hoisted_74 = { class: "sc-card-actions" };
+const _hoisted_75 = {
   key: 2,
   class: "sc-pager"
 };
-const _hoisted_72 = { class: "sc-hint" };
+const _hoisted_76 = { class: "sc-hint" };
 
 const {computed,nextTick,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -305,6 +316,21 @@ function episodeText(item) {
   const start = Number(item?.start_episode || 1);
   const done = Number(item?.total_episode || 0) - Number(item?.lack_episode || 0);
   return `第 ${Math.max(start, done || start)} 集`
+}
+
+/** 电影发行基准日类型 -> 中文（与后端 RELEASE_KIND_LABELS 逐字对应）。 */
+const RELEASE_KIND_LABELS = {
+  digital: '数字发行',
+  physical: '实体发行',
+  theatrical: '影院上映',
+  premiere: '首映',
+  tv: '电视首播',
+  general: '上映',
+};
+
+/** 电影条目：哪一种发行日（普通=数字、洗版=实体）。 */
+function releaseKindText(kind) {
+  return RELEASE_KIND_LABELS[kind] || '上映'
 }
 
 /** 日历筛选：全部 / 今日已入库 / 待入库 / 洗版。 */
@@ -1060,21 +1086,48 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_34, _toDisplayString(episodeText(item)), 1),
                           _createElementVNode("div", {
                             class: _normalizeClass(["sc-today-sub", item.kind === 'updated' ? 'sc-cal-done' : 'sc-cal-wait'])
-                          }, _toDisplayString(item.kind === 'updated' ? '已入库' : '未入库') + " (" + _toDisplayString(item.total_episode - item.lack_episode) + "/" + _toDisplayString(item.total_episode) + ") ", 3)
+                          }, _toDisplayString(item.kind === 'updated' ? '已入库' : '未入库') + " (" + _toDisplayString(item.total_episode - item.lack_episode) + "/" + _toDisplayString(item.total_episode) + ") ", 3),
+                          (item.release_kind)
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_35, _toDisplayString(releaseKindText(item.release_kind)), 1))
+                            : _createCommentVNode("", true),
+                          (item.searched === true)
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_36, [
+                                _createVNode(_component_VIcon, {
+                                  icon: "mdi-radar",
+                                  size: "11"
+                                }),
+                                _cache[38] || (_cache[38] = _createTextVNode(" 今天会搜 ", -1))
+                              ]))
+                            : (item.searched === false)
+                              ? (_openBlock(), _createElementBlock("div", {
+                                  key: 2,
+                                  class: "sc-today-sub sc-cal-wait",
+                                  title: item.search_note || '按自动启停的判定，今天不会被搜'
+                                }, [
+                                  _createVNode(_component_VIcon, {
+                                    icon: "mdi-pause-circle-outline",
+                                    size: "11"
+                                  }),
+                                  _cache[39] || (_cache[39] = _createTextVNode(" 今天不搜", -1)),
+                                  (item.search_note)
+                                    ? (_openBlock(), _createElementBlock("span", _hoisted_38, "（" + _toDisplayString(item.search_note) + "）", 1))
+                                    : _createCommentVNode("", true)
+                                ], 8, _hoisted_37))
+                              : _createCommentVNode("", true)
                         ]))
                       }), 128))
                     ]))
               ]))
             : _createCommentVNode("", true),
           (calMode.value === 'month')
-            ? (_openBlock(), _createElementBlock("div", _hoisted_35, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_39, [
                 (_openBlock(), _createElementBlock(_Fragment, null, _renderList(['周一', '周二', '周三', '周四', '周五', '周六', '周日'], (w) => {
                   return _createElementVNode("span", { key: w }, _toDisplayString(w), 1)
                 }), 64))
               ]))
             : _createCommentVNode("", true),
           (calMode.value === 'month')
-            ? (_openBlock(), _createElementBlock("div", _hoisted_36, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_40, [
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(calWeeks.value, (week, wi) => {
                   return (_openBlock(), _createElementBlock("div", {
                     key: wi,
@@ -1091,13 +1144,13 @@ return (_ctx, _cache) => {
                       }, [
                         (!cell.empty)
                           ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                              _createElementVNode("div", _hoisted_38, _toDisplayString(cell.day), 1),
+                              _createElementVNode("div", _hoisted_42, _toDisplayString(cell.day), 1),
                               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(dayItems(cell), (item) => {
                                 return (_openBlock(), _createElementBlock("div", {
                                   key: cell.date + '-' + item.id + '-' + item.kind,
                                   class: "sc-cal-ev"
                                 }, [
-                                  _createElementVNode("div", _hoisted_39, [
+                                  _createElementVNode("div", _hoisted_43, [
                                     (item.poster)
                                       ? (_openBlock(), _createElementBlock("img", {
                                           key: 0,
@@ -1105,19 +1158,19 @@ return (_ctx, _cache) => {
                                           alt: "",
                                           loading: "lazy",
                                           onError: _cache[14] || (_cache[14] = $event => (markPosterFailed($event)))
-                                        }, null, 40, _hoisted_40))
+                                        }, null, 40, _hoisted_44))
                                       : (_openBlock(), _createBlock(_component_VIcon, {
                                           key: 1,
                                           icon: "mdi-filmstrip-box-multiple",
                                           size: "16"
                                         }))
                                   ]),
-                                  _createElementVNode("div", _hoisted_41, [
+                                  _createElementVNode("div", _hoisted_45, [
                                     _createElementVNode("div", {
                                       class: "sc-cal-evtitle",
                                       title: item.name
-                                    }, _toDisplayString(item.name), 9, _hoisted_42),
-                                    _createElementVNode("div", _hoisted_43, [
+                                    }, _toDisplayString(item.name), 9, _hoisted_46),
+                                    _createElementVNode("div", _hoisted_47, [
                                       _createVNode(_component_VIcon, {
                                         icon: "mdi-card-text-outline",
                                         size: "11"
@@ -1133,7 +1186,7 @@ return (_ctx, _cache) => {
                                       }, null, 8, ["icon"]),
                                       _createTextVNode(" " + _toDisplayString(item.kind === 'updated' ? '已入库' : '未入库') + " (" + _toDisplayString(item.total_episode - item.lack_episode) + "/" + _toDisplayString(item.total_episode) + ") ", 1)
                                     ], 2),
-                                    _createElementVNode("div", _hoisted_44, [
+                                    _createElementVNode("div", _hoisted_48, [
                                       _createVNode(_component_VIcon, {
                                         icon: "mdi-clock-outline",
                                         size: "11"
@@ -1155,7 +1208,7 @@ return (_ctx, _cache) => {
                                       size: "12"
                                     }),
                                     _createTextVNode(" +" + _toDisplayString(hiddenCount(cell)), 1)
-                                  ], 8, _hoisted_45))
+                                  ], 8, _hoisted_49))
                                 : (expandedDays.value[cell.date])
                                   ? (_openBlock(), _createElementBlock("button", {
                                       key: 1,
@@ -1167,12 +1220,12 @@ return (_ctx, _cache) => {
                                         icon: "mdi-unfold-less-horizontal",
                                         size: "12"
                                       }),
-                                      _cache[38] || (_cache[38] = _createTextVNode(" 收起 ", -1))
-                                    ], 8, _hoisted_46))
+                                      _cache[40] || (_cache[40] = _createTextVNode(" 收起 ", -1))
+                                    ], 8, _hoisted_50))
                                   : _createCommentVNode("", true)
                             ], 64))
                           : _createCommentVNode("", true)
-                      ], 10, _hoisted_37))
+                      ], 10, _hoisted_41))
                     }), 128))
                   ]))
                 }), 128))
@@ -1181,11 +1234,11 @@ return (_ctx, _cache) => {
         ]))
       : _createCommentVNode("", true),
     (viewTab.value === 'history')
-      ? (_openBlock(), _createElementBlock("div", _hoisted_47, [
-          _createElementVNode("div", _hoisted_48, [
-            _cache[42] || (_cache[42] = _createElementVNode("span", { class: "sc-card-title" }, "发现流水", -1)),
-            _createElementVNode("div", _hoisted_49, [
-              _cache[39] || (_cache[39] = _createElementVNode("span", { class: "sc-tabs-label" }, "数据源", -1)),
+      ? (_openBlock(), _createElementBlock("div", _hoisted_51, [
+          _createElementVNode("div", _hoisted_52, [
+            _cache[44] || (_cache[44] = _createElementVNode("span", { class: "sc-card-title" }, "发现流水", -1)),
+            _createElementVNode("div", _hoisted_53, [
+              _cache[41] || (_cache[41] = _createElementVNode("span", { class: "sc-tabs-label" }, "数据源", -1)),
               _createElementVNode("button", {
                 type: "button",
                 class: _normalizeClass(["sc-tab", { 'sc-tab-active': !sourceFilter.value }]),
@@ -1199,11 +1252,11 @@ return (_ctx, _cache) => {
                   onClick: $event => (switchSource(tab.value))
                 }, [
                   _createTextVNode(_toDisplayString(tab.label) + " ", 1),
-                  _createElementVNode("span", _hoisted_51, _toDisplayString(tab.count), 1)
-                ], 10, _hoisted_50))
+                  _createElementVNode("span", _hoisted_55, _toDisplayString(tab.count), 1)
+                ], 10, _hoisted_54))
               }), 128))
             ]),
-            _createElementVNode("div", _hoisted_52, [
+            _createElementVNode("div", _hoisted_56, [
               _createVNode(_component_VIcon, {
                 icon: "mdi-magnify",
                 size: "16",
@@ -1228,14 +1281,14 @@ return (_ctx, _cache) => {
                   }))
                 : _createCommentVNode("", true)
             ]),
-            _createElementVNode("div", _hoisted_53, [
+            _createElementVNode("div", _hoisted_57, [
               _createElementVNode("button", {
                 type: "button",
                 class: _normalizeClass(["sc-tab", { 'sc-tab-active': !filter.value }]),
                 onClick: _cache[18] || (_cache[18] = $event => (switchFilter('')))
               }, [
-                _cache[40] || (_cache[40] = _createTextVNode(" 全部 ", -1)),
-                _createElementVNode("span", _hoisted_54, _toDisplayString(history.value.total || 0), 1)
+                _cache[42] || (_cache[42] = _createTextVNode(" 全部 ", -1)),
+                _createElementVNode("span", _hoisted_58, _toDisplayString(history.value.total || 0), 1)
               ], 2),
               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(decisionTabs.value, (tab) => {
                 return (_openBlock(), _createElementBlock("button", {
@@ -1245,8 +1298,8 @@ return (_ctx, _cache) => {
                   onClick: $event => (switchFilter(tab.value))
                 }, [
                   _createTextVNode(_toDisplayString(tab.label) + " ", 1),
-                  _createElementVNode("span", _hoisted_56, _toDisplayString(tab.count), 1)
-                ], 10, _hoisted_55))
+                  _createElementVNode("span", _hoisted_60, _toDisplayString(tab.count), 1)
+                ], 10, _hoisted_59))
               }), 128))
             ]),
             _createVNode(_component_VChip, {
@@ -1262,21 +1315,21 @@ return (_ctx, _cache) => {
               size: "x-small",
               variant: "text"
             }, {
-              default: _withCtx(() => [...(_cache[41] || (_cache[41] = [
+              default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
                 _createTextVNode("每部只显示最新状态", -1)
               ]))]),
               _: 1
             })
           ]),
           (!history.value.items.length)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_57, " 还没有流水。点「立即运行一次」即可看到发现结果。 "))
-            : (_openBlock(), _createElementBlock("div", _hoisted_58, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_61, " 还没有流水。点「立即运行一次」即可看到发现结果。 "))
+            : (_openBlock(), _createElementBlock("div", _hoisted_62, [
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value.items, (item, index) => {
                   return (_openBlock(), _createElementBlock("div", {
                     key: index,
                     class: "sc-card-item"
                   }, [
-                    _createElementVNode("div", _hoisted_59, [
+                    _createElementVNode("div", _hoisted_63, [
                       (posterUrl(item))
                         ? (_openBlock(), _createElementBlock("img", {
                             key: 0,
@@ -1284,14 +1337,14 @@ return (_ctx, _cache) => {
                             alt: "",
                             loading: "lazy",
                             onError: _cache[19] || (_cache[19] = $event => (markPosterFailed($event)))
-                          }, null, 40, _hoisted_60))
+                          }, null, 40, _hoisted_64))
                         : (_openBlock(), _createBlock(_component_VIcon, {
                             key: 1,
                             icon: "mdi-filmstrip-box-multiple",
                             size: "30",
                             class: "sc-poster-ph"
                           })),
-                      _createElementVNode("span", _hoisted_61, [
+                      _createElementVNode("span", _hoisted_65, [
                         _createVNode(_component_VChip, {
                           size: "x-small",
                           variant: "flat",
@@ -1304,43 +1357,43 @@ return (_ctx, _cache) => {
                         }, 1032, ["color"])
                       ])
                     ]),
-                    _createElementVNode("div", _hoisted_62, [
+                    _createElementVNode("div", _hoisted_66, [
                       _createElementVNode("div", {
                         class: "sc-card-title",
                         title: item.title
                       }, [
                         _createElementVNode("b", null, _toDisplayString(item.title), 1)
-                      ], 8, _hoisted_63),
-                      _createElementVNode("div", _hoisted_64, [
+                      ], 8, _hoisted_67),
+                      _createElementVNode("div", _hoisted_68, [
                         (item.year)
-                          ? (_openBlock(), _createElementBlock("span", _hoisted_65, _toDisplayString(item.year), 1))
+                          ? (_openBlock(), _createElementBlock("span", _hoisted_69, _toDisplayString(item.year), 1))
                           : _createCommentVNode("", true),
                         (item.media_type)
-                          ? (_openBlock(), _createElementBlock("span", _hoisted_66, _toDisplayString(item.media_type), 1))
+                          ? (_openBlock(), _createElementBlock("span", _hoisted_70, _toDisplayString(item.media_type), 1))
                           : _createCommentVNode("", true),
                         _createElementVNode("span", null, _toDisplayString(item.source), 1),
                         (item.confidence)
-                          ? (_openBlock(), _createElementBlock("span", _hoisted_67, _toDisplayString(item.confidence), 1))
+                          ? (_openBlock(), _createElementBlock("span", _hoisted_71, _toDisplayString(item.confidence), 1))
                           : _createCommentVNode("", true)
                       ]),
                       (item.release_date)
-                        ? (_openBlock(), _createElementBlock("div", _hoisted_68, " 放送 " + _toDisplayString(item.release_date), 1))
+                        ? (_openBlock(), _createElementBlock("div", _hoisted_72, " 放送 " + _toDisplayString(item.release_date), 1))
                         : _createCommentVNode("", true),
                       (item.reason)
                         ? (_openBlock(), _createElementBlock("div", {
                             key: 1,
                             class: "sc-card-reason",
                             title: item.reason
-                          }, _toDisplayString(item.reason), 9, _hoisted_69))
+                          }, _toDisplayString(item.reason), 9, _hoisted_73))
                         : _createCommentVNode("", true),
-                      _createElementVNode("div", _hoisted_70, [
+                      _createElementVNode("div", _hoisted_74, [
                         _createVNode(_component_VBtn, {
                           size: "x-small",
                           variant: "text",
                           "prepend-icon": "mdi-pencil-outline",
                           onClick: $event => (fixMapping(item))
                         }, {
-                          default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
+                          default: _withCtx(() => [...(_cache[45] || (_cache[45] = [
                             _createTextVNode(" 修正映射 ", -1)
                           ]))]),
                           _: 1
@@ -1351,26 +1404,26 @@ return (_ctx, _cache) => {
                 }), 128))
               ])),
           (history.value.total > history.value.count)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_71, [
+            ? (_openBlock(), _createElementBlock("div", _hoisted_75, [
                 _createVNode(_component_VBtn, {
                   size: "small",
                   variant: "text",
                   disabled: history.value.page <= 1,
                   onClick: prevPage
                 }, {
-                  default: _withCtx(() => [...(_cache[44] || (_cache[44] = [
+                  default: _withCtx(() => [...(_cache[46] || (_cache[46] = [
                     _createTextVNode("上一页", -1)
                   ]))]),
                   _: 1
                 }, 8, ["disabled"]),
-                _createElementVNode("span", _hoisted_72, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
+                _createElementVNode("span", _hoisted_76, "第 " + _toDisplayString(history.value.page) + " 页 · 共 " + _toDisplayString(history.value.total) + " 部作品", 1),
                 _createVNode(_component_VBtn, {
                   size: "small",
                   variant: "text",
                   disabled: history.value.page * history.value.count >= history.value.total,
                   onClick: nextPage
                 }, {
-                  default: _withCtx(() => [...(_cache[45] || (_cache[45] = [
+                  default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
                     _createTextVNode(" 下一页 ", -1)
                   ]))]),
                   _: 1
@@ -1384,6 +1437,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d1e59151"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-230b8130"]]);
 
 export { Page as default };

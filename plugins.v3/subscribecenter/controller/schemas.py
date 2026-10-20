@@ -111,6 +111,14 @@ class CalendarItem(BaseModel):
     air_time: str = Field(default="", description="播出时间 HH:MM")
     air_date: str = Field(default="", description="播出日期")
     today: str = Field(default="", description="今天的日期")
+    searched: Optional[bool] = Field(
+        default=None,
+        description="今天会不会被刷新搜到（自动启停的判定，None=未开启自动启停或非今日）",
+    )
+    search_note: str = Field(default="", description="不会被搜的原因")
+    release_kind: str = Field(
+        default="", description="电影用的哪种发行日：digital/physical/theatrical/…"
+    )
 
 
 class CalendarView(BaseModel):

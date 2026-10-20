@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.13.4"
+    plugin_version = "1.13.5"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -392,7 +392,9 @@ class SubscribeCenter(_PluginBase):
 
         first_day = f"{picked}-01"
         index = await self._episode_air_index(rows, first_day)
-        data = calendar_core.build_month(rows, picked, index)
+        data = calendar_core.build_month(
+            rows, picked, index, movie_kinds=self._movie_kind_map()
+        )
         return data
 
     async def calendar_today(self, date_text: str = "") -> Dict[str, Any]:
@@ -417,7 +419,19 @@ class SubscribeCenter(_PluginBase):
             ).scalars().all()
 
         episode_index = await self._episode_air_index(rows, today_text)
-        items = calendar_core.build_today(rows, today_text, episode_index)
+        # 「今天会不会被搜」只有今天才有意义，历史/未来日期不传
+        flags = (
+            await self._auto_toggle_flags()
+            if today_text == today(self._tz()).isoformat()
+            else None
+        )
+        items = calendar_core.build_today(
+            rows,
+            today_text,
+            episode_index,
+            search_flags=flags,
+            movie_kinds=self._movie_kind_map(),
+        )
         summary = calendar_core.summarize(items)
         return {
             "today": today_text,
@@ -578,6 +592,87 @@ class SubscribeCenter(_PluginBase):
             for media_id in list(cache)
             if now - cache[media_id][0] < ttl
         }
+
+    async def _movie_legacy_release(self, media_source: str, media_id: str) -> str:
+        """发行记录的兜底：TMDB 顶层 ``release_date``（先试链识别，再试 API）。
+
+        只有 ``release_dates`` 拿不到时才走这里。顶层字段基本等于院线首映，
+        不如数字发行日准，但总比让电影从日历里消失好。
+        """
+        import asyncio
+
+        try:
+            from app.chain.media import MediaChain
+            from app.schemas.types import MediaInfo, MediaType
+
+            media = await MediaChain().async_recognize_media(
+                MediaInfo(
+                    media_source=media_source, media_id=media_id, type=MediaType.MOVIE
+                )
+            )
+            release = str(self._field(media, "release_date") or "")[:10]
+            if release:
+                return release
+        except Exception as err:  # noqa: BLE001 - 链不可用时回退 API
+            logger.debug(
+                f"[SubscribeCenter] 电影识别失败 {media_source}:{media_id}：{err}"
+            )
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+            from app.schemas.types import MediaType
+
+            info = await asyncio.to_thread(
+                TmdbApi().get_info, MediaType.MOVIE, int(media_id)
+            )
+            return str(self._field(info, "release_date") or "")[:10]
+        except Exception as err:  # noqa: BLE001
+            logger.debug(f"[SubscribeCenter] 电影取详情失败 {media_id}：{err}")
+            return ""
+
+    def _note_movie_kind(self, media_id: str, kind: str) -> None:
+        """记下这部电影用的是哪种发行日（给日历标「数字发行 / 实体发行」）。"""
+        if kind:
+            self.__dict__.setdefault("_movie_kind_cache", {})[media_id] = kind
+
+    def _movie_kind_map(self) -> Dict[str, str]:
+        return dict(self.__dict__.get("_movie_kind_cache") or {})
+
+    async def _auto_toggle_flags(self) -> Optional[Dict[int, Dict[str, Any]]]:
+        """今天的「会不会被搜」标记，与预览共用同一份判定。
+
+        只给「今天」的日历用：查历史/未来日期时「今天会不会搜」没有意义。
+        自动启停没开时返回 None，日历干脆不显示这个标记。
+        """
+        from .core import autotoggle
+
+        if not self._auto_toggle_config()["enabled"]:
+            return None
+        try:
+            data = await self.auto_toggle_plan()
+        except Exception as err:  # noqa: BLE001 - 判定失败不能让日历空白
+            logger.debug(f"[SubscribeCenter] 日历取自动启停判定失败：{err}")
+            return None
+        flags: Dict[int, Dict[str, Any]] = {}
+        for item in data.get("items") or []:
+            try:
+                sid = int(item.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not sid:
+                continue
+            target = str(item.get("target") or "")
+            state = str(item.get("state") or "")
+            if target in (autotoggle.STATE_RUN, autotoggle.STATE_PAUSED):
+                searched = target == autotoggle.STATE_RUN
+            else:
+                # 被判「跳过」的（P 态、电影开关关掉、无播出表…）按宿主当前
+                # 状态算：R/P 仍会被刷新搜到，S 不会。
+                searched = state in (autotoggle.STATE_RUN, autotoggle.STATE_PENDING)
+            flags[sid] = {
+                "searched": searched,
+                "note": "" if searched else str(item.get("reason_label") or ""),
+            }
+        return flags
 
     async def auto_toggle_plan(self) -> Dict[str, Any]:
         """算出「今天该启用 / 该暂停 / 不动」的清单，**不写库**。
@@ -914,13 +1009,19 @@ class SubscribeCenter(_PluginBase):
         ttl = 6 * 3600
         now = time.time()
 
-        try:
-            from app.modules.themoviedb.tmdbapi import TmdbApi
+        from .core import autotoggle
 
-            tmdb = TmdbApi()
-        except Exception as err:  # noqa: BLE001 - 宿主缺 TMDB 时退化为只看订阅字段
-            logger.debug(f"[SubscribeCenter] 日历取不到 TMDB：{err}")
-            return {}
+        # 电影的「播出日」= 发行日：与自动启停共用同一份 TMDB 发行记录（同一份
+        # 6 小时缓存）。以前这里用 TMDB 顶层 ``release_date``（≈院线首映），
+        # 结果是日历上「今天上映」而订阅其实还暂停着等数字版，两边对不上。
+        movie_rows = [row for row in rows if autotoggle.media_kind(row) == "movie"]
+        release_map: Dict[str, List[Any]] = {}
+        if movie_rows:
+            release_map = await self._movie_release_index(movie_rows)
+        best_by_media = {
+            str(getattr(row, "media_id", "") or ""): autotoggle.is_best_version(row)
+            for row in movie_rows
+        }
 
         targets: List[tuple] = []
         for row in rows:
@@ -930,7 +1031,6 @@ class SubscribeCenter(_PluginBase):
             if not media_id.isdigit():
                 continue
             if season <= 0:
-                # 电影：按上映日期放进日历（MoviePilot 的原生日历也是这样做的）
                 key = (media_id, calendar_core.MOVIE_KEY)
                 if key in cache and now - cache[key][0] < ttl:
                     continue
@@ -949,33 +1049,20 @@ class SubscribeCenter(_PluginBase):
             media_id, season_key, media_source = target
             key = (media_id, season_key)
 
-            # ---- 电影：按上映日期 ----
+            # ---- 电影：按发行日（数字 / 实体，与自动启停同源）----
             if season_key == calendar_core.MOVIE_KEY:
-                release = ""
-                try:
-                    from app.chain.media import MediaChain
-                    from app.schemas.types import MediaInfo, MediaType
-
-                    media = await MediaChain().async_recognize_media(
-                        MediaInfo(
-                            media_source=media_source, media_id=media_id, type=MediaType.MOVIE
-                        )
-                    )
-                    release = str(self._field(media, "release_date") or "")[:10]
-                except Exception as err:  # noqa: BLE001 - 链不可用时回退
-                    logger.debug(f"[SubscribeCenter] 电影识别失败 {key}：{err}")
-                if not release:
-                    try:
-                        from app.schemas.types import MediaType
-
-                        info = await asyncio.to_thread(
-                            tmdb.get_info, MediaType.MOVIE, int(media_id)
-                        )
-                        release = str(self._field(info, "release_date") or "")[:10]
-                    except Exception as err:  # noqa: BLE001
-                        logger.debug(f"[SubscribeCenter] 电影取详情失败 {key}：{err}")
-                if release:
-                    cache[key] = (now, [(release, 0)])
+                basis, kind = autotoggle.movie_basis(
+                    release_map.get(media_id),
+                    best_version=bool(best_by_media.get(media_id)),
+                )
+                if not basis:
+                    # release_dates 缺失时才退回院线日期 —— 宁可日期旧一点，
+                    # 也别让这部电影从日历上整个消失。
+                    basis = await self._movie_legacy_release(media_source, media_id)
+                    kind = ""
+                if basis:
+                    cache[key] = (now, [(basis, 0)])
+                    self._note_movie_kind(media_id, kind)
                 return
 
             # ---- 剧集 / 剧集组 ----

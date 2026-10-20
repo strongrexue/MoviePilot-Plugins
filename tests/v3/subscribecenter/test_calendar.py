@@ -127,3 +127,44 @@ def test_movie_uses_release_date():
     rows2 = [_row(id=2, name="未出资源", media_id="901", season=0, total_episode=0, lack_episode=1)]
     index2 = {("901", cal.MOVIE_KEY): [(DAY, 0)]}
     assert cal.build_today(rows2, DAY, index2)[0]["kind"] == cal.KIND_PENDING
+
+def test_search_flags_are_attached_to_today_items():
+    """今日条目要带上「今天会不会被搜」——与自动启停的判定同源。"""
+    rows = [
+        _row(id=1, name="会搜", media_id="101"),
+        _row(id=2, name="不搜", media_id="102"),
+    ]
+    index = {("101", 1): [(DAY, 5)], ("102", 1): [(DAY, 6)]}
+    flags = {1: {"searched": True, "note": ""}, 2: {"searched": False, "note": "已播剧集全部入库"}}
+
+    items = cal.build_today(rows, DAY, index, search_flags=flags)
+
+    by_id = {item["id"]: item for item in items}
+    assert by_id[1]["searched"] is True
+    assert by_id[1]["search_note"] == ""
+    assert by_id[2]["searched"] is False
+    assert by_id[2]["search_note"] == "已播剧集全部入库"
+
+
+def test_items_without_flags_leave_searched_unknown():
+    """没传标记（自动启停没开、或查的是历史/未来日期）时不能瞎标。"""
+    rows = [_row(id=1, name="X", media_id="103")]
+    item = cal.build_today(rows, DAY, {("103", 1): [(DAY, 1)]})[0]
+    assert item["searched"] is None
+    assert item["search_note"] == ""
+    assert item["release_kind"] == ""
+
+
+def test_movie_kind_is_attached():
+    """电影的发行日类型要带出来，界面才显示得出「数字发行 / 实体发行」。"""
+    rows = [_row(id=1, name="某电影", media_id="900", season=0, total_episode=0, lack_episode=1)]
+    index = {("900", cal.MOVIE_KEY): [(DAY, 0)]}
+    item = cal.build_today(rows, DAY, index, movie_kinds={"900": "physical"})[0]
+    assert item["release_kind"] == "physical"
+
+
+def test_month_passes_movie_kinds():
+    rows = [_row(id=1, name="某电影", media_id="900", season=0, total_episode=0, lack_episode=1)]
+    index = {("900", cal.MOVIE_KEY): [(DAY, 0)]}
+    data = cal.build_month(rows, "2026-10", index, movie_kinds={"900": "digital"})
+    assert data["days"][DAY][0]["release_kind"] == "digital"

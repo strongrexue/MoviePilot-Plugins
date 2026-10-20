@@ -765,6 +765,48 @@ def test_routes_declared(plugin_cls):
         assert table[path]["response_model"] is not None, path
 
 
+def test_calendar_flags_follow_plan(plugin):
+    """日历上的「今天会不会被搜」必须跟预览是同一份判定。
+
+    被判「跳过」的（P 态、电影开关关掉…）没有 target，只能按宿主当前状态算：
+    `R`/`P` 仍会被刷新搜到，`S` 不会。标错这个，日历就会替插件说谎。
+    """
+    plugin._auto_toggle_config = lambda: {"enabled": True}
+
+    async def fake_plan():
+        return _plan_stub(
+            [
+                {"id": 1, "target": "R", "state": "R", "reason": "pending", "reason_label": "缺集"},
+                {"id": 2, "target": "S", "state": "R", "reason": "all_done", "reason_label": "已播剧集全部入库"},
+                {"id": 3, "target": "P", "state": "P", "reason": "pending_state", "reason_label": "P 态"},
+                {"id": 4, "target": "S", "state": "S", "reason": "user_paused", "reason_label": "手动暂停"},
+            ]
+        )
+
+    plugin.auto_toggle_plan = fake_plan
+    flags = asyncio.run(plugin._auto_toggle_flags())
+
+    assert flags[1] == {"searched": True, "note": ""}
+    assert flags[2]["searched"] is False
+    assert flags[2]["note"] == "已播剧集全部入库"
+    assert flags[3]["searched"] is True, "P 态仍会被刷新搜到"
+    assert flags[4]["searched"] is False, "S 态不会被搜"
+
+
+def test_calendar_flags_absent_or_swallowed(plugin):
+    """没开自动启停、或判定自己炸了，都不能让日历崩，也不能瞎标。"""
+    plugin._auto_toggle_config = lambda: {"enabled": False}
+    assert asyncio.run(plugin._auto_toggle_flags()) is None
+
+    plugin._auto_toggle_config = lambda: {"enabled": True}
+
+    async def boom():
+        raise RuntimeError("tmdb down")
+
+    plugin.auto_toggle_plan = boom
+    assert asyncio.run(plugin._auto_toggle_flags()) is None
+
+
 def test_run_records_ownership(plugin):
     """跑完要落盘接管表：只记自己暂停的，写失败的、被手动改的都清掉。"""
     plugin._auto_toggle_state = lambda: {

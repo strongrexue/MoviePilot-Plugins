@@ -188,6 +188,21 @@ function episodeText(item) {
   return `第 ${Math.max(start, done || start)} 集`
 }
 
+/** 电影发行基准日类型 -> 中文（与后端 RELEASE_KIND_LABELS 逐字对应）。 */
+const RELEASE_KIND_LABELS = {
+  digital: '数字发行',
+  physical: '实体发行',
+  theatrical: '影院上映',
+  premiere: '首映',
+  tv: '电视首播',
+  general: '上映',
+}
+
+/** 电影条目：哪一种发行日（普通=数字、洗版=实体）。 */
+function releaseKindText(kind) {
+  return RELEASE_KIND_LABELS[kind] || '上映'
+}
+
 /** 日历筛选：全部 / 今日已入库 / 待入库 / 洗版。 */
 const calFilter = ref('')
 
@@ -785,6 +800,23 @@ onUnmounted(() => {
             <div class="sc-today-sub" :class="item.kind === 'updated' ? 'sc-cal-done' : 'sc-cal-wait'">
               {{ item.kind === 'updated' ? '已入库' : '未入库' }}
               ({{ item.total_episode - item.lack_episode }}/{{ item.total_episode }})
+            </div>
+            <div v-if="item.release_kind" class="sc-today-sub sc-dim">
+              {{ releaseKindText(item.release_kind) }}
+            </div>
+            <div
+              v-if="item.searched === true"
+              class="sc-today-sub sc-cal-done"
+              title="按自动启停的判定，今天会被订阅刷新搜到"
+            >
+              <VIcon icon="mdi-radar" size="11" /> 今天会搜
+            </div>
+            <div
+              v-else-if="item.searched === false"
+              class="sc-today-sub sc-cal-wait"
+              :title="item.search_note || '按自动启停的判定，今天不会被搜'"
+            >
+              <VIcon icon="mdi-pause-circle-outline" size="11" /> 今天不搜<span v-if="item.search_note">（{{ item.search_note }}）</span>
             </div>
           </div>
         </div>

@@ -135,6 +135,38 @@ def _int(value: Any, default: int = 0) -> int:
         return default
 
 
+#: 宿主 ``MediaType`` 的取值（``app/schemas/types.py``）—— 是**中文**，不是 ``tv``
+_TV_TYPES = frozenset({"电视剧", "剧集", "连续剧"})
+_MOVIE_TYPES = frozenset({"电影"})
+_MUSIC_TYPES = frozenset({"音乐"})
+
+
+def media_kind(row: Any) -> str:
+    """把订阅的 ``type`` 归一成 ``"tv"`` / ``"movie"`` / ``"music"`` / ``""``。
+
+    .. important::
+       宿主 ``Subscribe.type`` 是普通字符串列，存的是 ``MediaType`` 的**值**，
+       而 ``MediaType.TV = "电视剧"``（不是 ``"tv"``）。1.13.0 直接拿 ``"tv"``
+       比较，结果两百条订阅全被判成「非剧集」，预览里一条都不动 ——
+       这就是那次翻车的根因。
+
+    拿不准的一律返回 ``""``（未知）：未知不等于电影，交给后面的
+    「有没有播出表」去判断，别靠猜把用户的订阅排除掉。
+    """
+    raw = _get(row, "type")
+    value = getattr(raw, "value", raw)  # 万一上游塞的是枚举成员
+    text = _text(value)
+    name = _text(getattr(raw, "name", "")).upper()
+    lowered = text.lower()
+    if name == "TV" or lowered == "tv" or text in _TV_TYPES:
+        return "tv"
+    if name == "MOVIE" or lowered in {"movie", "film"} or text in _MOVIE_TYPES:
+        return "movie"
+    if name == "MUSIC" or lowered == "music" or text in _MUSIC_TYPES:
+        return "music"
+    return ""
+
+
 def _episode_pair(item: Any) -> Optional[Tuple[str, int]]:
     """把一条「播出索引」条目归一为 ``(YYYY-MM-DD, 集号)``。
 
@@ -340,8 +372,7 @@ def decide(
         )
 
     # ---- 1. 只看剧集；电影没有播出日，音乐更没有
-    media_type = _text(_get(row, "type")).lower()
-    if media_type and media_type != "tv":
+    if media_kind(row) in ("movie", "music"):
         return skip(REASON_MOVIE)
 
     media_id = _text(_get(row, "media_id"))
@@ -591,6 +622,7 @@ __all__ = [
     "WRITE_ACTIONS",
     "decide",
     "episode_numbers",
+    "media_kind",
     "next_owned",
     "plan",
 ]

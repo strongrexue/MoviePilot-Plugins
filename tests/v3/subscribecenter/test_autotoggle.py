@@ -33,11 +33,16 @@ TODAY = date(2026, 10, 20)
 
 
 def _row(**overrides):
-    """构造一条订阅行（默认是一条正在播出的剧集，什么都没下到）。"""
+    """构造一条订阅行（默认是一条正在播出的剧集，什么都没下到）。
+
+    ``type`` 用真实宿主值 ``"电视剧"``（``MediaType.TV``）：它是普通字符串列，
+    存的是 ``MediaType`` 的**值**，不是 ``"tv"`` —— 1.13.0 就是在这里翻的车，
+    默认值必须跟生产一致，否则整份用例都测不到那个 bug。
+    """
     row = {
         "id": 7,
         "name": "测试剧集",
-        "type": "tv",
+        "type": "电视剧",
         "media_source": "themoviedb",
         "media_id": "1234",
         "season": 1,
@@ -186,10 +191,54 @@ def test_note_is_never_mutated():
 def test_movie_is_skipped():
     """电影没有播出日，不归本功能管。"""
     result = autotoggle.decide(
-        _row(type="movie", season=0), _eps(("2026-10-01", 1)), TODAY
+        _row(type="电影", season=0), _eps(("2026-10-01", 1)), TODAY
     )
     assert result.action == autotoggle.ACTION_SKIP
     assert result.reason == autotoggle.REASON_MOVIE
+
+
+def test_music_is_skipped():
+    """音乐订阅既没有季也没有播出日，同样放过。"""
+    result = autotoggle.decide(
+        _row(type="音乐", season=0, media_id="111"), _eps(("2026-10-01", 1)), TODAY
+    )
+    assert result.reason == autotoggle.REASON_MOVIE
+
+
+def test_media_kind_accepts_host_values():
+    """``type`` 的三种真实形态都要认成剧集。
+
+    宿主的列是字符串（``"电视剧"``）；万一是枚举成员、或者上游塞了 ``"tv"``，
+    也不能因为形态不同就把用户的订阅全判成「非剧集」——1.13.0 的翻车点。
+    """
+
+    class _MediaTypeTV:
+        """模拟 ``MediaType.TV`` 枚举成员：``name`` 与 ``value`` 都要能认。"""
+
+        name = "TV"
+        value = "电视剧"
+
+        def __str__(self):
+            return "MediaType.TV"
+
+    assert autotoggle.media_kind(_row(type="电视剧")) == "tv"
+    assert autotoggle.media_kind(_row(type="tv")) == "tv"
+    assert autotoggle.media_kind(_row(type="TV")) == "tv"
+    assert autotoggle.media_kind(_row(type=_MediaTypeTV())) == "tv"
+    assert autotoggle.media_kind(_row(type="电影")) == "movie"
+    assert autotoggle.media_kind(_row(type="movie")) == "movie"
+    assert autotoggle.media_kind(_row(type="音乐")) == "music"
+    # 拿不准的一律「未知」，不要猜成电影
+    assert autotoggle.media_kind(_row(type=None)) == ""
+    assert autotoggle.media_kind(_row(type="")) == ""
+    assert autotoggle.media_kind(_row(type="系列")) == ""
+
+
+def test_unknown_type_still_judged():
+    """``type`` 缺失/陌生时照常判定，不能一律跳过（否则等于功能失效）。"""
+    result = autotoggle.decide(_row(type=None), _eps(("2026-10-20", 3)), TODAY)
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.reason == autotoggle.REASON_PENDING
 
 
 def test_pending_state_is_skipped():

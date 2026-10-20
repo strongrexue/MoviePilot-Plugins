@@ -188,13 +188,153 @@ def test_note_is_never_mutated():
 # --------------------------------------------------------------------- 该跳过的
 
 
-def test_movie_is_skipped():
-    """电影没有播出日，不归本功能管。"""
+def _movie_row(**overrides):
+    """一条电影订阅：``season=0``、没有集数信息。
+
+    宿主给电影用的是 ``total_episode=1``/``note=[]``，而且洗版订阅入库后状态
+    仍是 ``R``（``completion.py`` 要等 ``priority=100`` 的资源），所以电影
+    判定**不能**看「已入库」。
+    """
+    row = _row(
+        type="电影",
+        season=0,
+        media_id="603",
+        total_episode=1,
+        lack_episode=1,
+        note=[],
+    )
+    row.update(overrides)
+    return row
+
+
+def test_movie_waits_before_release():
+    """还没到数字发行日 → 暂停等出种。"""
     result = autotoggle.decide(
-        _row(type="电影", season=0), _eps(("2026-10-01", 1)), TODAY
+        _movie_row(), [], TODAY, releases=[("2026-11-01", 4)]
+    )
+    assert result.action == autotoggle.ACTION_PAUSE
+    assert result.reason == autotoggle.REASON_MOVIE_WAIT
+    assert result.basis == "2026-11-01"
+    assert result.basis_kind == "digital"
+
+
+def test_movie_runs_inside_window():
+    """数字发行日 = 今天 → 该搜。"""
+    result = autotoggle.decide(
+        _movie_row(), [], TODAY, keep_days=3, releases=[("2026-10-20", 4)]
+    )
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.reason == autotoggle.REASON_MOVIE_WINDOW
+
+
+def test_movie_overdue_pauses():
+    """发行日已过、保留窗口也过了，还没下到 → 暂停。"""
+    result = autotoggle.decide(
+        _movie_row(), [], TODAY, keep_days=3, releases=[("2026-10-01", 4)]
+    )
+    assert result.action == autotoggle.ACTION_PAUSE
+    assert result.reason == autotoggle.REASON_MOVIE_OVERDUE
+
+
+def test_movie_owned_paused_is_resumed_on_release_day():
+    """本插件暂停的电影，到发行日要恢复。"""
+    result = autotoggle.decide(
+        _movie_row(id=603, state="S"),
+        [],
+        TODAY,
+        keep_days=3,
+        releases=[("2026-10-20", 4)],
+        owned={603: {"state": "S"}},
+    )
+    assert result.action == autotoggle.ACTION_RESUME
+    assert result.target == autotoggle.STATE_RUN
+
+
+def test_best_version_movie_waits_for_physical():
+    """洗版订阅看实体发行：数字版早就出了，但 BD 还没出时不能停。"""
+    releases = [("2026-09-01", 4), ("2026-10-18", 5)]
+    normal = autotoggle.decide(_movie_row(best_version=0), [], TODAY, keep_days=3,
+                               releases=releases)
+    best = autotoggle.decide(_movie_row(best_version=1), [], TODAY, keep_days=3,
+                             best_keep_days=90, releases=releases)
+
+    # 普通订阅：数字发行 9/1，窗口 3 天，早过了 → 暂停
+    assert normal.reason == autotoggle.REASON_MOVIE_OVERDUE
+    assert normal.basis == "2026-09-01"
+    # 洗版订阅：基准换成实体发行 10/18，保留 90 天 → 继续搜
+    assert best.action == autotoggle.ACTION_KEEP
+    assert best.reason == autotoggle.REASON_MOVIE_WINDOW
+    assert best.basis == "2026-10-18"
+    assert best.basis_kind == "physical"
+
+
+def test_movie_without_release_dates_is_skipped():
+    """取不到发行日期时一动不动 —— 宁可多搜，不可误暂停。"""
+    result = autotoggle.decide(_movie_row(), [], TODAY, releases=[])
+    assert result.action == autotoggle.ACTION_SKIP
+    assert result.reason == autotoggle.REASON_NO_RELEASE
+
+
+def test_movie_can_be_switched_off():
+    """关掉「连电影一起管」后，电影回到「不归本功能管」。"""
+    result = autotoggle.decide(
+        _movie_row(), [], TODAY, releases=[("2026-11-01", 4)], movie_enabled=False
     )
     assert result.action == autotoggle.ACTION_SKIP
     assert result.reason == autotoggle.REASON_MOVIE
+
+
+def test_release_records_flattens_tmdb_payload():
+    """宿主 ``async_get_info`` 返回的是原始 TMDB 结构（``release_dates.results``）。"""
+    info = {
+        "release_dates": {
+            "results": [
+                {
+                    "iso_3166_1": "US",
+                    "release_dates": [
+                        {"release_date": "2026-03-05T00:00:00.000Z", "type": 4},
+                        {"release_date": "2026-04-02T00:00:00.000Z", "type": 5},
+                    ],
+                },
+                {
+                    "iso_3166_1": "CN",
+                    "release_dates": [
+                        {"release_date": "2026-01-10T00:00:00.000Z", "type": 4}
+                    ],
+                },
+            ]
+        }
+    }
+    records = autotoggle.release_records(info)
+    assert ("2026-01-10", 4) in records
+    assert ("2026-03-05", 4) in records
+    # 同类型取最早的地区日期：越早的那天起就可能已经有种
+    assert autotoggle.movie_basis(records) == ("2026-01-10", "digital")
+    assert autotoggle.movie_basis(records, best_version=True) == ("2026-04-02", "physical")
+
+
+def test_release_records_falls_back_to_top_level_date():
+    """没有 ``release_dates`` 时退回顶层 ``release_date``（记作「上映」）。"""
+    records = autotoggle.release_records({"release_date": "2025-06-01"})
+    assert records == [("2025-06-01", 0)]
+    assert autotoggle.movie_basis(records) == ("2025-06-01", "general")
+    # 完全没日期 → 空，调用方据此跳过
+    assert autotoggle.release_records({}) == []
+    assert autotoggle.movie_basis([]) == ("", "")
+
+
+def test_plan_feeds_movie_releases():
+    """``plan`` 要按 ``media_id`` 把发行记录交给电影的判定。"""
+    data = autotoggle.plan(
+        [_movie_row()],
+        {},
+        TODAY,
+        release_index={"603": [("2026-11-01", 4)]},
+    )
+    item = data["items"][0]
+    assert item["reason"] == autotoggle.REASON_MOVIE_WAIT
+    assert item["basis"] == "2026-11-01"
+    assert data["paused"] == 1
 
 
 def test_music_is_skipped():

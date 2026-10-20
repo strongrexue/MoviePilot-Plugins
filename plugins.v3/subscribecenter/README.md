@@ -251,6 +251,29 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 
 判定基准是插件时区下的**本地日期**，默认 `00:05` 跑，早于订阅刷新。
 
+### 电影订阅（`auto_toggle_movie_enabled`，默认开）
+
+电影没有「集」，也没有下一集播出日，唯一的时间锚点是 TMDB 的**发行日**，
+所以单独一套判定：
+
+| 情况 | 动作 |
+|---|---|
+| 还没到发行日（含提前天数） | 暂停 `S`，等出种 |
+| 发行日 ~ 发行日 + `auto_toggle_keep_days` | 保持 / 恢复 `R` |
+| 过了窗口还没入库 | 暂停 `S` |
+| TMDB 没有任何可用发行日期 | 一动不动 |
+
+两个关键细节：
+
+- **基准日不是顶层 `release_date`。** 那是首映/院线日期，而订电影等的是
+  WEB-DL（跟**数字发行** `type=4` 走）、洗版等的是原盘/REMUX
+  （跟**实体发行** `type=5` 走），分别比首映日晚几周到几个月。拿首映日当
+  基准，电影订阅会正好在真正出种的那几周被判「窗口已过」而暂停。
+- **不看「已入库」。** 洗版订阅入库后宿主会故意保持 `R` 等 `priority=100`
+  的资源（`completion.py` + `priority.py`），`note=[1]` 只说明下过一个版本。
+  拿「已入库」当停止信号，洗版电影会永远搜下去。
+
+
 ### 三条安全约束（都踩过坑才知道要写）
 
 1. **暂停只能写 `S`。** 宿主 `policy.get_states_for_search("R")` 返回的是 `"R,P"` ——
@@ -265,7 +288,9 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 
 ### 已知边界
 
-- **电影订阅不参与**：没有「集」的概念，按播出日暂停只会误伤。
+- **电影按发行日**，且不参与「缺集」逻辑：没有集的概念，只看发行窗口。
+- **洗版订阅用更长的保留窗口**（`auto_toggle_best_version_keep_days`，默认 90 天）：
+  洗版等的是「更好的版本」，季终后 3 天就停等于白开洗版。
 - `P`（待定）的订阅不参与：宿主还在补元数据，状态交给宿主。
 - 没有 TMDB 播出表的（无 ID、取季失败）一律不动，不做猜测。
 - 把**全部**订阅都暂停时，宿主的 `get_subscribed_sites()` 会返回空集合，
@@ -304,7 +329,9 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 | `auto_toggle_enabled` | `false` | 启用播出日自动启停 |
 | `auto_toggle_cron` | `5 0 * * *` | 判定时间（5 段式 cron），建议早于订阅刷新 |
 | `auto_toggle_lookahead_days` | `0` | 提前几天开始搜（0 = 只在播出当天） |
-| `auto_toggle_keep_days` | `3` | 已播未入库的集保留几天（PT 出种有延迟） |
+| `auto_toggle_keep_days` | `3` | 已播未入库的集保留几天（PT 出种有延迟）；电影的「发行后继续搜几天」也用它 |
+| `auto_toggle_best_version_keep_days` | `90` | 洗版订阅的保留天数（等更好的版本，别按 3 天停） |
+| `auto_toggle_movie_enabled` | `true` | 是否连电影订阅一起管（按 TMDB 发行日判） |
 | `auto_toggle_max_changes` | `0` | 单次最多改多少条（0 = 不限，恢复优先于暂停） |
 | `auto_toggle_notify` | `false` | 有实际改动时发通知 |
 

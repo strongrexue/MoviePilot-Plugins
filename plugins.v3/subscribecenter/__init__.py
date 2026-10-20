@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.13.1"
+    plugin_version = "1.13.2"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -443,6 +443,17 @@ class SubscribeCenter(_PluginBase):
                 max(self._int_config("auto_toggle_lookahead_days", 0), 0), 30
             ),
             "keep_days": min(max(self._int_config("auto_toggle_keep_days", 3), 0), 90),
+            "best_keep_days": min(
+                max(
+                    self._int_config(
+                        "auto_toggle_best_version_keep_days",
+                        C.DEFAULT_AUTO_TOGGLE_BEST_KEEP,
+                    ),
+                    0,
+                ),
+                365,
+            ),
+            "movie_enabled": bool(self._config.get("auto_toggle_movie_enabled", True)),
             "max_changes": min(
                 max(self._int_config("auto_toggle_max_changes", 0), 0), 2000
             ),
@@ -457,6 +468,101 @@ class SubscribeCenter(_PluginBase):
     def _save_auto_toggle_state(self, state: Dict[str, Any]) -> None:
         """写入接管表与上次运行摘要。"""
         self.save_data(DATA_KEY_AUTO_TOGGLE, state)
+
+    async def _movie_release_index(self, rows: Any) -> Dict[str, List[tuple]]:
+        """给电影订阅取 TMDB 发行记录（数字 / 实体 / 影院…），6 小时缓存。
+
+        为什么不用日历里那个 ``release_date``：它是 TMDB 顶层字段，基本等于
+        首映/院线日期，而订电影等的是**数字版**出种、洗版等的是**实体碟**
+        出种，两者比首映日晚几周到几个月。拿首映日当基准，电影订阅会正好在
+        真正出种的那几周被判成「窗口已过」而暂停 —— 那是这个功能最伤人的
+        一种错法。
+
+        最多并发 4 个请求；任何一部失败只影响它自己（``release_records``
+        为空 → 判定时按「取不到发行日期」跳过，不会误暂停）。
+        """
+        import asyncio
+        import time
+
+        from .core import autotoggle
+
+        cache = self.__dict__.setdefault("_release_cache", {})
+        ttl = 6 * 3600
+        now = time.time()
+
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+            from app.schemas.types import MediaType
+
+            tmdb = TmdbApi()
+        except Exception as err:  # noqa: BLE001 - 宿主缺 TMDB 时电影一律不动
+            logger.debug(f"[SubscribeCenter] 自动启停取不到 TMDB：{err}")
+            return {}
+
+        targets: List[tuple] = []
+        for row in rows:
+            if autotoggle.media_kind(row) != "movie":
+                continue
+            media_id = str(getattr(row, "media_id", "") or "")
+            if not media_id.isdigit():
+                continue
+            if media_id in cache and now - cache[media_id][0] < ttl:
+                continue
+            targets.append((media_id, str(getattr(row, "media_source", "") or "")))
+
+        if targets:
+            semaphore = asyncio.Semaphore(4)
+
+            async def resolve_tmdb_id(media_id: str, media_source: str) -> Optional[int]:
+                """把订阅上的 ``media_id`` 换成 TMDB ID。
+
+                订阅的 ``media_id`` 是**来源自己的** ID（豆瓣订阅存的是豆瓣 ID），
+                直接拿去查 TMDB 会查到一部完全不相干的电影 —— 那会按别人家的
+                发行日暂停你的订阅，属于最坏的一种错。
+                """
+                if media_source in ("", "themoviedb"):
+                    return int(media_id)
+                try:
+                    from app.chain.media import MediaChain
+                    from app.schemas.types import MediaInfo, MediaType
+
+                    media = await MediaChain().async_recognize_media(
+                        MediaInfo(
+                            media_source=media_source,
+                            media_id=media_id,
+                            type=MediaType.MOVIE,
+                        )
+                    )
+                    tmdb_id = self._field(media, "tmdb_id")
+                    return int(tmdb_id) if tmdb_id else None
+                except Exception as err:  # noqa: BLE001 - 识别失败就跳过这部
+                    logger.debug(
+                        f"[SubscribeCenter] 电影识别失败 {media_source}:{media_id}：{err}"
+                    )
+                    return None
+
+            async def fetch(target: tuple) -> None:
+                media_id, media_source = target
+                async with semaphore:
+                    records: List[tuple] = []
+                    try:
+                        tmdb_id = await resolve_tmdb_id(media_id, media_source)
+                        if tmdb_id:
+                            info = await tmdb.async_get_info(MediaType.MOVIE, tmdb_id)
+                            records = autotoggle.release_records(info)
+                    except Exception as err:  # noqa: BLE001 - 单部失败不影响其它
+                        logger.debug(
+                            f"[SubscribeCenter] 电影发行日期查询失败 {media_id}：{err}"
+                        )
+                    cache[media_id] = (now, records)
+
+            await asyncio.gather(*(fetch(target) for target in targets))
+
+        return {
+            media_id: cache[media_id][1]
+            for media_id in list(cache)
+            if now - cache[media_id][0] < ttl
+        }
 
     async def auto_toggle_plan(self) -> Dict[str, Any]:
         """算出「今天该启用 / 该暂停 / 不动」的清单，**不写库**。
@@ -484,6 +590,10 @@ class SubscribeCenter(_PluginBase):
 
         # 复用日历那套「按 TMDB 每季 air_date 建的索引」（6 小时缓存）
         index = await self._episode_air_index(rows, today_text)
+        # 电影没有播出表，只有发行日；不开电影时连请求都不发
+        release_index = (
+            await self._movie_release_index(rows) if cfg["movie_enabled"] else {}
+        )
         state = self._auto_toggle_state()
         owned = state.get("owned")
         data = autotoggle.plan(
@@ -492,8 +602,11 @@ class SubscribeCenter(_PluginBase):
             today_date,
             lookahead_days=cfg["lookahead_days"],
             keep_days=cfg["keep_days"],
+            best_keep_days=cfg["best_keep_days"],
             owned=owned if isinstance(owned, dict) else None,
             max_changes=cfg["max_changes"],
+            release_index=release_index,
+            movie_enabled=cfg["movie_enabled"],
         )
         data["config"] = cfg
         data["last_run"] = dict(state.get("last_run") or {})
@@ -791,7 +904,6 @@ class SubscribeCenter(_PluginBase):
             tmdb = TmdbApi()
         except Exception as err:  # noqa: BLE001 - 宿主缺 TMDB 时退化为只看订阅字段
             logger.debug(f"[SubscribeCenter] 日历取不到 TMDB：{err}")
-            return {}
             return {}
 
         targets: List[tuple] = []

@@ -63,6 +63,16 @@ const ACTION_COLORS = {
   skip: 'default',
 }
 
+/** 电影的发行基准日类型 -> 中文（与 core/autotoggle.py 的 RELEASE_KIND_LABELS 对应）。 */
+const RELEASE_KIND_LABELS = {
+  digital: '数字发行',
+  physical: '实体发行',
+  theatrical: '影院上映',
+  premiere: '首映',
+  tv: '电视首播',
+  general: '上映',
+}
+
 const autoToggleItems = computed(() => {
   const data = autoToggle.value
   if (!data) return []
@@ -1377,6 +1387,20 @@ onMounted(() => {
                 color="primary"
               />
             </div>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">连电影订阅一起管</div>
+                <div class="sc-row-hint">
+                  电影没有播出日，改按 TMDB 发行日判：发行前暂停，发行后按上方「缺集保留天数」继续搜
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.auto_toggle_movie_enabled"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
 
             <VRow dense class="mt-1">
               <VCol cols="12" sm="6">
@@ -1411,6 +1435,19 @@ onMounted(() => {
                   type="number"
                   min="0"
                   max="90"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_best_version_keep_days"
+                  label="洗版保留天数（等更好的版本）"
+                  type="number"
+                  min="0"
+                  max="365"
                   density="compact"
                   hide-details
                   variant="outlined"
@@ -1505,7 +1542,10 @@ onMounted(() => {
                   <span v-if="row.pending && row.pending.length" class="sc-hint">
                     缺 {{ row.pending.join(', ') }} 集
                   </span>
-                  <span v-if="row.next_air" class="sc-hint">下集 {{ row.next_air }}</span>
+                  <span v-if="row.basis" class="sc-hint">
+                    {{ RELEASE_KIND_LABELS[row.basis_kind] || '上映' }} {{ row.basis }}
+                  </span>
+                  <span v-else-if="row.next_air" class="sc-hint">下集 {{ row.next_air }}</span>
                 </div>
                 <div class="sc-hint">{{ row.detail }}</div>
               </div>

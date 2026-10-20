@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.13.1"
+PLUGIN_VERSION = "1.13.2"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -41,6 +41,14 @@ DEFAULT_FUTURE_DAYS = 3
 #: 一天；早于零点跑必然把「明天播」的剧判成「今天播」。零点后 5 分钟足够让
 #: 宿主的日期翻转、也留出 TMDB 查询时间，赶在当天第一轮订阅刷新之前生效。
 DEFAULT_AUTO_TOGGLE_CRON = "5 0 * * *"
+
+#: 洗版订阅的保留窗口（天）。
+#:
+#: 洗版订阅的语义不是「缺集」而是「等更好的版本」，而更好的版本（原盘 /
+#: REMUX / 全季 BD）通常要完结后 3~6 个月才出种。套用剧集那 3 天窗口会把
+#: 洗版订阅在季终后第 4 天就停掉，等于把它废掉。默认 90 天：季终三个月后
+#: 还没等到更好的版本，要么站点没有、要么过滤规则卡住了，再空搜也没用。
+DEFAULT_AUTO_TOGGLE_BEST_KEEP = 90
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
@@ -252,7 +260,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 6
+CONFIG_VERSION = 7
 
 
 def default_config() -> Dict[str, Any]:
@@ -367,6 +375,18 @@ def default_config() -> Dict[str, Any]:
         #: 超过窗口还没入库的，按「等资源等太久」暂停（下载器里已有任务时
         #: 宿主自己会继续追，不依赖订阅状态）。
         "auto_toggle_keep_days": 3,
+        #: 洗版订阅（``best_version=1``）的保留窗口，默认 90 天。
+        #:
+        #: 见 ``DEFAULT_AUTO_TOGGLE_BEST_KEEP``：洗版等的是「更好的版本」，
+        #: 不是「缺集」，用 3 天窗口会在季终后立刻把它停掉。设 0 表示跟随上面
+        #: 的 ``auto_toggle_keep_days``。
+        "auto_toggle_best_version_keep_days": DEFAULT_AUTO_TOGGLE_BEST_KEEP,
+        #: 是否连电影订阅一起管（默认开）。
+        #:
+        #: 电影没有「集」，基准日取 TMDB 发行日：普通订阅看数字发行（type=4，
+        #: WEB-DL 出种），洗版订阅看实体发行（type=5，原盘/REMUX 出种）。
+        #: 想等枪版的人把它关掉即可 —— 影院期一律暂停会挡住枪版。
+        "auto_toggle_movie_enabled": True,
         #: 单次最多改多少条（0 = 不限）。防止第一次打开时一口气暂停两百条把
         #: 人吓到；超出时**先保恢复、后保暂停**（少暂停只是多搜一次，漏恢复
         #: 会让该搜的订阅一整天不搜）。

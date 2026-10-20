@@ -94,6 +94,15 @@ REASON_MANUAL = "manual_changed"
 #: 电影没有播出日，只在「全部恢复」时出现
 REASON_RELEASE = "release"
 
+#: 电影：还没到发行日（影院期 / 数字版还没出）
+REASON_MOVIE_WAIT = "movie_wait"
+#: 电影：处在发行窗口内（该搜）
+REASON_MOVIE_WINDOW = "movie_window"
+#: 电影：发行窗口已过仍未入库
+REASON_MOVIE_OVERDUE = "movie_overdue"
+#: 电影：TMDB 没给任何可用的发行日期
+REASON_NO_RELEASE = "no_release"
+
 #: 原因码 → 中文短说明（前端兜底展示用）
 REASON_LABELS: Dict[str, str] = {
     REASON_PENDING: "今天有已播未入库的集",
@@ -108,6 +117,40 @@ REASON_LABELS: Dict[str, str] = {
     REASON_USER_PAUSED: "用户手动暂停，不接管",
     REASON_MANUAL: "状态被手动改动，放弃接管",
     REASON_RELEASE: "手动全部恢复",
+    REASON_MOVIE_WAIT: "还没到发行日",
+    REASON_MOVIE_WINDOW: "发行窗口内",
+    REASON_MOVIE_OVERDUE: "超过发行窗口仍未入库",
+    REASON_NO_RELEASE: "取不到发行日期",
+}
+
+#: 发行类型 → 中文名（界面与说明用）。TMDB 的 ``release_dates[].type``：
+#: 1 首映、2 有限影院、3 影院、4 数字、5 实体、6 电视；0 是本插件补的
+#: 「顶层 ``release_date``」兜底位。
+RELEASE_KIND_LABELS: Dict[str, str] = {
+    "digital": "数字发行",
+    "physical": "实体发行",
+    "theatrical": "影院上映",
+    "premiere": "首映",
+    "tv": "电视首播",
+    "general": "上映",
+}
+
+#: 电影基准日的类型优先级。
+#:
+#: - 普通订阅等的是 WEB-DL/WEBRip，出种跟着**数字发行**（type=4）走；
+#: - 洗版订阅等的是原盘/REMUX/全季 BD，那批资源跟着**实体发行**（type=5）
+#:   走，比数字发行晚 1~3 个月。用 4 去卡洗版，那两个月全是空搜。
+_MOVIE_TYPE_ORDER = (4, 5, 3, 2, 1, 6, 0)
+_MOVIE_TYPE_ORDER_BEST = (5, 4, 3, 2, 1, 6, 0)
+
+_KIND_BY_TYPE = {
+    4: "digital",
+    5: "physical",
+    3: "theatrical",
+    2: "theatrical",
+    1: "premiere",
+    6: "tv",
+    0: "general",
 }
 
 
@@ -226,6 +269,86 @@ def episode_numbers(row: Any) -> set:
     return set()
 
 
+def is_best_version(row: Any) -> bool:
+    """该订阅是不是洗版订阅（``best_version=1``）。"""
+    return bool(_int(_get(row, "best_version"), 0))
+
+
+def _release_pair(item: Any) -> Optional[Tuple[str, int]]:
+    """把一条发行记录归一为 ``(YYYY-MM-DD, 类型码)``。
+
+    标准形态是 ``(date, type)`` 元组；也接受 TMDB 原始结构
+    ``{"release_date": "2025-01-23T00:00:00.000Z", "type": 4}`` 与
+    ``{"date": ..., "type": ...}``（宿主 ``_release_dates()`` 压平后的形态）。
+    """
+    if isinstance(item, (tuple, list)):
+        if len(item) < 2:
+            return None
+        raw_date, raw_type = item[0], item[1]
+    else:
+        raw_date = _get(item, "release_date") or _get(item, "date")
+        raw_type = _get(item, "type")
+    day = parse_date(raw_date)
+    if day is None:
+        return None
+    return day.isoformat(), _int(raw_type)
+
+
+def release_records(info: Any) -> List[Tuple[str, int]]:
+    """把 TMDB 电影详情里的发行记录压平成 ``[(日期, 类型码), ...]``。
+
+    宿主 ``TmdbApi.async_get_info(MediaType.MOVIE, tmdbid)`` 返回的是原始
+    TMDB 结构（``append_to_response`` 里带了 ``release_dates``）::
+
+        {"release_dates": {"results": [
+            {"iso_3166_1": "US", "release_dates": [
+                {"release_date": "2025-01-23T00:00:00.000Z", "type": 4}, …]}, …]}}
+
+    同一个类型会有多个地区的日期，全部保留（``movie_basis`` 取最早的那个）。
+    一条都取不到时退回顶层 ``release_date``（记作类型 0「上映」）。
+    """
+    out: List[Tuple[str, int]] = []
+    results = _get(_get(info, "release_dates"), "results")
+    for country in results or []:
+        for item in _get(country, "release_dates") or []:
+            pair = _release_pair(item)
+            if pair:
+                out.append(pair)
+    if not out:
+        pair = _release_pair({"release_date": _get(info, "release_date"), "type": 0})
+        if pair:
+            out.append(pair)
+    return out
+
+
+def movie_basis(
+    releases: Optional[Iterable[Any]], *, best_version: bool = False
+) -> Tuple[str, str]:
+    """选出「这部电影从哪天开始值得搜」，返回 ``(日期, 类型名)``。
+
+    同一类型可能有多个地区的日期（TMDB 的 ``release_dates.results[]`` 按
+    ``iso_3166_1`` 分地区），取**最早**的那个：越早的那天起站点上就可能
+    已经有种，搜早了只是多一次查询，搜晚了会整段错过。
+
+    :param best_version: 洗版订阅要看实体发行（原盘/REMUX 跟 BD 走），
+        普通订阅看数字发行（WEB-DL 跟数字版走）。
+    :return: 取不到任何可用日期时返回 ``("", "")``
+    """
+    by_type: Dict[int, List[str]] = {}
+    for item in releases or []:
+        pair = _release_pair(item)
+        if not pair:
+            continue
+        day, code = pair
+        by_type.setdefault(code, []).append(day)
+    order = _MOVIE_TYPE_ORDER_BEST if best_version else _MOVIE_TYPE_ORDER
+    for code in order:
+        days = by_type.get(code)
+        if days:
+            return min(days), _KIND_BY_TYPE.get(code, "general")
+    return "", ""
+
+
 @dataclass(frozen=True)
 class Decision:
     """一条订阅的处置结论。"""
@@ -252,6 +375,10 @@ class Decision:
     downloaded: int = 0
     #: 该订阅当前是否由本插件暂停（接管中）
     owned: bool = False
+    #: 电影的基准日（TV 为空）
+    basis: str = ""
+    #: 基准日的类型：``digital`` / ``physical`` / ``theatrical`` …（TV 为空）
+    basis_kind: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         """转成可直接 JSON 化的字典。"""
@@ -271,6 +398,8 @@ class Decision:
             "aired": self.aired,
             "downloaded": self.downloaded,
             "owned": self.owned,
+            "basis": self.basis,
+            "basis_kind": self.basis_kind,
         }
 
 
@@ -288,6 +417,8 @@ def _decision(
     last_air: str = "",
     aired: int = 0,
     downloaded: int = 0,
+    basis: str = "",
+    basis_kind: str = "",
 ) -> Decision:
     """构造一条结论（统一走这里，避免字段漏填）。"""
     return Decision(
@@ -305,6 +436,8 @@ def _decision(
         aired=aired,
         downloaded=downloaded,
         owned=owned,
+        basis=basis,
+        basis_kind=basis_kind,
     )
 
 
@@ -323,7 +456,15 @@ def _describe(reason: str, **values: Any) -> str:
     if reason == REASON_NO_SCHEDULE:
         return "取不到该季的播出表（TMDB 无返回），本轮不动"
     if reason == REASON_MOVIE:
-        return "非剧集订阅（电影/音乐），不按播出日调度"
+        return "音乐订阅不按播出日调度"
+    if reason == REASON_MOVIE_WAIT:
+        return "距{label} {basis} 还有 {days} 天，暂停等出种".format(**values)
+    if reason == REASON_MOVIE_WINDOW:
+        return "{label} {basis}，窗口内（还剩 {days} 天）".format(**values)
+    if reason == REASON_MOVIE_OVERDUE:
+        return "{label} {basis} 已过 {days} 天仍未入库".format(**values)
+    if reason == REASON_NO_RELEASE:
+        return "TMDB 没有可用发行日期（数字/实体/影院全缺），本轮不动"
     if reason == REASON_NO_ID:
         return "没有可用的 TMDB ID，查不到播出表"
     if reason == REASON_PENDING_STATE:
@@ -335,6 +476,87 @@ def _describe(reason: str, **values: Any) -> str:
     return REASON_LABELS.get(reason, reason)
 
 
+def _decide_movie(
+    row: Any,
+    releases: Optional[Iterable[Any]],
+    today: date,
+    *,
+    state: str,
+    is_owned: bool,
+    best: bool,
+    window: int,
+    lookahead_days: int,
+) -> Decision:
+    """电影的判定：按 TMDB 发行日算窗口。
+
+    电影没有「集」，也没有「下一集播出日」，唯一的时间锚点是发行日。两条
+    硬规矩：
+
+    - **不看「已入库」**。洗版订阅入库后宿主故意保持 ``R`` 等 ``priority=100``
+      的资源（``completion.py:197`` + ``priority.py:377-386``），``note=[1]``
+      只说明下过一个版本。拿「已入库」当停止信号会让洗版电影永远搜下去，
+      反过来拿它当继续信号又会挡住非洗版电影归档。所以只按窗口判。
+    - 洗版看实体发行（type=5），普通看数字发行（type=4）。
+    """
+    basis, basis_kind = movie_basis(releases, best_version=best)
+    label = RELEASE_KIND_LABELS.get(basis_kind, "上映")
+    if not basis:
+        return _decision(
+            row,
+            state=state,
+            target=state,
+            action=ACTION_SKIP,
+            reason=REASON_NO_RELEASE,
+            detail=_describe(REASON_NO_RELEASE),
+            owned=is_owned,
+        )
+
+    basis_day = parse_date(basis) or today
+    start = basis_day - timedelta(days=max(0, lookahead_days))
+    end = basis_day + timedelta(days=max(0, window))
+    aired = 1 if today >= basis_day else 0
+    if today < start:
+        target, reason = STATE_PAUSED, REASON_MOVIE_WAIT
+        detail = _describe(
+            REASON_MOVIE_WAIT,
+            label=label,
+            basis=basis,
+            days=(start - today).days,
+        )
+    elif today <= end:
+        target, reason = STATE_RUN, REASON_MOVIE_WINDOW
+        detail = _describe(
+            REASON_MOVIE_WINDOW, label=label, basis=basis, days=(end - today).days
+        )
+    else:
+        target, reason = STATE_PAUSED, REASON_MOVIE_OVERDUE
+        detail = _describe(
+            REASON_MOVIE_OVERDUE, label=label, basis=basis, days=(today - end).days
+        )
+
+    action = ACTION_KEEP
+    if target == STATE_RUN and state != STATE_RUN:
+        action = ACTION_RESUME
+    elif target == STATE_PAUSED and state != STATE_PAUSED:
+        action = ACTION_PAUSE
+
+    return _decision(
+        row,
+        state=state,
+        target=target,
+        action=action,
+        reason=reason,
+        detail=detail,
+        owned=is_owned,
+        next_air=basis if basis_day > today else "",
+        last_air=basis if aired else "",
+        aired=aired,
+        downloaded=1 if 1 in episode_numbers(row) else 0,
+        basis=basis,
+        basis_kind=basis_kind,
+    )
+
+
 def decide(
     row: Any,
     episodes: Optional[Iterable[Any]],
@@ -342,7 +564,10 @@ def decide(
     *,
     lookahead_days: int = 0,
     keep_days: int = 3,
+    best_keep_days: int = 0,
     owned: Optional[Mapping[Any, Any]] = None,
+    releases: Optional[Iterable[Any]] = None,
+    movie_enabled: bool = True,
 ) -> Decision:
     """对**一条**订阅给出结论。
 
@@ -351,8 +576,11 @@ def decide(
     :param today: 插件时区下的「今天」
     :param lookahead_days: 提前几天开启（0 = 只在播出当天开启）
     :param keep_days: 已播未入库的集最多保留几天继续搜索
+    :param best_keep_days: 洗版订阅的保留窗口（0 = 跟随 ``keep_days``）
     :param owned: 本插件的接管表 ``{订阅 ID: {"state": 我们写入的状态, ...}}``；
         ``None`` 表示空表（预览时也传真实表，判定才一致）
+    :param releases: 电影的发行记录 ``[(date, type), ...]``（见 ``movie_basis``）
+    :param movie_enabled: 是否连电影订阅一起管
     """
     owned = owned or {}
     subscribe_id = _int(_get(row, "id"))
@@ -371,9 +599,13 @@ def decide(
             owned=is_owned,
         )
 
-    # ---- 1. 只看剧集；电影没有播出日，音乐更没有
-    if media_kind(row) in ("movie", "music"):
+    # ---- 1. 按类型分流：音乐没有「播出/发行日」这回事；电影走发行日
+    kind = media_kind(row)
+    best = is_best_version(row)
+    if kind == "music":
         return skip(REASON_MOVIE)
+    if kind == "movie" and not movie_enabled:
+        return skip(REASON_MOVIE, "电影订阅未纳入自动启停（可在设置里打开）")
 
     media_id = _text(_get(row, "media_id"))
     if not media_id.isdigit():
@@ -392,7 +624,25 @@ def decide(
     if state == STATE_PAUSED and not is_owned:
         return skip(REASON_USER_PAUSED)
 
-    # ---- 3. 播出表
+    #: 保留窗口：洗版订阅等的是「更好的版本」，窗口要比缺集窗口长得多
+    window = max(0, keep_days)
+    if best and best_keep_days and best_keep_days > 0:
+        window = max(0, best_keep_days)
+
+    # ---- 3. 电影：用 TMDB 发行日
+    if kind == "movie":
+        return _decide_movie(
+            row,
+            releases,
+            today,
+            state=state,
+            is_owned=is_owned,
+            best=best,
+            window=window,
+            lookahead_days=lookahead_days,
+        )
+
+    # ---- 4. 播出表
     air = [pair for pair in (_episode_pair(item) for item in (episodes or [])) if pair]
     if not air:
         return skip(REASON_NO_SCHEDULE)
@@ -483,8 +733,11 @@ def plan(
     *,
     lookahead_days: int = 0,
     keep_days: int = 3,
+    best_keep_days: int = 0,
     owned: Optional[Mapping[Any, Any]] = None,
     max_changes: int = 0,
+    release_index: Optional[Mapping[str, Any]] = None,
+    movie_enabled: bool = True,
 ) -> Dict[str, Any]:
     """对全部订阅做一次决策，返回「计划」。
 
@@ -493,6 +746,8 @@ def plan(
 
     :param max_changes: 单次改动上限（0 = 不限）。超出时**先保恢复、后保暂停**
         —— 少暂停几条只是多搜一次，漏恢复会让该搜的订阅一整天不搜。
+    :param release_index: 电影的发行记录索引 ``{media_id: [(date, type), ...]}``
+    :param movie_enabled: 是否连电影订阅一起管
     :return: ``{"today", "items", "changes", "paused", "resumed", "kept",
         "skipped", "reasons", "truncated"}``
     """
@@ -512,7 +767,10 @@ def plan(
                 today,
                 lookahead_days=lookahead_days,
                 keep_days=keep_days,
+                best_keep_days=best_keep_days,
                 owned=owned,
+                releases=(release_index or {}).get(media_id),
+                movie_enabled=movie_enabled,
             )
         )
 
@@ -607,7 +865,11 @@ __all__ = [
     "REASON_MANUAL",
     "REASON_MISSING_OVERDUE",
     "REASON_MOVIE",
+    "REASON_MOVIE_OVERDUE",
+    "REASON_MOVIE_WAIT",
+    "REASON_MOVIE_WINDOW",
     "REASON_NO_ID",
+    "REASON_NO_RELEASE",
     "REASON_NO_SCHEDULE",
     "REASON_PENDING",
     "REASON_PENDING_STATE",
@@ -615,6 +877,7 @@ __all__ = [
     "REASON_RELEASE",
     "REASON_UPCOMING",
     "REASON_USER_PAUSED",
+    "RELEASE_KIND_LABELS",
     "STATE_PAUSED",
     "STATE_PENDING",
     "STATE_RUN",
@@ -622,7 +885,10 @@ __all__ = [
     "WRITE_ACTIONS",
     "decide",
     "episode_numbers",
+    "is_best_version",
     "media_kind",
+    "movie_basis",
     "next_owned",
     "plan",
+    "release_records",
 ]

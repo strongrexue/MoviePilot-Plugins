@@ -262,6 +262,11 @@ class AutoToggleItem(BaseModel):
     aired: int = Field(default=0, description="已播集数")
     downloaded: int = Field(default=0, description="已入库集数")
     owned: bool = Field(default=False, description="是否由本插件暂停（接管中）")
+    #: 电影专用的基准日：TMDB 的发行日（剧集为空）
+    basis: str = Field(default="", description="电影的发行基准日")
+    basis_kind: str = Field(
+        default="", description="基准日类型：digital / physical / theatrical …"
+    )
 
 
 class AutoToggleConfig(BaseModel):
@@ -271,6 +276,8 @@ class AutoToggleConfig(BaseModel):
     cron: str = Field(default="", description="判定时间（cron）")
     lookahead_days: int = Field(default=0, description="提前天数")
     keep_days: int = Field(default=0, description="已播未入库的保留天数")
+    best_keep_days: int = Field(default=0, description="洗版订阅的保留天数")
+    movie_enabled: bool = Field(default=True, description="是否连电影一起管")
     max_changes: int = Field(default=0, description="单次改动上限（0=不限）")
     notify: bool = Field(default=False, description="是否通知")
 

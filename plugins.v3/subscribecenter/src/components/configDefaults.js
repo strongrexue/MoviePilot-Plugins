@@ -69,6 +69,10 @@ export const configDefaults = {
   auto_toggle_lookahead_days: 0,
   //: 已播但还没入库时再多留几天 R（等 PT 出种）
   auto_toggle_keep_days: 3,
+  //: 洗版订阅的保留窗口（等更好的版本，默认三个月）
+  auto_toggle_best_version_keep_days: 90,
+  //: 是否连电影订阅一起管（按 TMDB 发行日判，默认开）
+  auto_toggle_movie_enabled: true,
   //: 单次最多改多少条（0 = 不限）
   auto_toggle_max_changes: 0,
   //: 每次自动启停后是否发通知
@@ -86,7 +90,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 6,
+  config_version: 7,
   // ---------------- 一次性执行
   onlyonce: false,
 }

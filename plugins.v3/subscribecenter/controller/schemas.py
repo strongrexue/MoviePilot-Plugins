@@ -241,12 +241,104 @@ class MappingFixResult(BaseModel):
     key: str = Field(description="缓存键")
 
 
+# --------------------------------------------------------------------- 自动启停
+
+class AutoToggleItem(BaseModel):
+    """自动启停：一条订阅的判定结论。"""
+
+    id: int = Field(description="订阅 ID")
+    name: str = Field(description="标题")
+    season: int = Field(default=0, description="季")
+    state: str = Field(default="", description="当前状态")
+    target: str = Field(default="", description="判定后应处的状态")
+    action: str = Field(description="pause / resume / keep / skip")
+    reason: str = Field(description="原因码")
+    reason_label: str = Field(default="", description="原因中文名")
+    detail: str = Field(default="", description="一句中文说明")
+    #: 已播但还没入库的集号 —— 用户最关心的是「为什么它还在搜」，这就是答案
+    pending: List[int] = Field(default_factory=list, description="已播未入库的集号")
+    next_air: str = Field(default="", description="下一集播出日")
+    last_air: str = Field(default="", description="已播最新一集的播出日")
+    aired: int = Field(default=0, description="已播集数")
+    downloaded: int = Field(default=0, description="已入库集数")
+    owned: bool = Field(default=False, description="是否由本插件暂停（接管中）")
+
+
+class AutoToggleConfig(BaseModel):
+    """自动启停的生效配置（已收敛边界，前端直接展示）。"""
+
+    enabled: bool = Field(default=False, description="总开关")
+    cron: str = Field(default="", description="判定时间（cron）")
+    lookahead_days: int = Field(default=0, description="提前天数")
+    keep_days: int = Field(default=0, description="已播未入库的保留天数")
+    max_changes: int = Field(default=0, description="单次改动上限（0=不限）")
+    notify: bool = Field(default=False, description="是否通知")
+
+
+class AutoToggleLastRun(BaseModel):
+    """自动启停：上次执行摘要（没跑过时全是 0/空）。"""
+
+    at: str = Field(default="", description="执行时间")
+    today: str = Field(default="", description="判定日期")
+    reason: str = Field(default="", description="cron / manual")
+    planned: int = Field(default=0, description="计划改动条数")
+    applied: int = Field(default=0, description="实际成功条数")
+    paused: int = Field(default=0, description="暂停条数")
+    resumed: int = Field(default=0, description="恢复条数")
+    failed: int = Field(default=0, description="失败条数")
+    truncated: bool = Field(default=False, description="是否被单次上限截断")
+
+
+class AutoToggleView(BaseModel):
+    """自动启停：预览/状态视图。"""
+
+    today: str = Field(description="判定日期（插件时区）")
+    items: List[AutoToggleItem] = Field(default_factory=list, description="全部判定")
+    changes: List[AutoToggleItem] = Field(default_factory=list, description="会改库的条目")
+    planned: int = Field(default=0, description="计划改动条数")
+    paused: int = Field(default=0, description="计划暂停条数")
+    resumed: int = Field(default=0, description="计划恢复条数")
+    kept: int = Field(default=0, description="保持不动的条数")
+    skipped: int = Field(default=0, description="跳过（不归本功能管）的条数")
+    reasons: Dict[str, int] = Field(default_factory=dict, description="各原因条数")
+    truncated: bool = Field(default=False, description="是否被单次上限截断")
+    config: AutoToggleConfig = Field(description="生效配置")
+    last_run: AutoToggleLastRun = Field(
+        default_factory=AutoToggleLastRun, description="上次执行摘要"
+    )
+    owned: int = Field(default=0, description="当前被本插件暂停的订阅数")
+
+
+class AutoToggleResult(BaseModel):
+    """自动启停：执行结果。"""
+
+    today: str = Field(description="判定日期")
+    reason: str = Field(default="", description="cron / manual")
+    planned: int = Field(default=0, description="计划改动条数")
+    applied: int = Field(default=0, description="成功条数")
+    paused: int = Field(default=0, description="暂停条数")
+    resumed: int = Field(default=0, description="恢复条数")
+    failed: List[Dict[str, Any]] = Field(
+        default_factory=list, description="失败明细（id/name/error）"
+    )
+    truncated: bool = Field(default=False, description="是否被单次上限截断")
+    kept: int = Field(default=0)
+    skipped: int = Field(default=0)
+    reasons: Dict[str, int] = Field(default_factory=dict)
+    owned: int = Field(default=0, description="执行后接管中的订阅数")
+    last_run: AutoToggleLastRun = Field(
+        default_factory=AutoToggleLastRun, description="执行摘要"
+    )
+
+
 #: 路由 → 响应业务模型
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
     "/calendar": CalendarMonth,
     "/calendar/day": CalendarView,
+    "/auto_toggle": AutoToggleView,
+    "/auto_toggle/apply": AutoToggleResult,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,
@@ -260,6 +352,11 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
 
 __all__ = [
     "API_RESPONSE_MODELS",
+    "AutoToggleConfig",
+    "AutoToggleItem",
+    "AutoToggleLastRun",
+    "AutoToggleResult",
+    "AutoToggleView",
     "CalendarItem",
     "CalendarMonth",
     "CalendarView",

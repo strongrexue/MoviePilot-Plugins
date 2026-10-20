@@ -78,7 +78,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.12.2",
+        "version": "1.13.0",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -86,6 +86,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.0": "按播出日自动启停订阅（1.13.0）。用户近 200 个订阅，宿主定时「订阅刷新」在 spider 模式下每天随机跑 32 轮，把全部 R/P 订阅拉进匹配循环逐条搜站点 —— 两百条里绝大多数当天并没有新集，纯属空转。新增「自动启停」：按 TMDB 每季 episodes[].air_date 判断今天有没有该搜的集，有已播未入库的集（最近一集距今在缺集保留天数内）或窗口内有待播集就保持 R，其余置 S 暂停，次日重判。要点：[1] 判定逻辑为 core/autotoggle.py 的纯函数（decide/plan），零宿主依赖，26 项纯逻辑用例直接断言；[2] 复用日历的 _episode_air_index（TMDB 链 + 6 小时缓存 + 并发 6），不新建取数层；[3] 写状态只走宿主 subscription_mutation_scope() + SubscriptionActor(is_superuser=True)，取不到该模块才降级 SubscribeOper.async_stage_update + commit —— 与界面上点暂停同一条路，会发出 SubscribeModified；[4] 安全阀：只动自己暂停过的订阅（接管表存插件数据，不碰 note）、订阅被手动改过即放弃接管、有单次改动上限、与发现流水共用同一把后台互斥锁（两者都会改订阅表，不同时跑）；[5] 按宿主源码纠正状态语义：P 是「待定」仍会被搜索，只有 S 才排除，所以暂停一律写 S，也绝不往 Subscribe.note 写标记（那是宿主的已下载集号清单）；[6] 新增 GET /auto_toggle（只算不写）与 POST /auto_toggle/apply，配置页新增「自动启停」分区，默认关闭、默认 cron 00:05（早于订阅刷新，判定基准是本地日期）。",
             "v1.12.2": "修日历空白（1.12.2）：宿主链返回的是 pydantic 对象（TmdbEpisode），1.12.0/1.12.1 用 ep.get('air_date') 会抛 AttributeError 被吞掉 → 索引全空 → 整月 0 条。现新增 _field() 兼容 dict/对象，剧集优先用 TmdbChain.async_tmdb_episodes，失败或为空时回退 TmdbApi 取季；电影优先 MediaChain 识别 release_date，失败回退 TmdbApi.get_info；空结果不再写缓存（避免 6 小时内一直空）。",
             "v1.12.1": "回退到可用的取数实现（1.12.1）：上一版改用宿主链 TmdbChain/MediaChain 后，插件上下文里取季/识别返回空，整月日历变空白（用户反馈 0 条）。已回退为 TmdbApi 直取（get_tv_season_detail / get_tv_group_seasons / get_info 取电影 release_date），电影进日历与按集号判入库的改动保留。",
             "v1.12.0": "不再自己造轮子：日历直接走 MP 接口背后的同一套链（1.12.0）。用户质问「为什么自己取数据，直接把原生日历搬过来」。查清 MP 前端 calendar-*.js 的 ce()：电影走 /media/{id}（识别媒体拿 release_date），剧集走 /tmdb/{id}/{season}[?episode_group]。这两个接口的实现是 MediaChain().async_recognize_media(...) 与 TmdbChain().async_tmdb_episodes(tmdbid, season, episode_group)。我此前用 TmdbApi.get_tv_season_detail / get_tv_group_seasons / get_info，绕开了宿主链，语义可能与接口不同（缓存、剧集组重编号、字段归一）。现改为直接调用这两个链方法：剧集 async_tmdb_episodes（剧集组时传 season=0 + episode_group），电影 async_recognize_media 取 release_date（缺失时该片不进日历）。索引键仍为 (media_id, season) / (media_id, movie)，缓存 6 小时、并发 6 不变。ruff 全绿、485 项测试通过、构建与门禁通过。",

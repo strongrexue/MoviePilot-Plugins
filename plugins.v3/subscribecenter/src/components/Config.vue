@@ -43,6 +43,33 @@ const doubanTab = ref('basic')
 /** 豆瓣榜单里展开的那一条（-1 = 全部收起）。 */
 const openList = ref(-1)
 const activeSection = ref('overview')
+/** 自动启停的预览/执行结果（null = 还没跑过）。 */
+const autoToggle = ref(null)
+const autoToggleBusy = ref('')
+/** 默认只列出会改库的条目：两百条订阅全列出来没人看得下去。 */
+const autoToggleShowAll = ref(false)
+
+/** 动作常量 -> 中文标签（与后端 core/autotoggle.py 逐字对应）。 */
+const ACTION_LABELS = {
+  pause: '暂停',
+  resume: '恢复',
+  keep: '保持',
+  skip: '跳过',
+}
+const ACTION_COLORS = {
+  pause: 'warning',
+  resume: 'success',
+  keep: 'info',
+  skip: 'default',
+}
+
+const autoToggleItems = computed(() => {
+  const data = autoToggle.value
+  if (!data) return []
+  const items = Array.isArray(data.items) ? data.items : []
+  if (autoToggleShowAll.value) return items
+  return items.filter((row) => row.action === 'pause' || row.action === 'resume')
+})
 
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
 const DECISION_LABELS = {
@@ -118,6 +145,7 @@ const sectionNav = computed(() => [
   { key: 'douban', label: '豆瓣榜单', icon: 'mdi-movie-filter-outline' },
   { key: 'hot_media', label: '热门媒体', icon: 'mdi-fire' },
   { key: 'schedule', label: '写入与调度', icon: 'mdi-calendar-clock' },
+  { key: 'autotoggle', label: '自动启停', icon: 'mdi-toggle-switch-outline' },
   { key: 'preview', label: '预览结果', icon: 'mdi-eye-outline' },
 ])
 
@@ -407,6 +435,65 @@ async function preview() {
     setTip(error?.message || '预览失败', false)
   } finally {
     busy.value = ''
+  }
+}
+
+function autoToggleCronValid() {
+  return String(form.value.auto_toggle_cron || '').trim().split(/\s+/).length === 5
+}
+
+/**
+ * 自动启停：GET 只算不写。
+ *
+ * 判定的依据是「今天到底有没有该搜的集」，所以这一步会去查 TMDB 播出表，
+ * 首次可能要十几秒（之后走 6 小时缓存）。改参数后先看这一步。
+ */
+async function loadAutoToggle() {
+  if (autoToggleBusy.value) return
+  autoToggleBusy.value = 'preview'
+  try {
+    const data = unwrap(
+      await getPluginApi(props.api, props.pluginId, 'auto_toggle', { timeoutMs: 600000 }),
+    )
+    autoToggle.value = data || null
+    setTip(
+      `预览完成（未改动任何订阅）：待暂停 ${data?.paused ?? 0} 条 / `
+        + `待恢复 ${data?.resumed ?? 0} 条 / 保持不动 ${data?.kept ?? 0} 条`,
+    )
+  } catch (error) {
+    setTip(error?.message || '预览失败', false)
+  } finally {
+    autoToggleBusy.value = ''
+  }
+}
+
+/** 真正改状态。先落盘接管表再改库，所以中途失败也不会把订阅卡在错的状态。 */
+async function applyAutoToggle() {
+  if (autoToggleBusy.value) return
+  if (!window.confirm('将按播出日暂停/恢复订阅状态，确定执行？')) return
+  autoToggleBusy.value = 'apply'
+  try {
+    const data = unwrap(
+      await postPluginApi(
+        props.api,
+        props.pluginId,
+        'auto_toggle/apply',
+        {},
+        { timeoutMs: 600000 },
+      ),
+    )
+    autoToggle.value = data || null
+    const failed = Array.isArray(data?.failed) ? data.failed.length : 0
+    setTip(
+      `已执行：暂停 ${data?.paused ?? 0} 条 / 恢复 ${data?.resumed ?? 0} 条`
+        + (failed ? ` / 失败 ${failed} 条（详见运行日志）` : ''),
+      !failed,
+    )
+    await loadStatus()
+  } catch (error) {
+    setTip(error?.message || '执行失败', false)
+  } finally {
+    autoToggleBusy.value = ''
   }
 }
 
@@ -1251,6 +1338,177 @@ onMounted(() => {
                 hide-details
                 color="warning"
               />
+            </div>
+          </div>
+        </template>
+
+        <!-- 播出日自动启停 -->
+        <template v-if="activeSection === 'autotoggle'">
+          <div class="sc-card">
+            <div class="sc-card-title">播出日自动启停</div>
+            <div class="sc-hint">
+              宿主的「订阅刷新」每天会跑几十轮，把<b>全部</b>订阅都拉进匹配循环；
+              两百条订阅里绝大多数当天并没有新集，纯属空转。
+              这里按 TMDB 播出表判断「今天有没有该搜的集」：有已播未入库的集
+              （或最近要播出）就保持订阅中，其余暂停。<b>只改状态，不写订阅、不碰下载记录。</b>
+            </div>
+
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">启用自动启停</div>
+                <div class="sc-row-hint">关闭时不会注册定时任务，也不会有任何订阅被改动</div>
+              </div>
+              <VSwitch
+                v-model="form.auto_toggle_enabled"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">有改动时发通知</div>
+                <div class="sc-row-hint">只在真的暂停/恢复了订阅时推送一条摘要</div>
+              </div>
+              <VSwitch
+                v-model="form.auto_toggle_notify"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+
+            <VRow dense class="mt-1">
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model="form.auto_toggle_cron"
+                  label="判定时间（5 段式 cron）"
+                  :error="!autoToggleCronValid()"
+                  :error-messages="autoToggleCronValid() ? [] : ['需要 5 段，例如 5 0 * * *']"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_lookahead_days"
+                  label="提前天数（0 = 只在播出当天）"
+                  type="number"
+                  min="0"
+                  max="30"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_keep_days"
+                  label="缺集保留天数"
+                  type="number"
+                  min="0"
+                  max="90"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_max_changes"
+                  label="单次改动上限（0 = 不限）"
+                  type="number"
+                  min="0"
+                  max="2000"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">
+              缺集保留 = 已播出但还没下到的集，从这个日期起算几天内仍继续搜（PT 出种常有延迟）。
+              判定时间建议早于「订阅刷新」，默认 00:05；改 cron 后要重新保存配置才会重建任务。
+            </div>
+
+            <VDivider class="my-3" />
+            <div class="d-flex align-center flex-wrap ga-2">
+              <VBtn
+                variant="tonal"
+                color="info"
+                size="small"
+                prepend-icon="mdi-eye-outline"
+                :loading="autoToggleBusy === 'preview'"
+                :disabled="loading || Boolean(autoToggleBusy)"
+                @click="loadAutoToggle"
+              >
+                只看不改（预览）
+              </VBtn>
+              <VBtn
+                variant="flat"
+                color="warning"
+                size="small"
+                prepend-icon="mdi-toggle-switch-outline"
+                :loading="autoToggleBusy === 'apply'"
+                :disabled="loading || Boolean(autoToggleBusy)"
+                @click="applyAutoToggle"
+              >
+                立即执行
+              </VBtn>
+              <span class="sc-hint">预览要查 TMDB 播出表，首次可能要十几秒</span>
+            </div>
+
+            <div v-if="autoToggle" class="mt-3">
+              <div class="d-flex align-center flex-wrap ga-2 mb-2">
+                <VChip size="x-small" variant="flat" color="info">基准日 {{ autoToggle.today }}</VChip>
+                <VChip size="x-small" variant="flat" color="warning">待暂停 {{ autoToggle.paused ?? 0 }}</VChip>
+                <VChip size="x-small" variant="flat" color="success">待恢复 {{ autoToggle.resumed ?? 0 }}</VChip>
+                <VChip size="x-small" variant="tonal">保持不动 {{ autoToggle.kept ?? 0 }}</VChip>
+                <VChip size="x-small" variant="tonal">跳过 {{ autoToggle.skipped ?? 0 }}</VChip>
+                <VChip v-if="autoToggle.truncated" size="x-small" variant="flat" color="error">
+                  超出单次上限已截断
+                </VChip>
+              </div>
+              <div class="sc-row">
+                <div class="sc-row-main">
+                  <div class="sc-row-label">连「保持不动」的条目一起列出</div>
+                  <div class="sc-row-hint">排查「为什么这条还在搜」时打开</div>
+                </div>
+                <VSwitch
+                  v-model="autoToggleShowAll"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                />
+              </div>
+              <div v-if="!autoToggleItems.length" class="sc-empty">
+                当前没有需要改动的订阅。
+              </div>
+              <div v-for="row in autoToggleItems" :key="row.id" class="sc-preview-row">
+                <div class="d-flex align-center flex-wrap ga-2">
+                  <VChip
+                    size="x-small"
+                    variant="flat"
+                    :color="ACTION_COLORS[row.action] || 'default'"
+                  >
+                    {{ ACTION_LABELS[row.action] || row.action }}
+                  </VChip>
+                  <b>{{ row.name }}</b>
+                  <span v-if="row.season" class="sc-hint">S{{ row.season }}</span>
+                  <span class="sc-hint">{{ row.state }} → {{ row.target }}</span>
+                  <VChip size="x-small" variant="tonal">{{ row.reason_label || row.reason }}</VChip>
+                  <span v-if="row.pending && row.pending.length" class="sc-hint">
+                    缺 {{ row.pending.join(', ') }} 集
+                  </span>
+                  <span v-if="row.next_air" class="sc-hint">下集 {{ row.next_air }}</span>
+                </div>
+                <div class="sc-hint">{{ row.detail }}</div>
+              </div>
             </div>
           </div>
         </template>

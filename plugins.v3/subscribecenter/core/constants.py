@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.12.2"
+PLUGIN_VERSION = "1.13.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -34,6 +34,13 @@ DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_CRON = "0 3 * * *"
 DEFAULT_DAILY_LIMIT = 30
 DEFAULT_FUTURE_DAYS = 3
+
+#: 「按播出日自动启停」的定时。
+#:
+#: 为什么是 00:05 而不是 23:xx：判定基准是**服务器本地日期**，跨过零点就换了
+#: 一天；早于零点跑必然把「明天播」的剧判成「今天播」。零点后 5 分钟足够让
+#: 宿主的日期翻转、也留出 TMDB 查询时间，赶在当天第一轮订阅刷新之前生效。
+DEFAULT_AUTO_TOGGLE_CRON = "5 0 * * *"
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
@@ -245,7 +252,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 5
+CONFIG_VERSION = 6
 
 
 def default_config() -> Dict[str, Any]:
@@ -337,6 +344,35 @@ def default_config() -> Dict[str, Any]:
         # ---------------- Simkl
         # ---------------- 写入
         "daily_limit": DEFAULT_DAILY_LIMIT,
+        # ---------------- 按播出日自动启停（治「订阅刷新」的空转）
+        #: 总开关。**默认关**：它会改用户订阅的状态，属于「有副作用」的能力，
+        #: 必须由用户显式打开（打开前可以先点「预览」看清会动哪几条）。
+        #:
+        #: 背景：宿主的「订阅刷新」按 ``subscribe_rss_interval``（默认 30 分钟）
+        #: 把**全部** R/P 订阅拉进匹配循环。订阅到两百条时，绝大多数条目当天
+        #: 并没有新集，纯属空转。本功能按 TMDB ``episodes[].air_date`` 把
+        #: 「今天没该搜的集」的订阅暂停为 ``S``，有集的恢复为 ``R``。
+        "auto_toggle_enabled": False,
+        #: 每天几点判定一次。默认零点后 5 分钟（见 ``DEFAULT_AUTO_TOGGLE_CRON``）。
+        "auto_toggle_cron": DEFAULT_AUTO_TOGGLE_CRON,
+        #: 提前几天把「即将播出」的订阅也算上（0 = 只看今天）。
+        #:
+        #: 默认 0，严格对齐「当天播出的才启用」。调成 1 就是「今天和明天要播的
+        #: 都启用」，适合站点出种慢、需要提前搜的情况。
+        "auto_toggle_lookahead_days": 0,
+        #: 某一集已播出但还没入库时，再多留几天 ``R``。
+        #:
+        #: 这是「已播但 PT 还没资源」的兜底：播出日当天没出种是常态（生肉要
+        #: 压、字幕组要翻），当天就暂停会导致这一集永远收不到。默认 3 天。
+        #: 超过窗口还没入库的，按「等资源等太久」暂停（下载器里已有任务时
+        #: 宿主自己会继续追，不依赖订阅状态）。
+        "auto_toggle_keep_days": 3,
+        #: 单次最多改多少条（0 = 不限）。防止第一次打开时一口气暂停两百条把
+        #: 人吓到；超出时**先保恢复、后保暂停**（少暂停只是多搜一次，漏恢复
+        #: 会让该搜的订阅一整天不搜）。
+        "auto_toggle_max_changes": 0,
+        #: 每次自动启停后是否发通知（消息里带暂停/恢复条数）。
+        "auto_toggle_notify": False,
         # ---------------- 调度与通知
         #: 每源独立定时（五位 cron，留空 = 跟随上面的全局 cron）
         "cron_tmdb": "",

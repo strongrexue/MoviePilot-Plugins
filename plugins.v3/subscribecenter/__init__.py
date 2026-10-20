@@ -36,6 +36,11 @@ DATA_KEY_CACHE = "mapping_cache"
 DATA_KEY_STATE = "runtime_state"
 DATA_KEY_HISTORY = "run_history"
 DATA_KEY_CARD_THEME = "card_theme"
+#: 「按播出日自动启停」的接管表与上次运行摘要。
+#:
+#: 只放**本插件自己暂停过**的订阅 ID。没有这张表就分不清「订阅是用户手动暂停的」
+#: 和「是我们暂停的」—— 前者绝不能被自动恢复，否则会违背用户意图。
+DATA_KEY_AUTO_TOGGLE = "auto_toggle"
 
 #: 内存中保留的流水条数上限（落盘时会截断）
 MAX_HISTORY = 500
@@ -51,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.12.2"
+    plugin_version = "1.13.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -351,6 +356,14 @@ class SubscribeCenter(_PluginBase):
         """读取订阅数据共享状态。"""
         return await api_controller.api_system_share(self)
 
+    async def api_auto_toggle(self) -> Any:
+        """预览「按播出日自动启停」会动哪些订阅（不写库）。"""
+        return await api_controller.api_auto_toggle(self)
+
+    async def api_auto_toggle_apply(self) -> Any:
+        """立刻执行一次自动启停（会写订阅状态）。"""
+        return await api_controller.api_auto_toggle_apply(self)
+
     async def api_system_share_save(self, request: Any = None) -> Any:
         """设置订阅数据共享开关。"""
         return await api_controller.api_system_share_save(self, request)
@@ -411,6 +424,335 @@ class SubscribeCenter(_PluginBase):
             **summary,
             "items": items,
         }
+
+    # -------------------------------------------------------- 按播出日自动启停
+
+    def _auto_toggle_config(self) -> Dict[str, Any]:
+        """自动启停的生效配置（已做边界收敛）。
+
+        为什么要在读的时候再收敛一遍：配置是用户手输的，``keep_days=3650``
+        会让功能形同关闭、``lookahead_days=-5`` 会让「即将播出」永远为空，
+        这两种都只该是笔误，不该变成难查的行为异常。
+        """
+        return {
+            "enabled": bool(self._config.get("auto_toggle_enabled")),
+            "cron": self._normalize_cron(
+                self._config.get("auto_toggle_cron"), C.DEFAULT_AUTO_TOGGLE_CRON
+            ),
+            "lookahead_days": min(
+                max(self._int_config("auto_toggle_lookahead_days", 0), 0), 30
+            ),
+            "keep_days": min(max(self._int_config("auto_toggle_keep_days", 3), 0), 90),
+            "max_changes": min(
+                max(self._int_config("auto_toggle_max_changes", 0), 0), 2000
+            ),
+            "notify": bool(self._config.get("auto_toggle_notify")),
+        }
+
+    def _auto_toggle_state(self) -> Dict[str, Any]:
+        """读取接管表与上次运行摘要。"""
+        value = self.get_data(DATA_KEY_AUTO_TOGGLE)
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _save_auto_toggle_state(self, state: Dict[str, Any]) -> None:
+        """写入接管表与上次运行摘要。"""
+        self.save_data(DATA_KEY_AUTO_TOGGLE, state)
+
+    async def auto_toggle_plan(self) -> Dict[str, Any]:
+        """算出「今天该启用 / 该暂停 / 不动」的清单，**不写库**。
+
+        预览与真跑共用它 —— 用户点「预览」看到的和随后真跑的必须是同一套判定，
+        否则调参就成了猜谜。
+        """
+        from app.db import async_session_scope
+        from app.db.models.subscribe import Subscribe
+        from sqlalchemy import select
+
+        from .core import autotoggle
+
+        cfg = self._auto_toggle_config()
+        today_date = today(self._tz())
+        today_text = today_date.isoformat()
+        async with async_session_scope() as session:
+            rows = (
+                await session.execute(
+                    select(Subscribe).where(
+                        Subscribe.state.in_(autotoggle.WRITABLE_STATES)
+                    )
+                )
+            ).scalars().all()
+
+        # 复用日历那套「按 TMDB 每季 air_date 建的索引」（6 小时缓存）
+        index = await self._episode_air_index(rows, today_text)
+        state = self._auto_toggle_state()
+        owned = state.get("owned")
+        data = autotoggle.plan(
+            rows,
+            index,
+            today_date,
+            lookahead_days=cfg["lookahead_days"],
+            keep_days=cfg["keep_days"],
+            owned=owned if isinstance(owned, dict) else None,
+            max_changes=cfg["max_changes"],
+        )
+        data["config"] = cfg
+        data["last_run"] = dict(state.get("last_run") or {})
+        data["owned"] = len(
+            [item for item in (owned or {}).values() if isinstance(item, dict)]
+        )
+        return data
+
+    async def auto_toggle_run(self, *, reason: str = "manual") -> Dict[str, Any]:
+        """执行一次自动启停：先算计划，再逐条写状态，最后更新接管表。
+
+        :param reason: ``cron`` / ``manual`` —— 只用于记录，不影响判定
+        """
+        from .core import autotoggle
+
+        cfg = self._auto_toggle_config()
+        planned = await self.auto_toggle_plan()
+        changes = planned.get("changes") or []
+        today_text = str(planned.get("today") or today(self._tz()).isoformat())
+
+        applied: List[int] = []
+        failed: List[Dict[str, Any]] = []
+        if changes:
+            applied, failed = await self._apply_auto_toggle(changes)
+
+        state = self._auto_toggle_state()
+        owned = autotoggle.next_owned(
+            state.get("owned"),
+            planned,
+            today_text=today_text,
+            applied_ids=applied,
+        )
+        applied_ids = set(applied)
+        paused = len(
+            [
+                item
+                for item in changes
+                if item.get("action") == autotoggle.ACTION_PAUSE
+                and int(item.get("id") or 0) in applied_ids
+            ]
+        )
+        resumed = len(
+            [
+                item
+                for item in changes
+                if item.get("action") == autotoggle.ACTION_RESUME
+                and int(item.get("id") or 0) in applied_ids
+            ]
+        )
+        run_at = local_now_text(self._tz())
+        state["owned"] = owned
+        state["last_run"] = {
+            "at": run_at,
+            "today": today_text,
+            "reason": reason,
+            "planned": len(changes),
+            "applied": len(applied),
+            "paused": paused,
+            "resumed": resumed,
+            "failed": len(failed),
+            "truncated": bool(planned.get("truncated")),
+        }
+        self._save_auto_toggle_state(state)
+
+        result = {
+            "today": today_text,
+            "reason": reason,
+            "planned": len(changes),
+            "applied": len(applied),
+            "paused": paused,
+            "resumed": resumed,
+            "failed": failed,
+            "truncated": bool(planned.get("truncated")),
+            "kept": planned.get("kept", 0),
+            "skipped": planned.get("skipped", 0),
+            "reasons": planned.get("reasons") or {},
+            "owned": len(owned),
+            "last_run": state["last_run"],
+        }
+        logger.info(
+            f"[SubscribeCenter] 播出日自动启停（{reason}）："
+            f"计划 {result['planned']} 条，暂停 {paused}，恢复 {resumed}，"
+            f"失败 {len(failed)}，接管中 {len(owned)}"
+        )
+        if cfg["notify"] and (paused or resumed or failed):
+            self._notify_auto_toggle(result)
+        return result
+
+    async def _apply_auto_toggle(
+        self, changes: List[Dict[str, Any]]
+    ) -> Tuple[List[int], List[Dict[str, Any]]]:
+        """把计划里的状态改动写进宿主，返回 (成功 ID, 失败明细)。
+
+        .. important::
+           必须走宿主给「非 HTTP 入口」准备的 ``subscription_mutation_scope``：
+           它在同一事务里暂存 ``SubscribeModified`` 事件（outbox），前端订阅列表
+           与后续匹配才会立刻看到新状态。直接改库虽然也生效，但**不发事件**，
+           属于绕过宿主契约的写法，只在宿主版本没有这个模块时降级使用。
+        """
+        applied: List[int] = []
+        failed: List[Dict[str, Any]] = []
+
+        actor = None
+        try:
+            from app.application.subscription.mutation import SubscriptionActor
+
+            #: 插件代表「系统」写订阅：superuser 绕过 username 归属校验
+            #: （宿主的 can_access 只认「本人」或超级用户）。
+            actor = SubscriptionActor(name="SubscribeCenter", is_superuser=True)
+        except Exception as err:  # noqa: BLE001 - 宿主结构不同，走降级
+            logger.warning(f"[SubscribeCenter] 宿主缺少订阅写入口：{err}")
+
+        scope = None
+        if actor is not None:
+            try:
+                from app.startup.composition.subscription import (
+                    subscription_mutation_scope as scope,
+                )
+            except Exception as err:  # noqa: BLE001
+                logger.warning(
+                    f"[SubscribeCenter] 未找到 subscription_mutation_scope，降级为直写库：{err}"
+                )
+
+        if scope is not None and actor is not None:
+            try:
+                await self._apply_with_scope(scope, actor, changes, applied, failed)
+            except Exception as err:  # noqa: BLE001 - 提交失败 = 整批回滚
+                logger.error(f"[SubscribeCenter] 自动启停提交失败，整批回滚：{err}")
+                # 事务已回滚 → 一条都没落地，接管表按「全失败」处理，
+                # 否则下一轮会以为这些订阅是我们暂停的，反而放弃接管。
+                return [], [
+                    {
+                        "id": int(item.get("id") or 0),
+                        "name": item.get("name"),
+                        "error": f"提交失败：{err}",
+                    }
+                    for item in changes
+                ]
+            return applied, failed
+
+        # ---- 降级路径：每条一个短事务，状态照改，但没有 outbox 事件
+        from app.db import async_session_scope
+        from app.db.oper.subscribe import SubscribeOper
+
+        for item in changes:
+            sid = int(item.get("id") or 0)
+            target = str(item.get("target") or "")
+            if not sid or target not in ("R", "S"):
+                failed.append(
+                    {"id": sid, "name": item.get("name"), "error": f"目标状态非法：{target!r}"}
+                )
+                continue
+            try:
+                async with async_session_scope() as session:
+                    updated = await SubscribeOper(session).async_stage_update(
+                        sid, {"state": target}
+                    )
+                    await session.commit()
+                if updated is None:
+                    failed.append(
+                        {
+                            "id": sid,
+                            "name": item.get("name"),
+                            "error": "宿主未找到该订阅（可能已被删除）",
+                        }
+                    )
+                    continue
+                applied.append(sid)
+            except Exception as err:  # noqa: BLE001
+                failed.append({"id": sid, "name": item.get("name"), "error": str(err)})
+        return applied, failed
+
+    async def _apply_with_scope(
+        self,
+        scope: Any,
+        actor: Any,
+        changes: List[Dict[str, Any]],
+        applied: List[int],
+        failed: List[Dict[str, Any]],
+    ) -> None:
+        """走宿主的 ``subscription_mutation_scope`` 逐条改状态。
+
+        单条失败只记错，不影响其余；但**提交**失败会抛出，由调用方按整批
+        回滚处理（``applied`` 里此时记的都不算数）。
+        """
+        async with scope() as service:
+            for item in changes:
+                sid = int(item.get("id") or 0)
+                target = str(item.get("target") or "")
+                if not sid or target not in ("R", "S"):
+                    failed.append(
+                        {
+                            "id": sid,
+                            "name": item.get("name"),
+                            "error": f"目标状态非法：{target!r}",
+                        }
+                    )
+                    continue
+                try:
+                    mutation = await service.update_status(sid, target, actor)
+                except Exception as err:  # noqa: BLE001 - 单条失败不影响其余
+                    failed.append({"id": sid, "name": item.get("name"), "error": str(err)})
+                    continue
+                if mutation is None:
+                    failed.append(
+                        {
+                            "id": sid,
+                            "name": item.get("name"),
+                            "error": "宿主未找到该订阅（可能已被删除）",
+                        }
+                    )
+                    continue
+                applied.append(sid)
+
+    def _notify_auto_toggle(self, result: Dict[str, Any]) -> None:
+        """发送自动启停通知（只在真有改动时发）。"""
+        lines = [
+            f"恢复订阅：{result.get('resumed', 0)} 条",
+            f"暂停订阅：{result.get('paused', 0)} 条",
+        ]
+        if result.get("truncated"):
+            lines.append(
+                f"已达单次上限（计划 {result.get('planned', 0)} 条），剩余下次再改"
+            )
+        if result.get("failed"):
+            lines.append(f"失败：{len(result['failed'])} 条")
+        lines.append(f"当前接管中：{result.get('owned', 0)} 条")
+        try:
+            self.post_message(title="胖虎订阅中心 播出日自动启停", text="\n".join(lines))
+        except Exception as err:  # noqa: BLE001 - 通知失败不影响主流程
+            logger.warning(f"[SubscribeCenter] 发送自动启停通知失败：{err}")
+
+    async def auto_toggle_apply(self) -> Optional[Dict[str, Any]]:
+        """API 入口：拿互斥锁跑一次自动启停。
+
+        :return: 执行结果；已有任务（发现/启停）在跑时返回 ``None``（本次跳过）
+        """
+        return await self._bridge.run_async(
+            lambda: self.auto_toggle_run(reason="manual"), timeout=900
+        )
+
+    def auto_toggle_scheduled(self) -> None:
+        """**同步**入口：由 apscheduler 在自己的线程里调用。
+
+        该线程没有事件循环，必须经 :class:`PipelineBridge` 桥接；与「每日发现」
+        共用同一把互斥锁 —— 两者都会改订阅表，不能同时跑。
+        """
+        if not self._auto_toggle_config()["enabled"]:
+            logger.info("[SubscribeCenter] 自动启停未启用，跳过")
+            return
+        try:
+            result = self._bridge.run(
+                lambda: self.auto_toggle_run(reason="cron"), timeout=900
+            )
+        except Exception as err:  # noqa: BLE001 - 定时任务不能把异常抛给调度器
+            logger.error(f"[SubscribeCenter] 播出日自动启停失败：{err}", exc_info=True)
+            return
+        if result is None:
+            logger.info("[SubscribeCenter] 自动启停：已有任务在跑，本次跳过")
 
     @staticmethod
     def _field(obj: Any, name: str, default: Any = None) -> Any:
@@ -645,6 +987,21 @@ class SubscribeCenter(_PluginBase):
                 )
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[SubscribeCenter] 全局定时任务注册失败：{err}")
+
+        # 按播出日自动启停：独立任务、独立开关（与「每日发现」互不依赖）
+        auto_cfg = self._auto_toggle_config()
+        if auto_cfg["enabled"]:
+            try:
+                services.append(
+                    {
+                        "id": "subscribecenter_autotoggle",
+                        "name": "胖虎订阅中心 播出日自动启停",
+                        "trigger": CronTrigger.from_crontab(auto_cfg["cron"]),
+                        "func": self.auto_toggle_scheduled,
+                    }
+                )
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[SubscribeCenter] 自动启停定时注册失败：{err}")
 
         # 每源独立定时：留空表示该源跟随全局任务，不单独调度
         for key, source, label in self._per_source_cron_jobs():
@@ -1415,16 +1772,16 @@ class SubscribeCenter(_PluginBase):
             return default
 
     @staticmethod
-    def _normalize_cron(value: Any) -> str:
-        """校验 5 段式 cron；非法值回落默认，避免拖垮 ``get_service()``。"""
+    def _normalize_cron(value: Any, default: str = C.DEFAULT_CRON) -> str:
+        """校验 5 段式 cron；非法值回落 ``default``，避免拖垮 ``get_service()``。"""
         text = str(value or "").strip()
         if len(text.split()) == 5:
             return text
         if text:
             logger.warning(
-                f"[SubscribeCenter] cron 表达式非法（{text!r}），已回落默认 {C.DEFAULT_CRON}"
+                f"[SubscribeCenter] cron 表达式非法（{text!r}），已回落默认 {default}"
             )
-        return C.DEFAULT_CRON
+        return default
 
 
 # --------------------------------------------------------------------- 辅助实现

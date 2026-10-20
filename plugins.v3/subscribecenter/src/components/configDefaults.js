@@ -60,6 +60,19 @@ export const configDefaults = {
   // ---------------- Simkl
   // ---------------- 写入
   daily_limit: 30,
+  // ---------------- 按播出日自动启停（治「订阅刷新」空转）
+  //: 总开关：会改订阅状态，默认关。打开前先点「预览」看清会动哪几条。
+  auto_toggle_enabled: false,
+  //: 每天几点判定（默认零点后 5 分钟 —— 判定基准是服务器本地日期）
+  auto_toggle_cron: '5 0 * * *',
+  //: 提前几天算「即将播出」（0 = 只看今天）
+  auto_toggle_lookahead_days: 0,
+  //: 已播但还没入库时再多留几天 R（等 PT 出种）
+  auto_toggle_keep_days: 3,
+  //: 单次最多改多少条（0 = 不限）
+  auto_toggle_max_changes: 0,
+  //: 每次自动启停后是否发通知
+  auto_toggle_notify: false,
   // ---------------- 调度与通知
   cron_tmdb: '',
   cron_anilist: '',
@@ -73,7 +86,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 4,
+  config_version: 6,
   // ---------------- 一次性执行
   onlyonce: false,
 }

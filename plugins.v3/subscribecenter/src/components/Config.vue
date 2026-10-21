@@ -1611,6 +1611,9 @@ onMounted(() => {
             <VChip v-else size="small" variant="flat" color="success">
               不会被拦（当前生效规则 {{ blacklistTestResult.rules }} 条）
             </VChip>
+            <div v-if="blacklistTestResult.hint" class="sc-hint mt-1">
+              {{ blacklistTestResult.hint }}
+            </div>
           </div>
           <div v-if="!form.blacklist_enabled" class="sc-hint mt-2">
             总开关没开：上面这些规则一条都不会生效。

@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.14.1"
+    plugin_version = "1.14.2"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -2055,12 +2055,25 @@ class SubscribeCenter(_PluginBase):
         reason = blacklist_core.check_item(rules, item)
         if not reason and keywords:
             reason = blacklist_core.check_keywords(rules, keywords)
+        rule_count = len(rules.words) + len(rules.movie_genres) + len(rules.tv_genres)
+        hint = ""
+        if not reason:
+            if rule_count <= 0:
+                hint = (
+                    "当前没有任何生效规则：先在「排除类型」里勾类型，"
+                    "或勾选「排除题材」里的预设，再加自定义词。"
+                )
+            elif not str(tags or "").strip() and not genre_ids:
+                hint = (
+                    "只在片名里找题材词，测不出「同性」这类命中 —— 豆瓣来源的题材串"
+                    "里才会带这个词。把「题材串」填成「2026 / 泰国 / 剧情 同性」再试；"
+                    "纯 TMDB 来源请打开「额外查 TMDB 关键词」。"
+                )
         return {
             "matched": bool(reason),
             "reason": reason,
-            "rules": (
-                len(rules.words) + len(rules.movie_genres) + len(rules.tv_genres)
-            ),
+            "rules": rule_count,
+            "hint": hint,
         }
 
     def _future_days_by_source(self) -> Dict[str, int]:

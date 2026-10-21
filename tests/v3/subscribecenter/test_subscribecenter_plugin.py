@@ -363,6 +363,29 @@ def test_blacklist_test_uses_unsaved_form_rules(plugin):
     assert response.data.rules >= 1
 
 
+def test_blacklist_test_hints_why_title_only_misses(plugin):
+    """只有片名、没填题材串时，必须说明「测不出同性」的原因。
+
+    否则用户拿《以你的心诠释我的爱》点自测，看到「不会被拦」只会觉得功能坏了
+    —— 而真相是题材信息在豆瓣的题材串里，标题本来就没有那个词。
+    """
+    import asyncio
+
+    from controller import api as api_controller
+
+    response = asyncio.run(
+        api_controller.api_blacklist_test(
+            plugin,
+            {
+                "title": "以你的心诠释我的爱",
+                "rules": {"blacklist_enabled": True, "blacklist_presets": ["lgbt"]},
+            },
+        )
+    )
+    assert response.data.matched is False
+    assert "题材串" in response.data.hint
+
+
 # --------------------------------------------------------------------- 状态接口
 
 def test_status_snapshot_shape(plugin):

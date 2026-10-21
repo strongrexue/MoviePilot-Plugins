@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-BlGzUy13.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-CxDzLz0P.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -229,87 +229,91 @@ const _hoisted_64 = {
 };
 const _hoisted_65 = {
   key: 2,
-  class: "sc-hint mt-2"
+  class: "sc-hint mt-1"
 };
 const _hoisted_66 = {
+  key: 2,
+  class: "sc-hint mt-2"
+};
+const _hoisted_67 = {
   key: 6,
   class: "sc-card"
 };
-const _hoisted_67 = { class: "sc-row-main" };
-const _hoisted_68 = { class: "sc-row-label" };
-const _hoisted_69 = { class: "sc-row-hint" };
-const _hoisted_70 = { class: "sc-row" };
-const _hoisted_71 = {
+const _hoisted_68 = { class: "sc-row-main" };
+const _hoisted_69 = { class: "sc-row-label" };
+const _hoisted_70 = { class: "sc-row-hint" };
+const _hoisted_71 = { class: "sc-row" };
+const _hoisted_72 = {
   key: 7,
   class: "sc-card"
 };
-const _hoisted_72 = { class: "sc-row" };
 const _hoisted_73 = { class: "sc-row" };
 const _hoisted_74 = { class: "sc-row" };
 const _hoisted_75 = { class: "sc-row" };
-const _hoisted_76 = { class: "d-flex align-center flex-wrap ga-2" };
-const _hoisted_77 = {
+const _hoisted_76 = { class: "sc-row" };
+const _hoisted_77 = { class: "d-flex align-center flex-wrap ga-2" };
+const _hoisted_78 = {
   key: 1,
   class: "mt-3"
 };
-const _hoisted_78 = {
+const _hoisted_79 = {
   key: 2,
   class: "mt-3"
 };
-const _hoisted_79 = { class: "d-flex align-center flex-wrap ga-2 mb-2" };
-const _hoisted_80 = { class: "sc-row" };
-const _hoisted_81 = {
+const _hoisted_80 = { class: "d-flex align-center flex-wrap ga-2 mb-2" };
+const _hoisted_81 = { class: "sc-row" };
+const _hoisted_82 = {
   key: 0,
   class: "sc-empty"
 };
-const _hoisted_82 = { class: "d-flex align-center flex-wrap ga-2" };
-const _hoisted_83 = {
+const _hoisted_83 = { class: "d-flex align-center flex-wrap ga-2" };
+const _hoisted_84 = {
   key: 0,
   class: "sc-hint"
 };
-const _hoisted_84 = { class: "sc-hint" };
-const _hoisted_85 = {
-  key: 1,
-  class: "sc-hint"
-};
+const _hoisted_85 = { class: "sc-hint" };
 const _hoisted_86 = {
-  key: 2,
+  key: 1,
   class: "sc-hint"
 };
 const _hoisted_87 = {
-  key: 3,
-  class: "sc-hint"
-};
-const _hoisted_88 = {
-  key: 4,
-  class: "sc-hint"
-};
-const _hoisted_89 = { class: "sc-hint" };
-const _hoisted_90 = {
-  key: 8,
-  class: "sc-card"
-};
-const _hoisted_91 = { class: "sc-card-title sc-preview-head" };
-const _hoisted_92 = { class: "sc-preview-action" };
-const _hoisted_93 = {
-  key: 0,
-  class: "sc-empty"
-};
-const _hoisted_94 = { class: "d-flex align-center flex-wrap ga-2" };
-const _hoisted_95 = {
-  key: 0,
-  class: "sc-hint"
-};
-const _hoisted_96 = {
-  key: 1,
-  class: "sc-hint"
-};
-const _hoisted_97 = {
   key: 2,
   class: "sc-hint"
 };
-const _hoisted_98 = { class: "sc-footer" };
-const _hoisted_99 = { class: "sc-footer-right" };
+const _hoisted_88 = {
+  key: 3,
+  class: "sc-hint"
+};
+const _hoisted_89 = {
+  key: 4,
+  class: "sc-hint"
+};
+const _hoisted_90 = { class: "sc-hint" };
+const _hoisted_91 = {
+  key: 8,
+  class: "sc-card"
+};
+const _hoisted_92 = { class: "sc-card-title sc-preview-head" };
+const _hoisted_93 = { class: "sc-preview-action" };
+const _hoisted_94 = {
+  key: 0,
+  class: "sc-empty"
+};
+const _hoisted_95 = { class: "d-flex align-center flex-wrap ga-2" };
+const _hoisted_96 = {
+  key: 0,
+  class: "sc-hint"
+};
+const _hoisted_97 = {
+  key: 1,
+  class: "sc-hint"
+};
+const _hoisted_98 = {
+  key: 2,
+  class: "sc-hint"
+};
+const _hoisted_99 = { class: "sc-footer" };
+const _hoisted_100 = { class: "sc-footer-right" };
 
 const {computed,onMounted,ref} = await importShared('vue');
 
@@ -1492,7 +1496,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[93] || (_cache[93] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-f5952240><b data-v-f5952240>电影上映类</b>（<code data-v-f5952240>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-f5952240><b data-v-f5952240>剧集类</b>（<code data-v-f5952240>/douban/tv/coming</code>、<code data-v-f5952240>/douban/list/tv_*</code>、 <code data-v-f5952240>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-f5952240><b data-v-f5952240>电影榜单类</b>没有日期，会被跳过。<code data-v-f5952240>ustop250</code> 与 <code data-v-f5952240>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[93] || (_cache[93] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-af528224><b data-v-af528224>电影上映类</b>（<code data-v-af528224>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-af528224><b data-v-af528224>剧集类</b>（<code data-v-af528224>/douban/tv/coming</code>、<code data-v-af528224>/douban/list/tv_*</code>、 <code data-v-af528224>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-af528224><b data-v-af528224>电影榜单类</b>没有日期，会被跳过。<code data-v-af528224>ustop250</code> 与 <code data-v-af528224>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2177,7 +2181,7 @@ return (_ctx, _cache) => {
                   color: "primary"
                 }, null, 8, ["modelValue"])
               ]),
-              _cache[121] || (_cache[121] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-f5952240><b data-v-f5952240>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-f5952240>BL</code> 不会命中 <code data-v-f5952240>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-f5952240>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-f5952240>regex:</code> 用正则；行首加 <code data-v-f5952240>case:</code> 区分大小写；空行与 <code data-v-f5952240>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-f5952240><b data-v-f5952240>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-f5952240>试一下</div>", 3)),
+              _cache[121] || (_cache[121] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-af528224><b data-v-af528224>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-af528224>BL</code> 不会命中 <code data-v-af528224>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-af528224>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-af528224>regex:</code> 用正则；行首加 <code data-v-af528224>case:</code> 区分大小写；空行与 <code data-v-af528224>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-af528224><b data-v-af528224>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-af528224>试一下</div>", 3)),
               _createVNode(_component_VRow, { dense: "" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VCol, {
@@ -2281,16 +2285,19 @@ return (_ctx, _cache) => {
                             _createTextVNode(" 不会被拦（当前生效规则 " + _toDisplayString(blacklistTestResult.value.rules) + " 条） ", 1)
                           ]),
                           _: 1
-                        }))
+                        })),
+                    (blacklistTestResult.value.hint)
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_65, _toDisplayString(blacklistTestResult.value.hint), 1))
+                      : _createCommentVNode("", true)
                   ]))
                 : _createCommentVNode("", true),
               (!form.value.blacklist_enabled)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_65, " 总开关没开：上面这些规则一条都不会生效。 "))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_66, " 总开关没开：上面这些规则一条都不会生效。 "))
                 : _createCommentVNode("", true)
             ]))
           : _createCommentVNode("", true),
         (activeSection.value === 'schedule')
-          ? (_openBlock(), _createElementBlock("div", _hoisted_66, [
+          ? (_openBlock(), _createElementBlock("div", _hoisted_67, [
               _cache[123] || (_cache[123] = _createElementVNode("div", { class: "sc-card-title" }, "写入与调度", -1)),
               _createVNode(_component_VRow, { dense: "" }, {
                 default: _withCtx(() => [
@@ -2382,9 +2389,9 @@ return (_ctx, _cache) => {
                   key: row.key,
                   class: "sc-row"
                 }, [
-                  _createElementVNode("div", _hoisted_67, [
-                    _createElementVNode("div", _hoisted_68, _toDisplayString(row.label), 1),
-                    _createElementVNode("div", _hoisted_69, _toDisplayString(row.hint), 1)
+                  _createElementVNode("div", _hoisted_68, [
+                    _createElementVNode("div", _hoisted_69, _toDisplayString(row.label), 1),
+                    _createElementVNode("div", _hoisted_70, _toDisplayString(row.hint), 1)
                   ]),
                   _createVNode(_component_VSwitch, {
                     modelValue: form.value[row.key],
@@ -2396,7 +2403,7 @@ return (_ctx, _cache) => {
                   }, null, 8, ["modelValue", "onUpdate:modelValue", "disabled"])
                 ]))
               }), 128)),
-              _createElementVNode("div", _hoisted_70, [
+              _createElementVNode("div", _hoisted_71, [
                 _cache[122] || (_cache[122] = _createElementVNode("div", { class: "sc-row-main" }, [
                   _createElementVNode("div", { class: "sc-row-label" }, "清零今日写入计数（测试开关）"),
                   _createElementVNode("div", { class: "sc-row-hint" }, " 保存后把「今日已写入 N 条」清零，方便同一天反复测；保存即自动置回关闭。 ")
@@ -2412,7 +2419,7 @@ return (_ctx, _cache) => {
             ]))
           : _createCommentVNode("", true),
         (activeSection.value === 'autotoggle')
-          ? (_openBlock(), _createElementBlock("div", _hoisted_71, [
+          ? (_openBlock(), _createElementBlock("div", _hoisted_72, [
               _cache[134] || (_cache[134] = _createElementVNode("div", { class: "sc-card-title" }, "播出日自动启停", -1)),
               _cache[135] || (_cache[135] = _createElementVNode("div", { class: "sc-hint" }, [
                 _createTextVNode(" 宿主的「订阅刷新」每天会跑几十轮，把"),
@@ -2420,7 +2427,7 @@ return (_ctx, _cache) => {
                 _createTextVNode("订阅都拉进匹配循环； 两百条订阅里绝大多数当天并没有新集，纯属空转。 这里按 TMDB 播出表判断「今天有没有该搜的集」：有已播未入库的集 （或最近要播出）就保持订阅中，其余暂停。"),
                 _createElementVNode("b", null, "只改状态，不写订阅、不碰下载记录。")
               ], -1)),
-              _createElementVNode("div", _hoisted_72, [
+              _createElementVNode("div", _hoisted_73, [
                 _cache[125] || (_cache[125] = _createElementVNode("div", { class: "sc-row-main" }, [
                   _createElementVNode("div", { class: "sc-row-label" }, "启用自动启停"),
                   _createElementVNode("div", { class: "sc-row-hint" }, "关闭时不会注册定时任务，也不会有任何订阅被改动")
@@ -2433,7 +2440,7 @@ return (_ctx, _cache) => {
                   color: "primary"
                 }, null, 8, ["modelValue"])
               ]),
-              _createElementVNode("div", _hoisted_73, [
+              _createElementVNode("div", _hoisted_74, [
                 _cache[126] || (_cache[126] = _createElementVNode("div", { class: "sc-row-main" }, [
                   _createElementVNode("div", { class: "sc-row-label" }, "有改动时发通知"),
                   _createElementVNode("div", { class: "sc-row-hint" }, "只在真的暂停/恢复了订阅时推送一条摘要")
@@ -2446,7 +2453,7 @@ return (_ctx, _cache) => {
                   color: "primary"
                 }, null, 8, ["modelValue"])
               ]),
-              _createElementVNode("div", _hoisted_74, [
+              _createElementVNode("div", _hoisted_75, [
                 _cache[127] || (_cache[127] = _createElementVNode("div", { class: "sc-row-main" }, [
                   _createElementVNode("div", { class: "sc-row-label" }, "连电影订阅一起管"),
                   _createElementVNode("div", { class: "sc-row-hint" }, " 电影没有播出日，改按 TMDB 发行日判：发行前暂停，发行后按上方「缺集保留天数」继续搜 ")
@@ -2459,7 +2466,7 @@ return (_ctx, _cache) => {
                   color: "primary"
                 }, null, 8, ["modelValue"])
               ]),
-              _createElementVNode("div", _hoisted_75, [
+              _createElementVNode("div", _hoisted_76, [
                 _cache[128] || (_cache[128] = _createElementVNode("div", { class: "sc-row-main" }, [
                   _createElementVNode("div", { class: "sc-row-label" }, "用媒体库核对已入库"),
                   _createElementVNode("div", { class: "sc-row-hint" }, " 订阅的「已下载」只记宿主自己下过的集；从别处导入的库内剧集它不知道。 打开后先读媒体库快照（零请求），再在预算内逐条问媒体服务器，逐条之间有间隔。 ")
@@ -2661,7 +2668,7 @@ return (_ctx, _cache) => {
               }),
               _cache[136] || (_cache[136] = _createElementVNode("div", { class: "sc-hint" }, " 缺集保留 = 已播出但还没下到的集，从这个日期起算几天内仍继续搜（PT 出种常有延迟）。 判定时间建议早于「订阅刷新」，默认 00:05；改 cron 后要重新保存配置才会重建任务。 ", -1)),
               _createVNode(_component_VDivider, { class: "my-3" }),
-              _createElementVNode("div", _hoisted_76, [
+              _createElementVNode("div", _hoisted_77, [
                 _createVNode(_component_VBtn, {
                   variant: "tonal",
                   color: "info",
@@ -2693,7 +2700,7 @@ return (_ctx, _cache) => {
                 _cache[131] || (_cache[131] = _createElementVNode("span", { class: "sc-hint" }, "预览只读不算库（不碰媒体服务器）；核对在「立即执行」里后台跑", -1))
               ]),
               (autoToggle.value?.last_run?.running)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_77, [
+                ? (_openBlock(), _createElementBlock("div", _hoisted_78, [
                     _createVNode(_component_VAlert, {
                       type: "info",
                       variant: "tonal",
@@ -2708,8 +2715,8 @@ return (_ctx, _cache) => {
                   ]))
                 : _createCommentVNode("", true),
               (autoToggle.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_78, [
-                    _createElementVNode("div", _hoisted_79, [
+                ? (_openBlock(), _createElementBlock("div", _hoisted_79, [
+                    _createElementVNode("div", _hoisted_80, [
                       _createVNode(_component_VChip, {
                         size: "x-small",
                         variant: "flat",
@@ -2785,7 +2792,7 @@ return (_ctx, _cache) => {
                           }))
                         : _createCommentVNode("", true)
                     ]),
-                    _createElementVNode("div", _hoisted_80, [
+                    _createElementVNode("div", _hoisted_81, [
                       _cache[133] || (_cache[133] = _createElementVNode("div", { class: "sc-row-main" }, [
                         _createElementVNode("div", { class: "sc-row-label" }, "连「保持不动」的条目一起列出"),
                         _createElementVNode("div", { class: "sc-row-hint" }, "排查「为什么这条还在搜」时打开")
@@ -2799,14 +2806,14 @@ return (_ctx, _cache) => {
                       }, null, 8, ["modelValue"])
                     ]),
                     (!autoToggleItems.value.length)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_81, " 当前没有需要改动的订阅。 "))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_82, " 当前没有需要改动的订阅。 "))
                       : _createCommentVNode("", true),
                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(autoToggleItems.value, (row) => {
                       return (_openBlock(), _createElementBlock("div", {
                         key: row.id,
                         class: "sc-preview-row"
                       }, [
-                        _createElementVNode("div", _hoisted_82, [
+                        _createElementVNode("div", _hoisted_83, [
                           _createVNode(_component_VChip, {
                             size: "x-small",
                             variant: "flat",
@@ -2819,9 +2826,9 @@ return (_ctx, _cache) => {
                           }, 1032, ["color"]),
                           _createElementVNode("b", null, _toDisplayString(row.name), 1),
                           (row.season)
-                            ? (_openBlock(), _createElementBlock("span", _hoisted_83, "S" + _toDisplayString(row.season), 1))
+                            ? (_openBlock(), _createElementBlock("span", _hoisted_84, "S" + _toDisplayString(row.season), 1))
                             : _createCommentVNode("", true),
-                          _createElementVNode("span", _hoisted_84, _toDisplayString(row.state) + " → " + _toDisplayString(row.target), 1),
+                          _createElementVNode("span", _hoisted_85, _toDisplayString(row.state) + " → " + _toDisplayString(row.target), 1),
                           _createVNode(_component_VChip, {
                             size: "x-small",
                             variant: "tonal"
@@ -2832,18 +2839,18 @@ return (_ctx, _cache) => {
                             _: 2
                           }, 1024),
                           (row.pending && row.pending.length)
-                            ? (_openBlock(), _createElementBlock("span", _hoisted_85, _toDisplayString(pendingText(row)), 1))
+                            ? (_openBlock(), _createElementBlock("span", _hoisted_86, _toDisplayString(pendingText(row)), 1))
                             : _createCommentVNode("", true),
                           (row.library_confirmed)
-                            ? (_openBlock(), _createElementBlock("span", _hoisted_86, " 库核对补上 " + _toDisplayString(row.library_confirmed) + " 集 ", 1))
+                            ? (_openBlock(), _createElementBlock("span", _hoisted_87, " 库核对补上 " + _toDisplayString(row.library_confirmed) + " 集 ", 1))
                             : _createCommentVNode("", true),
                           (row.basis)
-                            ? (_openBlock(), _createElementBlock("span", _hoisted_87, _toDisplayString(RELEASE_KIND_LABELS[row.basis_kind] || '上映') + " " + _toDisplayString(row.basis), 1))
+                            ? (_openBlock(), _createElementBlock("span", _hoisted_88, _toDisplayString(RELEASE_KIND_LABELS[row.basis_kind] || '上映') + " " + _toDisplayString(row.basis), 1))
                             : (row.next_air)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_88, "下集 " + _toDisplayString(row.next_air), 1))
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_89, "下集 " + _toDisplayString(row.next_air), 1))
                               : _createCommentVNode("", true)
                         ]),
-                        _createElementVNode("div", _hoisted_89, _toDisplayString(row.detail), 1)
+                        _createElementVNode("div", _hoisted_90, _toDisplayString(row.detail), 1)
                       ]))
                     }), 128))
                   ]))
@@ -2851,8 +2858,8 @@ return (_ctx, _cache) => {
             ]))
           : _createCommentVNode("", true),
         (activeSection.value === 'preview')
-          ? (_openBlock(), _createElementBlock("div", _hoisted_90, [
-              _createElementVNode("div", _hoisted_91, [
+          ? (_openBlock(), _createElementBlock("div", _hoisted_91, [
+              _createElementVNode("div", _hoisted_92, [
                 _createVNode(_component_VIcon, {
                   icon: "mdi-eye-outline",
                   size: "16"
@@ -2879,7 +2886,7 @@ return (_ctx, _cache) => {
                   ]))]),
                   _: 1
                 }),
-                _createElementVNode("div", _hoisted_92, [
+                _createElementVNode("div", _hoisted_93, [
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
                     color: "info",
@@ -2897,7 +2904,7 @@ return (_ctx, _cache) => {
                 ])
               ]),
               (!previewItems.value.length)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_93, [...(_cache[140] || (_cache[140] = [
+                ? (_openBlock(), _createElementBlock("div", _hoisted_94, [...(_cache[140] || (_cache[140] = [
                     _createTextVNode(" 还没有预览结果。点上方「开始预览」跑一次 —— 它跑完整流程但", -1),
                     _createElementVNode("b", null, "不写订阅、不消耗每日额度", -1),
                     _createTextVNode("，是调参的主要手段。 ", -1)
@@ -2908,7 +2915,7 @@ return (_ctx, _cache) => {
                   key: index,
                   class: "sc-preview-row"
                 }, [
-                  _createElementVNode("div", _hoisted_94, [
+                  _createElementVNode("div", _hoisted_95, [
                     _createVNode(_component_VChip, {
                       size: "x-small",
                       variant: "flat",
@@ -2921,10 +2928,10 @@ return (_ctx, _cache) => {
                     }, 1024),
                     _createElementVNode("b", null, _toDisplayString(row.title), 1),
                     (row.year)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_95, "(" + _toDisplayString(row.year) + ")", 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_96, "(" + _toDisplayString(row.year) + ")", 1))
                       : _createCommentVNode("", true),
                     (row.release_date)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_96, "放送 " + _toDisplayString(row.release_date), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_97, "放送 " + _toDisplayString(row.release_date), 1))
                       : _createCommentVNode("", true),
                     _createVNode(_component_VChip, {
                       size: "x-small",
@@ -2937,7 +2944,7 @@ return (_ctx, _cache) => {
                       _: 2
                     }, 1024),
                     (row.rating != null)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_97, "评分 " + _toDisplayString(row.rating), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_98, "评分 " + _toDisplayString(row.rating), 1))
                       : _createCommentVNode("", true)
                   ])
                 ]))
@@ -2946,7 +2953,7 @@ return (_ctx, _cache) => {
           : _createCommentVNode("", true)
       ])
     ]),
-    _createElementVNode("div", _hoisted_98, [
+    _createElementVNode("div", _hoisted_99, [
       _createVNode(_component_VBtn, {
         variant: "text",
         size: "small",
@@ -2957,7 +2964,7 @@ return (_ctx, _cache) => {
         ]))]),
         _: 1
       }),
-      _createElementVNode("div", _hoisted_99, [
+      _createElementVNode("div", _hoisted_100, [
         _createVNode(_component_VBtn, {
           variant: "tonal",
           size: "small",
@@ -2991,6 +2998,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f5952240"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-af528224"]]);
 
 export { Config as default };

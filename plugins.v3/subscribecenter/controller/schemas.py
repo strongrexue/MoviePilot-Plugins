@@ -460,6 +460,7 @@ class BlacklistTestResult(BaseModel):
     matched: bool = Field(default=False, description="是否会被拦下")
     reason: str = Field(default="", description="命中原因（与流水里的 reason 一致）")
     rules: int = Field(default=0, description="当前生效的规则条数")
+    hint: str = Field(default="", description="没被拦时的排查提示（为什么测不出命中）")
 
 
 #: 路由 → 响应业务模型

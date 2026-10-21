@@ -28,7 +28,7 @@ from app.plugins.tgmediacenter.modules.monitor import MonitorModule
 from app.plugins.tgmediacenter.services.matcher import MediaMatcher
 from app.plugins.tgmediacenter.services import recognizer as recognizer_module
 
-from test_p4_monitor import CHAT_A, FakeMetaVideo, FakePlugin, query_all
+from .test_p4_monitor import CHAT_A, FakeMetaVideo, FakePlugin, query_all
 
 
 # --------------------------------------------------------------------- helper

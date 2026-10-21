@@ -112,7 +112,7 @@ Telegram 频道消息
 ```text
 MoviePilot-Plugins/
 ├── plugins.v3/tgmediacenter/     # 插件源码（Vue 联邦前端产物在 dist/assets/）
-├── tests/v3/tgmediacenter/       # 插件测试（pytest，基线 396）
+├── tests/v3/tgmediacenter/       # 插件测试（pytest，基线 536）
 ├── package.v3.json               # V3 插件索引（version / icon / history）
 ├── icons/tgmediacenter.png       # 插件图标（索引仓库用；插件目录内另有一份随包发布）
 └── .github/                      # 发布工作流与门禁脚本

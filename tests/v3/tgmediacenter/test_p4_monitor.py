@@ -1304,7 +1304,7 @@ class TestPipeline:
         # 便于前端直接展示监听 ID 清单
         assert monitor.status()["watched_chat_ids"] == [CHAT_A]
 
-    def test_registered_telethon_handler_is_coroutine(self, plugin, monitor, pipeline):
+    def test_registered_telethon_handler_is_coroutine(self, plugin, monitor, pipeline, telethon_available):
         """注册给 telethon 的回调必须是协程函数。
 
         telethon 内部是 ``await callback(event)``（client/updates.py 的

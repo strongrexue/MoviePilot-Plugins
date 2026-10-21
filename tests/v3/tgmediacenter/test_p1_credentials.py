@@ -314,8 +314,12 @@ def test_runtime_requires_credentials(tmp_path):
     runtime.stop()
 
 
-def test_runtime_api_id_normalization():
-    """api_id 需要归一为整数，非法值视为缺失。"""
+def test_runtime_api_id_normalization(telethon_available):
+    """api_id 需要归一为整数，非法值视为缺失。
+
+    显式依赖 ``telethon_available``：``credentials_ready`` 内含「依赖已安装」这一项，
+    不打桩的话结果取决于跑测试的机器装没装 telethon。
+    """
     assert TelegramRuntime(api_id="12345", api_hash="x").credentials_ready is True
     assert TelegramRuntime(api_id="  678 ", api_hash="x")._api_id == 678
     assert TelegramRuntime(api_id="abc", api_hash="x").credentials_ready is False
@@ -397,7 +401,14 @@ def test_runtime_start_warns_when_proxy_dependency_missing(monkeypatch, caplog):
         api_hash="x",
         proxy={"proxy_type": "http", "addr": "1.2.3.4", "port": 7890, "rdns": True},
     )
-    monkeypatch.setattr(TelegramRuntime, "call", lambda self, coro, timeout=None: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    def _boom(self, coro, timeout=None):
+        # 真实 ``call`` 会把协程交给 loop，失败时也已经"消耗"掉了；替身必须同样
+        # close()，否则 CPython 会报 RuntimeWarning: coroutine was never awaited。
+        coro.close()
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(TelegramRuntime, "call", _boom)
     caplog.set_level("WARNING")
     assert runtime.start(connect_timeout=1) is False
     assert any("python-socks" in (record.getMessage() or "") for record in caplog.records)

@@ -363,6 +363,27 @@ pnpm build    # 先 clean 再产出联邦产物
 python ../../../.github/scripts/check_federation_css.py
 ```
 
+### 跑单测
+
+```bash
+# 用宿主 venv 的解释器（裸 python 缺 sqlalchemy，连 conftest 都加载不了）
+D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter -q
+```
+
+本插件的 `telethon` / `python-socks` / `apscheduler` 都是**可选依赖**（缺了降级、插件照样加载），
+所以历史上同一份用例的结果取决于"跑测试的机器装没装包"。`tests/v3/tgmediacenter/conftest.py` 现在统一处理了这点：
+
+- **纯调度类型**（`CronTrigger`）缺包时补一个最小桩，让 `get_service()` 的注册逻辑在任何环境都被真正覆盖；
+- **telethon** 不全局打桩，而是由用例声明 `telethon_available` fixture（它同时修正 `runtime.TELETHON_AVAILABLE`），
+  涉及凭证就绪、`_register_handler` 注册形状的断言因此不再随机器变化。
+
+结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境都是 **536 passed**。
+在宿主 venv（`D:\projects\MoviePilot\.venv`，另两个插件的依赖也齐）里还可以直接
+`python -m pytest tests\v3` 一次跑完三个插件（1202 passed）——本目录有 `__init__.py`
+（另两个插件没有），用来消除与 `tests/v3/embycovercenter/test_plugin.py` 的同名冲突。
+
+注意 CI **不跑 pytest**（`release.yml` 只有版本门禁与联邦 CSS 门禁），测试全靠本地/发版前自觉执行。
+
 ### 发布流程与 CI 行为
 
 `.github/workflows/release.yml`（"Plugin Release"）在 **push 到 `main` 且改动

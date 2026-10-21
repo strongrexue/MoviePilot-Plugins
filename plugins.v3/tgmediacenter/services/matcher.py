@@ -18,7 +18,7 @@
    新加兜底能力时**不要**再走全量拉取。
 2. **订阅快照（门禁 + 兜底）**：``list_subscriptions()`` 按标题+年份+季匹配订阅。
    - ``lack_episode`` 为 0 → 可直接判"不缺"（省掉一次媒体库查询的快速通道）；
-   - 开启「仅缺失」且资源未订阅 → 判"未订阅"跳过（方案 A 门禁）；
+   - 开启「仅推已订阅」（1.13.23 起独立开关，默认开）且资源未订阅 → 判"未订阅"跳过；
    - 媒体库不可用时，才用 ``lack_episode > 0`` 作为缺集依据。
 
    注意 ``lack_episode`` **不能单独判"缺"**：宿主新建订阅时
@@ -310,9 +310,10 @@ class MediaMatcher:
 
         :param episode_end: 集区间结束（如 "S01E01-E09" 的 9）；与 episode 一起
             表达"这批资源覆盖的集范围"，缺失判断按区间逐一比对。
-        :param require_subscription: 开启「仅缺失」订阅门禁——当订阅数据源可用、但
+        :param require_subscription: 订阅门禁（1.13.23 起由独立的「仅推已订阅」开关控制，
+            规则字段 ``match_subscribed_only``，默认开）——当订阅数据源可用、但
             该资源未命中任何订阅时，直接判为"未订阅"跳过，不再落媒体库比对。
-            这是方案 A 的语义：监控只处理「已订阅 + 缺失」的资源，未订阅的绝不推送，
+            语义是：监控只处理「已订阅 + 缺失」的资源，未订阅的绝不推送，
             也不会被误标成"媒体库已存在"。订阅数据源不可用时（未配置订阅）退回旧逻辑，
             继续按媒体库判断，避免"没配订阅就全盘拦截"。
         :returns: ``{"missing": bool|None, "reason": str, "source": str, "detail": str}``
@@ -361,7 +362,7 @@ class MediaMatcher:
                     "detail": f"订阅「{subscription.get('name') or title}」lack_episode={lack}",
                 }
         elif require_subscription and QUERIES_AVAILABLE:
-            # 方案 A 订阅门禁：订阅数据源可用，但本资源未命中任何订阅 → 直接跳过，
+            # 订阅门禁（「仅推已订阅」）：订阅数据源可用，但本资源未命中任何订阅 → 直接跳过，
             # 不再去查媒体库（否则会被误标成"媒体库已存在"，与用户预期不符）。
             return {
                 "missing": False,

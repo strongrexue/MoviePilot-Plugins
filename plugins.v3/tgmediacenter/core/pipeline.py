@@ -175,7 +175,7 @@ def _decision_for_skip(verdict: dict) -> "tuple[str, str]":
     - verdict 显式携带 ``decision``（如 P9 闸门的 SKIP 结论）→ 直接用，
       不再靠 reason 文本反推（字符串比对太脆，规格 §3.4）；
     - 无法判断缺失 → skipped_unknown
-    - 未订阅（方案 A 门禁）→ skipped_not_subscribed
+    - 未订阅（订阅门禁「仅推已订阅」）→ skipped_not_subscribed
     - 其余（订阅已齐全 / 媒体库已存在）→ skipped_not_missing
     """
     explicit = verdict.get("decision")

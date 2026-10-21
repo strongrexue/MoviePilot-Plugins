@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-CUGvh76V.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-BIUrzIV1.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -103,7 +103,7 @@ const _hoisted_62 = {
   key: 1,
   class: "sc-grid"
 };
-const _hoisted_63 = { class: "sc-card-poster" };
+const _hoisted_63 = ["title", "onClick"];
 const _hoisted_64 = ["src"];
 const _hoisted_65 = { class: "sc-card-badge" };
 const _hoisted_66 = { class: "sc-card-body" };
@@ -151,6 +151,8 @@ const loading = ref(false);
 const busy = ref('');
 /** 正在清空发现流水 */
 const clearing = ref(false);
+//: 正在手动补订阅的那条流水键（同一时间只允许一条，避免重复点）
+const subscribing = ref('');
 const tip = ref({ show: false, ok: true, text: '' });
 const status = ref(null);
 /** 详情页视图：日历（默认）/ 发现流水。 */
@@ -484,6 +486,86 @@ async function clearHistory() {
     setTip(error?.message || '清空流水失败', false);
   } finally {
     clearing.value = false;
+  }
+}
+
+/**
+ * 拼宿主详情页地址（新标签打开）。
+ *
+ * 宿主前端用 hash 路由：`#/media?media_source=…&media_id=…&type=…&title=…&year=…`。
+ * `media_source` 必须是宿主的枚举值（`themoviedb` / `douban` / …），`type` 是**中文**
+ * 的媒体类型（`电视剧` / `电影`）—— 这两点错了详情页会打不开或认错媒体。
+ */
+function detailUrl(item) {
+  const mediaSource = String(item?.media_source || '');
+  const mediaId = String(item?.media_id || '');
+  if (!mediaSource || !mediaId) return ''
+  const params = new URLSearchParams();
+  params.set('media_source', mediaSource);
+  params.set('media_id', mediaId);
+  params.set('type', String(item?.media_type || '') === 'tv' ? '电视剧' : '电影');
+  if (item?.title) params.set('title', String(item.title));
+  if (item?.year) params.set('year', String(item.year));
+  // 去掉当前 hash，避免拼成 `#/subscribe#/media?...`
+  const base = window.location.href.split('#')[0];
+  return `${base}#/media?${params.toString()}`
+}
+
+function openDetail(item) {
+  const url = detailUrl(item);
+  if (!url) return
+  window.open(url, '_blank', 'noopener');
+}
+
+/** 只有拿到了确定性身份（来源 + ID）的流水才能一键订阅。 */
+function canSubscribe(item) {
+  return Boolean(item?.key) && Boolean(item?.media_source) && Boolean(item?.media_id)
+}
+
+/** 「已订阅过」的给「重新订阅」，其余给「加入订阅」。 */
+function subscribeLabel(item) {
+  const decision = String(item?.decision || '');
+  return decision === 'added' || decision === 'skipped_already_subscribed'
+    ? '重新订阅'
+    : '加入订阅'
+}
+
+/**
+ * 从流水手动补订阅。
+ *
+ * 后端刻意绕开窗口/评分/日限额/流水去重 —— 用户点名要订的东西不该被门槛拦住。
+ * 订阅已存在时不改状态，只回报宿主里的当前状态。
+ */
+async function subscribeFromHistory(item) {
+  const key = String(item?.key || '');
+  if (!key || subscribing.value) return
+  if (!canSubscribe(item)) {
+    setTip('这条流水没有确定性身份，无法直接订阅', false);
+    return
+  }
+  subscribing.value = key;
+  try {
+    const result = unwrap(
+      await postPluginApi(
+        props.api,
+        props.pluginId,
+        'history/subscribe',
+        { key },
+        { timeoutMs: 120000 },
+      ),
+    );
+    if (result?.action === 'added') {
+      setTip(result?.message || '已加入订阅');
+      await loadHistory();
+      await loadStatus();
+    } else {
+      // 「订阅中」不是错误，用普通提示，别刷红
+      setTip(result?.message || '没有写入订阅', true);
+    }
+  } catch (error) {
+    setTip(error?.message || '订阅失败', false);
+  } finally {
+    subscribing.value = '';
   }
 }
 
@@ -1370,7 +1452,11 @@ return (_ctx, _cache) => {
                     key: index,
                     class: "sc-card-item"
                   }, [
-                    _createElementVNode("div", _hoisted_63, [
+                    _createElementVNode("div", {
+                      class: _normalizeClass(["sc-card-poster", { 'sc-poster-link': Boolean(detailUrl(item)) }]),
+                      title: detailUrl(item) ? '在宿主里打开详情页' : '',
+                      onClick: $event => (openDetail(item))
+                    }, [
                       (posterUrl(item))
                         ? (_openBlock(), _createElementBlock("img", {
                             key: 0,
@@ -1397,7 +1483,7 @@ return (_ctx, _cache) => {
                           _: 2
                         }, 1032, ["color"])
                       ])
-                    ]),
+                    ], 10, _hoisted_63),
                     _createElementVNode("div", _hoisted_66, [
                       _createElementVNode("div", {
                         class: "sc-card-title",
@@ -1428,6 +1514,22 @@ return (_ctx, _cache) => {
                           }, _toDisplayString(item.reason), 9, _hoisted_73))
                         : _createCommentVNode("", true),
                       _createElementVNode("div", _hoisted_74, [
+                        (canSubscribe(item))
+                          ? (_openBlock(), _createBlock(_component_VBtn, {
+                              key: 0,
+                              size: "x-small",
+                              variant: "text",
+                              loading: subscribing.value === item.key,
+                              disabled: Boolean(subscribing.value),
+                              "prepend-icon": "mdi-plus-circle-outline",
+                              onClick: $event => (subscribeFromHistory(item))
+                            }, {
+                              default: _withCtx(() => [
+                                _createTextVNode(_toDisplayString(subscribeLabel(item)), 1)
+                              ]),
+                              _: 2
+                            }, 1032, ["loading", "disabled", "onClick"]))
+                          : _createCommentVNode("", true),
                         _createVNode(_component_VBtn, {
                           size: "x-small",
                           variant: "text",
@@ -1478,6 +1580,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-616fabd4"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0c536d94"]]);
 
 export { Page as default };

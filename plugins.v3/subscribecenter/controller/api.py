@@ -29,6 +29,12 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/status", plugin.api_status, ["GET"], "获取插件运行状态与各源情况"),
         ("/history", plugin.api_history, ["GET"], "分页查询发现/写入流水"),
         ("/history/clear", plugin.api_history_clear, ["POST"], "清空发现流水"),
+        (
+            "/history/subscribe",
+            plugin.api_history_subscribe,
+            ["POST"],
+            "从发现流水手动补订阅（重新订阅 / 加入订阅）",
+        ),
         ("/calendar", plugin.api_calendar, ["GET"], "日历：整月视图"),
         ("/calendar/day", plugin.api_calendar_day, ["GET"], "日历：单日视图（默认今天）"),
         ("/auto_toggle", plugin.api_auto_toggle, ["GET"], "预览按播出日自动启停的判定"),
@@ -114,6 +120,25 @@ async def api_history_clear(plugin) -> Any:
         raise HTTPException(status_code=500, detail="清空流水失败") from err
 
 
+async def api_history_subscribe(plugin, request: api_schemas.HistorySubscribeRequest) -> Any:
+    """从发现流水手动补订阅（「重新订阅 / 加入订阅」按钮）。
+
+    和每日自动发现走同一套写入口，但**故意绕开**窗口/评分/日限额/流水去重：
+    用户点名要订的东西不该被插件的门槛拦住。订阅已存在时只回报状态，不改状态。
+    """
+    try:
+        result = await plugin.subscribe_from_history(key=request.key)
+        return schemas.Response(success=True, data=result)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except RuntimeError as err:
+        logger.warning(f"[SubscribeCenter] 手动补订阅失败：{err}")
+        raise HTTPException(status_code=500, detail=str(err)) from err
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 手动补订阅异常：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="手动补订阅失败") from err
+
+
 async def api_poster(plugin, path: str = "") -> Any:
     """代理 TMDB 海报。
 
@@ -188,6 +213,7 @@ async def api_mapping_fix(plugin, request: api_schemas.MappingFixRequest) -> Any
 __all__ = [
     "api_history",
     "api_history_clear",
+    "api_history_subscribe",
     "api_mapping_cache",
     "api_preview",
     "api_mapping_fix",

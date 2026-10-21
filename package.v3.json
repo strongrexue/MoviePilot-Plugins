@@ -80,7 +80,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.13.6",
+        "version": "1.13.7",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -88,6 +88,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.7": "库核对改为「快照并集 + 预算内串行探针」（默认 300 秒 / 间隔 1.5 秒，不再一次性并发打挂媒体服务器）；发现流水支持「重新订阅 / 加入订阅」；点海报打开宿主详情页",
             "v1.13.6": "发现流水记过的订阅不再自动重订；新增「清空流水」动作与 dedupe_by_history 开关",
             "v1.13.5": "日历与判定口径对齐 —— 电影的日历条目改用发行日（普通=数字发行、洗版=实体发行），不再用院线首映日；今日列表新增「今天会搜 / 今天不搜（原因）」，数据与预览共用同一份判定；查历史/未来日期不标搜索状态。",
             "v1.13.4": "修洗版判定时机 —— 新增 auto_toggle_best_version_mode：默认 after_finale（季终后才按洗版口径判，播出期仍按 note 判），避免所有洗版订阅因「永远没洗到 100」而长期停在 R；想全程蹲洗版的选 always。洗版保留天数只在洗版模式下生效，界面新增「洗版判定时机」下拉。",

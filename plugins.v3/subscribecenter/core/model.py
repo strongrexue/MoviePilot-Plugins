@@ -193,6 +193,9 @@ class DiscoveredItem:
             # 产地：AniList 给 countryOfOrigin，TMDB 给 origin_country。
             # 落库后才能判断「国漫豁免」是否生效，也是后续国家筛选的数据源。
             "country": (self.raw or {}).get("country"),
+            # 剧集组（番剧/国漫的 TMDB episode group）。落流水是必须的：
+            # 「从流水手动补订阅」要靠它把番剧订回正确的季，否则会按普通季订错。
+            "episode_group": self.episode_group,
         }
         if self.resolved:
             data.update(self.resolved.to_dict())

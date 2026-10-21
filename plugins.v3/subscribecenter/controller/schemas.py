@@ -70,6 +70,10 @@ class HistoryRecord(BaseModel):
     #: 完全看不到 poster 请求，一行 placeholder 图标）。
     poster: Optional[str] = Field(default=None, description="海报路径")
     country: Optional[str] = Field(default=None, description="产地（CN/JP/...）")
+    episode_group: Optional[str] = Field(default=None, description="剧集组（番剧订回正确季）")
+    #: 稳定键，前端点「重新订阅 / 加入订阅」时原样回传给 ``/history/subscribe``。
+    #: 有确定性身份时是 ``来源:ID``，否则是 ``来源:标题:年份``。
+    key: str = Field(default="", description="流水键（手动补订阅用）")
     run_at: str = Field(default="", description="所属运行时间")
 
 
@@ -282,6 +286,24 @@ class AutoToggleItem(BaseModel):
     basis_kind: str = Field(
         default="", description="基准日类型：digital / physical / theatrical …"
     )
+    #: 缺集是「推测」还是「有据」：订阅一条入库记录都没有时，缺集只能按播出表
+    #: 倒推（媒体库导入 / 手动下载 / 订阅重建都是这个形态）。
+    assumed: bool = Field(default=False, description="缺集是否为推测（无入库记录）")
+    library_confirmed: int = Field(
+        default=0, description="其中由媒体库确认已入库的集数"
+    )
+
+
+class AutoToggleLibrary(BaseModel):
+    """自动启停：媒体库核对的本轮统计。"""
+
+    snapshot: int = Field(default=0, description="快照命中（零请求）的订阅数")
+    candidates: int = Field(default=0, description="本轮待核对的订阅数")
+    probed: int = Field(default=0, description="本轮实际核对的订阅数")
+    deferred: int = Field(default=0, description="预算用尽、留到下一轮的条数")
+    elapsed: int = Field(default=0, description="本轮核对耗时（秒）")
+    budget_seconds: int = Field(default=0, description="时间预算（0=只读快照）")
+    interval: float = Field(default=0.0, description="逐条间隔（秒）")
 
 
 class AutoToggleConfig(BaseModel):
@@ -295,6 +317,13 @@ class AutoToggleConfig(BaseModel):
     movie_enabled: bool = Field(default=True, description="是否连电影一起管")
     max_changes: int = Field(default=0, description="单次改动上限（0=不限）")
     notify: bool = Field(default=False, description="是否通知")
+    library_check: bool = Field(default=False, description="是否用媒体库核对已入库")
+    library_probe_budget: int = Field(
+        default=0, description="每轮核对的时间预算（秒，0=只读快照）"
+    )
+    library_probe_interval: float = Field(
+        default=0.0, description="逐条核对间隔（秒）"
+    )
 
 
 class AutoToggleLastRun(BaseModel):
@@ -329,6 +358,30 @@ class AutoToggleView(BaseModel):
         default_factory=AutoToggleLastRun, description="上次执行摘要"
     )
     owned: int = Field(default=0, description="当前被本插件暂停的订阅数")
+    library: AutoToggleLibrary = Field(
+        default_factory=AutoToggleLibrary, description="媒体库核对统计"
+    )
+
+
+class HistorySubscribeRequest(BaseModel):
+    """从发现流水手动补订阅的请求。"""
+
+    key: str = Field(description="流水记录的唯一键")
+
+
+class HistorySubscribeResult(BaseModel):
+    """从发现流水手动补订阅的结果。"""
+
+    key: str = Field(default="", description="流水键")
+    action: str = Field(
+        default="", description="added（已写入） / subscribed（已在订阅中） / skipped"
+    )
+    subscribe_id: int = Field(default=0, description="订阅 ID（已有/新建）")
+    state: str = Field(default="", description="订阅当前状态")
+    message: str = Field(default="", description="给用户看的结果说明")
+    record: Optional[HistoryRecord] = Field(
+        default=None, description="写入后追加的流水记录"
+    )
 
 
 class AutoToggleResult(BaseModel):
@@ -358,6 +411,7 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
     "/history": HistoryPage,
     "/history/clear": HistoryClearResult,
+    "/history/subscribe": HistorySubscribeResult,
     "/calendar": CalendarMonth,
     "/calendar/day": CalendarView,
     "/auto_toggle": AutoToggleView,
@@ -378,8 +432,11 @@ __all__ = [
     "AutoToggleConfig",
     "AutoToggleItem",
     "AutoToggleLastRun",
+    "AutoToggleLibrary",
     "AutoToggleResult",
     "AutoToggleView",
+    "HistorySubscribeRequest",
+    "HistorySubscribeResult",
     "CalendarItem",
     "CalendarMonth",
     "CalendarView",

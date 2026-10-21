@@ -318,6 +318,77 @@ def is_best_version(row: Any) -> bool:
     return bool(_int(_get(row, "best_version"), 0))
 
 
+def has_download_record(row: Any) -> bool:
+    """订阅自己有没有留下「下过哪几集」的记录。
+
+    ``note`` 只由宿主的完成流程写入（``completion.py``），媒体库导入、手动下载、
+    订阅重建都不会有它。所以这里的 ``False`` 意味着「我们不知道它下没下」，
+    而不是「它一集没下」—— 界面要据此把缺集标成「推测」。
+    """
+    note = _get(row, "note")
+    if isinstance(note, (list, tuple, set)) and any(_int(item, -1) > 0 for item in note):
+        return True
+    priority = _get(row, "episode_priority")
+    if isinstance(priority, Mapping) and priority:
+        return True
+    return False
+
+
+def seasoninfo_episodes(seasoninfo: Any, season: int) -> set:
+    """从媒体库快照里取出某一季的已入库集号。
+
+    宿主同步任务把 ``MediaServerItem.seasoninfo`` 写成 ``{季号: [集号, ...]}``，
+    经过 JSON 落库后键会变成字符串（``{"1": [1, 2]}``），两种形态都要认。
+
+    取不到时返回空集 —— 空集表示「快照没说」，不是「库里没有」。
+    """
+    if not isinstance(seasoninfo, Mapping) or not seasoninfo:
+        return set()
+    raw = None
+    for key in (season, str(season)):
+        if key in seasoninfo:
+            raw = seasoninfo[key]
+            break
+    if raw is None:
+        return set()
+    if not isinstance(raw, (list, tuple, set)):
+        return set()
+    numbers = {_int(item, -1) for item in raw}
+    numbers.discard(-1)
+    return numbers
+
+
+def pending_episodes(
+    row: Any,
+    episodes: Optional[Iterable[Any]],
+    today: date,
+    *,
+    start_episode: Optional[int] = None,
+) -> List[Tuple[str, int]]:
+    """已播但订阅记录里没有的集（``[(air_date, number), ...]``，按集号升序）。
+
+    这个函数不参与最终判定，只用来**挑探针候选**：没有下载记录的订阅，缺集
+    本身就是推测，最该拿去媒体库核对一次。
+    """
+    air = [pair for pair in (_episode_pair(item) for item in (episodes or [])) if pair]
+    today_text = today.isoformat()
+    downloaded = episode_numbers(row)
+    if not has_download_record(row):
+        # 一条入库记录都没有时，``episode_numbers`` 里 ``lack_episode`` 那个
+        # 兜底会把整季算成「已入库」—— 而「没有记录」正是缺集可能全是假警报
+        # 的情形，探针必须去看。所以这里只认记录，不认兜底。
+        downloaded = set()
+    start = _int(_get(row, "start_episode"), 1) if start_episode is None else start_episode
+    return sorted(
+        [
+            (day, number)
+            for day, number in air
+            if day <= today_text and number >= start and number not in downloaded
+        ],
+        key=lambda pair: (pair[1], pair[0]),
+    )
+
+
 def _release_pair(item: Any) -> Optional[Tuple[str, int]]:
     """把一条发行记录归一为 ``(YYYY-MM-DD, 类型码)``。
 
@@ -423,6 +494,12 @@ class Decision:
     basis: str = ""
     #: 基准日的类型：``digital`` / ``physical`` / ``theatrical`` …（TV 为空）
     basis_kind: str = ""
+    #: 缺集是否为**推测**：订阅一条入库记录都没有（``note`` 空、``episode_priority``
+    #: 空），只能按播出表倒推。媒体库入库 / 手动下载 / 订阅重建都属于这种形态，
+    #: 这时「缺 180 集」很可能是假警报，界面要标出来。
+    assumed: bool = False
+    #: 其中有多少集是媒体库（快照或实时核对）确认为已入库的
+    library_confirmed: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """转成可直接 JSON 化的字典。"""
@@ -444,6 +521,8 @@ class Decision:
             "owned": self.owned,
             "basis": self.basis,
             "basis_kind": self.basis_kind,
+            "assumed": self.assumed,
+            "library_confirmed": self.library_confirmed,
         }
 
 
@@ -463,6 +542,8 @@ def _decision(
     downloaded: int = 0,
     basis: str = "",
     basis_kind: str = "",
+    assumed: bool = False,
+    library_confirmed: int = 0,
 ) -> Decision:
     """构造一条结论（统一走这里，避免字段漏填）。"""
     return Decision(
@@ -482,6 +563,8 @@ def _decision(
         owned=owned,
         basis=basis,
         basis_kind=basis_kind,
+        assumed=assumed,
+        library_confirmed=library_confirmed,
     )
 
 
@@ -617,6 +700,7 @@ def decide(
     owned: Optional[Mapping[Any, Any]] = None,
     releases: Optional[Iterable[Any]] = None,
     movie_enabled: bool = True,
+    library_present: Optional[Iterable[Any]] = None,
 ) -> Decision:
     """对**一条**订阅给出结论。
 
@@ -632,6 +716,8 @@ def decide(
         ``None`` 表示空表（预览时也传真实表，判定才一致）
     :param releases: 电影的发行记录 ``[(date, type), ...]``（见 ``movie_basis``）
     :param movie_enabled: 是否连电影订阅一起管
+    :param library_present: 媒体库确认存在的集号（快照 + 实时核对的结果）；
+        ``None`` 表示没做核对，只按订阅记录算
     """
     owned = owned or {}
     subscribe_id = _int(_get(row, "id"))
@@ -708,6 +794,19 @@ def decide(
     if wash and best_keep_days and best_keep_days > 0:
         window = max(0, best_keep_days)
     downloaded = best_version_done(row) if wash else episode_numbers(row)
+    assumed = False
+    library_confirmed = 0
+    if not wash:
+        # 媒体库确认存在的集并进「已入库」。这是**并集**，只会减少误报缺集，
+        # 不会把该搜的订阅停掉 —— 核对数据可能过期，但过期的最坏结果只是多搜。
+        record = has_download_record(row)
+        if library_present is not None:
+            present = {_int(item, -1) for item in library_present}
+            present.discard(-1)
+            library_confirmed = len(present - set(downloaded))
+            downloaded = set(downloaded) | present
+            record = True
+        assumed = not record
     start_episode = _int(_get(row, "start_episode"), 1)
 
     aired = [(day, number) for day, number in air if day <= today_text]
@@ -779,6 +878,11 @@ def decide(
     elif target == STATE_PAUSED and state != STATE_PAUSED:
         action = ACTION_PAUSE
 
+    if assumed:
+        # 没有入库记录时，「缺集」是从播出表倒推出来的，必须说清楚，
+        # 否则用户会以为插件知道库里到底有什么。
+        detail = f"{detail}（订阅没有入库记录，缺集按播出表推测）"
+
     return _decision(
         row,
         state=state,
@@ -787,6 +891,8 @@ def decide(
         reason=reason,
         detail=detail,
         owned=is_owned,
+        assumed=assumed,
+        library_confirmed=library_confirmed,
         **common,
     )
 
@@ -808,6 +914,7 @@ def plan(
     max_changes: int = 0,
     release_index: Optional[Mapping[str, Any]] = None,
     movie_enabled: bool = True,
+    library_index: Optional[Mapping[Any, Any]] = None,
 ) -> Dict[str, Any]:
     """对全部订阅做一次决策，返回「计划」。
 
@@ -818,6 +925,8 @@ def plan(
         —— 少暂停几条只是多搜一次，漏恢复会让该搜的订阅一整天不搜。
     :param release_index: 电影的发行记录索引 ``{media_id: [(date, type), ...]}``
     :param movie_enabled: 是否连电影订阅一起管
+    :param library_index: 媒体库确认存在的集号 ``{订阅 ID: {集号, ...}}``
+        （快照与实时核对的并集；键是**订阅 ID**，不是 media_id）
     :return: ``{"today", "items", "changes", "paused", "resumed", "kept",
         "skipped", "reasons", "truncated"}``
     """
@@ -842,6 +951,7 @@ def plan(
                 owned=owned,
                 releases=(release_index or {}).get(media_id),
                 movie_enabled=movie_enabled,
+                library_present=(library_index or {}).get(_int(_get(row, "id"))),
             )
         )
 
@@ -962,10 +1072,13 @@ __all__ = [
     "best_version_done",
     "decide",
     "episode_numbers",
+    "has_download_record",
     "is_best_version",
     "media_kind",
     "movie_basis",
     "next_owned",
+    "pending_episodes",
     "plan",
     "release_records",
+    "seasoninfo_episodes",
 ]

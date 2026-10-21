@@ -87,6 +87,16 @@ const autoToggleItems = computed(() => {
   return items.filter((row) => row.action === 'pause' || row.action === 'resume')
 })
 
+/** 库核对的耗时/预算说明（预算为 0 时说明只读了快照）。 */
+const libraryElapsedText = computed(() => {
+  const lib = autoToggle.value?.library
+  if (!lib) return ''
+  const budget = Number(lib.budget_seconds ?? 0)
+  if (!budget) return '只读快照，零请求'
+  const elapsed = Number(lib.elapsed ?? 0)
+  return `${elapsed.toFixed(1)}s / 预算 ${budget}s`
+})
+
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
 const DECISION_LABELS = {
   added: '新增',
@@ -478,6 +488,11 @@ function pendingText(row) {
   const label = String(row.reason || '').startsWith('best_') ? '待升级' : '缺'
   const head = list.slice(0, 12).join(', ')
   const tail = list.length > 12 ? ` 等 ${list.length} 集` : ' 集'
+  // 缺集是「推测」的：订阅没有入库记录时，只能拿播出表减 note 得到。
+  // 不写清楚的话，用户会以为插件在说「这些集你真没下」。
+  if (row?.assumed) {
+    return `${label} ${head}${tail}（推测：订阅没有入库记录，这些集可能不是通过订阅下的）`
+  }
   return `${label} ${head}${tail}`
 }
 
@@ -1431,6 +1446,56 @@ onMounted(() => {
               />
             </div>
 
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">用媒体库核对已入库</div>
+                <div class="sc-row-hint">
+                  订阅的「已下载」只记宿主自己下过的集；从别处导入的库内剧集它不知道。
+                  打开后先读媒体库快照（零请求），再在预算内逐条问媒体服务器，逐条之间有间隔。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.auto_toggle_library_check"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+
+            <VRow v-if="form.auto_toggle_library_check" dense class="mt-1">
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_library_probe_budget_seconds"
+                  label="每轮最多核对多少秒（0 = 只读快照）"
+                  type="number"
+                  min="0"
+                  max="3600"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  hint="到点就停，剩下的下次继续（它们的缺集按订阅记录算）"
+                  persistent-hint
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_library_probe_interval"
+                  label="每条之间隔几秒"
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="0.5"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  hint="串行 + 间隔，避免把媒体服务器打满"
+                  persistent-hint
+                />
+              </VCol>
+            </VRow>
+
             <VRow dense class="mt-1">
               <VCol cols="12" sm="6">
                 <VTextField
@@ -1550,6 +1615,16 @@ onMounted(() => {
                 <VChip v-if="autoToggle.truncated" size="x-small" variant="flat" color="error">
                   超出单次上限已截断
                 </VChip>
+                <VChip
+                  v-if="autoToggle.library"
+                  size="x-small"
+                  variant="tonal"
+                  color="info"
+                >
+                  库核对：快照 {{ autoToggle.library.snapshot ?? 0 }} 条 / 实探
+                  {{ autoToggle.library.probed ?? 0 }} 条 / 待核对
+                  {{ autoToggle.library.deferred ?? 0 }} 条（{{ libraryElapsedText }}）
+                </VChip>
               </div>
               <div class="sc-row">
                 <div class="sc-row-main">
@@ -1581,6 +1656,9 @@ onMounted(() => {
                   <VChip size="x-small" variant="tonal">{{ row.reason_label || row.reason }}</VChip>
                   <span v-if="row.pending && row.pending.length" class="sc-hint">
                     {{ pendingText(row) }}
+                  </span>
+                  <span v-if="row.library_confirmed" class="sc-hint">
+                    库核对补上 {{ row.library_confirmed }} 集
                   </span>
                   <span v-if="row.basis" class="sc-hint">
                     {{ RELEASE_KIND_LABELS[row.basis_kind] || '上映' }} {{ row.basis }}

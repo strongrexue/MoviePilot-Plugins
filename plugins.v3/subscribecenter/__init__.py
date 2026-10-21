@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.13.6"
+    plugin_version = "1.13.7"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -470,6 +470,27 @@ class SubscribeCenter(_PluginBase):
                 365,
             ),
             "movie_enabled": bool(self._config.get("auto_toggle_movie_enabled", True)),
+            "library_check": bool(self._config.get("auto_toggle_library_check")),
+            "library_probe_budget": min(
+                max(
+                    self._int_config(
+                        "auto_toggle_library_probe_budget_seconds",
+                        C.DEFAULT_AUTO_TOGGLE_PROBE_BUDGET,
+                    ),
+                    0,
+                ),
+                3600,
+            ),
+            "library_probe_interval": min(
+                max(
+                    self._float_config(
+                        "auto_toggle_library_probe_interval",
+                        C.DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL,
+                    ),
+                    0.0,
+                ),
+                60.0,
+            ),
             "best_mode": self._best_toggle_mode(),
             "max_changes": min(
                 max(self._int_config("auto_toggle_max_changes", 0), 0), 2000
@@ -676,6 +697,291 @@ class SubscribeCenter(_PluginBase):
             }
         return flags
 
+    async def _library_present_index(
+        self, rows: Any, episode_index: Any, today_date: Any
+    ) -> Tuple[Dict[int, set], Dict[str, Any]]:
+        """媒体库已入库集号索引 ``{订阅 ID: {集号}}``，以及一份统计。
+
+        两级数据源，**都只减误报、不会误暂停**（``decide`` 里是并集）：
+
+        1. **媒体库快照**（免费）：宿主同步任务把每部剧的 ``{季: [集号]}`` 记在
+           ``MediaServerItem.seasoninfo``，一次 SQL 拿到全部，零媒体服务器请求。
+        2. **实时探针**（慢）：快照没覆盖的、且真有已播未入库的集的订阅，按
+           时间预算逐条问宿主 ``DownloadChain().get_no_exists_info``（每条要发
+           两次媒体服务器请求，全量并发正是上一版把 NAS 打挂的原因）。
+
+        探针串行 + 间隔 + 预算：预算用完剩下的留到下一轮，界面标「待核对」。
+        """
+        from .core import autotoggle
+
+        cfg = self._auto_toggle_config()
+        index: Dict[int, set] = {}
+        try:
+            index = await self._library_snapshot_index(rows)
+        except Exception as err:  # noqa: BLE001 - 快照取不到就只靠探针
+            logger.debug(f"[SubscribeCenter] 媒体库快照读取失败：{err}")
+
+        stats: Dict[str, Any] = {
+            "snapshot": len(index),
+            "probed": 0,
+            "candidates": 0,
+            "budget_seconds": cfg["library_probe_budget"],
+            "interval": cfg["library_probe_interval"],
+            "elapsed": 0,
+            "deferred": 0,
+        }
+        try:
+            probed, probe_stats = await self._probe_missing_episodes(
+                rows,
+                episode_index,
+                today_date,
+                budget_seconds=cfg["library_probe_budget"],
+                interval=cfg["library_probe_interval"],
+                known=index,
+            )
+        except Exception as err:  # noqa: BLE001 - 探针失败不能让预览整体崩
+            logger.debug(f"[SubscribeCenter] 媒体库探针失败：{err}")
+            return index, stats
+
+        for sid, episodes in probed.items():
+            index[sid] = set(index.get(sid) or set()) | set(episodes)
+        stats.update(probe_stats)
+        stats["snapshot"] = len(
+            [sid for sid in index if sid not in probed]
+        )
+        return index, stats
+
+    async def _library_snapshot_index(self, rows: Any) -> Dict[int, set]:
+        """从 ``MediaServerItem.seasoninfo`` 读「库里有什么」，纯 DB，零请求。"""
+        from app.db import async_session_scope
+        from app.db.models.mediaserver import MediaServerItem
+        from sqlalchemy import select
+
+        from .core import autotoggle
+
+        wanted: Dict[str, List[Any]] = {}
+        for row in rows:
+            if autotoggle.media_kind(row) != "tv":
+                continue
+            media_id = str(getattr(row, "media_id", "") or "")
+            if not media_id.isdigit():
+                continue
+            wanted.setdefault(media_id, []).append(row)
+        if not wanted:
+            return {}
+
+        async with async_session_scope() as session:
+            items = (
+                await session.execute(
+                    select(MediaServerItem).where(
+                        MediaServerItem.media_id.in_(list(wanted))
+                    )
+                )
+            ).scalars().all()
+
+        index: Dict[int, set] = {}
+        for item in items:
+            media_id = str(getattr(item, "media_id", "") or "")
+            source = str(getattr(item, "media_source", "") or "")
+            for row in wanted.get(media_id, []):
+                row_source = str(getattr(row, "media_source", "") or "")
+                if source and row_source and source != row_source:
+                    continue
+                season = int(getattr(row, "season", 0) or 0)
+                episodes = autotoggle.seasoninfo_episodes(
+                    getattr(item, "seasoninfo", None), season
+                )
+                if not episodes:
+                    continue
+                sid = int(getattr(row, "id", 0) or 0)
+                if sid > 0:
+                    index.setdefault(sid, set()).update(episodes)
+        return index
+
+    async def _probe_missing_episodes(
+        self,
+        rows: Any,
+        episode_index: Any,
+        today_date: Any,
+        *,
+        budget_seconds: int,
+        interval: float,
+        known: Dict[int, set],
+    ) -> Tuple[Dict[int, set], Dict[str, Any]]:
+        """按时间预算逐条向媒体服务器核对，返回新确认的集号。
+
+        候选排序：**没有下载记录的排在前面**（缺集纯属推测，最需要核对），
+        同类里「最老的缺集」优先（那是决定暂停与否的关键集）。
+        """
+        import asyncio
+        import time
+
+        from .core import autotoggle
+
+        candidates: List[Any] = []
+        for row in rows:
+            if autotoggle.media_kind(row) != "tv":
+                continue
+            if autotoggle.is_best_version(row):
+                # 洗版问的是「洗到顶没有」，跟库里有没有这一集无关
+                continue
+            media_id = str(getattr(row, "media_id", "") or "")
+            if not media_id.isdigit():
+                continue
+            season = int(getattr(row, "season", 0) or 0)
+            episodes = episode_index.get(
+                (media_id, season if season > 0 else calendar_core.MOVIE_KEY)
+            )
+            if episodes is None:
+                episodes = episode_index.get((media_id, season))
+            pending = autotoggle.pending_episodes(row, episodes, today_date)
+            if not pending:
+                continue
+            sid = int(getattr(row, "id", 0) or 0)
+            covered = known.get(sid) or set()
+            unknown = [pair for pair in pending if pair[1] not in covered]
+            if not unknown:
+                continue
+            candidates.append(
+                (
+                    0 if not autotoggle.has_download_record(row) else 1,
+                    min(pair[0] for pair in unknown),
+                    row,
+                )
+            )
+
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        stats: Dict[str, Any] = {
+            "candidates": len(candidates),
+            "probed": 0,
+            "elapsed": 0,
+            "deferred": 0,
+        }
+        if budget_seconds <= 0 or not candidates:
+            # 0 秒 = 只读快照；没有候选也不用空转
+            stats["deferred"] = len(candidates)
+            return {}, stats
+
+        started = time.monotonic()
+        out: Dict[int, set] = {}
+        probed = 0
+        for _, _, row in candidates:
+            if probed:
+                await asyncio.sleep(max(0.0, float(interval)))
+            if time.monotonic() - started >= budget_seconds:
+                break
+            present = await self._probe_one(row)
+            probed += 1
+            if present is not None:
+                sid = int(getattr(row, "id", 0) or 0)
+                if sid > 0:
+                    out[sid] = present
+
+        stats["probed"] = probed
+        stats["elapsed"] = int(time.monotonic() - started)
+        stats["deferred"] = max(0, len(candidates) - probed)
+        if stats["deferred"]:
+            logger.info(
+                f"[SubscribeCenter] 媒体库核对用满 {stats['elapsed']} 秒预算，"
+                f"本轮核对 {probed} 条，另有 {stats['deferred']} 条留待下一轮"
+            )
+        return out, stats
+
+    async def _probe_one(self, row: Any) -> Optional[set]:
+        """问一次宿主「这部剧这一季库里有哪几集」，失败返回 ``None``。
+
+        为什么自己填 ``mediainfo.seasons``：宿主 ``get_no_exists_info`` 在
+        ``seasons`` 为空时会**同步**再识别一次媒体（多一次 TMDB 请求），而订阅表
+        里已经有季号和集数，直接填进去就能省掉。
+
+        .. warning::
+           宿主会按 ``meta.sea`` 过滤季：该季被过滤掉时返回的 ``no_exists``
+            里没有这一季，看起来跟「全在库」一模一样。所以这里必须确认返回里
+            **确实有这一季**，否则一律按「问不出结论」处理。
+        """
+        import asyncio
+
+        try:
+            from app.chain.download import DownloadChain
+            from app.domain.metainfo import MetaInfo
+            from app.schemas.context import MediaInfo
+            from app.schemas.media import build_media_key, resolve_media_identity
+            from app.schemas.types import MediaType
+        except Exception as err:  # noqa: BLE001 - 宿主结构变了就安静跳过
+            logger.debug(f"[SubscribeCenter] 媒体库核对不可用：{err}")
+            return None
+
+        name = str(getattr(row, "name", "") or "").strip()
+        season = int(getattr(row, "season", 0) or 0)
+        total = int(getattr(row, "total_episode", 0) or 0)
+        start = int(getattr(row, "start_episode", 0) or 1)
+        if not name or season <= 0 or total <= 0:
+            return None
+        if start <= 0:
+            start = 1
+
+        media_id = str(getattr(row, "media_id", "") or "")
+        media_source = getattr(row, "media_source", None)
+        try:
+            meta = MetaInfo(name)
+            meta.type = MediaType.TV
+            meta.begin_season = season
+            meta.end_season = None
+            meta.media_source = media_source
+            meta.media_id = media_id
+            media = MediaInfo(
+                type=MediaType.TV,
+                title=name,
+                year=str(getattr(row, "year", "") or "") or None,
+                season=season,
+                media_source=media_source,
+                media_id=media_id,
+                episode_group=getattr(row, "episode_group", None),
+            )
+            media.seasons = {season: list(range(start, start + total))}
+        except Exception as err:  # noqa: BLE001
+            logger.debug(f"[SubscribeCenter] 构造核对参数失败 {name}：{err}")
+            return None
+
+        try:
+            exists, no_exists = await asyncio.to_thread(
+                DownloadChain().get_no_exists_info,
+                meta,
+                media,
+                None,
+                {season: total},
+            )
+        except Exception as err:  # noqa: BLE001 - 单条失败不影响其它
+            logger.debug(f"[SubscribeCenter] 媒体库核对失败 {name}：{err}")
+            return None
+
+        full = set(range(start, start + total))
+        if exists:
+            return full
+        if not isinstance(no_exists, dict) or not no_exists:
+            return None
+
+        try:
+            key = build_media_key(resolve_media_identity(media)) or media_id
+        except Exception:  # noqa: BLE001
+            key = media_id
+        entry = None
+        for candidate in (key, media_id):
+            if candidate and candidate in no_exists:
+                entry = no_exists[candidate]
+                break
+        if not isinstance(entry, dict):
+            return None
+        season_entry = entry.get(season) or entry.get(str(season))
+        if season_entry is None:
+            return None
+        missing = {
+            int(item)
+            for item in (getattr(season_entry, "episodes", None) or [])
+            if str(item).strip().lstrip("-").isdigit()
+        }
+        return full - missing
+
     async def auto_toggle_plan(self) -> Dict[str, Any]:
         """算出「今天该启用 / 该暂停 / 不动」的清单，**不写库**。
 
@@ -708,6 +1014,13 @@ class SubscribeCenter(_PluginBase):
         )
         state = self._auto_toggle_state()
         owned = state.get("owned")
+        # 媒体库核对：打开时先取快照，再在时间预算内补探针；关掉就完全不算
+        library_index: Dict[int, set] = {}
+        library_stats: Dict[str, Any] = {}
+        if cfg["library_check"]:
+            library_index, library_stats = await self._library_present_index(
+                rows, index, today_date
+            )
         data = autotoggle.plan(
             rows,
             index,
@@ -720,8 +1033,10 @@ class SubscribeCenter(_PluginBase):
             max_changes=cfg["max_changes"],
             release_index=release_index,
             movie_enabled=cfg["movie_enabled"],
+            library_index=library_index,
         )
         data["config"] = cfg
+        data["library"] = library_stats
         data["last_run"] = dict(state.get("last_run") or {})
         data["owned"] = len(
             [item for item in (owned or {}).values() if isinstance(item, dict)]
@@ -1162,6 +1477,10 @@ class SubscribeCenter(_PluginBase):
     async def api_history_clear(self) -> Any:
         """清空发现流水（清掉之后之前订过的作品才会被重新发现）。"""
         return await api_controller.api_history_clear(self)
+
+    async def api_history_subscribe(self, request: Any) -> Any:
+        """从发现流水手动补订阅（重新订阅 / 加入订阅）。"""
+        return await api_controller.api_history_subscribe(self, request)
 
     async def api_preview(self) -> Any:
         """只读预览：跑一次但不写入。"""
@@ -1918,6 +2237,166 @@ class SubscribeCenter(_PluginBase):
         logger.info("[SubscribeCenter] 发现流水已清空（%s 条）" % removed)
         return api_schemas.HistoryClearResult(removed=removed, remaining=0)
 
+    async def subscribe_from_history(self, *, key: str) -> api_schemas.HistorySubscribeResult:
+        """把一条发现流水手动补成订阅（「重新订阅 / 加入订阅」按钮）。
+
+        与每日自动发现的区别（都是故意的）：
+
+        - **不看**窗口/评分/每日额度 —— 用户点名要的，这些门槛就该让路；
+        - **不看** ``finished`` 与流水去重 —— 重新订阅已完结的剧是常见操作；
+        - 订阅已存在时**不改它的状态**，只把当前状态报给界面（用户可能就是想
+          让一个暂停的订阅继续跑，那该由他自己决定，不该被插件顺手改掉）；
+        - 真的写成功后**补一条流水**，让「流水记过的不再自动重订」对这次操作也生效。
+        """
+        from .core.model import DiscoveredItem, ResolvedIdentity
+        from .core.writer import WriteOutcome
+
+        key = str(key or "").strip()
+        if not key:
+            raise ValueError("缺少流水键")
+
+        record = next(
+            (item for item in reversed(self._history()) if _record_key(item) == key),
+            None,
+        )
+        if record is None:
+            return api_schemas.HistorySubscribeResult(
+                key=key, action="skipped", message="流水里没有这条记录（可能已被清空）"
+            )
+
+        media_source = str(record.get("media_source") or "")
+        media_id = str(record.get("media_id") or "")
+        title = str(record.get("title") or "").strip()
+        if not media_source or not media_id:
+            return api_schemas.HistorySubscribeResult(
+                key=key,
+                action="skipped",
+                message="这条流水没有确定性身份（待确认状态），无法直接订阅",
+            )
+        if not title:
+            return api_schemas.HistorySubscribeResult(
+                key=key, action="skipped", message="这条流水没有标题，无法订阅"
+            )
+
+        raw_season = record.get("season")
+        try:
+            season = int(raw_season) if str(raw_season or "").strip() else None
+        except (TypeError, ValueError):
+            season = None
+        is_tv = str(record.get("media_type") or "") == C.MEDIA_TYPE_TV
+        media_type = C.MEDIA_TYPE_TV if is_tv else C.MEDIA_TYPE_MOVIE
+        year = str(record.get("year") or "")
+        episode_group = record.get("episode_group")
+
+        from .core.host import HostSubscribeBackend
+
+        backend = HostSubscribeBackend()
+        try:
+            exists = await backend.subscription_exists(media_source, media_id, season)
+        except Exception as err:  # noqa: BLE001 - 查不到就按「不存在」继续，由 add 幂等兜底
+            logger.debug(f"[SubscribeCenter] 手动订阅查重失败：{err}")
+            exists = False
+
+        if exists:
+            state = await self._subscription_state(media_source, media_id, season)
+            label = {"R": "订阅中", "P": "待定", "S": "已暂停", "N": "新建"}.get(
+                state, state or "已存在"
+            )
+            return api_schemas.HistorySubscribeResult(
+                key=key,
+                action="subscribed",
+                state=state,
+                message=f"宿主已有该订阅（{label}），没有重复添加；状态请到宿主的订阅页调整",
+            )
+
+        try:
+            subscribe_id, message = await backend.add(
+                title,
+                year,
+                media_source,
+                media_id,
+                media_type,
+                season,
+                episode_group=str(episode_group) if episode_group else None,
+                message=True,
+                exist_ok=True,
+            )
+        except Exception as err:  # noqa: BLE001 - 交给上层转成 500，带上原因
+            raise RuntimeError(f"写入订阅失败：{err}") from err
+
+        if not subscribe_id:
+            return api_schemas.HistorySubscribeResult(
+                key=key, action="skipped", message=message or "宿主没有返回订阅 ID"
+            )
+
+        run_at = local_now_text(self._tz())
+        item = DiscoveredItem(
+            source=str(record.get("source") or ""),
+            source_id=str(record.get("source_id") or ""),
+            title=title,
+            media_type=media_type,
+            year=year or None,
+            release_date=record.get("release_date"),
+            season=season,
+            rating=record.get("rating"),
+            episode_group=str(episode_group) if episode_group else None,
+            resolved=ResolvedIdentity(
+                media_source=media_source,
+                media_id=media_id,
+                confidence=str(record.get("confidence") or C.CONFIDENCE_L1),
+                reason="手动补订阅",
+            ),
+            raw={"poster": record.get("poster") or "", "country": record.get("country")},
+            discovered_at=run_at,
+        )
+        outcome = WriteOutcome(
+            item=item,
+            decision=C.DECISION_ADDED,
+            success=True,
+            subscribe_id=int(subscribe_id),
+            message=message or "手动加入订阅",
+            reason="从发现流水手动加入",
+        )
+        self._append_history([outcome], run_at=run_at)
+        logger.info(
+            f"[SubscribeCenter] 手动补订阅：{title}（{media_source}:{media_id}）-> {subscribe_id}"
+        )
+        return api_schemas.HistorySubscribeResult(
+            key=key,
+            action="added",
+            subscribe_id=int(subscribe_id),
+            state="",
+            message=message or "已加入订阅",
+            record=api_schemas.HistoryRecord(**_history_item(outcome.to_dict())),
+        )
+
+    async def _subscription_state(
+        self, media_source: str, media_id: str, season: Optional[int]
+    ) -> str:
+        """查订阅当前状态（``R`` / ``P`` / ``S`` / ``N``），查不到返回空串。"""
+        try:
+            from .core.host import media_source_enum
+            from app.sdk.queries import (
+                QueryPageRequest,
+                SubscriptionFilter,
+                async_list_subscriptions,
+            )
+
+            source_enum = media_source_enum(media_source)
+            if source_enum is None:
+                return ""
+            page = await async_list_subscriptions(
+                SubscriptionFilter(
+                    media_source=source_enum, media_id=str(media_id), season=season
+                ),
+                QueryPageRequest(page=1, count=1),
+            )
+            items = getattr(page, "items", None) or []
+            return str(getattr(items[0], "state", "") or "") if items else ""
+        except Exception as err:  # noqa: BLE001 - 状态只是展示用，查不到就留空
+            logger.debug(f"[SubscribeCenter] 查订阅状态失败：{err}")
+            return ""
+
     def _append_history(self, outcomes: List[WriteOutcome], *, run_at: str) -> None:
         """写入流水：**同一部作品只保留最新一条**，再截断到上限。
 
@@ -1945,15 +2424,7 @@ class SubscribeCenter(_PluginBase):
             return f"w:{title}"
 
         def _key(record: Dict[str, Any]) -> str:
-            media_source = str(record.get("media_source") or "")
-            media_id = str(record.get("media_id") or "")
-            if media_source and media_id:
-                return f"{media_source}:{media_id}"
-            return "{}:{}:{}".format(
-                record.get("source") or "",
-                record.get("title") or "",
-                record.get("year") or "",
-            )
+            return _record_key(record)
 
         index: Dict[str, int] = {}
         for position, record in enumerate(records):
@@ -2092,6 +2563,7 @@ _HISTORY_TEXT_FIELDS = (
 _HISTORY_OPTIONAL_FIELDS = (
     "subscribe_id", "year", "release_date", "season", "rating",
     "media_source", "media_id", "review_score", "poster", "country",
+    "episode_group",
 )
 
 
@@ -2165,6 +2637,24 @@ def _source_counts(records: List[Dict[str, Any]]) -> Dict[str, int]:
     return counts
 
 
+def _record_key(record: Dict[str, Any]) -> str:
+    """一条流水的稳定键（前端拿它来点「重新订阅 / 加入订阅」）。
+
+    有确定性身份时用 ``来源:ID``（这时同一部剧的不同季会撞成同一个键，
+    所以订阅时季号要**从记录里单独取**，不能塞进键里）；没有身份时退回
+    ``来源:标题:年份``。
+    """
+    media_source = str(record.get("media_source") or "")
+    media_id = str(record.get("media_id") or "")
+    if media_source and media_id:
+        return f"{media_source}:{media_id}"
+    return "{}:{}:{}".format(
+        record.get("source") or "",
+        record.get("title") or "",
+        record.get("year") or "",
+    )
+
+
 def _history_item(record: Dict[str, Any]) -> Dict[str, Any]:
     """把流水记录裁剪成 :class:`~.controller.schemas.HistoryRecord` 的字段。
 
@@ -2175,6 +2665,8 @@ def _history_item(record: Dict[str, Any]) -> Dict[str, Any]:
     item["success"] = bool(record.get("success"))
     for key in _HISTORY_OPTIONAL_FIELDS:
         item[key] = record.get(key)
+    # 前端点「重新订阅 / 加入订阅」时回传的键
+    item["key"] = _record_key(record)
     return item
 
 

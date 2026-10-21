@@ -334,6 +334,49 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
   「今天会不会搜」没有意义。
 - 不给月度网格做判定：200 条 × 31 天的全量判定没必要，翻月只修正日期口径。
 
+### 缺集是怎么算出来的（`auto_toggle_library_check`）
+
+先要说清一件事：**宿主的「已下载」只记它自己下过的集**（`Subscribe.note`，
+唯一写入者是 `completion.py`）。媒体库导入、手动下载、删掉重订都不会写它，
+所以对这类订阅，插件只能拿「播出表减去 `note`」倒推缺集 —— 结果就是
+「你库里明明有 180 集，它报缺 180 集」。
+
+处理的顺序（并集，只会**减少**误报缺集，不会因此误暂停）：
+
+| 数据源 | 成本 | 什么时候用 |
+|---|---|---|
+| `Subscribe.note` | 0 | 永远 |
+| 媒体库快照 `MediaServerItem.seasoninfo` | 一次 SQL | 打开核对开关就并进来 |
+| 实时探针 `DownloadChain().get_no_exists_info` | 每条 2 次媒体服务器请求 | 快照没盖住、且真有已播未入库的集 |
+
+探针是**串行**的，每条之间等 `auto_toggle_library_probe_interval`（默认 1.5 秒），
+整轮最多花 `auto_toggle_library_probe_budget_seconds`（默认 300 秒）。到点就停，
+剩下的标「待核对」，下一轮接着来。**没有跨天缓存**：有已播未入库的集就每轮重新核对
+（待核对集为空时根本不发请求）。
+
+上一版插件把 200 条一次性并发问过去，把用户的 NAS 打挂了 —— 这就是为什么这里是
+串行 + 间隔 + 时间预算，而且预算默认只够核对几十条。**预算设 0 = 只读快照，一个
+请求都不发**。
+
+界面上：缺集是推测的会标「推测」，并显示「库核对补上 N 集」；汇总行显示本轮
+「快照 N 条 / 实探 M 条 / 待核对 K 条」以及耗时。
+
+### 流水里的「重新订阅 / 加入订阅」
+
+发现流水每条记录都有稳定键（`来源:ID`，没有确定性身份的退回 `来源:标题:年份`）：
+
+- **已订阅过的**给「重新订阅」，其余给「加入订阅」；没有确定性身份（L4 待确认）
+  的按钮直接不显示。
+- 走 `/history/subscribe`，**故意绕开**窗口/评分/日限额/流水去重 —— 用户点名要订的
+  东西不该被插件的门槛拦住。
+- 订阅还在时**只回报「订阅中」**（附带宿主里的真实状态，如「已暂停」），
+  绝不改它的状态：用户可能就是想让它暂停着。
+- 真的写成功后**补一条流水**，所以「流水记过就不再自动重订」对这次手动操作同样生效。
+- `episode_group` 会一起落库并回放 —— 番剧手动补订阅才不会订错季。
+
+**点海报**可以新标签打开宿主的媒体详情页（`#/media?media_source=…&media_id=…&type=…`）。
+只有拿到确定性身份的海报才可点。
+
 ### 三条安全约束（都踩过坑才知道要写）
 
 1. **暂停只能写 `S`。** 宿主 `policy.get_states_for_search("R")` 返回的是 `"R,P"` ——
@@ -396,6 +439,9 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 | `auto_toggle_movie_enabled` | `true` | 是否连电影订阅一起管（按 TMDB 发行日判） |
 | `auto_toggle_max_changes` | `0` | 单次最多改多少条（0 = 不限，恢复优先于暂停） |
 | `auto_toggle_notify` | `false` | 有实际改动时发通知 |
+| `auto_toggle_library_check` | `false` | 用媒体库核对真正入库了多少集（连媒体服务器，有开销） |
+| `auto_toggle_library_probe_budget_seconds` | `300` | 每轮核对最多花多少秒（`0` = 只读快照，零请求） |
+| `auto_toggle_library_probe_interval` | `1.5` | 每条核对之间等几秒（串行，别把媒体服务器打满） |
 | `dedupe_by_history` | `true` | 发现流水记过（订过）的不再自动重订；清空流水即解锁 |
 
 **修改 `cron` 后必须重新保存配置**才会重建定时任务（cron 在注册时读取）。
@@ -427,6 +473,7 @@ esolve_target_season 与 convert_to_tmdb **整段删掉了**。单元测试全�
 | `/status` | GET | 运行状态、各源情况、今日写入计数、首次运行标记 |
 | `/history` | GET | 分页流水，支持 `decision` / `source` / `keyword` 筛选 |
 | `/history/clear` | POST | 清空发现流水（同时解锁「流水记过就不再自动重订」） |
+| `/history/subscribe` | POST | 从一条流水手动补订阅（`{key}`；绕开窗口/评分/额度/流水去重） |
 | `/run_once` | POST | 手动触发一次发现（与定时任务互斥） |
 | `/mapping_cache` | GET | 查看身份映射缓存 |
 | `/mapping_cache/fix` | POST | 人工修正一条身份映射 |

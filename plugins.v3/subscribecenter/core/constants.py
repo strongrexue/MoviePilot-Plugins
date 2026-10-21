@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.13.6"
+PLUGIN_VERSION = "1.13.7"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -49,6 +49,19 @@ DEFAULT_AUTO_TOGGLE_CRON = "5 0 * * *"
 #: 洗版订阅在季终后第 4 天就停掉，等于把它废掉。默认 90 天：季终三个月后
 #: 还没等到更好的版本，要么站点没有、要么过滤规则卡住了，再空搜也没用。
 DEFAULT_AUTO_TOGGLE_BEST_KEEP = 90
+
+#: 媒体库核对的时间预算（秒）与逐条间隔（秒）。
+#:
+#: 宿主 ``DownloadChain().get_no_exists_info`` 每核对一条订阅要发两次媒体服务器
+#: HTTP 请求（``get_iteminfo`` + ``Shows/{id}/Episodes``），200 条一次性并发会把
+#: NAS 打挂（1.13.6 之前的真实事故）。所以这里改成「串行 + 间隔 + 时间预算」：
+#: 预算用完就停，剩下的留到下一轮，宁可分几天轮完也不打崩媒体服务器。
+#:
+#: 300 秒 / 1.5 秒 ≈ 一轮最多核 120 条左右；稳态下需要核对的通常只有几十条，
+#: 走不满预算。预算设 0 = 只读媒体库快照（``MediaServerItem.seasoninfo``），
+#: 一次请求都不发。
+DEFAULT_AUTO_TOGGLE_PROBE_BUDGET = 300
+DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL = 1.5
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
@@ -265,7 +278,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 9
+CONFIG_VERSION = 10
 
 
 def default_config() -> Dict[str, Any]:
@@ -413,6 +426,17 @@ def default_config() -> Dict[str, Any]:
         "auto_toggle_max_changes": 0,
         #: 每次自动启停后是否发通知（消息里带暂停/恢复条数）。
         "auto_toggle_notify": False,
+        #: 用媒体库核对「已入库」。``Subscribe.note`` 只由宿主的完成流程写入，
+        #: 媒体库导入 / 手动下载 / 订阅重建都不会有它 —— 那时「缺 1..180 集」
+        #: 只是按播出表推测出来的假警报，并不是插件真的知道库里没有。
+        #:
+        #: 打开后：先读宿主同步好的媒体库快照（零请求），再在下面的时间预算内
+        #: 逐条向媒体服务器核对，结果与订阅记录取**并集**（只会减少误报缺集）。
+        "auto_toggle_library_check": False,
+        #: 每轮媒体库核对的时间预算（秒，0 = 只读快照不发请求）。
+        "auto_toggle_library_probe_budget_seconds": DEFAULT_AUTO_TOGGLE_PROBE_BUDGET,
+        #: 逐条核对之间的间隔（秒）。越小越快，也越容易把媒体服务器压住。
+        "auto_toggle_library_probe_interval": DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL,
         # ---------------- 调度与通知
         #: 每源独立定时（五位 cron，留空 = 跟随上面的全局 cron）
         "cron_tmdb": "",

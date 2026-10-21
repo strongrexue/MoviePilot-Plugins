@@ -21,6 +21,8 @@ const loading = ref(false)
 const busy = ref('')
 /** 正在清空发现流水 */
 const clearing = ref(false)
+//: 正在手动补订阅的那条流水键（同一时间只允许一条，避免重复点）
+const subscribing = ref('')
 const tip = ref({ show: false, ok: true, text: '' })
 const status = ref(null)
 /** 详情页视图：日历（默认）/ 发现流水。 */
@@ -359,6 +361,86 @@ async function clearHistory() {
     setTip(error?.message || '清空流水失败', false)
   } finally {
     clearing.value = false
+  }
+}
+
+/**
+ * 拼宿主详情页地址（新标签打开）。
+ *
+ * 宿主前端用 hash 路由：`#/media?media_source=…&media_id=…&type=…&title=…&year=…`。
+ * `media_source` 必须是宿主的枚举值（`themoviedb` / `douban` / …），`type` 是**中文**
+ * 的媒体类型（`电视剧` / `电影`）—— 这两点错了详情页会打不开或认错媒体。
+ */
+function detailUrl(item) {
+  const mediaSource = String(item?.media_source || '')
+  const mediaId = String(item?.media_id || '')
+  if (!mediaSource || !mediaId) return ''
+  const params = new URLSearchParams()
+  params.set('media_source', mediaSource)
+  params.set('media_id', mediaId)
+  params.set('type', String(item?.media_type || '') === 'tv' ? '电视剧' : '电影')
+  if (item?.title) params.set('title', String(item.title))
+  if (item?.year) params.set('year', String(item.year))
+  // 去掉当前 hash，避免拼成 `#/subscribe#/media?...`
+  const base = window.location.href.split('#')[0]
+  return `${base}#/media?${params.toString()}`
+}
+
+function openDetail(item) {
+  const url = detailUrl(item)
+  if (!url) return
+  window.open(url, '_blank', 'noopener')
+}
+
+/** 只有拿到了确定性身份（来源 + ID）的流水才能一键订阅。 */
+function canSubscribe(item) {
+  return Boolean(item?.key) && Boolean(item?.media_source) && Boolean(item?.media_id)
+}
+
+/** 「已订阅过」的给「重新订阅」，其余给「加入订阅」。 */
+function subscribeLabel(item) {
+  const decision = String(item?.decision || '')
+  return decision === 'added' || decision === 'skipped_already_subscribed'
+    ? '重新订阅'
+    : '加入订阅'
+}
+
+/**
+ * 从流水手动补订阅。
+ *
+ * 后端刻意绕开窗口/评分/日限额/流水去重 —— 用户点名要订的东西不该被门槛拦住。
+ * 订阅已存在时不改状态，只回报宿主里的当前状态。
+ */
+async function subscribeFromHistory(item) {
+  const key = String(item?.key || '')
+  if (!key || subscribing.value) return
+  if (!canSubscribe(item)) {
+    setTip('这条流水没有确定性身份，无法直接订阅', false)
+    return
+  }
+  subscribing.value = key
+  try {
+    const result = unwrap(
+      await postPluginApi(
+        props.api,
+        props.pluginId,
+        'history/subscribe',
+        { key },
+        { timeoutMs: 120000 },
+      ),
+    )
+    if (result?.action === 'added') {
+      setTip(result?.message || '已加入订阅')
+      await loadHistory()
+      await loadStatus()
+    } else {
+      // 「订阅中」不是错误，用普通提示，别刷红
+      setTip(result?.message || '没有写入订阅', true)
+    }
+  } catch (error) {
+    setTip(error?.message || '订阅失败', false)
+  } finally {
+    subscribing.value = ''
   }
 }
 
@@ -1005,7 +1087,12 @@ onUnmounted(() => {
       <!-- 卡片网格：多列并排，像榜单页那样一眼扫过 -->
       <div v-else class="sc-grid">
         <div v-for="(item, index) in history.items" :key="index" class="sc-card-item">
-          <div class="sc-card-poster">
+          <div
+            class="sc-card-poster"
+            :class="{ 'sc-poster-link': Boolean(detailUrl(item)) }"
+            :title="detailUrl(item) ? '在宿主里打开详情页' : ''"
+            @click="openDetail(item)"
+          >
             <img
               v-if="posterUrl(item)"
               :src="posterUrl(item)"
@@ -1037,6 +1124,17 @@ onUnmounted(() => {
               {{ item.reason }}
             </div>
             <div class="sc-card-actions">
+              <VBtn
+                v-if="canSubscribe(item)"
+                size="x-small"
+                variant="text"
+                :loading="subscribing === item.key"
+                :disabled="Boolean(subscribing)"
+                prepend-icon="mdi-plus-circle-outline"
+                @click="subscribeFromHistory(item)"
+              >
+                {{ subscribeLabel(item) }}
+              </VBtn>
               <VBtn
                 size="x-small"
                 variant="text"
@@ -1288,6 +1386,13 @@ onUnmounted(() => {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+/* 有确定性身份的海报可以点开宿主详情页 */
+.sc-poster-link {
+  cursor: pointer;
+}
+.sc-poster-link:hover img {
+  opacity: 0.86;
 }
 .sc-card-badge {
   position: absolute;

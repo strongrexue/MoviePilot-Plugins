@@ -1040,3 +1040,364 @@ def test_apply_refuses_to_write_p(plugin, monkeypatch):
     assert [item["id"] for item in failed] == [3]
     assert "非法" in failed[0]["error"]
     assert calls == [], "非法目标状态不该碰宿主"
+
+
+# --------------------------------------------------- 缺集来源：订阅记录 / 媒体库核对
+
+
+def test_has_download_record_reads_note_and_priority():
+    """「订阅有没有入库记录」只看 ``note`` 与 ``episode_priority`` 两个宿主列。"""
+    assert autotoggle.has_download_record(_row(note=[1, 2])) is True
+    assert autotoggle.has_download_record(_row(note=[])) is False
+    assert autotoggle.has_download_record(_row(note=None)) is False
+    assert autotoggle.has_download_record(_row(note=[0, None, "x"])) is False
+    assert (
+        autotoggle.has_download_record(
+            _row(note=[], best_version=1, episode_priority={"1": 80})
+        )
+        is True
+    )
+
+
+def test_seasoninfo_episodes_accepts_int_and_str_keys():
+    """媒体库快照的 ``seasoninfo`` 键可能是 int 也可能是 str（JSON 落库后）。"""
+    assert autotoggle.seasoninfo_episodes({1: [1, 2, 3]}, 1) == {1, 2, 3}
+    assert autotoggle.seasoninfo_episodes({"2": [4, 5]}, 2) == {4, 5}
+    assert autotoggle.seasoninfo_episodes({1: [1]}, 2) == set(), "没有该季 = 快照没说"
+    assert autotoggle.seasoninfo_episodes(None, 1) == set()
+    assert autotoggle.seasoninfo_episodes("junk", 1) == set()
+
+
+def test_pending_episodes_lists_aired_and_missing():
+    """只列「已播且订阅记录里没有」的集，按集号升序 —— 探针靠它挑候选。"""
+    row = _row(note=[1, 2])
+    eps = _eps(
+        ("2026-10-18", 1),
+        ("2026-10-19", 2),
+        ("2026-10-20", 3),
+        ("2026-10-21", 4),
+    )
+    assert autotoggle.pending_episodes(row, eps, TODAY) == [("2026-10-20", 3)]
+
+
+def test_pending_episodes_honours_start_episode():
+    row = _row(start_episode=5, note=[])
+    eps = _eps(("2026-10-19", 4), ("2026-10-20", 5))
+    assert autotoggle.pending_episodes(row, eps, TODAY) == [("2026-10-20", 5)]
+
+
+def test_assumed_when_subscribe_has_no_record():
+    """订阅没有入库记录 → 缺集是算出来的，必须在 detail 里写明。"""
+    result = autotoggle.decide(_row(note=[]), _eps(("2026-10-20", 1)), TODAY, keep_days=3)
+    assert result.assumed is True
+    assert "推测" in result.detail
+
+
+def test_record_present_clears_assumed():
+    result = autotoggle.decide(_row(note=[1]), _eps(("2026-10-20", 2)), TODAY, keep_days=3)
+    assert result.assumed is False
+
+
+def test_library_present_removes_false_missing():
+    """库里有第 1 集 → 不再算缺 → 已播全部入库 → 暂停。
+
+    这就是用户那条 180 集国漫的场景：集不是经订阅下的，``note`` 是空的。
+    """
+    result = autotoggle.decide(
+        _row(note=[]),
+        _eps(("2026-10-19", 1)),
+        TODAY,
+        keep_days=3,
+        library_present={1},
+    )
+    assert result.reason == autotoggle.REASON_ALL_DONE
+    assert result.library_confirmed == 1
+    assert result.assumed is False
+
+
+def test_library_present_keeps_really_missing():
+    """库里确实没有第 2 集 → 仍然算缺。并集只会减少误报，不会漏报。"""
+    result = autotoggle.decide(
+        _row(note=[]),
+        _eps(("2026-10-19", 1), ("2026-10-20", 2)),
+        TODAY,
+        keep_days=3,
+        library_present={1},
+    )
+    assert result.reason == autotoggle.REASON_PENDING
+    assert list(result.pending) == [2]
+
+
+def test_library_present_ignored_for_best_version():
+    """洗版问的是「洗到顶没有」，媒体库里有 1080 不等于洗完，所以不参与。"""
+    row = _row(note=[1], best_version=1, episode_priority={"1": 80})
+    result = autotoggle.decide(
+        row,
+        _eps(("2026-10-19", 1)),
+        TODAY,
+        best_keep_days=90,
+        best_mode=autotoggle.BEST_MODE_ALWAYS,
+        library_present={1},
+    )
+    assert result.library_confirmed == 0
+    assert result.reason == autotoggle.REASON_BEST_PENDING
+
+
+def test_plan_passes_library_index_by_subscribe_id():
+    """``library_index`` 的键是**订阅 ID**，不是 media_id。"""
+    rows = [_row(id=11, note=[]), _row(id=12, note=[])]
+    index = {("1234", 1): _eps(("2026-10-19", 1))}
+    data = autotoggle.plan(rows, index, TODAY, keep_days=3, library_index={11: {1}})
+    by_id = {item["id"]: item for item in data["items"]}
+
+    assert by_id[11]["action"] == autotoggle.ACTION_PAUSE
+    assert by_id[11]["library_confirmed"] == 1
+    assert by_id[11]["assumed"] is False
+    assert by_id[12]["action"] == autotoggle.ACTION_KEEP
+    assert by_id[12]["assumed"] is True
+
+
+# ---------------------------------------------- 从流水手动补订阅（「加入订阅」按钮）
+
+
+def _hist_record(**overrides):
+    """一条「已加入」流水（宿主 ``_history_item`` 的形态）。"""
+    record = {
+        "decision": "added",
+        "success": True,
+        "source": "tmdb",
+        "source_id": "603",
+        "title": "手动补订阅测试",
+        "media_type": "tv",
+        "year": "2024",
+        "season": 2,
+        "media_source": "themoviedb",
+        "media_id": "603",
+        "confidence": "L1",
+        "episode_group": "g:abc",
+        "run_at": "2026-10-20 10:00:00",
+    }
+    record.update(overrides)
+    return record
+
+
+def _host_module(plugin):
+    """插件**自己**加载出来的 ``core.host`` 模块。
+
+    不能写成 ``import subscribecenter.core.host``：插件是按官方要求在
+    ``app.plugins.subscribecenter`` 路径下加载的，那是**另一个**模块对象，
+    patch 前者对插件无效（真机不报错、测试假绿）。
+    """
+    import importlib
+
+    return importlib.import_module(type(plugin).__module__ + ".core.host")
+
+
+class _HostBackend:
+    """假的 ``HostSubscribeBackend``：记录问了什么、写了什么。"""
+    def __init__(self, *, exists=False, subscribe_id=42):
+        self.exists = exists
+        self.subscribe_id = subscribe_id
+        self.asked = []
+        self.added = []
+
+    async def subscription_exists(self, media_source, media_id, season=None):
+        self.asked.append((media_source, media_id, season))
+        return self.exists
+
+    async def add(self, title, year, media_source, media_id, media_type, season=None, **kwargs):
+        self.added.append(
+            {
+                "title": title,
+                "year": year,
+                "media_source": media_source,
+                "media_id": media_id,
+                "media_type": media_type,
+                "season": season,
+                "episode_group": kwargs.get("episode_group"),
+            }
+        )
+        return self.subscribe_id, "已添加"
+
+
+def test_history_subscribe_refuses_record_without_identity(plugin):
+    """L4 待确认的记录没有确定性身份，不能凭空订一条。"""
+    record = _hist_record(media_source="", media_id="", confidence="L4", decision="pending_review")
+    plugin._history = lambda: [record]
+    result = asyncio.run(plugin.subscribe_from_history(key="tmdb:手动补订阅测试:2024"))
+    assert result.action == "skipped"
+    assert "身份" in result.message
+
+
+def test_history_subscribe_adds_and_writes_history(plugin, monkeypatch):
+    """正常补订阅：走宿主 add、把 ``episode_group`` 原样带上、补一条流水。"""
+    host_module = _host_module(plugin)
+
+    backend = _HostBackend()
+    monkeypatch.setattr(host_module, "HostSubscribeBackend", lambda: backend)
+    record = _hist_record()
+    written = []
+    plugin._history = lambda: [record]
+    plugin._append_history = lambda outcomes, *, run_at: written.extend(
+        outcome.to_dict() for outcome in outcomes
+    )
+    plugin._subscription_state = lambda *a, **k: asyncio.sleep(0, result="")
+
+    result = asyncio.run(plugin.subscribe_from_history(key="themoviedb:603"))
+
+    assert result.action == "added"
+    assert result.subscribe_id == 42
+    assert backend.asked == [("themoviedb", "603", 2)]
+    assert backend.added[0]["season"] == 2
+    assert backend.added[0]["episode_group"] == "g:abc", "番剧必须靠它订回正确季"
+    assert written and written[0]["decision"] == "added"
+    assert written[0]["episode_group"] == "g:abc", "流水也要带上，否则下次再补还是错的"
+
+
+def test_history_subscribe_does_not_touch_existing_subscribe(plugin, monkeypatch):
+    """订阅还在 → 只回报状态，绝不改状态（用户可能就是想让它暂停着）。"""
+    host_module = _host_module(plugin)
+
+    backend = _HostBackend(exists=True)
+    monkeypatch.setattr(host_module, "HostSubscribeBackend", lambda: backend)
+    plugin._history = lambda: [_hist_record(state="S")]
+
+    async def fake_state(*args, **kwargs):
+        return "S"
+
+    plugin._subscription_state = fake_state
+
+    result = asyncio.run(plugin.subscribe_from_history(key="themoviedb:603"))
+
+    assert result.action == "subscribed"
+    assert result.state == "S"
+    assert "已暂停" in result.message
+    assert backend.added == [], "已存在就不该再写一条"
+
+
+# ------------------------------------------------- 媒体库探针：预算 / 候选筛选
+
+
+def _lib_row(**overrides):
+    """探针用的订阅行（ORM 形态，插件里全是 ``getattr`` 取字段）。"""
+    row = SimpleNamespace(
+        id=1,
+        name="探针剧",
+        type="电视剧",
+        media_source="themoviedb",
+        media_id="900",
+        season=1,
+        state="R",
+        start_episode=1,
+        total_episode=12,
+        lack_episode=12,
+        note=[],
+        episode_priority=None,
+        best_version=0,
+    )
+    for key, value in overrides.items():
+        setattr(row, key, value)
+    return row
+
+
+def test_probe_skips_best_version_and_movies(plugin):
+    """洗版（问「洗到顶没有」）和非剧集都不该被拿去问媒体库。"""
+    rows = [
+        _lib_row(id=1, best_version=1, episode_priority={"1": 80}),
+        _lib_row(id=2, type="电影", season=0),
+        _lib_row(id=3, media_id="901"),
+    ]
+    index = {
+        ("900", 1): _eps(("2026-10-19", 1)),
+        ("901", 1): _eps(("2026-10-19", 1)),
+    }
+    asked = []
+
+    async def fake_probe(row):
+        asked.append(row.id)
+        return set()
+
+    plugin._probe_one = fake_probe
+    _, stats = asyncio.run(
+        plugin._probe_missing_episodes(
+            rows, index, TODAY, budget_seconds=10, interval=0, known={}
+        )
+    )
+
+    assert asked == [3], "只有普通剧集需要核对"
+    assert stats["candidates"] == 1
+
+
+def test_probe_ignores_lack_episode_fallback(plugin):
+    """``lack_episode<=0`` + ``note`` 空：``episode_numbers`` 会兜底成「整季已入库」，
+    但那恰恰是「需要核对」的形态 —— 探针不能被这个兜底挡住。"""
+    rows = [_lib_row(id=1, lack_episode=0)]
+    index = {("900", 1): _eps(("2026-10-19", 1))}
+    asked = []
+
+    async def fake_probe(row):
+        asked.append(row.id)
+        return {1}
+
+    plugin._probe_one = fake_probe
+    out, stats = asyncio.run(
+        plugin._probe_missing_episodes(
+            rows, index, TODAY, budget_seconds=10, interval=0, known={}
+        )
+    )
+
+    assert asked == [1]
+    assert stats["candidates"] == 1
+    assert out == {1: {1}}
+
+
+def test_probe_with_zero_budget_never_asks(plugin):
+    """预算 0 = 只读快照：一个请求都不发，全部标「待核对」。"""
+    rows = [_lib_row(id=1), _lib_row(id=2, media_id="901")]
+    index = {
+        ("900", 1): _eps(("2026-10-19", 1)),
+        ("901", 1): _eps(("2026-10-19", 1)),
+    }
+    asked = []
+
+    async def fake_probe(row):
+        asked.append(row.id)
+        return set()
+
+    plugin._probe_one = fake_probe
+    out, stats = asyncio.run(
+        plugin._probe_missing_episodes(
+            rows, index, TODAY, budget_seconds=0, interval=0, known={}
+        )
+    )
+
+    assert asked == []
+    assert out == {}
+    assert stats["probed"] == 0
+    assert stats["deferred"] == 2
+
+
+def test_probe_stops_when_budget_used_up(plugin):
+    """预算到点就停，剩下的下一轮再来 —— 这是不打挂 NAS 的那道刹车。"""
+    rows = [_lib_row(id=i, media_id=str(900 + i)) for i in range(1, 6)]
+    index = {
+        (str(900 + i), 1): _eps(("2026-10-19", 1)) for i in range(1, 6)
+    }
+    asked = []
+
+    async def slow_probe(row):
+        # 每条 0.6 秒，预算 1 秒 → 最多核对 2 条就要刹车
+        await asyncio.sleep(0.6)
+        asked.append(row.id)
+        return {1}
+
+    plugin._probe_one = slow_probe
+    _, stats = asyncio.run(
+        plugin._probe_missing_episodes(
+            rows, index, TODAY, budget_seconds=1, interval=0, known={}
+        )
+    )
+
+    assert 1 <= stats["probed"] < 5, "预算到点必须刹车"
+    assert stats["deferred"] == 5 - stats["probed"]
+    assert len(asked) == stats["probed"]

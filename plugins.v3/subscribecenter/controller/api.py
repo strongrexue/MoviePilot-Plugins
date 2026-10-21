@@ -82,6 +82,27 @@ def get_api(plugin) -> List[Dict[str, Any]]:
 
 # --------------------------------------------------------------------- 端点实现
 
+
+def _payload(request: Any, model: Any) -> Any:
+    """把请求体归一成 pydantic 模型。
+
+    FastAPI 是按**端点函数的类型注解**决定要不要解析 JSON body 的：注解写成
+    ``Any`` 时，整个 body 会原样以 ``dict`` 传进来 —— ``request.title`` 立刻
+    AttributeError，前端看到的就是 500（真机 1.14.0：「自测」报「黑名单自测失败」）。
+    这里兜一层：无论注解写没写对、body 是模型还是 dict，都能拿到模型。
+    """
+    if isinstance(request, model):
+        return request
+    if isinstance(request, dict):
+        return model(**request)
+    if request is None:
+        try:
+            return model()
+        except Exception as err:  # noqa: BLE001 - 必填字段缺失就是 400
+            raise HTTPException(status_code=400, detail="缺少请求体") from err
+    return request
+
+
 async def api_status(plugin) -> Any:
     """返回插件运行状态。"""
     try:
@@ -134,7 +155,8 @@ async def api_history_subscribe(plugin, request: api_schemas.HistorySubscribeReq
     用户点名要订的东西不该被插件的门槛拦住。订阅已存在时只回报状态，不改状态。
     """
     try:
-        result = await plugin.subscribe_from_history(key=request.key)
+        payload = _payload(request, api_schemas.HistorySubscribeRequest)
+        result = await plugin.subscribe_from_history(key=payload.key)
         return schemas.Response(success=True, data=result)
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
@@ -305,13 +327,15 @@ async def api_blacklist_test(plugin, request: api_schemas.BlacklistTestRequest) 
     —— 否则第一次发现某个题材没订上，根本不知道是被谁拦的。
     """
     try:
+        payload = _payload(request, api_schemas.BlacklistTestRequest)
         data = plugin.blacklist_test(
-            title=request.title,
-            original_title=request.original_title,
-            media_type=request.media_type,
-            tags=request.tags,
-            genre_ids=request.genre_ids,
-            keywords=request.keywords,
+            title=payload.title,
+            original_title=payload.original_title,
+            media_type=payload.media_type,
+            tags=payload.tags,
+            genre_ids=payload.genre_ids,
+            keywords=payload.keywords,
+            rules_config=payload.rules,
         )
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 黑名单自测失败：{err}", exc_info=True)
@@ -361,7 +385,8 @@ async def api_system_share_save(
     plugin, request: api_schemas.SystemShareRequest
 ) -> Any:
     """设置「订阅数据共享」开关（热门媒体依赖它）。"""
-    data = await plugin.set_system_share(request.enabled)
+    payload = _payload(request, api_schemas.SystemShareRequest)
+    data = await plugin.set_system_share(payload.enabled)
     return schemas.Response(success=True, data=api_schemas.SystemShareState(**data))
 
 

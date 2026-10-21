@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.14.0"
+    plugin_version = "1.14.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -370,11 +370,20 @@ class SubscribeCenter(_PluginBase):
         """读取排除规则元数据（内置题材预设 + TMDB 类型名）。"""
         return await api_controller.api_blacklist(self)
 
-    async def api_blacklist_test(self, request: Any = None) -> Any:
-        """自测一条内容会不会被排除规则拦下。"""
+    async def api_blacklist_test(
+        self, request: api_schemas.BlacklistTestRequest
+    ) -> Any:
+        """自测一条内容会不会被排除规则拦下。
+
+        **注解必须写具体模型**：FastAPI 靠端点签名判断要不要解析 JSON body，
+        注解写成 ``Any`` 时 body 会以 dict 传进来，``request.title`` 直接炸
+        （1.14.0 真机「自测」500 就是这个原因）。
+        """
         return await api_controller.api_blacklist_test(self, request)
 
-    async def api_system_share_save(self, request: Any = None) -> Any:
+    async def api_system_share_save(
+        self, request: api_schemas.SystemShareRequest
+    ) -> Any:
         """设置订阅数据共享开关。"""
         return await api_controller.api_system_share_save(self, request)
 
@@ -1664,7 +1673,9 @@ class SubscribeCenter(_PluginBase):
         """清空发现流水（清掉之后之前订过的作品才会被重新发现）。"""
         return await api_controller.api_history_clear(self)
 
-    async def api_history_subscribe(self, request: Any) -> Any:
+    async def api_history_subscribe(
+        self, request: api_schemas.HistorySubscribeRequest
+    ) -> Any:
         """从发现流水手动补订阅（重新订阅 / 加入订阅）。"""
         return await api_controller.api_history_subscribe(self, request)
 
@@ -2009,16 +2020,23 @@ class SubscribeCenter(_PluginBase):
         tags: str = "",
         genre_ids: Optional[List[int]] = None,
         keywords: Optional[List[str]] = None,
+        rules_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """自测一条内容会不会被排除规则拦下（配置页「试一下」用）。
 
         走的是和流水线**完全相同**的判定函数（``check_item`` / ``check_keywords``），
         不做任何简化 —— 否则自测通过、真跑被拦，等于没测。
+
+        ``rules_config`` 传的是**页面上当前填的**（可能还没保存）规则：
+        自测若只认已保存的配置，勾完预设不点保存就会得到「不会被拦」，
+        用户会以为功能坏了。
         """
         from .core import blacklist as blacklist_core
         from .core.model import DiscoveredItem
 
-        rules = self.blacklist_rules()
+        rules = blacklist_core.rules_from_config(
+            rules_config if isinstance(rules_config, dict) and rules_config else (self._config or {})
+        )
         item = DiscoveredItem(
             source="blacklist_test",
             source_id="blacklist_test",

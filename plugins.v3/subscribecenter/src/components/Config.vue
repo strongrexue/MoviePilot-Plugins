@@ -624,6 +624,18 @@ async function runBlacklistTest() {
         tags: blacklistTestForm.value.tags || '',
         genre_ids: [],
         keywords: [],
+        // 用页面上**当前填的**规则（可能还没保存）—— 自测只认已保存配置的话，
+        // 勾完预设不点保存就会得到「不会被拦」，会被当成功能坏了。
+        rules: {
+          blacklist_enabled: !!form.value.blacklist_enabled,
+          blacklist_genre_movie: form.value.blacklist_genre_movie || [],
+          blacklist_genre_tv: form.value.blacklist_genre_tv || [],
+          blacklist_presets: form.value.blacklist_presets || [],
+          blacklist_words: form.value.blacklist_words || '',
+          blacklist_match_title: !!form.value.blacklist_match_title,
+          blacklist_match_tags: !!form.value.blacklist_match_tags,
+          blacklist_tmdb_keywords: !!form.value.blacklist_tmdb_keywords,
+        },
       }),
     ) || null
   } catch (error) {

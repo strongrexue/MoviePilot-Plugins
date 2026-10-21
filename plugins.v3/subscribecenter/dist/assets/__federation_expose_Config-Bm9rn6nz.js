@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-Cej8KrWz.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-BlGzUy13.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -919,6 +919,18 @@ async function runBlacklistTest() {
         tags: blacklistTestForm.value.tags || '',
         genre_ids: [],
         keywords: [],
+        // 用页面上**当前填的**规则（可能还没保存）—— 自测只认已保存配置的话，
+        // 勾完预设不点保存就会得到「不会被拦」，会被当成功能坏了。
+        rules: {
+          blacklist_enabled: !!form.value.blacklist_enabled,
+          blacklist_genre_movie: form.value.blacklist_genre_movie || [],
+          blacklist_genre_tv: form.value.blacklist_genre_tv || [],
+          blacklist_presets: form.value.blacklist_presets || [],
+          blacklist_words: form.value.blacklist_words || '',
+          blacklist_match_title: !!form.value.blacklist_match_title,
+          blacklist_match_tags: !!form.value.blacklist_match_tags,
+          blacklist_tmdb_keywords: !!form.value.blacklist_tmdb_keywords,
+        },
       }),
     ) || null;
   } catch (error) {
@@ -1480,7 +1492,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[93] || (_cache[93] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-66f36021><b data-v-66f36021>电影上映类</b>（<code data-v-66f36021>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-66f36021><b data-v-66f36021>剧集类</b>（<code data-v-66f36021>/douban/tv/coming</code>、<code data-v-66f36021>/douban/list/tv_*</code>、 <code data-v-66f36021>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-66f36021><b data-v-66f36021>电影榜单类</b>没有日期，会被跳过。<code data-v-66f36021>ustop250</code> 与 <code data-v-66f36021>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[93] || (_cache[93] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-f5952240><b data-v-f5952240>电影上映类</b>（<code data-v-f5952240>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-f5952240><b data-v-f5952240>剧集类</b>（<code data-v-f5952240>/douban/tv/coming</code>、<code data-v-f5952240>/douban/list/tv_*</code>、 <code data-v-f5952240>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-f5952240><b data-v-f5952240>电影榜单类</b>没有日期，会被跳过。<code data-v-f5952240>ustop250</code> 与 <code data-v-f5952240>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2165,7 +2177,7 @@ return (_ctx, _cache) => {
                   color: "primary"
                 }, null, 8, ["modelValue"])
               ]),
-              _cache[121] || (_cache[121] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-66f36021><b data-v-66f36021>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-66f36021>BL</code> 不会命中 <code data-v-66f36021>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-66f36021>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-66f36021>regex:</code> 用正则；行首加 <code data-v-66f36021>case:</code> 区分大小写；空行与 <code data-v-66f36021>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-66f36021><b data-v-66f36021>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-66f36021>试一下</div>", 3)),
+              _cache[121] || (_cache[121] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-f5952240><b data-v-f5952240>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-f5952240>BL</code> 不会命中 <code data-v-f5952240>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-f5952240>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-f5952240>regex:</code> 用正则；行首加 <code data-v-f5952240>case:</code> 区分大小写；空行与 <code data-v-f5952240>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-f5952240><b data-v-f5952240>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-f5952240>试一下</div>", 3)),
               _createVNode(_component_VRow, { dense: "" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VCol, {
@@ -2979,6 +2991,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-66f36021"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f5952240"]]);
 
 export { Config as default };

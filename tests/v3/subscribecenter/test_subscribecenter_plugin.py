@@ -290,6 +290,79 @@ def test_api_endpoints_are_async(plugin_cls):
         assert inspect.iscoroutinefunction(route["endpoint"]), route["path"]
 
 
+def test_post_endpoints_annotate_request_body_with_model(plugin_cls):
+    """POST 端点的请求体必须注解成**具体 pydantic 模型**，不能是 ``Any``。
+
+    FastAPI 按端点签名决定要不要解析 JSON body：注解写 ``Any`` 时整个 body
+    会原样以 ``dict`` 传进来，端点里 ``request.title`` 立刻 AttributeError ——
+    1.14.0 真机点「自测」报「黑名单自测失败」就是这条（同时中招的还有
+    「数据共享」开关和流水的「重新订阅」按钮）。
+    """
+    import inspect
+
+    from pydantic import BaseModel
+
+    instance = plugin_cls()
+    for route in instance.get_api():
+        if "POST" not in route["methods"]:
+            continue
+        for name, param in inspect.signature(route["endpoint"]).parameters.items():
+            if param.default is not inspect.Parameter.empty:
+                # 有默认值的都是可选查询参数（如 /run_once?source=）
+                continue
+            annotation = param.annotation
+            assert annotation is not inspect.Parameter.empty, (
+                f"{route['path']} 的 {name} 缺少类型注解"
+            )
+            assert isinstance(annotation, type) and issubclass(annotation, BaseModel), (
+                f"{route['path']} 的 {name} 必须是 pydantic 模型，实际是 {annotation}"
+            )
+
+
+def test_blacklist_test_endpoint_tolerates_dict_body(plugin):
+    """真机回归：1.14.0 的「自测」500 是端点拿到 dict 而不是模型。"""
+    import asyncio
+
+    from controller import api as api_controller
+
+    response = asyncio.run(
+        api_controller.api_blacklist_test(
+            plugin, {"title": "以你的心诠释我的爱", "media_type": "tv"}
+        )
+    )
+    assert response.success is True
+    assert response.data.matched is False
+
+    plugin._config.update({"blacklist_enabled": True, "blacklist_words": "同性"})
+    hit = asyncio.run(
+        api_controller.api_blacklist_test(
+            plugin, {"title": "以你的心诠释我的爱", "tags": "2026 / 泰国 / 剧情 同性"}
+        )
+    )
+    assert hit.data.matched is True
+    assert "同性" in hit.data.reason
+
+
+def test_blacklist_test_uses_unsaved_form_rules(plugin):
+    """自测必须认页面上**还没保存**的规则（勾完预设不点保存也能测出结果）。"""
+    import asyncio
+
+    from controller import api as api_controller
+
+    response = asyncio.run(
+        api_controller.api_blacklist_test(
+            plugin,
+            {
+                "title": "以你的心诠释我的爱",
+                "tags": "2026 / 泰国 / 剧情 同性",
+                "rules": {"blacklist_enabled": True, "blacklist_presets": ["lgbt"]},
+            },
+        )
+    )
+    assert response.data.matched is True
+    assert response.data.rules >= 1
+
+
 # --------------------------------------------------------------------- 状态接口
 
 def test_status_snapshot_shape(plugin):

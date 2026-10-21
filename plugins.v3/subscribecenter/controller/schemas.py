@@ -448,6 +448,10 @@ class BlacklistTestRequest(BaseModel):
     tags: str = Field(default="", description="题材串（如豆瓣 category）")
     genre_ids: List[int] = Field(default_factory=list, description="TMDB 类型 id")
     keywords: List[str] = Field(default_factory=list, description="TMDB 关键词")
+    rules: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="用页面上当前填的规则做自测（可空 = 用已保存的配置）",
+    )
 
 
 class BlacklistTestResult(BaseModel):

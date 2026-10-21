@@ -43,8 +43,8 @@ class FakePlugin:
     def config(self) -> dict:
         return self._config
 
-    def post_message(self, title="", text="") -> None:
-        self.messages.append({"title": title, "text": text})
+    def post_message(self, title="", text="", mtype=None) -> None:
+        self.messages.append({"title": title, "text": text, "mtype": mtype})
 
     def get_data(self, key, default=None):
         return self._data.get(key, default)

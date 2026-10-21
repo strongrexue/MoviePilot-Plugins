@@ -59,10 +59,10 @@ class FakeNotifyPlugin:
         if posts:
             self.post_message = self._post
 
-    def _post(self, title="", text="") -> None:
+    def _post(self, title="", text="", mtype=None) -> None:
         if self._boom:
             raise RuntimeError("通知渠道炸了")
-        self.messages.append({"title": title, "text": text})
+        self.messages.append({"title": title, "text": text, "mtype": mtype})
 
     @property
     def config(self) -> dict:
@@ -119,7 +119,7 @@ class TestNotifier:
         plugin = FakeNotifyPlugin()
         notifier = Notifier(plugin)
         assert notifier.send("标题", "正文") is True
-        assert plugin.messages == [{"title": "标题", "text": "正文"}]
+        assert plugin.messages == [{"title": "标题", "text": "正文", "mtype": "插件"}]
         assert notifier.stats()["sent"] == 1
 
     def test_empty_title_is_skipped(self):
@@ -245,8 +245,8 @@ class NotifyPipelinePlugin:
     def get_database(self):
         return self._db
 
-    def post_message(self, title="", text="") -> None:
-        self.messages.append({"title": title, "text": text})
+    def post_message(self, title="", text="", mtype=None) -> None:
+        self.messages.append({"title": title, "text": text, "mtype": mtype})
 
     def get_data(self, key, default=None):
         return self._data.get(key, default)

@@ -100,6 +100,7 @@ Telegram 频道消息
 | 〃 | `cache_cron` / `cache_subscribe_cron` | 增量同步 / 订阅回搜的 Cron（默认 `0 */6 * * *`、`*/30 * * * *`） |
 | 转发 | `forward_enabled` / `forward_rules` | 开关与规则列表 |
 | 通知 | `notify_on_hit` / `notify_on_error` / `notify_on_search` | 转存通知 / 失败通知 / 回搜通知 |
+| 〃 | `notify_mtype` | 通知类型（宿主 MessageType 中文名，默认 `插件`，可改九类中任意一类） |
 | 交互 | `interactive_push` | 允许私聊机器人发链接直接转存（默认开） |
 | 〃 | `interactive_dedup` | 已转存链接查重（默认开，命中直接回执不再重复落盘） |
 

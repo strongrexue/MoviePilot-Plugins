@@ -46,6 +46,9 @@ export const configDefaults = {
   notify_on_hit: true,
   notify_on_error: true,
   notify_on_search: true,
+  // 通知类型（宿主 MessageType 中文名，1.13.22 起默认「插件」；
+  // 宿主「通知范围」与各通知渠道的类型白名单都按它生效）
+  notify_mtype: '插件',
   interactive_push: true,
   interactive_dedup: true,
   // ⑨ 发现页入口（1.8.0；1.13.18 起不再单独开关）：

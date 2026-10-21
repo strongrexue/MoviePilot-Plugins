@@ -26,6 +26,11 @@ const pushResult = ref(null)
 
 const form = computed(() => props.config.form)
 
+// 宿主的通知类型（app.schemas.types.MessageType 的九个取值）：
+// 默认「插件」；用户改选别的类型后，宿主「通知范围」与渠道白名单按新类型判定，
+// 相当于把这个插件的通知并入宿主对应业务的通知流
+const notifyMtypes = ['资源下载', '整理入库', '订阅', '站点', '媒体服务器', '手动处理', '插件', '智能体', '其它']
+
 const accountLine = computed(() => {
   const info = status.value || {}
   if (!info.cookie_configured) return '未登录（请扫码）'
@@ -437,6 +442,21 @@ onUnmounted(qrStopPolling)
             <template #label><span class="p115-switch-label">回搜到资源后通知我</span></template>
           </VSwitch>
         </div>
+        <!-- 通知类型：宿主 MessageType 九选一，默认「插件」；宿主按它决定通知范围与渠道白名单 -->
+        <div class="p115-notify-type">
+          <VSelect
+            v-model="form.notify_mtype"
+            :items="notifyMtypes"
+            label="通知类型"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="p115-notify-mtype"
+          />
+          <span class="p115-notify-type-hint">
+            宿主「设置 → 通知」里按类型配置的收发范围，以及各通知渠道的类型白名单，都按这里选的类型生效。
+          </span>
+        </div>
         <!-- 三类通知各归哪个开关：11px 灰字，压到三行内，均走宿主的「通知」渠道 -->
         <div class="p115-notify-hint">
           <div>· <strong>转存成功</strong>：监控 / 转发命中后转存（或离线）成功，按批汇总一条；</div>
@@ -577,6 +597,10 @@ onUnmounted(qrStopPolling)
 .p115-hint { margin-top: -4px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.6); line-height: 1.5; }
 /* 通知开关一行并排：横向 gap 18px，窄屏自动换行（原纵向堆叠改横排） */
 .p115-notify { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px 18px; }
+/* 通知类型：下拉 200px + 右侧说明同一行，窄屏折成两行 */
+.p115-notify-type { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.p115-notify-mtype { flex: 0 0 200px; max-width: 100%; }
+.p115-notify-type-hint { flex: 1 1 260px; font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.65); line-height: 1.5; }
 /* 通知说明：11px / on-surface 65% / 1.5，紧贴开关行下方（父级 gap 8px，用 -4px 收到 4px） */
 .p115-notify-hint {
   margin-top: -4px;

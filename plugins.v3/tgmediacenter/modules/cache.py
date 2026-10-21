@@ -34,11 +34,14 @@ from ..core.history_cache import (
 from ..destinations import DESTINATION_VALUES
 from ..model.hit_log import DECISION_HIT, TgHitLog
 from ..core.notify import (
+    DEFAULT_NOTIFY_MTYPE,
     ICON_LINK,
     ICON_NOTE,
     ICON_SEARCH,
     ICON_SOURCE,
+    deliver,
     media_line,
+    notify_mtype,
 )
 from ..services import matcher as matcher_service
 from ..services.matcher import MediaMatcher
@@ -475,8 +478,9 @@ class CacheModule:
         func = getattr(self._plugin, "post_message", None)
         if not callable(func):
             return
+        mtype = notify_mtype(self._cfg("notify_mtype", DEFAULT_NOTIFY_MTYPE))
         try:
-            func(title=title, text=text)
+            deliver(func, title, text, mtype)
         except Exception as err:  # pragma: no cover - 通知失败不影响主流程
             logger.debug(f"发送缓存回搜通知失败：{err}")
 

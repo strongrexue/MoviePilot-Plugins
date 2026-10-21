@@ -701,6 +701,8 @@ class OverviewNotifyConfig(BaseModel):
     on_hit: bool = True
     on_error: bool = True
     on_search: bool = True
+    # 通知类型（宿主 MessageType 中文名，1.13.22 新增；缺省即「插件」）
+    mtype: str = "插件"
 
 
 class OverviewData(BaseModel):

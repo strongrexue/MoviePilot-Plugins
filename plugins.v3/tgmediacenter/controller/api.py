@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from ..core.pan115_client import Pan115Error
 from ..core.pan115_login import Pan115QrError
 from ..core.telegram import TelegramOperationError
+from ..core.notify import notify_mtype
 from ..model.hit_log import KIND_MONITOR
 from ..services import pt_guard
 from . import schemas as api_schemas
@@ -178,6 +179,7 @@ def api_overview(plugin):
             "on_hit": _config_flag(config, "notify_on_hit", True),
             "on_error": _config_flag(config, "notify_on_error", True),
             "on_search": _config_flag(config, "notify_on_search", True),
+            "mtype": notify_mtype(config.get("notify_mtype")),
         },
         "tg": _safe_status(plugin, "_credentials", {}),
         "pan115": _safe_status(plugin, "_pan115", {}),

@@ -11,12 +11,19 @@
 配置口径（沿用 P0 骨架就预留、P7 才启用的两个开关）：
 
 - ``notify_on_hit``：推送成功类通知（如 115 转存完成汇总）；
-- ``notify_on_error``：故障类通知（如 115 登录态失效 / 转存失败）。
+- ``notify_on_error``：故障类通知（如 115 登录态失效 / 转存失败）；
+- ``notify_mtype``：通知类型（宿主 ``MessageType`` 的中文名，1.13.22 起默认「插件」）。
 
 调用方自己读开关再决定是否调用；本模块只管「发出去」与节流。
+
+关于 ``notify_mtype``：宿主 ``post_message(mtype=...)`` 的类型决定三件事——
+通知中心里的归属图标、按类型配置的「通知范围」（admin / user / all）、
+以及各通知渠道自己的类型白名单。此前插件一直不传 mtype，库里落成空串，
+用户没法在宿主里按类型单独控制它；现在默认归「插件」，可选九类中的任意一类。
 """
 from __future__ import annotations
 
+import inspect
 import re
 import threading
 import time
@@ -42,6 +49,60 @@ ICON_PENDING = "⏳"   # 还有 N 条未处理
 ICON_SKIP = "🚫"     # 忽略 / 没有可处理的链接
 
 _SEASON_EPISODE_RE = re.compile(r"S\d{1,2}E\d{1,2}", re.IGNORECASE)
+
+# ------------------------------------------------------------ 通知类型（1.13.22）
+# 宿主 ``app.schemas.types.MessageType`` 的九个取值。这里只存中文名（= 枚举的
+# value），不 import 宿主枚举：一是插件测试与离线仿真没有宿主包，二是宿主把
+# 中文字符串交给 ``Message(mtype="插件")`` 时 pydantic 会自己转成枚举成员。
+DEFAULT_NOTIFY_MTYPE = "插件"
+NOTIFY_MTYPES = (
+    "资源下载",
+    "整理入库",
+    "订阅",
+    "站点",
+    "媒体服务器",
+    "手动处理",
+    "插件",
+    "智能体",
+    "其它",
+)
+
+
+def notify_mtype(value: Any) -> str:
+    """把配置值归一成宿主认的通知类型中文名。
+
+    - 未配置 / 空串 / 空白 → ``DEFAULT_NOTIFY_MTYPE``（「插件」）；
+    - 在九类白名单内 → 原样返回；
+    - 其它（拼错、未来被宿主删掉的值）→ 回落默认，绝不给宿主塞非法枚举值。
+    """
+    text = str(value or "").strip()
+    if not text:
+        return DEFAULT_NOTIFY_MTYPE
+    return text if text in NOTIFY_MTYPES else DEFAULT_NOTIFY_MTYPE
+
+
+def _accepts_mtype(func: Any) -> bool:
+    """判断 ``post_message`` 是否接收 ``mtype`` 关键字（宿主 3.x 有，替身可能没有）。"""
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):  # 内建 / 动态签名：按不支持处理，走旧调用
+        return False
+    for param in params.values():
+        if param.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+    return "mtype" in params
+
+
+def deliver(func: Any, title: str, text: str, mtype: str) -> None:
+    """把一条通知交给 ``func``（宿主的 ``post_message``）。
+
+    宿主 3.x 的签名有 ``mtype``，旧版 / 测试替身可能只有 ``title``/``text``：
+    先探签名再决定要不要带，避免用 try/except TypeError 把真正的报错一起吞掉。
+    """
+    if _accepts_mtype(func):
+        func(title=title, text=text, mtype=mtype)
+    else:
+        func(title=title, text=text)
 
 
 def media_icon(label: str) -> str:
@@ -93,6 +154,10 @@ class Notifier:
         """读取通知开关（配置缺失时按 ``default``）。"""
         return self._as_bool(self._cfg(key, default), default)
 
+    def mtype(self) -> str:
+        """当前配置的通知类型（归一后必是九类之一，默认「插件」）。"""
+        return notify_mtype(self._cfg("notify_mtype", DEFAULT_NOTIFY_MTYPE))
+
     def stats(self) -> dict:
         with self._lock:
             return {"sent": self._sent_count, "keys": sorted(self._last_sent)}
@@ -122,7 +187,7 @@ class Notifier:
         if not callable(func):
             return False
         try:
-            func(title=title, text=str(text or ""))
+            deliver(func, title, str(text or ""), self.mtype())
             return True
         except Exception as err:  # pragma: no cover - 通知失败不能影响主流程
             from app.sdk.logging import logger

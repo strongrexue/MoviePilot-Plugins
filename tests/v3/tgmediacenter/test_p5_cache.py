@@ -138,8 +138,8 @@ class FakePlugin:
     def get_state(self) -> bool:
         return bool(self._config.get("enabled"))
 
-    def post_message(self, title="", text="") -> None:
-        self.messages.append({"title": title, "text": text})
+    def post_message(self, title="", text="", mtype=None) -> None:
+        self.messages.append({"title": title, "text": text, "mtype": mtype})
 
 
 class FakeMatcher:

@@ -76,8 +76,8 @@ class _Plugin:
     def get_database(self):
         return self._db
 
-    def post_message(self, title="", text="") -> None:
-        self.messages.append({"title": title, "text": text})
+    def post_message(self, title="", text="", mtype=None) -> None:
+        self.messages.append({"title": title, "text": text, "mtype": mtype})
 
 
 class _Matcher:

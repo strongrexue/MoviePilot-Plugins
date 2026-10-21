@@ -45,7 +45,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.21"
+    plugin_version = "1.13.22"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -255,6 +255,9 @@ class TgMediaCenter(_PluginBase):
             "notify_on_hit": True,
             "notify_on_error": True,
             "notify_on_search": True,
+            # 通知类型（宿主 MessageType 中文名；1.13.22 起默认「插件」，
+            # 用户可改成九类里的任意一类，宿主「通知范围」与渠道白名单据此生效）
+            "notify_mtype": "插件",
             # ⑧ 消息交互：私聊机器人发链接直接转存 115 并回执
             "interactive_push": True,
             # 私聊转存查重：转存成功过的链接（台账）不再重复转存（1.7.5）

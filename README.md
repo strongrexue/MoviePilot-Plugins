@@ -96,8 +96,9 @@ Telegram 频道消息
 | 缓存 | `cache_enabled` / `cache_chat_ids` | 开关与缓存频道 |
 | 〃 | `cache_destination` | 回搜命中的推送目标（默认 `smart`） |
 | 〃 | `cache_sync_mode` / `cache_sync_days` / `cache_batch_size` | 同步方式与批量 |
-| 〃 | `cache_subscribe_enabled` | 订阅回搜开关（默认开） |
-| 〃 | `cache_cron` / `cache_subscribe_cron` | 增量同步 / 订阅回搜的 Cron（默认 `0 */6 * * *`、`*/30 * * * *`） |
+| 〃 | `cache_subscribe_enabled` | 新增订阅回搜开关（只控制宿主 `subscribe.added` 实时通道，默认开） |
+| 〃 | `cache_reshuffle_enabled` | 洗版回搜开关（默认关）：定时兜底跳过媒体库判定、遍历全部订阅回搜，用于捞更高画质资源洗版 |
+| 〃 | `cache_cron` / `cache_subscribe_cron` | 增量同步 / 订阅兜底的 Cron（默认 `0 */6 * * *`、`*/30 * * * *`） |
 | 转发 | `forward_enabled` / `forward_rules` | 开关与规则列表 |
 | 通知 | `notify_on_hit` / `notify_on_error` / `notify_on_search` | 转存通知 / 失败通知 / 回搜通知 |
 | 〃 | `notify_mtype` | 通知类型（宿主 MessageType 中文名，默认 `插件`，可改九类中任意一类） |
@@ -112,7 +113,7 @@ Telegram 频道消息
 ```text
 MoviePilot-Plugins/
 ├── plugins.v3/tgmediacenter/     # 插件源码（Vue 联邦前端产物在 dist/assets/）
-├── tests/v3/tgmediacenter/       # 插件测试（pytest，基线 536）
+├── tests/v3/tgmediacenter/       # 插件测试（pytest，基线 544）
 ├── package.v3.json               # V3 插件索引（version / icon / history）
 ├── icons/tgmediacenter.png       # 插件图标（索引仓库用；插件目录内另有一份随包发布）
 └── .github/                      # 发布工作流与门禁脚本

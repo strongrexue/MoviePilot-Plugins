@@ -277,6 +277,30 @@ FloodWait 退避；命中入队后由内置 worker 线程按目标分派执行�
 - 首次运行只建立订阅基线，不会把已有订阅全部回搜（避免一次性推爆）；
 - 缓存频道与监控规则的监听频道互相独立，可以只缓存不监控。
 
+### 洗版回搜（1.13.24，独立开关）
+
+`cache_reshuffle_enabled`（默认关）改变的是**定时兜底 / 手动兜底**的口径，不影响
+`subscribe.added` 的实时通道：
+
+| | 关（默认，与 1.13.23 一致） | 开 |
+|---|---|---|
+| 范围 | 只处理快照 diff 出的**新增**订阅 | 每轮遍历**全部**订阅 |
+| 判定 | 逐条 `is_missing`（媒体库逐集比对） | **跳过媒体库判定**，只要求消息有可用链接 |
+| 去重 | 按 `cache_search` 虚拟规则的命中流水 | 按**任意路径**的命中流水（监控 / 补扫 / 回搜推过都算） |
+| 限流 | 无（新增订阅数量天然有限） | 单轮最多入队 `RESHUFFLE_PUSH_CAP = 100` 条，剩余下一轮 |
+| 通知标题 | 「胖虎媒体中心 缓存回搜」 | 「胖虎媒体中心 洗版回搜」 |
+
+用途：订阅早已存在，但频道后来才放出更高质量的资源（4K / 原盘 / 更好的压制），
+常规兜底因为「订阅不是新增」永远不会再捞它。开启后每轮都把这些老订阅重新过一遍缓存，
+只要这条消息没被任何路径推送过就入队，等于自动洗版。
+
+注意：
+
+- 快照在洗版模式下照旧维护，所以随时关掉开关都能回到常规口径；
+- 单轮上限用推送条数计，达到上限后本轮提前结束，未处理的订阅留到下一轮（流水去重不会重复推）；
+- 媒体库判定被完全跳过，因此**库里已有的资源也会被再推一次**——这正是洗版的语义，
+  但如果只想补缺口，请保持开关关闭。
+
 ### 跳过宿主的「新增订阅首次全站搜索」（1.13.8，独立开关）
 
 宿主保存订阅后会把这条订阅排进一次全站搜索（`source=new`，约 60 秒后自动开始）。
@@ -333,14 +357,16 @@ FloodWait 退避；命中入队后由内置 worker 线程按目标分派执行�
 
 ## 开发与发版
 
-### 版本号四处同步
+### 版本号六处同步
 
-每次发版，下面四处必须同时改为同一版本号，否则 CI 门禁会失败、单测也会爆：
+每次发版，下面六处必须同时改为同一版本号，否则 CI 门禁会失败、单测也会爆：
 
 1. `__init__.py` 的 `plugin_version`；
-2. `package.v3.json` 的 `version` 字段；
-3. `package.v3.json` 的 `history` 最新键（如 `"1.8.2": "..."`）；
-4. `src/components/version.js` 的 `FRONTEND_VERSION`。
+2. `package.json` 的 `version`；
+3. `package.v3.json` 的 `version` 字段；
+4. `package.v3.json` 的 `history` 最新键（如 `"v1.13.24": "..."`）；
+5. `src/components/version.js` 的 `FRONTEND_VERSION`；
+6. `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言。
 
 门禁脚本 `check_plugin_versions.py` 会校验版本一致性与 `history` 键存在；单测
 （`tests/v3/tgmediacenter/test_plugin.py`、`test_p7_polish.py`）也会断言这几处相等。
@@ -459,11 +485,16 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
 - **⑪ 反向闸门 R1**（`1.13.8`）：新增订阅时跳过宿主的「首次全站搜索」——
   独立开关 `skip_first_search_enabled`（默认关，配置页「重复获取治理」分区），
   在宿主入队前拦截（置订阅状态 N→R），与「订阅回搜」开关互不依赖。详见上方「⑤ 历史消息缓存」一节。
+- **洗版回搜**（`1.13.24`）：订阅兜底新增独立开关 `cache_reshuffle_enabled`（默认关）——
+  开启后定时兜底跳过媒体库判定、遍历全部订阅回搜缓存，频道后来进了更高质量的资源也能捞出来洗版；
+  按任意路径的命中流水去重，单轮最多入队 100 条。详见上方「⑤ 历史消息缓存 · 洗版回搜」。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.8`。版本号需四处同步：`__init__.py` 的 `plugin_version`、
-`package.v3.json` 的 `version` 与 `history` 最新键、前端 `src/components/version.js`
-的 `FRONTEND_VERSION`——门禁脚本 `check_plugin_versions.py` 与单测会校验一致性
-（详见上方「开发与发版 · 版本号四处同步」）。
+当前 `1.13.24`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
+`package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
+前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
+`tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本
+`check_plugin_versions.py` 与单测会校验一致性
+（详见上方「开发与发版 · 版本号六处同步」）。

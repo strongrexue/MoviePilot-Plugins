@@ -63,6 +63,10 @@ _BACKFILL_BATCH = 100
 # 已成功推送过的被命中流水拦住，入队失败的那批（无流水记录）得以补推。
 _SUB_SNAPSHOT_KEY = "cache_sub_snapshot_v2"
 _SUB_STATE_KEY = "cache_sub_state"
+# 洗版回搜（1.13.24）：每轮最多入队的推送条数。开启后跳过媒体库判定、回搜全部
+# 订阅，首次开启时可能一次捞出大量从未推送过的老资源；限流让队列不被瞬间灌满，
+# 剩下的下一轮继续（流水去重保证不会重复入队）。
+RESHUFFLE_PUSH_CAP = 100
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
 DEFAULT_SUBSCRIBE_CRON = "*/30 * * * *"
@@ -306,6 +310,15 @@ class CacheModule:
     def subscribe_enabled(self) -> bool:
         return bool(self._cfg("cache_subscribe_enabled", True))
 
+    def reshuffle_enabled(self) -> bool:
+        """洗版回搜开关（默认关）。
+
+        开：定时兜底**跳过媒体库判定**，回搜**全部订阅**的缓存匹配，只要这条消息
+        没被任何路径推送过就入队——频道后来进了更高质量的资源也能洗版。
+        关：与 1.13.23 及以前完全一致（只处理快照 diff 出的新增订阅，且逐条判缺）。
+        """
+        return bool(self._cfg("cache_reshuffle_enabled"))
+
     def backfill_cron(self) -> str:
         """存量补扫 cron（独立配置，默认与订阅兜底同频 30 分钟）。"""
         return _normalize_cron(self._cfg("cache_backfill_cron"), DEFAULT_BACKFILL_CRON)
@@ -354,6 +367,7 @@ class CacheModule:
             "sync_days": self.sync_days(),
             "batch_size": self.batch_size(),
             "subscribe_enabled": self.subscribe_enabled(),
+            "reshuffle_enabled": self.reshuffle_enabled(),
             "backfill_enabled": self.backfill_enabled(),
             "backfill_cron": self.backfill_cron(),
             "cron": self.cron(),
@@ -395,6 +409,8 @@ class CacheModule:
                 patch["cache_batch_size"] = 200
         if "subscribe_enabled" in data:
             patch["cache_subscribe_enabled"] = bool(data.get("subscribe_enabled"))
+        if "reshuffle_enabled" in data:
+            patch["cache_reshuffle_enabled"] = bool(data.get("reshuffle_enabled"))
         if "backfill_enabled" in data:
             patch["cache_backfill_enabled"] = bool(data.get("backfill_enabled"))
         if "backfill_cron" in data:
@@ -490,6 +506,10 @@ class CacheModule:
         与「新增订阅回搜」开关无关：那条开关只控制宿主 ``subscribe.added``
         事件的实时回搜；这里的定时/手动兜底靠快照 diff 发现漏网订阅
         （插件离线期间新增、事件总线不可用），因此始终可用。
+
+        开了「洗版回搜」（``cache_reshuffle_enabled``）后换一套口径：不再只看
+        快照 diff 的新增订阅，而是**遍历全部订阅**、**跳过媒体库判定**，只按
+        推送流水去重——频道后来进了更高质量的资源也能被捞出来洗版（1.13.24）。
         """
         if not self.enabled():
             return {"checked": False, "message": "未启用消息缓存"}
@@ -518,6 +538,9 @@ class CacheModule:
         previous = self._plugin.get_data(_SUB_SNAPSHOT_KEY) or {}
         if not isinstance(previous, dict):
             previous = {}
+
+        if self.reshuffle_enabled():
+            return self._reshuffle_locked(snapshot, previous, trigger=trigger)
 
         if not previous:
             # 首次运行：只建立基线，避免把存量订阅一次性全部回搜推送
@@ -560,7 +583,67 @@ class CacheModule:
             "message": f"新增订阅 {len(new_keys)} 个，推送 {pushed_total} 条",
         }
 
-    def _notify_search_result(self, new_count: int, details: List[dict]) -> None:
+    def _reshuffle_locked(self, snapshot: Dict[str, dict], previous: Dict[str, dict],
+                          *, trigger: str) -> dict:
+        """洗版回搜：遍历全部订阅、跳过媒体库判定，只按推送流水去重。
+
+        与常规兜底的差别（1.13.24 用户需求）：
+        - **范围**：常规只处理快照 diff 出来的新增订阅；这里每轮都过全部订阅，
+          因为「更高质量的资源」是在订阅之后才进频道的，老订阅同样需要再捞一次。
+        - **判定**：常规逐条 ``is_missing``（媒体库有没有、缺不缺集）；这里**跳过**
+          媒体库判定——洗版的目的就是不管库里有什么，只要频道有、还没推过就推。
+        - **去重**：常规按 ``cache_search`` 虚拟规则去重；这里按**任何路径**的命中
+          流水去重（``_hit_exists_any``），否则监控/补扫推过的会被再推一遍。
+        - **限流**：单轮最多入队 ``RESHUFFLE_PUSH_CAP`` 条，避免首次开启瞬间把队列
+          灌满；剩下的下一轮继续（流水已记录，不会重复）。
+        """
+        # 快照照旧维护：洗版开关关掉后仍要能按常规口径继续跑
+        self._plugin.save_data(_SUB_SNAPSHOT_KEY, snapshot)
+        if not snapshot:
+            self._remember_check(new=0, pushed=0, error="")
+            return {"checked": True, "reshuffle": True, "new": 0, "pushed": 0,
+                    "message": "没有订阅可回搜"}
+
+        logger.info(
+            f"[{self._plugin_id()}] 洗版回搜（{trigger}）：遍历 {len(snapshot)} 个订阅，"
+            f"跳过媒体库判定，单轮最多推送 {RESHUFFLE_PUSH_CAP} 条"
+        )
+        budget = RESHUFFLE_PUSH_CAP
+        pushed_total = 0
+        details: List[dict] = []
+        for key in snapshot:
+            sub = snapshot[key]
+            try:
+                result = self._search_subscription(sub, reshuffle=True, budget=budget)
+            except Exception as err:  # 单个订阅失败不影响其余
+                logger.warning(f"[{self._plugin_id()}] 订阅「{sub.get('name')}」洗版回搜失败：{err}")
+                result = {"name": sub.get("name"), "candidates": 0, "pushed": 0, "error": str(err)}
+            pushed = int(result.get("pushed") or 0)
+            pushed_total += pushed
+            budget -= pushed
+            details.append(result)
+            if budget <= 0:
+                logger.info(
+                    f"[{self._plugin_id()}] 洗版回搜已达单轮上限 {RESHUFFLE_PUSH_CAP} 条，"
+                    f"剩余订阅留到下一轮"
+                )
+                break
+
+        self._remember_check(new=len(snapshot), pushed=pushed_total, error="")
+        self._notify_search_result(len(snapshot), details, reshuffle=True)
+        capped = "（已达单轮上限，剩余留到下一轮）" if budget <= 0 else ""
+        return {
+            "checked": True,
+            "reshuffle": True,
+            "subscriptions": len(snapshot),
+            "new": len(snapshot),
+            "pushed": pushed_total,
+            "details": details,
+            "message": f"洗版回搜 {len(snapshot)} 个订阅，推送 {pushed_total} 条{capped}",
+        }
+
+    def _notify_search_result(self, new_count: int, details: List[dict], *,
+                              reshuffle: bool = False) -> None:
         """回搜结果通知。
 
         两种口径都要发：**推了**要说清推了几条；**一条没推**更要说清为什么
@@ -646,10 +729,17 @@ class CacheModule:
         # 截断时由「…其余 N 条」兜底表达。极端情况（计数>0 但无可展示块）
         # 给一句兜底正文，避免发空通知。
         body = "\n".join(lines) or "本次回搜没有可展示的结果"
-        self._notify(f"{ICON_SEARCH} 胖虎媒体中心 缓存回搜", body)
+        title = (f"{ICON_SEARCH} 胖虎媒体中心 洗版回搜" if reshuffle
+                 else f"{ICON_SEARCH} 胖虎媒体中心 缓存回搜")
+        self._notify(title, body)
 
-    def _search_subscription(self, sub: dict) -> dict:
-        """对单个订阅在缓存里回搜并推送。"""
+    def _search_subscription(self, sub: dict, *, reshuffle: bool = False,
+                             budget: Optional[int] = None) -> dict:
+        """对单个订阅在缓存里回搜并推送。
+
+        ``reshuffle=True``（洗版回搜，1.13.24）：跳过媒体库缺失判定、按**任何路径**
+        的命中流水去重，``budget`` 为本次还可入队的条数（None 表示不限）。
+        """
         title = str(sub.get("name") or "").strip()
         if not title:
             return {"name": "", "candidates": 0, "pushed": 0}
@@ -665,6 +755,8 @@ class CacheModule:
         reasons: Dict[str, int] = {}
         media_note = ""
         for item in candidates:
+            if budget is not None and pushed >= budget:
+                break
             links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
             if not links:
                 skipped += 1
@@ -672,19 +764,29 @@ class CacheModule:
                 continue
             chat_id = int(item.get("chat_id") or 0)
             message_id = int(item.get("message_id") or 0)
-            if self._hit_exists(chat_id, message_id):
+            already = (self._hit_exists_any(chat_id, message_id) if reshuffle
+                       else self._hit_exists(chat_id, message_id))
+            if already:
                 skipped += 1
                 _count_reason(reasons, "已推送过")
                 continue
-            verdict = self._matcher.is_missing(
-                title=str(item.get("title") or title),
-                year=str(item.get("year") or sub.get("year") or ""),
-                media_type=str(item.get("media_type") or ""),
-                season=item.get("season"),
-                episode=item.get("episode"),
-                episode_end=item.get("episode_end"),
-                require_subscription=True,
-            )
+            if reshuffle:
+                verdict = {
+                    "missing": True,
+                    "reason": "洗版回搜：不判媒体库",
+                    "source": "reshuffle",
+                    "detail": "",
+                }
+            else:
+                verdict = self._matcher.is_missing(
+                    title=str(item.get("title") or title),
+                    year=str(item.get("year") or sub.get("year") or ""),
+                    media_type=str(item.get("media_type") or ""),
+                    season=item.get("season"),
+                    episode=item.get("episode"),
+                    episode_end=item.get("episode_end"),
+                    require_subscription=True,
+                )
             if verdict.get("missing") is True and verdict.get("reason") == "媒体库中不存在":
                 media_note = media_note or str(verdict.get("note") or "")
             if verdict.get("missing") is not True:
@@ -769,6 +871,7 @@ class CacheModule:
 
         ``enabled`` 指「新增订阅回搜」那条事件开关；``fallback_cron`` 是独立的
         兜底定时（不看事件开关），前端据此展示两条互不依赖的通道。
+        ``reshuffle`` 是 1.13.24 的洗版回搜开关（兜底的口径开关）。
         """
         stored = self._plugin.get_data(_SUB_STATE_KEY) or {}
         if not isinstance(stored, dict):
@@ -778,6 +881,7 @@ class CacheModule:
                 "enabled": self.subscribe_enabled(),
                 "event_enabled": self.subscribe_enabled(),
                 "fallback_cron": self.subscribe_cron(),
+                "reshuffle": self.reshuffle_enabled(),
                 "checking": bool(self._state.get("checking")),
                 "event_listener": self._listener_installed,
                 "last_check_at": str(stored.get("last_check_at") or ""),
@@ -1205,6 +1309,9 @@ class CacheModule:
 
         不看「新增订阅回搜」开关：那条开关只管宿主事件的实时路径，
         兜底负责补上插件离线 / 事件丢失期间新增的订阅。
+
+        开了「洗版回搜」后同一个定时换口径跑：遍历全部订阅、跳过媒体库判定，
+        按推送流水去重（见 ``_reshuffle_locked``）。
         """
         if not self.enabled() or not matcher_service.QUERIES_AVAILABLE:
             return

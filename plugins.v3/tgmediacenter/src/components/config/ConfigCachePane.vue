@@ -379,17 +379,36 @@
         <div class="cache-summary">
           <div class="cache-summary-line">
             定时对比订阅快照，把插件离线 / 事件丢失期间新增的订阅捞出来回搜推送；<strong>不依赖上面的「新增订阅回搜」开关</strong>，关掉它这里照旧按 cron 运行。
+            打开下方「洗版回搜」后，这里改成遍历全部订阅、跳过媒体库判定，专门捞更高质量的资源洗版。
           </div>
           <div class="cache-tags">
-            <span class="cache-tag">快照对比</span>
+            <span class="cache-tag">{{ settings.reshuffle_enabled ? '全部订阅' : '快照对比' }}</span>
             <span class="cache-tag">按下方 cron</span>
             <span class="cache-tag">已推送流水去重</span>
-            <span class="cache-tag">首次只建基线</span>
+            <span class="cache-tag">{{ settings.reshuffle_enabled ? '跳过媒体库判定' : '首次只建基线' }}</span>
           </div>
         </div>
         <div class="cache-note">
           判缺<strong>以媒体库逐集比对为准</strong>（媒体库不可用才退回订阅缺集数），库内查询按「片名+年份 → 仅片名 → 名称变体」逐层放宽；
           无链接 / 已推送的过滤后入队，同一目标合并下发不超过 20 条链接，推送结果含跳过原因与媒体库未收录原因。
+        </div>
+        <!-- 洗版回搜（1.13.24）：兜底口径开关，只影响本卡的定时/手动兜底 -->
+        <div class="cache-switch-row">
+          <VSwitch
+            v-model="settings.reshuffle_enabled"
+            color="primary"
+            density="compact"
+            hide-details
+            inset
+            label="洗版回搜（跳过媒体库判定）"
+            class="cache-switch-inline"
+            @update:model-value="syncSettingsToForm"
+          />
+          <span class="cache-hint">
+            开：本卡每次运行都遍历<strong>全部订阅</strong>、<strong>不探测媒体库入库状态</strong>，
+            频道后来进了更高质量的资源也会被捞出来洗版（只按推送流水去重，单轮最多 100 条）。
+            关：与之前一致，只处理快照新增订阅并逐条判缺。
+          </span>
         </div>
         <div class="cache-actions">
           <span class="cache-hint">缺失判断：</span>
@@ -409,7 +428,7 @@
             :disabled="!status?.enabled"
             @click="checkSubscriptions"
           >
-            立即检查新增订阅
+            {{ settings.reshuffle_enabled ? '立即洗版回搜' : '立即检查新增订阅' }}
           </VBtn>
           <!-- 订阅兜底检查定时：与按钮同一行右侧（垂直居中，窄屏换行堆叠） -->
           <VTextField
@@ -424,8 +443,14 @@
           <span v-if="checkResult" class="cache-hint">{{ checkResult }}</span>
         </div>
         <div class="cache-hint">
-          「立即检查」= 手动跑一次快照对比，用于升级后补跑、排查漏推送；
-          日常新增订阅走上面的实时事件路径，不需要手动点。
+          <template v-if="settings.reshuffle_enabled">
+            「立即洗版回搜」= 立刻按洗版口径跑一次（遍历全部订阅、跳过媒体库判定），
+            适合频道刚进了一批好资源时手动捞一遍；单轮最多入队 100 条。
+          </template>
+          <template v-else>
+            「立即检查」= 手动跑一次快照对比，用于升级后补跑、排查漏推送；
+            日常新增订阅走上面的实时事件路径，不需要手动点。
+          </template>
         </div>
         <div v-if="checkDetails.length" class="cache-details">
           <div v-for="(item, index) in checkDetails" :key="index" class="cache-detail">
@@ -593,6 +618,7 @@ const settings = ref({
   end_date: '',
   batch_size: 200,
   subscribe_enabled: true,
+  reshuffle_enabled: false,
   backfill_enabled: false,
   backfill_cron: '*/30 * * * *',
   cron: '0 */6 * * *',
@@ -629,6 +655,7 @@ function syncSettingsToForm() {
   form.value.cache_sync_days = Number(settings.value.sync_days) || 30
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200
   form.value.cache_subscribe_enabled = Boolean(settings.value.subscribe_enabled)
+  form.value.cache_reshuffle_enabled = Boolean(settings.value.reshuffle_enabled)
   form.value.cache_backfill_enabled = Boolean(settings.value.backfill_enabled)
   form.value.cache_backfill_cron = settings.value.backfill_cron
   form.value.cache_cron = settings.value.cron
@@ -645,6 +672,7 @@ function applySettings(data) {
     end_date: '',
     batch_size: Number(source.batch_size) || 200,
     subscribe_enabled: source.subscribe_enabled !== false,
+    reshuffle_enabled: Boolean(source.reshuffle_enabled),
     backfill_enabled: Boolean(source.backfill_enabled),
     backfill_cron: source.backfill_cron || '*/30 * * * *',
     cron: source.cron || '0 */6 * * *',
@@ -708,6 +736,7 @@ async function saveSettings() {
       sync_days: Number(settings.value.sync_days) || 30,
       batch_size: Number(settings.value.batch_size) || 200,
       subscribe_enabled: Boolean(settings.value.subscribe_enabled),
+      reshuffle_enabled: Boolean(settings.value.reshuffle_enabled),
       backfill_enabled: Boolean(settings.value.backfill_enabled),
       backfill_cron: String(settings.value.backfill_cron || '').trim() || '*/30 * * * *',
       cron: String(settings.value.cron || '').trim() || '0 */6 * * *',
@@ -1056,6 +1085,15 @@ onUnmounted(() => {
 }
 /* 开关本身不加外边距，与左侧贴齐，间距由父级 gap 统一控制 */
 .cache-switch-inline { flex: 0 0 auto; }
+/* 单个开关 + 行内说明（洗版回搜）：开关不收缩，说明文字换行填满剩余宽度 */
+.cache-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.cache-switch-row .cache-hint { flex: 1 1 260px; min-width: 0; }
 /* 按钮行里的 cron 输入：约 200px 宽、垂直居中；窄屏换行时独占一行而不是被压扁 */
 .cache-cron-input { flex: 0 0 200px; width: 200px; min-width: 0; }
 @media (max-width: 760px) {

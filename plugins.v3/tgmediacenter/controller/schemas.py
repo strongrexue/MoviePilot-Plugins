@@ -433,6 +433,9 @@ class CacheSubscribeState(BaseModel):
     enabled: bool = True
     checking: bool = False
     event_listener: bool = False
+    event_enabled: bool = True
+    fallback_cron: str = ""
+    reshuffle: bool = False
     last_check_at: str = ""
     last_check_new: int = 0
     last_check_pushed: int = 0
@@ -467,6 +470,7 @@ class CacheSettingsData(BaseModel):
     sync_days: int = 30
     batch_size: int = 200
     subscribe_enabled: bool = True
+    reshuffle_enabled: bool = False
     backfill_enabled: bool = False
     backfill_cron: str = "*/30 * * * *"
     cron: str = "0 */6 * * *"
@@ -485,6 +489,9 @@ class CacheSettingsRequest(BaseModel):
     sync_days: Optional[int] = None
     batch_size: Optional[int] = None
     subscribe_enabled: Optional[bool] = None
+    reshuffle_enabled: Optional[bool] = Field(
+        default=None, description="洗版回搜：定时兜底跳过媒体库判定、遍历全部订阅"
+    )
     backfill_enabled: Optional[bool] = None
     backfill_cron: Optional[str] = Field(default=None, description="存量补扫 cron（5 段）")
     cron: Optional[str] = Field(default=None, description="增量同步 cron（5 段）")

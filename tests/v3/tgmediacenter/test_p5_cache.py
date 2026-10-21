@@ -999,6 +999,126 @@ class TestSubscriptionSearch:
         assert module.check_subscriptions(trigger="测试")["checked"] is False
 
 
+# ---------------------------------------------------------------------- 洗版回搜（1.13.24）
+
+
+class TestReshuffleSearch:
+    """洗版回搜：定时兜底跳过媒体库判定、遍历全部订阅、按任意路径流水去重。"""
+
+    def test_off_by_default_and_keeps_old_behaviour(self, cache, subscriptions, plugin, fake_metavideo):
+        assert cache.reshuffle_enabled() is False
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        assert cache.check_subscriptions(trigger="测试")["baseline"] is True
+        # 老订阅有新资源也不回搜（常规口径只看快照 diff 的新增订阅）
+        cache.history().record(CHAT_A, 4801, _text("老片 (2026) S01E01"))
+        result = cache.check_subscriptions(trigger="测试")
+        assert result.get("reshuffle") is None
+        assert result["pushed"] == 0
+
+    def test_searches_all_subscriptions_without_library_check(
+        self, cache, subscriptions, plugin, fake_metavideo
+    ):
+        """开了洗版：老订阅（不在快照 diff 里）同样回搜，且**不问媒体库**。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")  # 建基线
+        cache.history().record(CHAT_A, 4811, _text("老片 (2026) S01E01"))
+
+        class ExplodingMatcher:
+            def is_missing(self, **kwargs):  # 洗版路径不许调用媒体库判定
+                raise AssertionError("洗版回搜不应调用 is_missing")
+
+        cache._matcher = ExplodingMatcher()
+        plugin.save_config(cache_reshuffle_enabled=True)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["reshuffle"] is True
+        assert result["pushed"] == 1
+        assert _count(plugin, TgPushTask) == 1
+        assert "洗版回搜" in plugin.messages[-1]["title"]
+
+    def test_media_library_hit_still_pushed(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
+        """洗版的意义就是「库里有了也照推」：媒体库判定为不缺时必须照样入队。"""
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", season=1, media_id="2")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4821, _text("青与碧 (2026) S01E01"))
+        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
+
+        class Exist:
+            seasons = {1: [1]}
+
+        module = FakeMediaServerModule(Exist())
+        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
+        cache._matcher = MediaMatcher()
+        plugin.save_config(cache_reshuffle_enabled=True)
+        assert cache.check_subscriptions(trigger="测试")["pushed"] == 1
+        assert module.calls == 0  # 连库都没查
+
+    def test_dedupes_by_any_path_hit(self, cache, subscriptions, plugin, fake_metavideo):
+        """监控/补扫推过的消息不再洗版重推（按任意 rule_id 的命中流水去重）。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4831, _text("老片 (2026) S01E01"))
+        # 模拟监控规则已经推过这条消息（不同 rule_id）
+        with plugin.get_database().session() as session:
+            session.add(TgHitLog(
+                plugin_id="FakePlugin",
+                rule_id="mon_other_rule",
+                rule_name="别的规则",
+                chat_id=CHAT_A,
+                message_id=4831,
+                decision=DECISION_HIT,
+            ))
+            session.commit()
+        plugin.save_config(cache_reshuffle_enabled=True)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 0
+        assert result["details"][0]["reasons"] == {"已推送过": 1}
+        assert _count(plugin, TgPushTask) == 0
+
+    def test_push_cap_limits_single_run(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
+        import app.plugins.tgmediacenter.modules.cache as cache_module
+
+        monkeypatch.setattr(cache_module, "RESHUFFLE_PUSH_CAP", 1)
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4841, _text("青与碧 (2026) S01E01"))
+        cache.history().record(CHAT_A, 4842, _text("青与碧 (2026) S01E02", "https://115.com/s/swabc888"))
+        plugin.save_config(cache_reshuffle_enabled=True)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 1
+        assert "单轮上限" in result["message"]
+        # 下一轮继续捞剩下的（流水去重保证不重复）
+        assert cache.check_subscriptions(trigger="测试")["pushed"] == 1
+        assert _count(plugin, TgPushTask) == 2
+
+    def test_snapshot_still_maintained(self, cache, subscriptions, plugin, fake_metavideo):
+        """洗版模式下也要维护快照，关掉开关后能按常规口径继续跑。"""
+        from app.plugins.tgmediacenter.modules.cache import _SUB_SNAPSHOT_KEY
+
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        plugin.save_config(cache_reshuffle_enabled=True)
+        cache.check_subscriptions(trigger="测试")
+        assert (plugin.get_data(_SUB_SNAPSHOT_KEY) or {})
+        plugin.save_config(cache_reshuffle_enabled=False)
+        # 关掉后快照已是最新 → 没有新增订阅
+        assert cache.check_subscriptions(trigger="测试")["new"] == 0
+
+    def test_settings_and_state_roundtrip(self, plugin, cache):
+        saved = cache.save_settings({"reshuffle_enabled": True})
+        assert saved["reshuffle_enabled"] is True
+        assert plugin.config["cache_reshuffle_enabled"] is True
+        assert cache.subscribe_state()["reshuffle"] is True
+        assert api_schemas.CacheSettingsData.model_validate(saved).reshuffle_enabled is True
+        payload = cache.status()
+        assert api_schemas.CacheStatusData.model_validate(payload).subscribe.reshuffle is True
+        assert cache.save_settings({"reshuffle_enabled": False})["reshuffle_enabled"] is False
+
+    def test_empty_subscription_list_reports_cleanly(self, cache, subscriptions, plugin):
+        plugin.save_config(cache_reshuffle_enabled=True)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 0
+        assert result["message"] == "没有订阅可回搜"
+
+
 # ---------------------------------------------------------------------- 设置与状态
 
 

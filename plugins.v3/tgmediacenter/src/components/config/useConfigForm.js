@@ -35,6 +35,8 @@ export const configDefaults = {
   cache_sync_days: 30,
   cache_batch_size: 200,
   cache_subscribe_enabled: true,
+  // 洗版回搜（1.13.24）：定时兜底跳过媒体库判定、遍历全部订阅回搜，默认关
+  cache_reshuffle_enabled: false,
   cache_backfill_enabled: false,
   cache_cron: '0 */6 * * *',
   cache_subscribe_cron: '*/30 * * * *',

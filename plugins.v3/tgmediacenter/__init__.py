@@ -45,7 +45,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.23"
+    plugin_version = "1.13.24"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -243,6 +243,9 @@ class TgMediaCenter(_PluginBase):
             "cache_sync_days": 30,
             "cache_batch_size": 200,
             "cache_subscribe_enabled": True,
+            # 洗版回搜（1.13.24）：开 = 定时兜底跳过媒体库判定、遍历全部订阅回搜，
+            # 频道后来进了更高质量的资源也能被捞出来洗版；关 = 与 1.13.23 完全一致
+            "cache_reshuffle_enabled": False,
             "cache_backfill_enabled": False,
             # ⑥ TG 通用转发
             "forward_enabled": False,

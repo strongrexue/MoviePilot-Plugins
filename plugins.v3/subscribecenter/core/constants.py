@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.13.8"
+PLUGIN_VERSION = "1.14.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -108,6 +108,12 @@ DECISION_SKIPPED_SOURCE_DISABLED = "skipped_source_disabled"
 #: 与 ``skipped_already_subscribed`` 的区别：那条是「宿主当前就有这条订阅」，
 #: 删掉订阅后就会消失；这条记的是**历史**，只有清空流水才会忘掉。
 DECISION_SKIPPED_RECORDED = "skipped_recorded"
+#: 命中「排除类型 / 排除题材」黑名单
+#:
+#: 与其它跳过决策的区别：这条是**用户主动设的边界**，不是「不合适」。
+#: 它不参与「是否订过」判定（``recorded_key`` 不认），所以清空流水也不会
+#: 让被拦的条目重新进来 —— 要放行只能改黑名单或手动补订阅。
+DECISION_SKIPPED_BLACKLIST = "skipped_blacklist"
 
 #: 身份解析级别
 CONFIDENCE_L1 = "L1"  # 确定性 ID 直通
@@ -278,7 +284,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 10
+CONFIG_VERSION = 11
 
 
 def default_config() -> Dict[str, Any]:
@@ -328,6 +334,28 @@ def default_config() -> Dict[str, Any]:
         #: 是否只保留指定原始语言的条目
         "filter_original_language": True,
         "tmdb_original_languages": DEFAULT_ORIGINAL_LANGUAGES,
+        # ---------------- 排除规则（黑名单）
+        #: 总开关。**默认关** —— 关闭时行为与未引入该功能时完全一致。
+        "blacklist_enabled": False,
+        #: 排除的电影类型（TMDB genre id 列表）。
+        #: 不要勾「剧情(18)」：几乎每部片都带这个类型，勾了整个源就没了。
+        "blacklist_genre_movie": [],
+        #: 排除的剧集类型（TMDB genre id 列表）。同理不要勾「剧情(18)」。
+        "blacklist_genre_tv": [],
+        #: 启用的内置题材预设（key 列表，见 ``core/blacklist.py`` 的 PRESETS）。
+        #: **默认空** —— 内置词表只是候选，必须用户主动勾选才生效，否则别人
+        #: 装了插件、自己爱看的题材会被静默拦掉。
+        "blacklist_presets": [],
+        #: 自定义题材词（一行一条）。语法见 ``core/blacklist.py`` 的 compile_line：
+        #: 空格分词为 AND、``regex:`` 正则、``case:`` 区分大小写。
+        "blacklist_words": "",
+        #: 是否匹配片名 / 原名
+        "blacklist_match_title": True,
+        #: 是否匹配来源给的题材串（豆瓣 category / AniList genres+tags）
+        "blacklist_match_tags": True,
+        #: 是否额外查 TMDB keyword。**默认关**：每条多一次 TMDB 详情请求，
+        #: 只在「标题和题材串都拦不住、但确实想按关键词拦」时才值得开。
+        "blacklist_tmdb_keywords": False,
         # ---------------- 豆瓣 RSS 源列表
         #: 豆瓣 RSS 榜单列表：内置预设 + 自定义，每条独立控制
         #: （name / url / enabled / max_items / future_days / min_want）

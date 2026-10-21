@@ -115,6 +115,7 @@ const DECISION_LABELS = {
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
   skipped_recorded: '流水已记录',
+  skipped_blacklist: '命中排除规则',
 }
 
 /** 后端版本号；与前端不一致时提示硬刷新。 */
@@ -178,6 +179,7 @@ const sectionNav = computed(() => [
   { key: 'anilist', label: 'AniList', icon: 'mdi-animation-outline' },
   { key: 'douban', label: '豆瓣榜单', icon: 'mdi-movie-filter-outline' },
   { key: 'hot_media', label: '热门媒体', icon: 'mdi-fire' },
+  { key: 'blacklist', label: '排除规则', icon: 'mdi-shield-off-outline' },
   { key: 'schedule', label: '写入与调度', icon: 'mdi-calendar-clock' },
   { key: 'autotoggle', label: '自动启停', icon: 'mdi-toggle-switch-outline' },
   { key: 'preview', label: '预览结果', icon: 'mdi-eye-outline' },
@@ -572,10 +574,71 @@ async function waitAutoToggleDone() {
   return autoToggle.value
 }
 
+/** 排除规则元数据（内置题材预设 + 类型中文名）。 */
+const blacklistMeta = ref(null)
+/** 排除规则自测表单与结果。 */
+const blacklistTestForm = ref({ title: '', tags: '', media_type: 'tv' })
+const blacklistTestResult = ref(null)
+const blacklistTestBusy = ref(false)
+
+/** 内置题材预设（后端下发，勾选后才生效）。 */
+const blacklistPresets = computed(() => blacklistMeta.value?.presets || [])
+
+/** 某个预设会匹配哪些词（勾选后原样摊给用户看，不藏着）。 */
+function presetWords(key) {
+  const preset = blacklistPresets.value.find((entry) => entry.key === key)
+  return preset ? preset.words : []
+}
+
+/** 当前生效的规则条数（0 = 黑名单等于没开）。 */
+const blacklistRuleCount = computed(() => {
+  const genres = (form.value.blacklist_genre_movie || []).length
+    + (form.value.blacklist_genre_tv || []).length
+  const lines = String(form.value.blacklist_words || '')
+    .split('\n')
+    .filter((line) => line.trim()).length
+  return genres + (form.value.blacklist_presets || []).length + lines
+})
+
+async function loadBlacklistMeta() {
+  try {
+    blacklistMeta.value = unwrap(
+      await getPluginApi(props.api, props.pluginId, 'blacklist'),
+    ) || null
+  } catch (error) {
+    // 元数据拿不到不影响表单本身：类型下拉用的是本地常量表
+    blacklistMeta.value = null
+  }
+}
+
+/** 拿一段片名/题材串试一下，看会不会被自己的规则拦掉。 */
+async function runBlacklistTest() {
+  if (blacklistTestBusy.value) return
+  blacklistTestBusy.value = true
+  try {
+    blacklistTestResult.value = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'blacklist/test', {
+        title: blacklistTestForm.value.title || '',
+        original_title: '',
+        media_type: blacklistTestForm.value.media_type || 'tv',
+        tags: blacklistTestForm.value.tags || '',
+        genre_ids: [],
+        keywords: [],
+      }),
+    ) || null
+  } catch (error) {
+    blacklistTestResult.value = null
+    setTip(error?.message || '自测失败', false)
+  } finally {
+    blacklistTestBusy.value = false
+  }
+}
+
 onMounted(() => {
   loadShare()
   loadConfig()
   loadStatus()
+  loadBlacklistMeta()
 })
 </script>
 
@@ -1321,6 +1384,225 @@ onMounted(() => {
             placeholder="例：0 9 * * *"
             class="mt-2 mb-1"
           />
+        </div>
+        </template>
+
+        <template v-if="activeSection === 'blacklist'">
+        <div class="sc-card">
+          <div class="sc-card-title">
+            <VSwitch
+              v-model="form.blacklist_enabled"
+              density="compact"
+              hide-details
+              color="primary"
+              class="mr-2"
+            />
+            排除规则（黑名单）
+          </div>
+          <div class="sc-hint">
+            只拦「自动发现」这条线：命中的片子不会自动订阅，也不会被当成「订过」。
+            <b>已有订阅不受影响</b>（要停请去宿主订阅页暂停），「发现流水」里的手动重新订阅按钮也不受限制。
+            当前生效规则 {{ blacklistRuleCount }} 条。
+          </div>
+
+          <div class="sc-card-title mt-3">排除类型</div>
+          <VRow dense>
+            <VCol cols="12" sm="6">
+              <VSelect
+                v-model="form.blacklist_genre_movie"
+                :items="MOVIE_GENRES"
+                label="电影：排除这些类型"
+                multiple
+                chips
+                density="compact"
+                hide-details
+                variant="outlined"
+              />
+            </VCol>
+            <VCol cols="12" sm="6">
+              <VSelect
+                v-model="form.blacklist_genre_tv"
+                :items="TV_GENRES"
+                label="剧集：排除这些类型"
+                multiple
+                chips
+                density="compact"
+                hide-details
+                variant="outlined"
+              />
+            </VCol>
+          </VRow>
+          <div class="sc-hint mt-1">
+            按 TMDB 类型 id 精确匹配。<b>不要勾「剧情」</b> —— 几乎每部片子都带这个类型，勾了整个源都会被拦掉。
+            <b>「同性」不是 TMDB 类型</b>（TMDB 没有这个词），要拦它请用下面的「排除题材」。
+          </div>
+
+          <div class="sc-card-title mt-3">排除题材</div>
+          <div class="sc-hint">
+            内置预设<b>默认一条都不生效</b>，勾了才开始拦；勾选后下面会列出它到底匹配哪些词。
+          </div>
+          <VRow dense>
+            <VCol
+              v-for="preset in blacklistPresets"
+              :key="preset.key"
+              cols="12"
+              sm="6"
+              md="4"
+            >
+              <VCheckbox
+                v-model="form.blacklist_presets"
+                :value="preset.key"
+                density="compact"
+                hide-details
+                color="primary"
+              >
+                <template #label>
+                  <span>{{ preset.label }}</span>
+                </template>
+              </VCheckbox>
+              <div class="sc-hint">{{ preset.hint }}</div>
+            </VCol>
+          </VRow>
+          <div v-if="!blacklistPresets.length" class="sc-hint">
+            没取到内置预设（后端未就绪）。可以直接在下面写自定义词。
+          </div>
+          <div v-for="preset in blacklistPresets" :key="`${preset.key}-words`">
+            <div
+              v-if="(form.blacklist_presets || []).includes(preset.key)"
+              class="sc-hint"
+            >
+              {{ preset.label }} 会匹配：{{ presetWords(preset.key).join(' / ') }}
+            </div>
+          </div>
+
+          <VTextarea
+            v-model="form.blacklist_words"
+            label="自定义题材词（一行一个）"
+            rows="4"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="mt-2"
+            placeholder="同性&#10;韩国 同性&#10;regex:^(BL|耽美)&#10;case:BL"
+          />
+
+          <div class="sc-row">
+            <div class="sc-row-main">
+              <div class="sc-row-label">匹配片名 / 原名</div>
+              <div class="sc-row-hint">片名里出现题材词就拦（关掉则只看来源题材串）</div>
+            </div>
+            <VSwitch
+              v-model="form.blacklist_match_title"
+              density="compact"
+              hide-details
+              color="primary"
+            />
+          </div>
+          <div class="sc-row">
+            <div class="sc-row-main">
+              <div class="sc-row-label">匹配来源题材串</div>
+              <div class="sc-row-hint">
+                豆瓣分类（如「2026 / 泰国 / 剧情 同性」）与 AniList 的 genres / tags
+              </div>
+            </div>
+            <VSwitch
+              v-model="form.blacklist_match_tags"
+              density="compact"
+              hide-details
+              color="primary"
+            />
+          </div>
+          <div class="sc-row">
+            <div class="sc-row-main">
+              <div class="sc-row-label">额外查 TMDB 关键词</div>
+              <div class="sc-row-hint">
+                只对已通过其它过滤、即将写入的条目查（每条多一次请求，结果按条目缓存）
+              </div>
+            </div>
+            <VSwitch
+              v-model="form.blacklist_tmdb_keywords"
+              density="compact"
+              hide-details
+              color="primary"
+            />
+          </div>
+
+          <div class="sc-hint mt-2">
+            <b>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code>BL</code> 不会命中 <code>BLADE</code>）；
+            一行里写多个词用空格分隔 = 同时包含（<code>韩国 同性</code> 只拦韩国同性题材）；
+            行首加 <code>regex:</code> 用正则；行首加 <code>case:</code> 区分大小写；空行与 <code>#</code> 开头的行忽略。
+            全部留空 = 不排除任何内容。
+          </div>
+          <div class="sc-hint mt-2">
+            <b>词表参考</b>（只是提示，不会自动生效）：
+            同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri /
+            lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。
+            地区词也能组合：「泰国 同性」「韩国 同性」。
+          </div>
+
+          <div class="sc-card-title mt-3">试一下</div>
+          <VRow dense>
+            <VCol cols="12" sm="5">
+              <VTextField
+                v-model="blacklistTestForm.title"
+                label="片名"
+                density="compact"
+                hide-details
+                variant="outlined"
+                placeholder="例：以你的心诠释我的爱"
+              />
+            </VCol>
+            <VCol cols="12" sm="4">
+              <VTextField
+                v-model="blacklistTestForm.tags"
+                label="题材串（可空）"
+                density="compact"
+                hide-details
+                variant="outlined"
+                placeholder="2026 / 泰国 / 剧情 同性"
+              />
+            </VCol>
+            <VCol cols="6" sm="2">
+              <VSelect
+                v-model="blacklistTestForm.media_type"
+                :items="[
+                  { title: '剧集', value: 'tv' },
+                  { title: '电影', value: 'movie' },
+                ]"
+                label="类型"
+                density="compact"
+                hide-details
+                variant="outlined"
+              />
+            </VCol>
+            <VCol cols="6" sm="1">
+              <VBtn
+                variant="tonal"
+                size="small"
+                block
+                :loading="blacklistTestBusy"
+                @click="runBlacklistTest"
+              >
+                自测
+              </VBtn>
+            </VCol>
+          </VRow>
+          <div v-if="blacklistTestResult" class="mt-2">
+            <VChip
+              v-if="blacklistTestResult.matched"
+              size="small"
+              variant="flat"
+              color="error"
+            >
+              会被拦下：{{ blacklistTestResult.reason }}
+            </VChip>
+            <VChip v-else size="small" variant="flat" color="success">
+              不会被拦（当前生效规则 {{ blacklistTestResult.rules }} 条）
+            </VChip>
+          </div>
+          <div v-if="!form.blacklist_enabled" class="sc-hint mt-2">
+            总开关没开：上面这些规则一条都不会生效。
+          </div>
         </div>
         </template>
 

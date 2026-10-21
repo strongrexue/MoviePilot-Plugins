@@ -222,6 +222,10 @@ class TmdbSource:
                 "release_date": release_date,
                 "vote_count": info.get("vote_count"),
                 "original_language": info.get("original_language"),
+                # 题材 id（discover 响应本来就带，之前被丢掉了）。
+                # 「排除类型」黑名单靠它做零成本判定 —— 有了它就不必再为
+                # 类型过滤多打一次 TMDB 详情。
+                "genre_ids": list(info.get("genre_ids") or []),
             },
         )
 

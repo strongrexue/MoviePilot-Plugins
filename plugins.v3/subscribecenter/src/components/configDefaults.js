@@ -32,6 +32,23 @@ export const configDefaults = {
   //: 是否只保留指定原始语言的条目
   filter_original_language: true,
   tmdb_original_languages: 'zh,ja,ko,en',
+  // ---------------- 排除规则（黑名单）
+  //: 总开关：默认关，关掉时行为与没有这个功能时完全一致
+  blacklist_enabled: false,
+  //: 排除的电影类型（TMDB genre id）。注意别勾「剧情(18)」，几乎所有片都带
+  blacklist_genre_movie: [],
+  //: 排除的剧集类型（TMDB genre id）。同理别勾「剧情(18)」
+  blacklist_genre_tv: [],
+  //: 启用的内置题材预设 key（默认空：内置词表必须用户勾选才生效）
+  blacklist_presets: [],
+  //: 自定义题材词（一行一个；空格=同时包含，regex: 正则，case: 区分大小写）
+  blacklist_words: '',
+  //: 是否匹配片名 / 原名
+  blacklist_match_title: true,
+  //: 是否匹配来源题材串（豆瓣 category / AniList genres+tags）
+  blacklist_match_tags: true,
+  //: 是否额外查 TMDB 关键词（每条多一次请求，默认关）
+  blacklist_tmdb_keywords: false,
   // ---------------- 豆瓣 RSS 源列表
   // ---------------- 豆瓣 RSS 榜单（每榜独立配置）
   rsshub_domain: 'https://rsshub.ddsrem.com',
@@ -100,7 +117,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 10,
+  config_version: 11,
   // ---------------- 一次性执行
   onlyonce: false,
 }

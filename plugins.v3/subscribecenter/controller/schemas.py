@@ -418,6 +418,46 @@ class AutoToggleResult(BaseModel):
     )
 
 
+class BlacklistPreset(BaseModel):
+    """一个内置题材预设（**只有用户勾选才生效**）。"""
+
+    key: str = Field(description="预设标识，存进 blacklist_presets")
+    label: str = Field(description="展示名")
+    hint: str = Field(default="", description="会匹配哪些词（只读展示）")
+    words: List[str] = Field(default_factory=list, description="预设包含的词")
+
+
+class BlacklistMeta(BaseModel):
+    """排除规则的元数据：给前端渲染勾选项用。"""
+
+    enabled: bool = Field(default=False, description="总开关是否打开")
+    presets: List[BlacklistPreset] = Field(
+        default_factory=list, description="内置题材预设"
+    )
+    genre_names: Dict[str, str] = Field(
+        default_factory=dict, description="TMDB 类型 id → 中文名"
+    )
+
+
+class BlacklistTestRequest(BaseModel):
+    """自测一条内容会不会被排除规则拦下。"""
+
+    title: str = Field(default="", description="片名")
+    original_title: str = Field(default="", description="原名")
+    media_type: str = Field(default="tv", description="tv / movie")
+    tags: str = Field(default="", description="题材串（如豆瓣 category）")
+    genre_ids: List[int] = Field(default_factory=list, description="TMDB 类型 id")
+    keywords: List[str] = Field(default_factory=list, description="TMDB 关键词")
+
+
+class BlacklistTestResult(BaseModel):
+    """自测结果。"""
+
+    matched: bool = Field(default=False, description="是否会被拦下")
+    reason: str = Field(default="", description="命中原因（与流水里的 reason 一致）")
+    rules: int = Field(default=0, description="当前生效的规则条数")
+
+
 #: 路由 → 响应业务模型
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
@@ -428,6 +468,8 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/calendar/day": CalendarView,
     "/auto_toggle": AutoToggleView,
     "/auto_toggle/apply": AutoToggleStart,
+    "/blacklist": BlacklistMeta,
+    "/blacklist/test": BlacklistTestResult,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,
@@ -448,6 +490,10 @@ __all__ = [
     "AutoToggleResult",
     "AutoToggleStart",
     "AutoToggleView",
+    "BlacklistMeta",
+    "BlacklistPreset",
+    "BlacklistTestRequest",
+    "BlacklistTestResult",
     "HistorySubscribeRequest",
     "HistorySubscribeResult",
     "CalendarItem",

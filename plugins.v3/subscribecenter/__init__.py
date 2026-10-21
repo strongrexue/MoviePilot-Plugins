@@ -56,7 +56,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.13.8"
+    plugin_version = "1.14.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -365,6 +365,14 @@ class SubscribeCenter(_PluginBase):
     async def api_auto_toggle_apply(self) -> Any:
         """立刻执行一次自动启停（会写订阅状态）。"""
         return await api_controller.api_auto_toggle_apply(self)
+
+    async def api_blacklist(self) -> Any:
+        """读取排除规则元数据（内置题材预设 + TMDB 类型名）。"""
+        return await api_controller.api_blacklist(self)
+
+    async def api_blacklist_test(self, request: Any = None) -> Any:
+        """自测一条内容会不会被排除规则拦下。"""
+        return await api_controller.api_blacklist_test(self, request)
 
     async def api_system_share_save(self, request: Any = None) -> Any:
         """设置订阅数据共享开关。"""
@@ -1904,10 +1912,138 @@ class SubscribeCenter(_PluginBase):
                 future_days_by_source=self._future_days_by_source(),
                 min_rating_by_source=self._min_rating_by_source(),
                 min_popularity_by_source=self._min_popularity_by_source(),
+                # 黑名单第三层（TMDB keyword）只在配置打开时才会被调用
+                keyword_lookup=self._tmdb_keywords,
                 dry_run=force_dry_run,
                 already_written_today=self._written_today(),
                 tz_name=self._tz(),
         )
+
+    async def _tmdb_keywords(self, media_type: str, media_id: str) -> List[str]:
+        """查一条 TMDB 关键词（「排除题材」第三层用）。
+
+        只有 ``blacklist_tmdb_keywords`` 打开时才会被流水线调用，而且只对
+        「已通过全部其它过滤、即将写入」的条目 —— 每条多一次 TMDB 详情请求，
+        不能摊到几百条候选上。
+
+        为什么需要这一层：TMDB 的类型表里**没有「同性」**（见
+        ``core/blacklist.py`` 的 GENRE_NAMES），豆瓣 RSS 能用 ``category``
+        里的中文字样兜住，但纯 TMDB 源没有那段文本，只能靠 keyword。
+
+        查询结果按 ``媒体类型:ID`` 缓存在进程内 —— 同一部剧同一次运行里
+        可能被判定多次（预览 + 正式）时不再重复请求。
+        """
+        cache = self.__dict__.setdefault("_tmdb_keyword_cache", {})
+        key = f"{media_type}:{media_id}"
+        if key in cache:
+            return cache[key]
+        tmdb_id = str(media_id or "").strip()
+        if not tmdb_id.isdigit():
+            cache[key] = []
+            return []
+        if media_type == C.MEDIA_TYPE_TV:
+            path = f"/tv/{tmdb_id}/keywords"
+        else:
+            path = f"/movie/{tmdb_id}/keywords"
+        try:
+            from .core.host import HostTmdbResolver
+
+            payload = await HostTmdbResolver._tmdb_get(path)
+        except Exception as err:  # noqa: BLE001 - 查不到就放行，交给其它层
+            logger.debug(f"[SubscribeCenter] 查 TMDB 关键词失败 {path}：{err}")
+            cache[key] = []
+            return []
+        # 电影接口回 ``keywords``，剧集接口回 ``results`` —— 两个都认
+        entries = (payload or {}).get("keywords") or (payload or {}).get("results") or []
+        keywords = [
+            str(entry.get("name") or "")
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("name")
+        ]
+        if len(cache) > 5000:
+            cache.clear()
+        cache[key] = keywords
+        return keywords
+
+    # ---------------------------------------------------------- 排除规则（黑名单）
+
+    def blacklist_rules(self) -> Any:
+        """当前生效的排除规则（总开关关闭时返回的空规则 ``active=False``）。"""
+        from .core import blacklist as blacklist_core
+
+        return blacklist_core.rules_from_config(self._config or {})
+
+    def blacklist_meta(self) -> Dict[str, Any]:
+        """给前端渲染用的元数据：内置题材预设 + TMDB 类型中英对照。
+
+        预设**只有用户勾选才生效**（``blacklist_presets`` 默认空），这里只负责
+        把「会匹配哪些词」如实摊开给用户看 —— 黑名单是静默生效的规则，
+        不把词摊开等于让人蒙着眼排除。
+        """
+        from .core import blacklist as blacklist_core
+
+        config = self._config or {}
+        return {
+            "enabled": bool(config.get("blacklist_enabled")),
+            "presets": [
+                {
+                    "key": preset["key"],
+                    "label": preset["label"],
+                    "hint": preset.get("hint", ""),
+                    "words": list(preset["words"]),
+                }
+                for preset in blacklist_core.PRESETS
+            ],
+            "genre_names": {
+                str(genre_id): name
+                for genre_id, name in blacklist_core.GENRE_NAMES.items()
+            },
+        }
+
+    def blacklist_test(
+        self,
+        *,
+        title: str = "",
+        original_title: str = "",
+        media_type: str = "tv",
+        tags: str = "",
+        genre_ids: Optional[List[int]] = None,
+        keywords: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """自测一条内容会不会被排除规则拦下（配置页「试一下」用）。
+
+        走的是和流水线**完全相同**的判定函数（``check_item`` / ``check_keywords``），
+        不做任何简化 —— 否则自测通过、真跑被拦，等于没测。
+        """
+        from .core import blacklist as blacklist_core
+        from .core.model import DiscoveredItem
+
+        rules = self.blacklist_rules()
+        item = DiscoveredItem(
+            source="blacklist_test",
+            source_id="blacklist_test",
+            title=str(title or ""),
+            media_type=str(media_type or C.MEDIA_TYPE_TV),
+            original_title=str(original_title or "") or None,
+            raw={
+                "genre": str(tags or ""),
+                "genre_ids": [
+                    int(str(entry).strip())
+                    for entry in (genre_ids or [])
+                    if str(entry).strip().isdigit()
+                ],
+            },
+        )
+        reason = blacklist_core.check_item(rules, item)
+        if not reason and keywords:
+            reason = blacklist_core.check_keywords(rules, keywords)
+        return {
+            "matched": bool(reason),
+            "reason": reason,
+            "rules": (
+                len(rules.words) + len(rules.movie_genres) + len(rules.tv_genres)
+            ),
+        }
 
     def _future_days_by_source(self) -> Dict[str, int]:
         """返回各数据源的发现窗口天数（天）。"""

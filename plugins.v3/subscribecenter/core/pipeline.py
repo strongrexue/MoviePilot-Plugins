@@ -10,10 +10,22 @@
 """
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+)
 
+from .blacklist import BlacklistRules, check_item, check_keywords, rules_from_config
 from .constants import (
     DECISION_PENDING_REVIEW,
+    DECISION_SKIPPED_BLACKLIST,
     DECISION_SKIPPED_DUPLICATE,
     DECISION_SKIPPED_NO_DATE,
     DECISION_SKIPPED_NOT_FUTURE,
@@ -26,6 +38,10 @@ from .identity import IdentityResolver, normalize_title
 from .model import DiscoveredItem, item_sort_key
 from .window import in_window, local_now_text, parse_date, today, utc_now_text
 from .writer import SubscriptionWriter, WriteOutcome, WriteReport
+
+#: TMDB 关键词查询函数签名：``(media_type, tmdb_id) -> [keyword, ...]``
+KeywordLookup = Callable[[str, str], Awaitable[Sequence[str]]]
+
 
 
 class SourceAdapter(Protocol):
@@ -299,6 +315,88 @@ def filter_by_window(
     return in_window(release, future_days, tz_name=tz_name, now=now)
 
 
+def filter_blacklist(
+    items: Sequence[DiscoveredItem],
+    rules: BlacklistRules,
+) -> Tuple[List[DiscoveredItem], List[WriteOutcome]]:
+    """黑名单第一层：类型 + 题材词（同步、零请求）。
+
+    **必须放在身份解析之前**（:func:`run_pipeline` 第 2.5 步）：
+    命中的条目不该再花一次 TMDB 请求去解析身份。参考插件 doubancenter 也在
+    同一位置拦，实测每轮省下几十次网络往返。
+
+    这一层覆盖：
+
+    - ``排除类型``：条目自带 ``genre_ids``（TMDB 源）或中英文字样（豆瓣/AniList）
+      反查出的 TMDB genre id；
+    - ``排除题材``：片名 / 原名，以及来源给的题材串（豆瓣 ``category`` 里
+      ``剧情 同性 犯罪`` 这种中文字样正是「同性剧」唯一可靠的免费信号）。
+
+    :return: ``(放行条目, 被拦的 WriteOutcome 列表)``
+    """
+    if not rules.active:
+        return list(items), []
+    kept: List[DiscoveredItem] = []
+    rejected: List[WriteOutcome] = []
+    for item in items:
+        reason = check_item(rules, item)
+        if reason:
+            rejected.append(
+                WriteOutcome(item=item, decision=DECISION_SKIPPED_BLACKLIST, reason=reason)
+            )
+            continue
+        kept.append(item)
+    return kept, rejected
+
+
+async def filter_blacklist_keywords(
+    items: Sequence[DiscoveredItem],
+    rules: BlacklistRules,
+    lookup: Optional[KeywordLookup],
+    *,
+    concurrency: int = 4,
+) -> Tuple[List[DiscoveredItem], List[WriteOutcome]]:
+    """黑名单第二层：TMDB keyword（有请求成本，只对即将写入的条目查）。
+
+    ``blacklist_tmdb_keywords`` 默认关 —— 每条要多一次详情请求。开启后也只
+    作用于「已通过全部其它过滤」的少量条目（:func:`run_pipeline` 第 5 步之前），
+    不会把请求量摊到几百条候选上。
+
+    查不到关键词时**放行**（fail-open）：网络抖动不该让整轮发现把该订的条目
+    全丢掉；宁可漏拦一条，也不能错杀一批。
+    """
+    if not rules.active or not rules.tmdb_keywords or not rules.words or lookup is None:
+        return list(items), []
+    if not items:
+        return [], []
+
+    width = max(1, int(concurrency or 1))
+    semaphore = asyncio.Semaphore(width)
+
+    async def one(item: DiscoveredItem) -> Optional[str]:
+        resolved = item.resolved
+        if not resolved or not resolved.media_id:
+            return ""
+        async with semaphore:
+            try:
+                keywords = await lookup(item.media_type, str(resolved.media_id))
+            except Exception:  # noqa: BLE001 - fail-open（见 docstring）
+                return ""
+        return check_keywords(rules, keywords or ())
+
+    reasons = list(await asyncio.gather(*(one(item) for item in items)))
+    kept: List[DiscoveredItem] = []
+    rejected: List[WriteOutcome] = []
+    for item, reason in zip(items, reasons):
+        if reason:
+            rejected.append(
+                WriteOutcome(item=item, decision=DECISION_SKIPPED_BLACKLIST, reason=reason)
+            )
+            continue
+        kept.append(item)
+    return kept, rejected
+
+
 def select_items(
     items: Sequence[DiscoveredItem],
     *,
@@ -475,11 +573,12 @@ async def run_pipeline(
     future_days_by_source: Optional[Dict[str, int]] = None,
     min_rating_by_source: Optional[Dict[str, float]] = None,
     min_popularity_by_source: Optional[Dict[str, float]] = None,
+    keyword_lookup: Optional[KeywordLookup] = None,
 ) -> RunSummary:
     """执行一次完整发现流水线。
 
     顺序（开发文档 §7.1）：拉取 → 源内去重 → 归一（源实现内完成）→ 跨源去重
-    → 身份解析 → 过滤 → 额度 → 写入。
+    → **黑名单** → 身份解析 → 过滤 → 额度 → 写入。
     """
     summary = RunSummary(started_at=local_now_text(tz_name), dry_run=dry_run)
     now = today(tz_name)
@@ -502,6 +601,12 @@ async def run_pipeline(
     raw = dedupe_within_source(raw)
     # 记录被丢弃数：否则「拉取」与「各决策之和」对不上（真机：371 vs 341 差 30）
     summary.deduped_out = max(0, before_dedupe - len(raw))
+
+    # ---- 2.5 黑名单（**必须在身份解析之前**：拦掉的条目不该再花 TMDB 请求）
+    rules = rules_from_config(config)
+    blocked: List[WriteOutcome] = []
+    if rules.active:
+        raw, blocked = filter_blacklist(raw, rules)
 
     # ---- 3. 身份解析（**并发**，单条失败不影响其余）
     #
@@ -534,6 +639,19 @@ async def run_pipeline(
         tz_name=tz_name,
         now=now,
     )
+    if blocked:
+        summary.prefiltered = blocked + summary.prefiltered
+
+    # ---- 4.5 黑名单第二层：TMDB keyword（只对即将写入的少量条目查）
+    if rules.active and rules.tmdb_keywords and keyword_lookup is not None:
+        summary.selected, keyword_blocked = await filter_blacklist_keywords(
+            summary.selected,
+            rules,
+            keyword_lookup,
+            concurrency=min(4, max(1, int(resolve_concurrency or 1))),
+        )
+        if keyword_blocked:
+            summary.prefiltered = summary.prefiltered + keyword_blocked
 
     # ---- 5. 写入（dry_run 或首次运行时只判定）
     effective_dry_run = bool(dry_run)
@@ -549,12 +667,15 @@ async def run_pipeline(
 
 
 __all__ = [
+    "KeywordLookup",
     "RunSummary",
     "SourceAdapter",
     "SourceResult",
     "dedupe_cross_source",
     "dedupe_within_source",
     "fetch_all",
+    "filter_blacklist",
+    "filter_blacklist_keywords",
     "filter_by_rating",
     "filter_by_window",
     "run_pipeline",

@@ -250,6 +250,7 @@ const DECISION_LABELS = {
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
   skipped_recorded: '流水已记录',
+  skipped_blacklist: '命中排除规则',
   skipped_duplicate: '跨源重复',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',

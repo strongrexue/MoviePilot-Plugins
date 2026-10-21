@@ -44,6 +44,13 @@ def get_api(plugin) -> List[Dict[str, Any]]:
             ["POST"],
             "立刻执行一次按播出日自动启停",
         ),
+        ("/blacklist", plugin.api_blacklist, ["GET"], "读取排除规则（类型/题材）"),
+        (
+            "/blacklist/test",
+            plugin.api_blacklist_test,
+            ["POST"],
+            "自测一条内容会不会被排除规则拦下",
+        ),
         ("/card_theme", plugin.api_card_theme, ["GET"], "读取订阅卡片配色"),
         ("/card_theme/save", plugin.api_card_theme_save, ["POST"], "保存订阅卡片配色"),
         ("/run_once", plugin.api_run_once, ["POST"], "手动触发一次发现任务"),
@@ -279,6 +286,37 @@ async def api_auto_toggle_apply(plugin) -> Any:
         logger.error(f"[SubscribeCenter] 执行自动启停失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="执行自动启停失败") from err
     return schemas.Response(success=True, data=api_schemas.AutoToggleStart(**result))
+
+
+async def api_blacklist(plugin) -> Any:
+    """读取排除规则元数据（内置题材预设 + TMDB 类型名）。"""
+    try:
+        data = plugin.blacklist_meta()
+        return schemas.Response(success=True, data=api_schemas.BlacklistMeta(**data))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取排除规则失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取排除规则失败") from err
+
+
+async def api_blacklist_test(plugin, request: api_schemas.BlacklistTestRequest) -> Any:
+    """自测：给一段片名/题材串，立刻返回会不会被拦下、命中哪条规则。
+
+    这个接口的意义：黑名单是「静默生效」的规则，用户配完必须能当场验证
+    —— 否则第一次发现某个题材没订上，根本不知道是被谁拦的。
+    """
+    try:
+        data = plugin.blacklist_test(
+            title=request.title,
+            original_title=request.original_title,
+            media_type=request.media_type,
+            tags=request.tags,
+            genre_ids=request.genre_ids,
+            keywords=request.keywords,
+        )
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 黑名单自测失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="黑名单自测失败") from err
+    return schemas.Response(success=True, data=api_schemas.BlacklistTestResult(**data))
 
 
 async def api_card_theme(plugin) -> Any:

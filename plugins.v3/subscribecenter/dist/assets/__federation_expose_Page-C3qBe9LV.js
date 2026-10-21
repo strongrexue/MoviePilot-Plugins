@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Do_O0eQi.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-Cej8KrWz.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -375,6 +375,7 @@ const DECISION_LABELS = {
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
   skipped_recorded: '流水已记录',
+  skipped_blacklist: '命中排除规则',
   skipped_duplicate: '跨源重复',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
@@ -1580,6 +1581,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0c536d94"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a09277c6"]]);
 
 export { Page as default };

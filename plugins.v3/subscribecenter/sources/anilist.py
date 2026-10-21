@@ -73,6 +73,10 @@ ONGOING_PAGES = 2
 MOVIE_FORMATS = frozenset({"MOVIE", "ONE_SHOT"})
 
 #: 字段集合：两条通道共用
+#:
+#: ``genres`` / ``tags`` 是为了「排除题材」黑名单：AniList 的 tag 里
+#: ``Boys Love`` / ``Yuri`` / ``LGBTQ+ Themes`` 是 BL/百合 唯一可靠的免费信号，
+#: 不取就只剩片名可看（而片名基本看不出来）。
 MEDIA_FIELDS = """
     id
     idMal
@@ -88,6 +92,8 @@ MEDIA_FIELDS = """
     startDate { year month day }
     title { native romaji english }
     nextAiringEpisode { episode airingAt }
+    genres
+    tags { name }
 """
 
 SEASON_QUERY = (
@@ -314,6 +320,14 @@ class AniListSource:
                 "start_date": start.isoformat() if start else None,
                 "next_airing": next_airing.isoformat() if next_airing else None,
                 "channel": channel,
+                # 题材（黑名单用）：genres 是英文类型名，tags 里带
+                # Boys Love / Yuri / LGBTQ+ Themes 这些 TMDB 没有的信号。
+                "genres": [str(entry) for entry in (row.get("genres") or []) if entry],
+                "tags": [
+                    str(entry.get("name"))
+                    for entry in (row.get("tags") or [])
+                    if isinstance(entry, dict) and entry.get("name")
+                ],
             },
         )
 

@@ -256,6 +256,7 @@ def test_every_route_has_a_response_model():
         "/status",
         "/history",
         "/history/clear",
+        "/history/subscribe",
         "/calendar",
         "/calendar/day",
         "/auto_toggle",

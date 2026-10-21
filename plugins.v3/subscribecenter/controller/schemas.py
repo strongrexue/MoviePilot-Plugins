@@ -298,6 +298,8 @@ class AutoToggleLibrary(BaseModel):
     """自动启停：媒体库核对的本轮统计。"""
 
     snapshot: int = Field(default=0, description="快照命中（零请求）的订阅数")
+    cached: int = Field(default=0, description="沿用上次核对结果的订阅数")
+    cached_at: str = Field(default="", description="上次核对时间")
     candidates: int = Field(default=0, description="本轮待核对的订阅数")
     probed: int = Field(default=0, description="本轮实际核对的订阅数")
     deferred: int = Field(default=0, description="预算用尽、留到下一轮的条数")
@@ -332,6 +334,8 @@ class AutoToggleLastRun(BaseModel):
     at: str = Field(default="", description="执行时间")
     today: str = Field(default="", description="判定日期")
     reason: str = Field(default="", description="cron / manual")
+    running: bool = Field(default=False, description="是否正在后台执行")
+    started_at: str = Field(default="", description="本轮开始时间")
     planned: int = Field(default=0, description="计划改动条数")
     applied: int = Field(default=0, description="实际成功条数")
     paused: int = Field(default=0, description="暂停条数")
@@ -384,6 +388,14 @@ class HistorySubscribeResult(BaseModel):
     )
 
 
+class AutoToggleStart(BaseModel):
+    """自动启停：手动触发的结果（真正的执行在后台跑）。"""
+
+    started: bool = Field(default=False, description="是否已开始")
+    running: bool = Field(default=False, description="后台是否正在跑")
+    message: str = Field(default="", description="给用户看的说明")
+
+
 class AutoToggleResult(BaseModel):
     """自动启停：执行结果。"""
 
@@ -415,7 +427,7 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/calendar": CalendarMonth,
     "/calendar/day": CalendarView,
     "/auto_toggle": AutoToggleView,
-    "/auto_toggle/apply": AutoToggleResult,
+    "/auto_toggle/apply": AutoToggleStart,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": RunOnceResult,
@@ -434,6 +446,7 @@ __all__ = [
     "AutoToggleLastRun",
     "AutoToggleLibrary",
     "AutoToggleResult",
+    "AutoToggleStart",
     "AutoToggleView",
     "HistorySubscribeRequest",
     "HistorySubscribeResult",

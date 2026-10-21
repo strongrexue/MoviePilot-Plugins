@@ -521,25 +521,32 @@ async function loadAutoToggle() {
   }
 }
 
-/** 真正改状态。先落盘接管表再改库，所以中途失败也不会把订阅卡在错的状态。 */
+/**
+ * 真正改状态：**在后台跑**，接口立刻返回，然后轮询进度。
+ *
+ * 真机教训：核对媒体库要串行跑几分钟，放在请求里会被网关 502 掐断，
+ * 用户只看到一个「请求被网关中断」。所以执行改成后台线程 + 轮询。
+ */
 async function applyAutoToggle() {
   if (autoToggleBusy.value) return
-  if (!window.confirm('将按播出日暂停/恢复订阅状态，确定执行？')) return
+  if (!window.confirm('将按播出日暂停/恢复订阅状态（含媒体库核对，可能跑几分钟），确定执行？')) return
   autoToggleBusy.value = 'apply'
   try {
-    const data = unwrap(
+    const start = unwrap(
       await postPluginApi(
         props.api,
         props.pluginId,
         'auto_toggle/apply',
         {},
-        { timeoutMs: 600000 },
+        { timeoutMs: 60000 },
       ),
     )
-    autoToggle.value = data || null
-    const failed = Array.isArray(data?.failed) ? data.failed.length : 0
+    setTip(start?.message || '已在后台开始执行')
+    const data = await waitAutoToggleDone()
+    const last = data?.last_run || {}
+    const failed = Number(last.failed || 0)
     setTip(
-      `已执行：暂停 ${data?.paused ?? 0} 条 / 恢复 ${data?.resumed ?? 0} 条`
+      `已执行：暂停 ${last.paused ?? 0} 条 / 恢复 ${last.resumed ?? 0} 条`
         + (failed ? ` / 失败 ${failed} 条（详见运行日志）` : ''),
       !failed,
     )
@@ -549,6 +556,20 @@ async function applyAutoToggle() {
   } finally {
     autoToggleBusy.value = ''
   }
+}
+
+/** 轮询后台执行是否结束，顺便把预览数据刷新一遍。 */
+async function waitAutoToggleDone() {
+  for (let i = 0; i < 600; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    const data = unwrap(
+      await getPluginApi(props.api, props.pluginId, 'auto_toggle', { timeoutMs: 120000 }),
+    )
+    autoToggle.value = data || null
+    if (!data?.last_run?.running) return data
+    setTip(`后台执行中…（已 ${(i + 1) * 3} 秒，核对媒体库是按条串行的）`)
+  }
+  return autoToggle.value
 }
 
 onMounted(() => {
@@ -1602,7 +1623,14 @@ onMounted(() => {
               >
                 立即执行
               </VBtn>
-              <span class="sc-hint">预览要查 TMDB 播出表，首次可能要十几秒</span>
+              <span class="sc-hint">预览只读不算库（不碰媒体服务器）；核对在「立即执行」里后台跑</span>
+            </div>
+
+            <div v-if="autoToggle?.last_run?.running" class="mt-3">
+              <VAlert type="info" variant="tonal" density="compact" :icon="false">
+                后台正在执行（开始于 {{ autoToggle.last_run.started_at || '刚刚' }}）……
+                核对媒体库是按条串行的，跑完这里会自动刷新。
+              </VAlert>
             </div>
 
             <div v-if="autoToggle" class="mt-3">
@@ -1621,7 +1649,8 @@ onMounted(() => {
                   variant="tonal"
                   color="info"
                 >
-                  库核对：快照 {{ autoToggle.library.snapshot ?? 0 }} 条 / 实探
+                  库核对：快照 {{ autoToggle.library.snapshot ?? 0 }} 条 / 沿用
+                  {{ autoToggle.library.cached ?? 0 }} 条 / 实探
                   {{ autoToggle.library.probed ?? 0 }} 条 / 待核对
                   {{ autoToggle.library.deferred ?? 0 }} 条（{{ libraryElapsedText }}）
                 </VChip>

@@ -264,20 +264,21 @@ async def api_auto_toggle(plugin) -> Any:
 
 
 async def api_auto_toggle_apply(plugin) -> Any:
-    """立刻执行一次自动启停（会写订阅状态）。
+    """在后台跑一次自动启停（会写订阅状态），立刻返回。
 
     .. note::
-       与定时任务共用同一把互斥锁：已有运行在跑时直接返回「跳过」，
-       不排队、不并发（否则同一条订阅可能被两个流程反复改状态）。
+       真正的执行要串行核对媒体库，几分钟起步 —— 放在 HTTP 请求里会被网关
+       502 掐断（真机踩过）。所以这里只挂后台线程，前端轮询 ``/auto_toggle``
+       的 ``last_run.running`` 看进度。
     """
     try:
         result = await plugin.auto_toggle_apply()
+    except RuntimeError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 执行自动启停失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="执行自动启停失败") from err
-    if result is None:
-        raise HTTPException(status_code=409, detail="已有任务正在运行，请稍后再试")
-    return schemas.Response(success=True, data=api_schemas.AutoToggleResult(**result))
+    return schemas.Response(success=True, data=api_schemas.AutoToggleStart(**result))
 
 
 async def api_card_theme(plugin) -> Any:

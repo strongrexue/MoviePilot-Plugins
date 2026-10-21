@@ -18,6 +18,7 @@
 """
 import asyncio
 import sys
+import time
 import types
 from datetime import date
 from pathlib import Path
@@ -773,7 +774,7 @@ def test_calendar_flags_follow_plan(plugin):
     """
     plugin._auto_toggle_config = lambda: {"enabled": True}
 
-    async def fake_plan():
+    async def fake_plan(**_kwargs):
         return _plan_stub(
             [
                 {"id": 1, "target": "R", "state": "R", "reason": "pending", "reason_label": "缺集"},
@@ -800,7 +801,7 @@ def test_calendar_flags_absent_or_swallowed(plugin):
 
     plugin._auto_toggle_config = lambda: {"enabled": True}
 
-    async def boom():
+    async def boom(**_kwargs):
         raise RuntimeError("tmdb down")
 
     plugin.auto_toggle_plan = boom
@@ -813,7 +814,7 @@ def test_run_records_ownership(plugin):
         "owned": {"2": {"state": "S"}, "3": {"state": "S"}, "77": {"state": "S"}}
     }
 
-    async def fake_plan():
+    async def fake_plan(**_kwargs):
         return _plan_stub(
             [
                 {"id": 1, "name": "A", "action": "pause", "reason": "all_done", "target": "S"},
@@ -847,7 +848,7 @@ def test_run_only_counts_applied(plugin):
     """写失败的条目不能计入暂停/恢复，也不能进接管表。"""
     plugin._auto_toggle_state = lambda: {}
 
-    async def fake_plan():
+    async def fake_plan(**_kwargs):
         return _plan_stub(
             [
                 {"id": 1, "name": "A", "action": "pause", "reason": "all_done", "target": "S"},
@@ -1401,3 +1402,101 @@ def test_probe_stops_when_budget_used_up(plugin):
     assert 1 <= stats["probed"] < 5, "预算到点必须刹车"
     assert stats["deferred"] == 5 - stats["probed"]
     assert len(asked) == stats["probed"]
+
+
+# ------------------------------------------------------------------ 后台执行
+# 真机事故：预览里同步跑探针，200 条串行要好几分钟，请求被网关 502 掐断。
+# 现在预览永远 probe=False，真正的核对只在后台线程里做。
+
+
+def test_preview_never_probes(plugin):
+    """``auto_toggle_plan()``（预览/日历用）必须 probe=False，只有执行传 True。"""
+    seen = []
+
+    async def fake_library(rows, index, today_date, **kwargs):
+        seen.append(kwargs.get("probe"))
+        return {}, {}
+
+    plugin._library_present_index = fake_library
+    plugin._auto_toggle_config = lambda: {
+        "enabled": True,
+        "cron": "5 0 * * *",
+        "lookahead_days": 0,
+        "keep_days": 3,
+        "best_keep_days": 90,
+        "best_mode": "after_finale",
+        "max_changes": 0,
+        "notify": False,
+        "movie_enabled": False,
+        "library_check": True,
+        "library_probe_budget": 300,
+        "library_probe_interval": 1.5,
+    }
+    async def fake_index(rows, date_text):
+        return {}
+
+    plugin._episode_air_index = fake_index
+    plugin._auto_toggle_state = lambda: {}
+
+    async def fake_rows():
+        return []
+
+    plugin._auto_toggle_rows = fake_rows
+    asyncio.run(plugin.auto_toggle_plan())
+    asyncio.run(plugin.auto_toggle_plan(probe=True))
+
+    assert seen == [False, True]
+
+
+def test_apply_starts_background_thread(plugin):
+    """「立即执行」只挂线程就返回，绝不在请求里同步跑完。"""
+    calls = []
+    plugin._bridge = SimpleNamespace(busy=False, run=lambda *a, **k: None)
+    plugin._auto_toggle_background = lambda: calls.append(1)
+    plugin._auto_toggle_state = lambda: {}
+
+    result = asyncio.run(plugin.auto_toggle_apply())
+    for _ in range(50):
+        if calls:
+            break
+        time.sleep(0.02)
+
+    assert result["started"] is True
+    assert result["running"] is True
+    assert calls == [1], "后台线程必须真的跑起来"
+
+
+def test_apply_refuses_while_running(plugin):
+    """上一轮还在跑（牌子未过期）→ 直接拒绝，不排队。"""
+    plugin._auto_toggle_state = lambda: {
+        "last_run": {"running": True, "started_ts": time.time(), "started_at": "2026-10-21 09:00:00"}
+    }
+    plugin._bridge = SimpleNamespace(busy=False, run=lambda *a, **k: None)
+
+    try:
+        asyncio.run(plugin.auto_toggle_apply())
+    except RuntimeError as err:
+        assert "还在后台跑" in str(err)
+    else:  # pragma: no cover - 没抛异常就是错
+        raise AssertionError("应该拒绝重复执行")
+
+
+def test_stale_running_flag_expires(plugin):
+    """进程被杀留下的「正在跑」牌子，半小时后要自动作废。"""
+    plugin._auto_toggle_state = lambda: {
+        "last_run": {"running": True, "started_ts": time.time() - 3600}
+    }
+    assert plugin._auto_toggle_running()["running"] is False
+
+
+def test_apply_refuses_when_discovery_busy(plugin):
+    """发现流水在跑时不能同时改订阅表。"""
+    plugin._auto_toggle_state = lambda: {}
+    plugin._bridge = SimpleNamespace(busy=True, run=lambda *a, **k: None)
+
+    try:
+        asyncio.run(plugin.auto_toggle_apply())
+    except RuntimeError as err:
+        assert "发现任务" in str(err)
+    else:  # pragma: no cover
+        raise AssertionError("发现任务在跑时应该拒绝")

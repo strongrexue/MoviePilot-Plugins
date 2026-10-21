@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.20';
+const FRONTEND_VERSION = '1.13.21';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -3215,7 +3215,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode$3(_component_VCardSubtitle, { class: "text-caption" }, {
               default: _withCtx$3(() => [...(_cache[19] || (_cache[19] = [
-                _createTextVNode$3(" 新消息实时入库，历史按范围回溯；新订阅回搜命中后推送 115。 ", -1)
+                _createTextVNode$3(" 新消息实时入库，历史按范围回溯；新增订阅回搜（含兜底）命中后推送 115。 ", -1)
               ]))]),
               _: 1
             })
@@ -3298,7 +3298,7 @@ return (_ctx, _cache) => {
                 _createElementVNode$3("div", _hoisted_9$2, _toDisplayString$3(status.value?.sync?.running ? '进行中' : '空闲'), 1)
               ]),
               _createElementVNode$3("div", _hoisted_10$2, [
-                _cache[25] || (_cache[25] = _createElementVNode$3("div", { class: "cache-stat-label" }, "订阅回搜", -1)),
+                _cache[25] || (_cache[25] = _createElementVNode$3("div", { class: "cache-stat-label" }, "新增订阅回搜", -1)),
                 _createElementVNode$3("div", _hoisted_11$2, _toDisplayString$3(status.value?.subscribe?.enabled ? '已开启' : '已关闭'), 1)
               ])
             ]),
@@ -3319,7 +3319,7 @@ return (_ctx, _cache) => {
               _cache[26] || (_cache[26] = _createElementVNode$3("span", { class: "cache-dot" }, "·", -1)),
               (status.value?.subscribe?.last_check_at)
                 ? (_openBlock$3(), _createElementBlock$3("span", _hoisted_16$2, " 订阅检查 " + _toDisplayString$3(fmtTime(status.value.subscribe.last_check_at)) + " · 新增订阅 " + _toDisplayString$3(status.value.subscribe.last_check_new ?? 0) + " · 推送 " + _toDisplayString$3(status.value.subscribe.last_check_pushed ?? 0) + " 条 ", 1))
-                : (_openBlock$3(), _createElementBlock$3("span", _hoisted_17$2, "订阅回搜尚未运行（首次运行只建立订阅基线）")),
+                : (_openBlock$3(), _createElementBlock$3("span", _hoisted_17$2, "订阅兜底检查尚未运行（首次运行只建立订阅基线）")),
               _createVNode$3(_component_VChip, {
                 size: "x-small",
                 variant: "tonal",
@@ -3458,7 +3458,7 @@ return (_ctx, _cache) => {
             _createElementVNode$3("div", _hoisted_24$1, [
               _createElementVNode$3("div", _hoisted_25$1, [
                 _createElementVNode$3("div", _hoisted_26$1, [
-                  _cache[28] || (_cache[28] = _createElementVNode$3("span", { class: "cache-toggle-title" }, "订阅回搜", -1)),
+                  _cache[28] || (_cache[28] = _createElementVNode$3("span", { class: "cache-toggle-title" }, "新增订阅回搜", -1)),
                   _createVNode$3(_component_VSwitch, {
                     modelValue: settings.value.subscribe_enabled,
                     "onUpdate:modelValue": [
@@ -3471,7 +3471,7 @@ return (_ctx, _cache) => {
                     inset: ""
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[29] || (_cache[29] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, "新增订阅后自动回搜缓存，命中缺失资源就推送", -1))
+                _cache[29] || (_cache[29] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 宿主新增订阅后立刻回搜缓存，命中缺失资源就推送；关掉只影响这条实时通道，下方「订阅兜底检查」照常按 cron 跑。 ", -1))
               ]),
               _createElementVNode$3("div", _hoisted_27$1, [
                 _createElementVNode$3("div", _hoisted_28$1, [
@@ -3485,7 +3485,7 @@ return (_ctx, _cache) => {
                     inset: ""
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[31] || (_cache[31] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 新增订阅不再触发原生首次全站搜索，避免与左边回搜撞车；后续仍按订阅间隔继续搜。 ", -1))
+                _cache[31] || (_cache[31] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 新增订阅不再触发原生首次全站搜索，避免与左边的新增订阅回搜撞车；后续仍按订阅间隔继续搜。 ", -1))
               ])
             ]),
             _createElementVNode$3("div", _hoisted_29$1, [
@@ -3743,7 +3743,7 @@ return (_ctx, _cache) => {
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
               default: _withCtx$3(() => [...(_cache[46] || (_cache[46] = [
-                _createTextVNode$3("订阅回搜", -1)
+                _createTextVNode$3("订阅兜底检查", -1)
               ]))]),
               _: 1
             })
@@ -3753,10 +3753,14 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardText, { class: "cache-body" }, {
           default: _withCtx$3(() => [
             _cache[50] || (_cache[50] = _createElementVNode$3("div", { class: "cache-summary" }, [
-              _createElementVNode$3("div", { class: "cache-summary-line" }, " 新增订阅后回搜缓存并推送缺失：实时事件路径为主，定时对比订阅快照兜底，命中去重靠推送流水。 "),
+              _createElementVNode$3("div", { class: "cache-summary-line" }, [
+                _createTextVNode$3(" 定时对比订阅快照，把插件离线 / 事件丢失期间新增的订阅捞出来回搜推送；"),
+                _createElementVNode$3("strong", null, "不依赖上面的「新增订阅回搜」开关"),
+                _createTextVNode$3("，关掉它这里照旧按 cron 运行。 ")
+              ]),
               _createElementVNode$3("div", { class: "cache-tags" }, [
-                _createElementVNode$3("span", { class: "cache-tag" }, "实时"),
-                _createElementVNode$3("span", { class: "cache-tag" }, "每 30 分钟兜底"),
+                _createElementVNode$3("span", { class: "cache-tag" }, "快照对比"),
+                _createElementVNode$3("span", { class: "cache-tag" }, "按下方 cron"),
                 _createElementVNode$3("span", { class: "cache-tag" }, "已推送流水去重"),
                 _createElementVNode$3("span", { class: "cache-tag" }, "首次只建基线")
               ])
@@ -3797,7 +3801,7 @@ return (_ctx, _cache) => {
                 variant: "tonal",
                 "prepend-icon": "mdi-cloud-search-outline",
                 loading: busy.value === 'check',
-                disabled: !status.value?.enabled || !status.value?.subscribe?.enabled,
+                disabled: !status.value?.enabled,
                 onClick: checkSubscriptions
               }, {
                 default: _withCtx$3(() => [...(_cache[49] || (_cache[49] = [
@@ -4053,7 +4057,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-45a80504"]]);
+const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-6d8879ed"]]);
 
 const {resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createTextVNode:_createTextVNode$2,withCtx:_withCtx$2,toDisplayString:_toDisplayString$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,createElementVNode:_createElementVNode$2,createElementBlock:_createElementBlock$2,renderList:_renderList$2,Fragment:_Fragment$2,withModifiers:_withModifiers,vShow:_vShow,withDirectives:_withDirectives,unref:_unref$1} = await importShared('vue');
 
@@ -5519,7 +5523,7 @@ const configDefaults = {
   p9_maturity_hours: 2,
   p9_check_downloader: true,
   // ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主的「首次全站搜索」
-  //   独立开关，与 cache_subscribe_enabled（订阅回搜）互不依赖；默认关
+  //   独立开关，与 cache_subscribe_enabled（新增订阅回搜）互不依赖；默认关
   skip_first_search_enabled: false,
 };
 

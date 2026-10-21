@@ -8,7 +8,7 @@
         </template>
         <VCardTitle class="text-subtitle-2">启用消息缓存</VCardTitle>
         <VCardSubtitle class="text-caption">
-          新消息实时入库，历史按范围回溯；新订阅回搜命中后推送 115。
+          新消息实时入库，历史按范围回溯；新增订阅回搜（含兜底）命中后推送 115。
         </VCardSubtitle>
       </VCardItem>
     </VCard>
@@ -52,7 +52,7 @@
             <div class="cache-stat-value">{{ status?.sync?.running ? '进行中' : '空闲' }}</div>
           </div>
           <div class="cache-stat">
-            <div class="cache-stat-label">订阅回搜</div>
+            <div class="cache-stat-label">新增订阅回搜</div>
             <div class="cache-stat-value">{{ status?.subscribe?.enabled ? '已开启' : '已关闭' }}</div>
           </div>
         </div>
@@ -72,7 +72,7 @@
             订阅检查 {{ fmtTime(status.subscribe.last_check_at) }} ·
             新增订阅 {{ status.subscribe.last_check_new ?? 0 }} · 推送 {{ status.subscribe.last_check_pushed ?? 0 }} 条
           </span>
-          <span v-else>订阅回搜尚未运行（首次运行只建立订阅基线）</span>
+          <span v-else>订阅兜底检查尚未运行（首次运行只建立订阅基线）</span>
           <VChip
             size="x-small"
             variant="tonal"
@@ -174,10 +174,10 @@
 
         <!-- 订阅回搜 / 跳过原生首次全站搜索：并排两个面板（窄屏自动单列） -->
         <div class="cache-toggles">
-          <!-- 左：订阅回搜（走 /cache/settings，与其它缓存开关同一保存流程） -->
+          <!-- 左：新增订阅回搜（走 /cache/settings，与其它缓存开关同一保存流程） -->
           <div class="cache-toggle-panel">
             <div class="cache-toggle-head">
-              <span class="cache-toggle-title">订阅回搜</span>
+              <span class="cache-toggle-title">新增订阅回搜</span>
               <VSwitch
                 v-model="settings.subscribe_enabled"
                 color="primary"
@@ -187,7 +187,9 @@
                 @update:model-value="syncSettingsToForm"
               />
             </div>
-            <div class="cache-toggle-desc">新增订阅后自动回搜缓存，命中缺失资源就推送</div>
+            <div class="cache-toggle-desc">
+              宿主新增订阅后立刻回搜缓存，命中缺失资源就推送；关掉只影响这条实时通道，下方「订阅兜底检查」照常按 cron 跑。
+            </div>
           </div>
 
           <!-- 右：跳过原生首次全站搜索（主配置表单字段，不走 /cache/settings，随底部「保存配置」生效） -->
@@ -203,7 +205,7 @@
               />
             </div>
             <div class="cache-toggle-desc">
-              新增订阅不再触发原生首次全站搜索，避免与左边回搜撞车；后续仍按订阅间隔继续搜。
+              新增订阅不再触发原生首次全站搜索，避免与左边的新增订阅回搜撞车；后续仍按订阅间隔继续搜。
             </div>
           </div>
         </div>
@@ -368,19 +370,19 @@
       </VCardText>
     </VCard>
 
-    <!-- 订阅回搜 -->
+    <!-- 订阅兜底检查 -->
     <VCard flat class="cache-card">
       <VCardItem>
-        <VCardTitle class="text-subtitle-2">订阅回搜</VCardTitle>
+        <VCardTitle class="text-subtitle-2">订阅兜底检查</VCardTitle>
       </VCardItem>
       <VCardText class="cache-body">
         <div class="cache-summary">
           <div class="cache-summary-line">
-            新增订阅后回搜缓存并推送缺失：实时事件路径为主，定时对比订阅快照兜底，命中去重靠推送流水。
+            定时对比订阅快照，把插件离线 / 事件丢失期间新增的订阅捞出来回搜推送；<strong>不依赖上面的「新增订阅回搜」开关</strong>，关掉它这里照旧按 cron 运行。
           </div>
           <div class="cache-tags">
-            <span class="cache-tag">实时</span>
-            <span class="cache-tag">每 30 分钟兜底</span>
+            <span class="cache-tag">快照对比</span>
+            <span class="cache-tag">按下方 cron</span>
             <span class="cache-tag">已推送流水去重</span>
             <span class="cache-tag">首次只建基线</span>
           </div>
@@ -404,7 +406,7 @@
             variant="tonal"
             prepend-icon="mdi-cloud-search-outline"
             :loading="busy === 'check'"
-            :disabled="!status?.enabled || !status?.subscribe?.enabled"
+            :disabled="!status?.enabled"
             @click="checkSubscriptions"
           >
             立即检查新增订阅

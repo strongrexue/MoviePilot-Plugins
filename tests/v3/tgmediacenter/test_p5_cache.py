@@ -613,6 +613,56 @@ class TestSubscriptionSearch:
         assert hits[0].decision == DECISION_HIT
         assert "缓存回搜" in hits[0].detail
 
+    def test_fallback_check_runs_when_new_subscription_search_off(
+        self, cache, subscriptions, plugin, fake_metavideo
+    ):
+        """兜底检查与「新增订阅回搜」开关互不依赖（1.13.21）。
+
+        关闭事件开关后，定时/手动兜底仍要能靠快照 diff 发现新增订阅——
+        插件离线期间新增的订阅只可能被兜底捞到。
+        """
+        plugin.save_config(cache_subscribe_enabled=False)
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        assert cache.check_subscriptions(trigger="测试")["baseline"] is True
+
+        cache.history().record(CHAT_A, 4401, _text("青与碧 (2026) S01E01"))
+        cache._matcher = FakeMatcher(missing=True)
+        subscriptions["items"] = [
+            FakeSubscription("老片", media_id="1"),
+            FakeSubscription("青与碧", year="2026", media_id="2"),
+        ]
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["new"] == 1
+        assert result["pushed"] == 1
+        assert _count(plugin, TgPushTask) == 1
+
+    def test_scheduled_fallback_job_ignores_event_switch(self, cache, plugin, subscriptions):
+        """定时入口本身也不看事件开关（否则 cron 注册了却什么都不做）。"""
+        plugin.save_config(cache_subscribe_enabled=False)
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.run_subscription_job()
+        # 首次运行建基线：未抛错且状态里留下检查时间
+        assert cache.subscribe_state()["last_check_at"]
+
+    def test_service_registers_fallback_without_event_switch(self, cache, plugin):
+        """get_service 不应再被「新增订阅回搜」开关挡住兜底任务。"""
+        from types import SimpleNamespace
+
+        from app.plugins.tgmediacenter import TgMediaCenter
+
+        plugin.save_config(cache_enabled=True, cache_subscribe_enabled=False)
+        stub = SimpleNamespace(_cache=cache, _enabled=lambda: True)
+        services = TgMediaCenter.get_service(stub)
+        ids = [item.get("id") for item in services]
+        assert "tgmediacenter_cache_subscribe" in ids
+
+    def test_subscribe_state_exposes_both_channels(self, cache, plugin):
+        """状态里要能分别看出事件开关与兜底 cron。"""
+        plugin.save_config(cache_subscribe_enabled=False, cache_subscribe_cron="*/20 * * * *")
+        state = cache.subscribe_state()
+        assert state["event_enabled"] is False
+        assert state["fallback_cron"] == "*/20 * * * *"
+
     def test_search_notification_follows_switch(self, cache, subscriptions, plugin, fake_metavideo):
         """回搜结果通知受「回搜到资源后通知我」开关控制（默认开，关掉后只回搜不打扰）。"""
 

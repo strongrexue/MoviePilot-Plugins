@@ -58,7 +58,7 @@ export const configDefaults = {
   p9_maturity_hours: 2,
   p9_check_downloader: true,
   // ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主的「首次全站搜索」
-  //   独立开关，与 cache_subscribe_enabled（订阅回搜）互不依赖；默认关
+  //   独立开关，与 cache_subscribe_enabled（新增订阅回搜）互不依赖；默认关
   skip_first_search_enabled: false,
 }
 

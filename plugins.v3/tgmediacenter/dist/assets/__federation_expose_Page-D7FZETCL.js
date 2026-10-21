@@ -690,7 +690,7 @@ return (_ctx, _cache) => {
                       _createElementVNode("span", null, _toDisplayString(fmtTime(cache.value.sync?.finished_at || cache.value.sync?.started_at)), 1)
                     ]),
                     _createElementVNode("div", null, [
-                      _cache[28] || (_cache[28] = _createElementVNode("span", { class: "tg-key" }, "订阅回搜", -1)),
+                      _cache[28] || (_cache[28] = _createElementVNode("span", { class: "tg-key" }, "新增订阅回搜", -1)),
                       _createElementVNode("span", null, [
                         _createTextVNode(_toDisplayString(cache.value.subscribe?.enabled === false ? '已关闭' : '已开启') + " ", 1),
                         (cache.value.subscribe?.last_check_at)
@@ -1119,6 +1119,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-929eedac"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-81f899d8"]]);
 
 export { Page as default };

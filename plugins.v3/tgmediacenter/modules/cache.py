@@ -481,11 +481,14 @@ class CacheModule:
             logger.debug(f"发送缓存回搜通知失败：{err}")
 
     def check_subscriptions(self, *, trigger: str = "定时") -> dict:
-        """对比订阅快照，对新增订阅执行缓存回搜并推送。"""
+        """对比订阅快照，对新增订阅执行缓存回搜并推送。
+
+        与「新增订阅回搜」开关无关：那条开关只控制宿主 ``subscribe.added``
+        事件的实时回搜；这里的定时/手动兜底靠快照 diff 发现漏网订阅
+        （插件离线期间新增、事件总线不可用），因此始终可用。
+        """
         if not self.enabled():
             return {"checked": False, "message": "未启用消息缓存"}
-        if not self.subscribe_enabled():
-            return {"checked": False, "message": "未启用订阅回搜"}
         if not matcher_service.QUERIES_AVAILABLE:
             return {"checked": False, "message": "宿主订阅查询不可用"}
         with self._lock:
@@ -758,13 +761,19 @@ class CacheModule:
             self._state.update(state)
 
     def subscribe_state(self) -> dict:
-        """订阅回搜运行态（读插件数据，跨重启保留）。"""
+        """订阅回搜运行态（读插件数据，跨重启保留）。
+
+        ``enabled`` 指「新增订阅回搜」那条事件开关；``fallback_cron`` 是独立的
+        兜底定时（不看事件开关），前端据此展示两条互不依赖的通道。
+        """
         stored = self._plugin.get_data(_SUB_STATE_KEY) or {}
         if not isinstance(stored, dict):
             stored = {}
         with self._lock:
             return {
                 "enabled": self.subscribe_enabled(),
+                "event_enabled": self.subscribe_enabled(),
+                "fallback_cron": self.subscribe_cron(),
                 "checking": bool(self._state.get("checking")),
                 "event_listener": self._listener_installed,
                 "last_check_at": str(stored.get("last_check_at") or ""),
@@ -1188,12 +1197,16 @@ class CacheModule:
             logger.info(f"[{self._plugin_id()}] 缓存定时同步未启动：{result.get('message')}")
 
     def run_subscription_job(self) -> None:
-        """定时订阅检查（cache_subscribe_cron 触发）。"""
-        if not self.enabled() or not self.subscribe_enabled():
+        """定时订阅兜底检查（cache_subscribe_cron 触发）。
+
+        不看「新增订阅回搜」开关：那条开关只管宿主事件的实时路径，
+        兜底负责补上插件离线 / 事件丢失期间新增的订阅。
+        """
+        if not self.enabled() or not matcher_service.QUERIES_AVAILABLE:
             return
-        result = self.check_subscriptions(trigger="定时")
+        result = self.check_subscriptions(trigger="定时兜底")
         if result.get("pushed"):
-            logger.info(f"[{self._plugin_id()}] 订阅回搜：{result.get('message')}")
+            logger.info(f"[{self._plugin_id()}] 订阅兜底：{result.get('message')}")
 
 
 def _normalize_cron(raw: Any, fallback: str) -> str:

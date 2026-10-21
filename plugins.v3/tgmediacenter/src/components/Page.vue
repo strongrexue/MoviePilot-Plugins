@@ -450,7 +450,7 @@ onUnmounted(() => {
             <div><span class="tg-key">消息总数</span><span>{{ cache.total ?? 0 }} 条</span></div>
             <div><span class="tg-key">最近同步</span><span>{{ fmtTime(cache.sync?.finished_at || cache.sync?.started_at) }}</span></div>
             <div>
-              <span class="tg-key">订阅回搜</span>
+              <span class="tg-key">新增订阅回搜</span>
               <span>
                 {{ cache.subscribe?.enabled === false ? '已关闭' : '已开启' }}
                 <template v-if="cache.subscribe?.last_check_at">

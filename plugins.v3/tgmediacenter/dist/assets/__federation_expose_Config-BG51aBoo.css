@@ -425,60 +425,60 @@
 .mon-test-msg[data-v-55a5a339] { font-size: 12px; opacity: 0.75;
 }
 
-.cache-pane[data-v-45a80504] { display: flex; flex-direction: column; gap: 8px;
+.cache-pane[data-v-6d8879ed] { display: flex; flex-direction: column; gap: 8px;
 }
 /* 分区卡的外观与内边距：有底色 + 1px 描边的 10px 圆角块（对齐效果图的分区语言，不再与对话框同底）。
    Vuetify 的 flat 卡片会把背景重置成 surface，故用 !important 压过它；
    描边用 on-surface 的显式 alpha，避免主题变量缺失时整条 border 声明失效（计算值 0px） */
-.cache-card[data-v-45a80504] {
+.cache-card[data-v-6d8879ed] {
   background: rgba(var(--v-theme-on-surface), 0.04) !important;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.10) !important;
   border-radius: 10px;
 }
 /* 内边距统一压到 10/12（压过 Vuetify 直系子元素的 16/24）；标题区与正文区相邻处只留一份，
    模板里不再用 pt-0 之类的工具类叠加 */
-.cache-card > .v-card-item[data-v-45a80504] { padding: 10px 12px;
+.cache-card > .v-card-item[data-v-6d8879ed] { padding: 10px 12px;
 }
-.cache-card > .v-card-title[data-v-45a80504] { padding: 10px 12px;
+.cache-card > .v-card-title[data-v-6d8879ed] { padding: 10px 12px;
 }
-.cache-card > .v-card-text[data-v-45a80504] { padding: 10px 12px;
+.cache-card > .v-card-text[data-v-6d8879ed] { padding: 10px 12px;
 }
-.cache-card > .v-card-item + .v-card-text[data-v-45a80504],
-.cache-card > .v-card-title + .v-card-text[data-v-45a80504] { padding-top: 0;
+.cache-card > .v-card-item + .v-card-text[data-v-6d8879ed],
+.cache-card > .v-card-title + .v-card-text[data-v-6d8879ed] { padding-top: 0;
 }
-.cache-message[data-v-45a80504] { font-size: 13px;
+.cache-message[data-v-6d8879ed] { font-size: 13px;
 }
 /* 卡片内容：纵向堆叠统一 8px（上下内边距由 .cache-card > .v-card-text 统一控制） */
-.cache-body[data-v-45a80504] { display: flex; flex-direction: column; gap: 8px;
+.cache-body[data-v-6d8879ed] { display: flex; flex-direction: column; gap: 8px;
 }
 /* 运行状态卡头部：状态徽章 + 刷新按钮同一行 */
-.cache-head-actions[data-v-45a80504] { display: flex; align-items: center; gap: 6px;
+.cache-head-actions[data-v-6d8879ed] { display: flex; align-items: center; gap: 6px;
 }
 /* 统计条：一行 4 个（与订阅中心/豆瓣中心一致），窄屏回落 2×2 */
-.cache-stats[data-v-45a80504] {
+.cache-stats[data-v-6d8879ed] {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 @media (max-width: 760px) {
-.cache-stats[data-v-45a80504] { grid-template-columns: repeat(2, minmax(0, 1fr));
+.cache-stats[data-v-6d8879ed] { grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 }
-.cache-stat[data-v-45a80504] {
+.cache-stat[data-v-6d8879ed] {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   padding: 7px 9px;
   min-width: 0;
 }
-.cache-stat-label[data-v-45a80504] {
+.cache-stat-label[data-v-6d8879ed] {
   font-size: 10.5px;
   line-height: 1.4;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
-.cache-stat-value[data-v-45a80504] { font-size: 14px; font-weight: 600; line-height: 1.35;
+.cache-stat-value[data-v-6d8879ed] { font-size: 14px; font-weight: 600; line-height: 1.35;
 }
-.cache-status-sub[data-v-45a80504] {
+.cache-status-sub[data-v-6d8879ed] {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -488,46 +488,46 @@
   opacity: 0.7;
 }
 /* 统计块下方两段小字之间的分隔点 */
-.cache-dot[data-v-45a80504] { opacity: 0.5;
+.cache-dot[data-v-6d8879ed] { opacity: 0.5;
 }
 /* 频道 / 范围：等宽自适应列，窄屏自动单列（与「资源监控」同一网格口径） */
-.cache-fields[data-v-45a80504] {
+.cache-fields[data-v-6d8879ed] {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 8px;
 }
 /* 订阅回搜 / 跳过首次搜索：并排两列面板，窄屏一列 */
-.cache-toggles[data-v-45a80504] {
+.cache-toggles[data-v-6d8879ed] {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 @media (max-width: 600px) {
-.cache-toggles[data-v-45a80504] { grid-template-columns: 1fr;
+.cache-toggles[data-v-6d8879ed] { grid-template-columns: 1fr;
 }
 }
-.cache-toggle-panel[data-v-45a80504] {
+.cache-toggle-panel[data-v-6d8879ed] {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   padding: 8px 10px;
   min-width: 0;
 }
-.cache-toggle-head[data-v-45a80504] {
+.cache-toggle-head[data-v-6d8879ed] {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
-.cache-toggle-title[data-v-45a80504] { font-size: 12px; font-weight: 600;
+.cache-toggle-title[data-v-6d8879ed] { font-size: 12px; font-weight: 600;
 }
-.cache-toggle-desc[data-v-45a80504] {
+.cache-toggle-desc[data-v-6d8879ed] {
   font-size: 10.5px;
   line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
 /* 存量补扫按钮行：开关（最左）+ 两个触发按钮 + cron 输入同一行、垂直居中；窄屏自动换行堆叠 */
-.cache-backfill-actions[data-v-45a80504] {
+.cache-backfill-actions[data-v-6d8879ed] {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -535,34 +535,34 @@
   min-width: 0;
 }
 /* 开关本身不加外边距，与左侧贴齐，间距由父级 gap 统一控制 */
-.cache-switch-inline[data-v-45a80504] { flex: 0 0 auto;
+.cache-switch-inline[data-v-6d8879ed] { flex: 0 0 auto;
 }
 /* 按钮行里的 cron 输入：约 200px 宽、垂直居中；窄屏换行时独占一行而不是被压扁 */
-.cache-cron-input[data-v-45a80504] { flex: 0 0 200px; width: 200px; min-width: 0;
+.cache-cron-input[data-v-6d8879ed] { flex: 0 0 200px; width: 200px; min-width: 0;
 }
 @media (max-width: 760px) {
-.cache-cron-input[data-v-45a80504] { flex: 1 1 200px; width: auto;
+.cache-cron-input[data-v-6d8879ed] { flex: 1 1 200px; width: auto;
 }
 }
 /* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
-.cache-field[data-v-45a80504] { display: flex; flex-direction: column; gap: 4px; min-width: 0;
+.cache-field[data-v-6d8879ed] { display: flex; flex-direction: column; gap: 4px; min-width: 0;
 }
-.cache-dates[data-v-45a80504] { display: flex; gap: 6px; min-width: 0;
+.cache-dates[data-v-6d8879ed] { display: flex; gap: 6px; min-width: 0;
 }
-.cache-dates[data-v-45a80504] > * { flex: 1 1 0; min-width: 0;
+.cache-dates[data-v-6d8879ed] > * { flex: 1 1 0; min-width: 0;
 }
 /* 说明区统一口径：一行 11px 摘要 + 关键词 chip + 至多两行补充小字
    （对齐参考图「豆瓣中心」的紧凑信息带，替代原来 5-8 行的长段落） */
-.cache-summary[data-v-45a80504] { display: flex; flex-direction: column; gap: 4px; min-width: 0;
+.cache-summary[data-v-6d8879ed] { display: flex; flex-direction: column; gap: 4px; min-width: 0;
 }
-.cache-summary-line[data-v-45a80504] {
+.cache-summary-line[data-v-6d8879ed] {
   font-size: 11px;
   line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.72);
 }
-.cache-tags[data-v-45a80504] { display: flex; gap: 4px; flex-wrap: wrap;
+.cache-tags[data-v-6d8879ed] { display: flex; gap: 4px; flex-wrap: wrap;
 }
-.cache-tag[data-v-45a80504] {
+.cache-tag[data-v-6d8879ed] {
   padding: 1px 7px;
   font-size: 11px;
   line-height: 1.5;
@@ -573,48 +573,48 @@
   color: rgba(var(--v-theme-on-surface), 0.68);
 }
 /* 补充细节：11px 灰字，控制在 1-2 行 */
-.cache-note[data-v-45a80504] {
+.cache-note[data-v-6d8879ed] {
   font-size: 11px;
   line-height: 1.55;
   color: rgba(var(--v-theme-on-surface), 0.52);
 }
-.cache-hint[data-v-45a80504] {
+.cache-hint[data-v-6d8879ed] {
   font-size: 12px;
   line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
-.cache-actions[data-v-45a80504] { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+.cache-actions[data-v-6d8879ed] { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
 }
 /* 行内按钮与开关不参与收缩：否则「按钮 + cron 输入」同排时按钮会被压扁、边框互相压住 */
-.cache-actions > .v-btn[data-v-45a80504],
-.cache-actions > .v-switch[data-v-45a80504] { flex: 0 0 auto;
+.cache-actions > .v-btn[data-v-6d8879ed],
+.cache-actions > .v-switch[data-v-6d8879ed] { flex: 0 0 auto;
 }
-.cache-table[data-v-45a80504] { font-size: 12.5px;
+.cache-table[data-v-6d8879ed] { font-size: 12.5px;
 }
-.cache-table .cache-nowrap[data-v-45a80504] { white-space: nowrap;
+.cache-table .cache-nowrap[data-v-6d8879ed] { white-space: nowrap;
 }
-.cache-mono[data-v-45a80504] { font-family: monospace;
+.cache-mono[data-v-6d8879ed] { font-family: monospace;
 }
-.cache-dim[data-v-45a80504] { opacity: 0.7;
+.cache-dim[data-v-6d8879ed] { opacity: 0.7;
 }
-.cache-text[data-v-45a80504] {
+.cache-text[data-v-6d8879ed] {
   max-width: 520px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11.5px;
 }
-.cache-empty[data-v-45a80504] { text-align: center; padding: 16px; opacity: 0.6;
+.cache-empty[data-v-6d8879ed] { text-align: center; padding: 16px; opacity: 0.6;
 }
-.cache-search[data-v-45a80504] { display: flex; gap: 6px; align-items: center;
+.cache-search[data-v-6d8879ed] { display: flex; gap: 6px; align-items: center;
 }
-.cache-search-input[data-v-45a80504] { flex: 1 1 auto;
+.cache-search-input[data-v-6d8879ed] { flex: 1 1 auto;
 }
-.cache-details[data-v-45a80504] { font-size: 12px;
+.cache-details[data-v-6d8879ed] { font-size: 12px;
 }
-.cache-detail[data-v-45a80504] { opacity: 0.75; line-height: 1.7;
+.cache-detail[data-v-6d8879ed] { opacity: 0.75; line-height: 1.7;
 }
-.cache-dialog-text[data-v-45a80504] { font-size: 13px; line-height: 1.7;
+.cache-dialog-text[data-v-6d8879ed] { font-size: 13px; line-height: 1.7;
 }
 
 .fwd-pane[data-v-c5584761] { display: flex; flex-direction: column; gap: 8px;

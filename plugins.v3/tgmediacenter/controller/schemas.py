@@ -236,6 +236,7 @@ class MonitorRule(BaseModel):
     destination: str = Field(default="smart", description="推送目标：smart/pan115/tg_forward/none")
     target_id: str = Field(default="", description="TG 转发目标会话 ID（destination=tg_forward 时必填）")
     match_only_if_missing: bool = Field(default=True, description="仅当媒体库/订阅缺失时才推送")
+    match_subscribed_only: bool = Field(default=True, description="仅推送已订阅的资源（纯链接消息无法判断，照旧放行）")
     match_custom_keywords: bool = Field(default=False, description="是否启用自定义关键词过滤")
     custom_keywords: List[str] = Field(default_factory=list, description="自定义关键词（任一命中即通过）")
     exclude_keywords: List[str] = Field(default_factory=list, description="排除关键词（任一命中即跳过，优先于命中词）")

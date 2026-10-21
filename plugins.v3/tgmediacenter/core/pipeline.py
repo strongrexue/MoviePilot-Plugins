@@ -514,6 +514,33 @@ class MessagePipeline:
             self._apply_forward_rule(chat_id=chat_id, message_id=message_id, text=text,
                                      cleaned=cleaned, meta=meta, links=links, rule=rule)
 
+    def _subscription_gate(self, meta: Optional[dict]) -> Optional[dict]:
+        """独立订阅门禁（「仅缺失」关闭时生效）：未订阅返回判定字典，放行返回 None。
+
+        放行条件（任一）：
+        - 规则没开「仅推已订阅」；
+        - 没识别出片名（纯链接播报，无法判断订阅身份——按约定照旧放行）；
+        - 订阅数据源不可用（没配订阅不能全盘拦截）；
+        - 命中订阅。
+        """
+        if not isinstance(meta, dict):
+            return None
+        title = str(meta.get("title") or "").strip()
+        if not title:
+            return None
+        try:
+            verdict = self._matcher.subscription_verdict(
+                title=title,
+                year=str(meta.get("year") or ""),
+                season=meta.get("season"),
+            )
+        except Exception as err:  # pragma: no cover - 订阅查询异常不拦消息
+            logger.debug(f"[{self._plugin_id()}] 订阅门禁查询失败（放行）：{err}")
+            return None
+        if not verdict.get("available"):
+            return None
+        return None if verdict.get("subscribed") else verdict
+
     def _record_cache(self, chat_id: int, message_id: int, text: str, *,
                       cleaned: Optional[str], meta: Optional[dict], links: List[str]) -> None:
         """写入历史消息缓存（复用已算好的净化与识别结果，不重复识别）。"""
@@ -578,9 +605,9 @@ class MessagePipeline:
                 season=meta.get("season"),
                 episode=meta.get("episode"),
                 episode_end=meta.get("episode_end"),
-                # 方案 A 订阅门禁：仅缺失开启时，未订阅的资源直接跳过，
+                # 订阅门禁由独立开关控制（1.13.23）：默认开，未订阅的资源直接跳过，
                 # 不再误标成"媒体库已存在"（订阅数据源可用时生效）。
-                require_subscription=True,
+                require_subscription=bool(rule.get("match_subscribed_only", True)),
             )
             if verdict.get("missing") is None or not verdict.get("missing"):
                 decision, reason = _decision_for_skip(verdict)
@@ -596,6 +623,17 @@ class MessagePipeline:
                 self._record(rule, chat_id, message_id, meta,
                              gate_result.decision or DECISION_SKIPPED_PT_ACTIVE,
                              gate_result.reason, destination, links)
+                return
+        elif rule.get("match_subscribed_only", True):
+            # 独立订阅门禁（1.13.23）：关掉「仅缺失时推送」是"想推全部资源"，
+            # 不该连带把订阅门禁一起关掉——否则未订阅的也全推。识别不出片名的
+            # 纯链接消息无法判断订阅身份，按约定照旧放行（下面还有链接检查）。
+            gate = self._subscription_gate(meta)
+            if gate is not None:
+                self._record(rule, chat_id, message_id, meta,
+                             DECISION_SKIPPED_NOT_SUBSCRIBED,
+                             f"未订阅（{gate.get('detail') or gate.get('reason') or ''}）",
+                             destination, links)
                 return
 
         # 115 类目标必须拿到可推送的链接；TG 转发 / 仅记录不需要
@@ -1486,7 +1524,7 @@ class MessagePipeline:
                         season=meta.get("season"),
                         episode=meta.get("episode"),
                         episode_end=meta.get("episode_end"),
-                        require_subscription=True,
+                        require_subscription=bool(rule.get("match_subscribed_only", True)),
                     )
                 except Exception as err:  # pragma: no cover
                     verdict = {"missing": None, "reason": f"缺失判断异常：{err}"}
@@ -1502,6 +1540,14 @@ class MessagePipeline:
                 if gate_result is not None and not gate_result.passed:
                     trace.update(decision=gate_result.decision or DECISION_SKIPPED_PT_ACTIVE,
                                  reason=gate_result.reason)
+                    traces.append(trace)
+                    continue
+            elif rule.get("match_subscribed_only", True):
+                # 独立订阅门禁：与真实处理同款（1.13.23）
+                gate = self._subscription_gate(meta)
+                if gate is not None:
+                    trace.update(decision=DECISION_SKIPPED_NOT_SUBSCRIBED,
+                                 reason=f"未订阅（{gate.get('detail') or gate.get('reason') or ''}）")
                     traces.append(trace)
                     continue
             destination = str(rule.get("destination") or "smart")

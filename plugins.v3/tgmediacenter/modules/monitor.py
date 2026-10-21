@@ -90,6 +90,7 @@ class MonitorModule:
                 "destination": destination,
                 "target_id": str(item.get("target_id") or "").strip()[:64],
                 "match_only_if_missing": bool(item.get("match_only_if_missing", True)),
+                "match_subscribed_only": bool(item.get("match_subscribed_only", True)),
                 "match_custom_keywords": bool(item.get("match_custom_keywords", False)),
                 "custom_keywords": [
                     str(kw).strip()[:64] for kw in (item.get("custom_keywords") or []) if str(kw).strip()

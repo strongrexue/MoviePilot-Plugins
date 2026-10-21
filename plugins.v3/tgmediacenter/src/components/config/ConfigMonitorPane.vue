@@ -133,6 +133,9 @@
                 <VChip v-if="rule.match_only_if_missing" size="x-small" variant="tonal" color="info" label>
                   仅缺失
                 </VChip>
+                <VChip v-else-if="rule.match_subscribed_only" size="x-small" variant="tonal" color="info" label>
+                  仅推已订阅
+                </VChip>
                 <VChip v-if="rule.match_custom_keywords && keywordCount(rule)" size="x-small" variant="tonal" color="primary" label>
                   关键词 {{ keywordCount(rule) }}
                 </VChip>
@@ -140,7 +143,7 @@
                   排除 {{ excludeCount(rule) }}
                 </VChip>
                 <span
-                  v-if="!rule.match_only_if_missing && !(rule.match_custom_keywords && keywordCount(rule)) && !excludeCount(rule)"
+                  v-if="!rule.match_only_if_missing && !rule.match_subscribed_only && !(rule.match_custom_keywords && keywordCount(rule)) && !excludeCount(rule)"
                   class="mon-rule-tag-empty"
                 >无额外过滤</span>
               </div>
@@ -186,6 +189,19 @@
                     </VSwitch>
                     <!-- 行内说明：不另起一行，避免组内文字挤在一起 -->
                     <span class="mon-group-note">无法判断时跳过</span>
+                    <!-- 订阅门禁（1.13.23）：从「仅缺失」里拆出来的独立开关。
+                         关掉「仅缺失」是想推全部资源，但不该连带把未订阅的也推出去。 -->
+                    <div class="mon-kw-switch">
+                      <VSwitch
+                        v-model="rule.match_subscribed_only"
+                        color="primary"
+                        hide-details
+                        inset
+                        density="compact"
+                        title="开启后只推送已订阅的资源；识别不出片名的纯链接消息无法判断订阅身份，仍会推送"
+                      />
+                      <span class="mon-kw-switch-label">仅推已订阅</span>
+                    </div>
                     <!-- 关键词过滤总开关：从「关键词过滤」组标题行移到这里（紧跟仅缺失、间距 8px），
                          绑定仍是同一个 match_custom_keywords，不新增字段 -->
                     <div class="mon-kw-switch">
@@ -413,6 +429,7 @@ function blankRule() {
     source_ids: [],
     destination: FIXED_DESTINATION,
     match_only_if_missing: true,
+    match_subscribed_only: true,
     match_custom_keywords: false,
     custom_keywords: [],
     exclude_keywords: [],
@@ -466,6 +483,7 @@ async function loadRules() {
       // 推送目标不再可选，历史规则的其他取值也一并归一到 115
       destination: FIXED_DESTINATION,
       match_only_if_missing: rule.match_only_if_missing !== false,
+      match_subscribed_only: rule.match_subscribed_only !== false,
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
       exclude_keywords: Array.isArray(rule.exclude_keywords) ? rule.exclude_keywords : [],
@@ -539,6 +557,7 @@ async function saveRules() {
       destination: FIXED_DESTINATION,
       target_id: '',
       match_only_if_missing: Boolean(rule.match_only_if_missing),
+      match_subscribed_only: Boolean(rule.match_subscribed_only),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: (rule.custom_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
       exclude_keywords: (rule.exclude_keywords || []).map(kw => String(kw).trim()).filter(Boolean),

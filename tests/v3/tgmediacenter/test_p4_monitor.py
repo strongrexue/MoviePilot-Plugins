@@ -379,6 +379,7 @@ def base_rule(**overrides):
         "destination": "none",
         "target_id": "",
         "match_only_if_missing": False,
+        "match_subscribed_only": False,
         "match_custom_keywords": False,
         "custom_keywords": [],
         "rule_type": "client",
@@ -1130,7 +1131,7 @@ class TestPipeline:
             FakeSubscription("其他剧集", year="2023", season=1, lack_episode=0),
         ]))
         monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", False)
-        monitor.save_rules([base_rule(match_only_if_missing=True)])
+        monitor.save_rules([base_rule(match_only_if_missing=True, match_subscribed_only=True)])
         self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
         logs = query_all(TgHitLog, plugin)
         assert logs[0].decision == DECISION_SKIPPED_NOT_SUBSCRIBED
@@ -1157,6 +1158,86 @@ class TestPipeline:
         self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
         logs = query_all(TgHitLog, plugin)
         assert logs[0].decision == DECISION_HIT
+
+    def test_subscribed_only_blocks_unsubscribed_when_only_missing_off(self, plugin, monitor, pipeline, monkeypatch):
+        """1.13.23：关掉「仅缺失」只是"推全部资源"，不该连带把订阅门禁关掉。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("其他剧集", year="2023", season=1, lack_episode=3),
+        ]))
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False,
+                                      match_subscribed_only=True)])
+        self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_SKIPPED_NOT_SUBSCRIBED
+        assert query_all(TgPushTask, plugin) == []
+
+    def test_subscribed_only_allows_subscribed_when_only_missing_off(self, plugin, monitor, pipeline, monkeypatch):
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("测试剧集", year="", season=1, lack_episode=3),
+        ]))
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False,
+                                      match_subscribed_only=True)])
+        self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_HIT
+        assert query_all(TgPushTask, plugin)
+
+    def test_subscribed_only_off_pushes_unsubscribed(self, plugin, monitor, pipeline, monkeypatch):
+        """显式关掉「仅推已订阅」才是真正的全量推送。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("其他剧集", year="2023", season=1, lack_episode=3),
+        ]))
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False,
+                                      match_subscribed_only=False)])
+        self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_HIT
+
+    def test_subscribed_only_releases_when_queries_unavailable(self, plugin, monitor, pipeline, monkeypatch):
+        """订阅数据源不可用（没配订阅）不能把消息全拦掉。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False,
+                                      match_subscribed_only=True)])
+        self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_HIT
+
+    def test_subscribed_only_lets_link_only_message_through(self, plugin, monitor, pipeline, monkeypatch):
+        """识别不出片名的纯链接消息无法判断订阅身份，按约定照旧推送。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("其他剧集", year="2023", season=1, lack_episode=3),
+        ]))
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False,
+                                      match_subscribed_only=True)])
+        self._process(pipeline, CHAT_A, "https://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_HIT
+        assert logs[0].title == ""
+
+    def test_subscribed_only_toggle_is_normalized(self):
+        """规则字段归一：默认 True，显式 False 保留。"""
+        module = MonitorModule(FakePlugin())
+        rules = module.normalize_rules([
+            {"source_ids": [1]},
+            {"source_ids": [1], "match_subscribed_only": False},
+        ])
+        assert rules[0]["match_subscribed_only"] is True
+        assert rules[1]["match_subscribed_only"] is False
+
+    def test_test_preview_applies_subscribed_only_gate(self, monitor, fake_metavideo, monkeypatch):
+        """规则测试（预览）必须与真实处理同款门禁，否则"测试通过但实际不推"。"""
+        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
+        monkeypatch.setattr(matcher_module, "list_subscriptions", lambda: FakeQueryPage([
+            FakeSubscription("其他剧集", year="2023", season=1, lack_episode=3),
+        ]))
+        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False,
+                                      match_subscribed_only=True)])
+        response = controller_api.api_monitor_test(monitor._plugin, _TestRequest("测试剧集.S01E02.2160p"))
+        assert response.data.rules[0].decision == DECISION_SKIPPED_NOT_SUBSCRIBED
 
     def test_other_chat_ignored(self, plugin, monitor, pipeline):
         monitor.save_rules([base_rule()])
@@ -1845,6 +1926,7 @@ class _RuleModel:
         self.destination = data.get("destination", "smart")
         self.target_id = data.get("target_id", "")
         self.match_only_if_missing = data.get("match_only_if_missing", True)
+        self.match_subscribed_only = data.get("match_subscribed_only", True)
         self.match_custom_keywords = data.get("match_custom_keywords", False)
         self.custom_keywords = data.get("custom_keywords", [])
         self.rule_type = data.get("rule_type", "client")
@@ -1856,6 +1938,7 @@ class _RuleModel:
             "id": self.id, "name": self.name, "source_ids": self.source_ids,
             "destination": self.destination, "target_id": self.target_id,
             "match_only_if_missing": self.match_only_if_missing,
+            "match_subscribed_only": self.match_subscribed_only,
             "match_custom_keywords": self.match_custom_keywords,
             "custom_keywords": self.custom_keywords, "rule_type": self.rule_type,
             "web_channel_usernames": self.web_channel_usernames, "enabled": self.enabled,

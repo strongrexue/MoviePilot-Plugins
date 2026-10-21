@@ -395,6 +395,54 @@ class MediaMatcher:
             "detail": "",
         }
 
+    # ------------------------------------------------------------------ 订阅门禁
+
+    def subscription_verdict(
+        self, *, title: str, year: str = "", season: Optional[int] = None
+    ) -> dict:
+        """只判「这个资源有没有订阅」，不查媒体库（关闭「仅缺失」时的独立门禁）。
+
+        1.13.23 起订阅门禁从「仅缺失」里拆出来：用户关掉「仅缺失时推送」
+        （想推全部资源）后，仍应只推自己订阅过的内容——否则会变成全量推送。
+        本方法就是那条独立门禁，成本只有一次订阅快照匹配（带 60s 缓存）。
+
+        :returns: ``{"available": bool, "subscribed": bool|None, "reason": str, "detail": str}``
+            ``available=False`` 表示订阅数据源不可用（未配置订阅），调用方据此放行，
+            不能因为读不到订阅就把所有消息拦掉。
+        """
+        key = "sub|" + "|".join([
+            _normalize_title(title), str(year or ""), str(season if season is not None else ""),
+        ])
+        cached = self._cache_get(key)
+        if cached is not None:
+            return cached
+        if not QUERIES_AVAILABLE:
+            result = {
+                "available": False,
+                "subscribed": None,
+                "reason": "订阅数据源不可用",
+                "detail": "",
+            }
+            self._cache_put(key, result)
+            return result
+        subscription = self._match_subscription(title=title, year=year, season=season)
+        if subscription is None:
+            result = {
+                "available": True,
+                "subscribed": False,
+                "reason": "未订阅",
+                "detail": f"「{title}」未在订阅列表中",
+            }
+        else:
+            result = {
+                "available": True,
+                "subscribed": True,
+                "reason": f"已订阅「{subscription.get('name') or title}」",
+                "detail": f"state={subscription.get('state')}",
+            }
+        self._cache_put(key, result)
+        return result
+
     # ------------------------------------------------------------------ 订阅匹配
 
     def _match_subscription(

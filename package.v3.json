@@ -3,7 +3,7 @@
         "name": "胖虎媒体中心",
         "description": "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。",
         "labels": "工具,媒体",
-        "version": "1.13.22",
+        "version": "1.13.23",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.23": "订阅门禁从「仅缺失」里拆成独立开关（1.13.23）：此前订阅门禁写在缺失判定内部，整段判定又被「仅缺失时推送」这个开关包着——用户为了「别只推缺的、推全部」把开关关掉，订阅门禁跟着一起消失，未订阅的资源就全量推了出来。现在 1. 新增规则字段「仅推已订阅」（match_subscribed_only，默认开），关掉「仅缺失时推送」后仍然只推自己订阅过的内容；2. 两条门禁彻底独立：想推全部资源就把「仅推已订阅」也关掉，行为显式可控；3. 识别不出片名的纯链接消息无法判断订阅身份，照旧放行（115 推送只要求链接）；4. 订阅数据源不可用（没配订阅）时放行，不会因为读不到订阅就把消息全拦掉；5. 规则测试（预览）与真实处理走同一段判定，避免「测试通过、实际不推」。改动：controller/schemas.py 加 match_subscribed_only 字段；modules/monitor.py 归一；services/matcher.py 新增 subscription_verdict()（只判订阅、不查媒体库，带 60s 缓存）；core/pipeline.py 在「仅缺失」关闭分支加独立订阅门禁，test_text 同步；前端 ConfigMonitorPane 基础组加「仅推已订阅」开关与折叠态 chip，表单读写同步。新增 8 项单测（拦截未订阅、放行已订阅、显式关闭后全量、数据源不可用放行、纯链接放行、归一默认值、预览同款门禁）。",
             "v1.13.22": "插件通知支持指定宿主通知类型（1.13.22）：此前所有通知都不带类型，库里 mtype 落空串，宿主「设置 → 通知」里的类型开关和通知渠道的类型白名单都没法单独管这个插件。现在 1. 默认归「插件」，消息通知中心里能看到归属；2. 配置页「通知」卡片新增「通知类型」下拉，可选宿主 MessageType 的九类——资源下载 / 整理入库 / 订阅 / 站点 / 媒体服务器 / 手动处理 / 插件 / 智能体 / 其它；3. 改选别的类型后，宿主按那一类判定「通知范围」（admin / user / all）与各渠道的类型白名单，例如选「订阅」就会跟订阅类通知一起受订阅范围的约束、也可以被「其它」那类放行；4. 空白或拼错的值一律回落「插件」，不把非法枚举塞给宿主；5. 宿主或旧版 post_message 不接受 mtype 时自动降级为只发标题正文，通知不会因此丢失。改动：core/notify.py 新增 DEFAULT_NOTIFY_MTYPE / NOTIFY_MTYPES / notify_mtype() 归一与 deliver() 签名探测（mtype 支持与否按签名判断，不用 try/except TypeError 吞错），Notifier.send 与 modules/cache.py 的 _notify 都带上类型；__init__.py default_config 加 notify_mtype，controller/api.py 的 /overview 通知块透出 mtype（schemas 同步加字段）；前端 ConfigPan115Pane 通知卡片加类型下拉 + 单行说明，useConfigForm 加默认值。新增 36 项单测（归一、白名单、降级、缓存回搜通知、默认配置、overview 透出）。",
             "v1.13.21": "订阅兜底检查与「新增订阅回搜」开关彻底解耦（1.13.21）：此前「立即检查新增订阅」和兜底 cron 都被 cache_subscribe_enabled 挡住——关掉实时回搜，连「插件停机期间新增的订阅」也永远发现不了，等于把兜底通道一起关了。现在两条通道各管一段：开关只管宿主 subscribe.added 事件的实时回搜；兜底由「订阅兜底检查」卡片里的 cron 独立控制，按订阅快照 diff 捞漏网订阅，定时和手动「立即检查」都不再看那个开关。1. modules/cache.py：check_subscriptions() 去掉 subscribe_enabled 拦截，run_subscription_job() 同样不再看它，日志与触发标记改为「定时兜底」。2. __init__.py get_service() 无条件注册兜底任务（仅受总开关与缓存启用约束），任务名改「胖虎媒体中心 订阅兜底检查」。3. subscribe_state() 新增 event_enabled / fallback_cron 字段。4. 配置页「订阅回搜」开关改名「新增订阅回搜」并写清「关掉只影响实时通道」，原「订阅回搜」卡片改名「订阅兜底检查」；运行状态统计块、详情页标签同步改名。5. 新增 4 项单测锁住解耦（关开关仍兜底、定时入口照跑、服务仍注册、状态双通道）。",
             "v1.13.20": "修掉「凭证填错却报连接超时」（1.13.20）：容器里 TG 预连接在同一毫秒先打「未配置 TG 凭证，跳过运行时启动」再打「连接 Telegram 失败（超过 45 秒未成功）：请检查服务器网络与代理设置」——真实原因是 API ID 里粘了别的口令（非数字），runtime 解析不出整数直接判定未配置并立刻返回 False，上层却把 False 一律当成「连了 45 秒没连上」，把人全带去查网络。1. core/runtime.py 暴露 parse_api_id()，start() 早退时记 last_start_error（缺 API ID / API Hash 为空 / 缺 telethon 分别说清）。2. modules/credentials.py 新增 api_id_issue()：API ID 不是纯数字时在建立运行时之前就抛「API ID 必须是纯数字…当前填的不是数字」，状态接口一并返回该字段供前端提前提示。3. 连接失败文案按凭证问题 / 代理依赖缺失 / 网络三层分别成文，不再混用。4. 配置页「API ID」不再是打码输入框，改为数字输入并附「API ID 格式不对」红条提示。5. 新增 5 项单测覆盖归一化、错因文案、早退原因与状态字段。",

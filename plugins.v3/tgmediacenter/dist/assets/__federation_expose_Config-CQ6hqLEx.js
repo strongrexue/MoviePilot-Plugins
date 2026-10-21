@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.22';
+const FRONTEND_VERSION = '1.13.23';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -1810,7 +1810,7 @@ const _hoisted_18$3 = ["title", "onClick"];
 const _hoisted_19$2 = { class: "mon-rule-toggle" };
 const _hoisted_20$2 = { class: "mon-rule-tags" };
 const _hoisted_21$2 = {
-  key: 3,
+  key: 4,
   class: "mon-rule-tag-empty"
 };
 const _hoisted_22$2 = { class: "mon-rule-body" };
@@ -1818,33 +1818,34 @@ const _hoisted_23$2 = { class: "mon-group" };
 const _hoisted_24$2 = { class: "mon-group-fields" };
 const _hoisted_25$2 = { class: "mon-switch-row" };
 const _hoisted_26$2 = { class: "mon-kw-switch" };
-const _hoisted_27$2 = { class: "mon-kw-wrap" };
-const _hoisted_28$2 = { class: "mon-kw-row" };
-const _hoisted_29$2 = { class: "mon-group mon-kw-col" };
+const _hoisted_27$2 = { class: "mon-kw-switch" };
+const _hoisted_28$2 = { class: "mon-kw-wrap" };
+const _hoisted_29$2 = { class: "mon-kw-row" };
 const _hoisted_30$2 = { class: "mon-group mon-kw-col" };
-const _hoisted_31$2 = {
+const _hoisted_31$2 = { class: "mon-group mon-kw-col" };
+const _hoisted_32$2 = {
   key: 1,
   class: "mon-hint mon-rules-hint"
 };
-const _hoisted_32$2 = {
+const _hoisted_33$2 = {
   key: 2,
   class: "mon-actions"
 };
-const _hoisted_33$2 = { class: "mon-actions" };
-const _hoisted_34$2 = {
+const _hoisted_34$2 = { class: "mon-actions" };
+const _hoisted_35$2 = {
   key: 0,
   class: "mon-test-result"
 };
-const _hoisted_35$2 = { class: "mon-test-line" };
-const _hoisted_36$2 = { key: 0 };
+const _hoisted_36$2 = { class: "mon-test-line" };
 const _hoisted_37$2 = { key: 0 };
-const _hoisted_38$2 = { key: 1 };
-const _hoisted_39$2 = { key: 2 };
-const _hoisted_40$1 = {
+const _hoisted_38$2 = { key: 0 };
+const _hoisted_39$2 = { key: 1 };
+const _hoisted_40$1 = { key: 2 };
+const _hoisted_41$1 = {
   key: 1,
   class: "mon-test-none"
 };
-const _hoisted_41$1 = {
+const _hoisted_42$1 = {
   key: 0,
   class: "mon-test-line"
 };
@@ -1926,6 +1927,7 @@ function blankRule() {
     source_ids: [],
     destination: FIXED_DESTINATION$1,
     match_only_if_missing: true,
+    match_subscribed_only: true,
     match_custom_keywords: false,
     custom_keywords: [],
     exclude_keywords: [],
@@ -1979,6 +1981,7 @@ async function loadRules() {
       // 推送目标不再可选，历史规则的其他取值也一并归一到 115
       destination: FIXED_DESTINATION$1,
       match_only_if_missing: rule.match_only_if_missing !== false,
+      match_subscribed_only: rule.match_subscribed_only !== false,
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
       exclude_keywords: Array.isArray(rule.exclude_keywords) ? rule.exclude_keywords : [],
@@ -2052,6 +2055,7 @@ async function saveRules() {
       destination: FIXED_DESTINATION$1,
       target_id: '',
       match_only_if_missing: Boolean(rule.match_only_if_missing),
+      match_subscribed_only: Boolean(rule.match_subscribed_only),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: (rule.custom_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
       exclude_keywords: (rule.exclude_keywords || []).map(kw => String(kw).trim()).filter(Boolean),
@@ -2394,10 +2398,23 @@ return (_ctx, _cache) => {
                                 ]))]),
                                 _: 1
                               }))
-                            : _createCommentVNode$4("", true),
+                            : (rule.match_subscribed_only)
+                              ? (_openBlock$4(), _createBlock$4(_component_VChip, {
+                                  key: 1,
+                                  size: "x-small",
+                                  variant: "tonal",
+                                  color: "info",
+                                  label: ""
+                                }, {
+                                  default: _withCtx$4(() => [...(_cache[17] || (_cache[17] = [
+                                    _createTextVNode$4(" 仅推已订阅 ", -1)
+                                  ]))]),
+                                  _: 1
+                                }))
+                              : _createCommentVNode$4("", true),
                           (rule.match_custom_keywords && keywordCount(rule))
                             ? (_openBlock$4(), _createBlock$4(_component_VChip, {
-                                key: 1,
+                                key: 2,
                                 size: "x-small",
                                 variant: "tonal",
                                 color: "primary",
@@ -2411,7 +2428,7 @@ return (_ctx, _cache) => {
                             : _createCommentVNode$4("", true),
                           (excludeCount(rule))
                             ? (_openBlock$4(), _createBlock$4(_component_VChip, {
-                                key: 2,
+                                key: 3,
                                 size: "x-small",
                                 variant: "tonal",
                                 color: "warning",
@@ -2423,7 +2440,7 @@ return (_ctx, _cache) => {
                                 _: 2
                               }, 1024))
                             : _createCommentVNode$4("", true),
-                          (!rule.match_only_if_missing && !(rule.match_custom_keywords && keywordCount(rule)) && !excludeCount(rule))
+                          (!rule.match_only_if_missing && !rule.match_subscribed_only && !(rule.match_custom_keywords && keywordCount(rule)) && !excludeCount(rule))
                             ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_21$2, "无额外过滤"))
                             : _createCommentVNode$4("", true)
                         ]),
@@ -2440,7 +2457,7 @@ return (_ctx, _cache) => {
                             inset: "",
                             density: "compact"
                           }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                          _cache[17] || (_cache[17] = _createElementVNode$4("span", { class: "mon-switch-label" }, "启用", -1))
+                          _cache[18] || (_cache[18] = _createElementVNode$4("span", { class: "mon-switch-label" }, "启用", -1))
                         ]),
                         _createVNode$4(_component_VBtn, {
                           size: "small",
@@ -2448,7 +2465,7 @@ return (_ctx, _cache) => {
                           color: "error",
                           onClick: _withModifiers$1($event => (removeRule(index)), ["stop"])
                         }, {
-                          default: _withCtx$4(() => [...(_cache[18] || (_cache[18] = [
+                          default: _withCtx$4(() => [...(_cache[19] || (_cache[19] = [
                             _createTextVNode$4(" 删除 ", -1)
                           ]))]),
                           _: 1
@@ -2456,7 +2473,7 @@ return (_ctx, _cache) => {
                       ], 10, _hoisted_18$3),
                       _withDirectives$1(_createElementVNode$4("div", _hoisted_22$2, [
                         _createElementVNode$4("div", _hoisted_23$2, [
-                          _cache[22] || (_cache[22] = _createElementVNode$4("div", { class: "mon-group-head" }, "基础", -1)),
+                          _cache[24] || (_cache[24] = _createElementVNode$4("div", { class: "mon-group-head" }, "基础", -1)),
                           _createElementVNode$4("div", _hoisted_24$2, [
                             _createVNode$4(_component_VTextField, {
                               modelValue: rule.name,
@@ -2475,13 +2492,25 @@ return (_ctx, _cache) => {
                                 inset: "",
                                 density: "compact"
                               }, {
-                                label: _withCtx$4(() => [...(_cache[19] || (_cache[19] = [
+                                label: _withCtx$4(() => [...(_cache[20] || (_cache[20] = [
                                   _createElementVNode$4("span", { class: "mon-switch-label" }, "仅缺失时推送", -1)
                                 ]))]),
                                 _: 1
                               }, 8, ["modelValue", "onUpdate:modelValue"]),
-                              _cache[21] || (_cache[21] = _createElementVNode$4("span", { class: "mon-group-note" }, "无法判断时跳过", -1)),
+                              _cache[23] || (_cache[23] = _createElementVNode$4("span", { class: "mon-group-note" }, "无法判断时跳过", -1)),
                               _createElementVNode$4("div", _hoisted_26$2, [
+                                _createVNode$4(_component_VSwitch, {
+                                  modelValue: rule.match_subscribed_only,
+                                  "onUpdate:modelValue": $event => ((rule.match_subscribed_only) = $event),
+                                  color: "primary",
+                                  "hide-details": "",
+                                  inset: "",
+                                  density: "compact",
+                                  title: "开启后只推送已订阅的资源；识别不出片名的纯链接消息无法判断订阅身份，仍会推送"
+                                }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                                _cache[21] || (_cache[21] = _createElementVNode$4("span", { class: "mon-kw-switch-label" }, "仅推已订阅", -1))
+                              ]),
+                              _createElementVNode$4("div", _hoisted_27$2, [
                                 _createVNode$4(_component_VSwitch, {
                                   modelValue: rule.match_custom_keywords,
                                   "onUpdate:modelValue": $event => ((rule.match_custom_keywords) = $event),
@@ -2491,15 +2520,15 @@ return (_ctx, _cache) => {
                                   density: "compact",
                                   title: "开启后只有命中关键词的消息才会推送"
                                 }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                                _cache[20] || (_cache[20] = _createElementVNode$4("span", { class: "mon-kw-switch-label" }, "关键词过滤", -1))
+                                _cache[22] || (_cache[22] = _createElementVNode$4("span", { class: "mon-kw-switch-label" }, "关键词过滤", -1))
                               ])
                             ])
                           ])
                         ]),
-                        _createElementVNode$4("div", _hoisted_27$2, [
-                          _createElementVNode$4("div", _hoisted_28$2, [
-                            _createElementVNode$4("div", _hoisted_29$2, [
-                              _cache[23] || (_cache[23] = _createElementVNode$4("div", { class: "mon-group-head" }, "关键词过滤", -1)),
+                        _createElementVNode$4("div", _hoisted_28$2, [
+                          _createElementVNode$4("div", _hoisted_29$2, [
+                            _createElementVNode$4("div", _hoisted_30$2, [
+                              _cache[25] || (_cache[25] = _createElementVNode$4("div", { class: "mon-group-head" }, "关键词过滤", -1)),
                               _createVNode$4(_component_VCombobox, {
                                 modelValue: rule.custom_keywords,
                                 "onUpdate:modelValue": $event => ((rule.custom_keywords) = $event),
@@ -2513,8 +2542,8 @@ return (_ctx, _cache) => {
                                 "hide-details": ""
                               }, null, 8, ["modelValue", "onUpdate:modelValue"])
                             ]),
-                            _createElementVNode$4("div", _hoisted_30$2, [
-                              _cache[24] || (_cache[24] = _createElementVNode$4("div", { class: "mon-group-head" }, "排除关键词", -1)),
+                            _createElementVNode$4("div", _hoisted_31$2, [
+                              _cache[26] || (_cache[26] = _createElementVNode$4("div", { class: "mon-group-head" }, "排除关键词", -1)),
                               _createVNode$4(_component_VCombobox, {
                                 modelValue: rule.exclude_keywords,
                                 "onUpdate:modelValue": $event => ((rule.exclude_keywords) = $event),
@@ -2529,7 +2558,7 @@ return (_ctx, _cache) => {
                               }, null, 8, ["modelValue", "onUpdate:modelValue"])
                             ])
                           ]),
-                          _cache[25] || (_cache[25] = _createElementVNode$4("div", { class: "mon-group-hint" }, "命中任一关键词即视为通过（留空表示不设限）；排除词命中即跳过，优先级高于关键词", -1))
+                          _cache[27] || (_cache[27] = _createElementVNode$4("div", { class: "mon-group-hint" }, "命中任一关键词即视为通过（留空表示不设限）；排除词命中即跳过，优先级高于关键词", -1))
                         ])
                       ], 512), [
                         [_vShow$1, isExpanded(rule)]
@@ -2542,10 +2571,10 @@ return (_ctx, _cache) => {
               }, 1024))
             }), 128)),
             (rules.value.length)
-              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_31$2, " 默认折叠：点标题行展开编辑；折叠态用右侧小标签概览当前设置。 "))
+              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_32$2, " 默认折叠：点标题行展开编辑；折叠态用右侧小标签概览当前设置。 "))
               : _createCommentVNode$4("", true),
             (rules.value.length)
-              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_32$2, [
+              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_33$2, [
                   _createVNode$4(_component_VBtn, {
                     color: "primary",
                     variant: "flat",
@@ -2553,12 +2582,12 @@ return (_ctx, _cache) => {
                     loading: busy.value === 'save',
                     onClick: saveRules
                   }, {
-                    default: _withCtx$4(() => [...(_cache[26] || (_cache[26] = [
+                    default: _withCtx$4(() => [...(_cache[28] || (_cache[28] = [
                       _createTextVNode$4(" 保存规则（即时生效） ", -1)
                     ]))]),
                     _: 1
                   }, 8, ["loading"]),
-                  _cache[27] || (_cache[27] = _createElementVNode$4("span", { class: "mon-hint" }, " 「保存规则」把所有改动（含每条规则标题行上的「启用」开关）立即写进配置并生效。 ", -1))
+                  _cache[29] || (_cache[29] = _createElementVNode$4("span", { class: "mon-hint" }, " 「保存规则」把所有改动（含每条规则标题行上的「启用」开关）立即写进配置并生效。 ", -1))
                 ]))
               : _createCommentVNode$4("", true)
           ]),
@@ -2573,7 +2602,7 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx$4(() => [
         _createVNode$4(_component_VCardTitle, { class: "text-subtitle-2" }, {
-          default: _withCtx$4(() => [...(_cache[28] || (_cache[28] = [
+          default: _withCtx$4(() => [...(_cache[30] || (_cache[30] = [
             _createTextVNode$4("规则测试", -1)
           ]))]),
           _: 1
@@ -2590,34 +2619,34 @@ return (_ctx, _cache) => {
               variant: "outlined",
               "hide-details": ""
             }, null, 8, ["modelValue"]),
-            _createElementVNode$4("div", _hoisted_33$2, [
+            _createElementVNode$4("div", _hoisted_34$2, [
               _createVNode$4(_component_VBtn, {
                 variant: "tonal",
                 "prepend-icon": "mdi-test-tube",
                 loading: busy.value === 'test',
                 onClick: runTest
               }, {
-                default: _withCtx$4(() => [...(_cache[29] || (_cache[29] = [
+                default: _withCtx$4(() => [...(_cache[31] || (_cache[31] = [
                   _createTextVNode$4(" 测试（不落库、不推送） ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading"])
             ]),
             (testResult.value)
-              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_34$2, [
-                  _createElementVNode$4("div", _hoisted_35$2, [
-                    _cache[30] || (_cache[30] = _createElementVNode$4("strong", null, "识别结果：", -1)),
+              ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_35$2, [
+                  _createElementVNode$4("div", _hoisted_36$2, [
+                    _cache[32] || (_cache[32] = _createElementVNode$4("strong", null, "识别结果：", -1)),
                     (testResult.value.recognized)
-                      ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_36$2, [
+                      ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_37$2, [
                           _createTextVNode$4(" 《" + _toDisplayString$4(testResult.value.recognized.title) + "》 ", 1),
                           (testResult.value.recognized.year)
-                            ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_37$2, "（" + _toDisplayString$4(testResult.value.recognized.year) + "）", 1))
+                            ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_38$2, "（" + _toDisplayString$4(testResult.value.recognized.year) + "）", 1))
                             : _createCommentVNode$4("", true),
                           (testResult.value.recognized.season)
-                            ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_38$2, " S" + _toDisplayString$4(String(testResult.value.recognized.season).padStart(2, '0')), 1))
+                            ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_39$2, " S" + _toDisplayString$4(String(testResult.value.recognized.season).padStart(2, '0')), 1))
                             : _createCommentVNode$4("", true),
                           (testResult.value.recognized.episode)
-                            ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_39$2, [
+                            ? (_openBlock$4(), _createElementBlock$4("span", _hoisted_40$1, [
                                 _createTextVNode$4("E" + _toDisplayString$4(String(testResult.value.recognized.episode).padStart(2, '0')), 1),
                                 (testResult.value.recognized.episode_end && testResult.value.recognized.episode_end !== testResult.value.recognized.episode)
                                   ? (_openBlock$4(), _createElementBlock$4(_Fragment$4, { key: 0 }, [
@@ -2628,10 +2657,10 @@ return (_ctx, _cache) => {
                             : _createCommentVNode$4("", true),
                           _createTextVNode$4(" · " + _toDisplayString$4(testResult.value.recognized.media_type === 'tv' ? '剧集' : '电影'), 1)
                         ]))
-                      : (_openBlock$4(), _createElementBlock$4("span", _hoisted_40$1, "无法识别（标题格式特殊或宿主识别引擎不可用）"))
+                      : (_openBlock$4(), _createElementBlock$4("span", _hoisted_41$1, "无法识别（标题格式特殊或宿主识别引擎不可用）"))
                   ]),
                   (testResult.value.links?.length)
-                    ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_41$1, [
+                    ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_42$1, [
                         _createElementVNode$4("strong", null, "解析到 " + _toDisplayString$4(testResult.value.links.length) + " 个链接", 1)
                       ]))
                     : _createCommentVNode$4("", true),
@@ -2662,7 +2691,7 @@ return (_ctx, _cache) => {
                                       label: "",
                                       class: "mon-test-off"
                                     }, {
-                                      default: _withCtx$4(() => [...(_cache[31] || (_cache[31] = [
+                                      default: _withCtx$4(() => [...(_cache[33] || (_cache[33] = [
                                         _createTextVNode$4("已停用", -1)
                                       ]))]),
                                       _: 1
@@ -2692,13 +2721,13 @@ return (_ctx, _cache) => {
       ]),
       _: 1
     }),
-    _cache[32] || (_cache[32] = _createElementVNode$4("div", { class: "mon-hint" }, " 风控提示：TG 个人号对外操作有频率限制，插件按「聚合窗口 + 全局冷却 + FloodWait 退避」克制发送； 长时间大流量监控请适当调大「TG 凭证」页的个人号冷却秒数。 ", -1))
+    _cache[34] || (_cache[34] = _createElementVNode$4("div", { class: "mon-hint" }, " 风控提示：TG 个人号对外操作有频率限制，插件按「聚合窗口 + 全局冷却 + FloodWait 退避」克制发送； 长时间大流量监控请适当调大「TG 凭证」页的个人号冷却秒数。 ", -1))
   ]))
 }
 }
 
 };
-const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-55a5a339"]]);
+const ConfigMonitorPane = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-49f3cb74"]]);
 
 const {resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3,toDisplayString:_toDisplayString$3,openBlock:_openBlock$3,createBlock:_createBlock$3,createCommentVNode:_createCommentVNode$3,createElementVNode:_createElementVNode$3,Fragment:_Fragment$3,createElementBlock:_createElementBlock$3,withKeys:_withKeys,renderList:_renderList$3} = await importShared('vue');
 

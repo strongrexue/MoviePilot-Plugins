@@ -420,25 +420,46 @@ async function runOnce() {
   if (busy.value) return
   busy.value = 'run'
   try {
-    const result = unwrap(
-      await postPluginApi(props.api, props.pluginId, 'run_once', {}, { timeoutMs: 600000 }),
+    const start = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'run_once', {}, { timeoutMs: 60000 }),
     )
-    if (result?.skipped) {
-      setTip('已有发现任务正在运行，本次跳过')
-    } else {
-      const s = result?.summary || {}
-      setTip(
-        `本次完成：拉取 ${s.fetched ?? 0} 条 / 新增 ${s.added ?? 0} 条 / `
-          + `跳过 ${s.skipped ?? 0} 条 / 待确认 ${s.pending_review ?? 0} 条`
-          ,
-      )
+    if (!start?.started) {
+      setTip(start?.message || '已有发现任务正在运行，本次跳过')
+      return
     }
+    setTip('已在后台开始执行，正在等结果（可能要一两分钟）…')
+    const result = await waitTaskDone('run_once/result')
+    const s = result?.summary || {}
+    setTip(
+      `本次完成：拉取 ${s.fetched ?? 0} 条 / 新增 ${s.added ?? 0} 条 / `
+        + `跳过 ${s.skipped ?? 0} 条 / 待确认 ${s.pending_review ?? 0} 条`
+        ,
+    )
     await loadStatus()
   } catch (error) {
     setTip(error?.message || '运行失败', false)
   } finally {
     busy.value = ''
   }
+}
+
+/**
+ * 轮询后台任务直到跑完。
+ *
+ * 预览与「立即运行一次」都要跑一两分钟（拉四个源 + 逐条解析），而宿主
+ * 前面的网关几十秒就断——同步等只会拿到 HTTP 502。所以后端那两个接口
+ * 只负责「启动」，结果一律靠这里轮询 /…/result 取。
+ */
+async function waitTaskDone(path, { intervalMs = 4000, maxTries = 450 } = {}) {
+  for (let i = 0; i < maxTries; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    const state = unwrap(
+      await getPluginApi(props.api, props.pluginId, path, { timeoutMs: 60000 }),
+    )
+    if (state?.error) throw new Error(state.error)
+    if (!state?.running) return state?.result || {}
+  }
+  throw new Error('等待超时：任务可能还在后台跑，稍后回到这一页看状态')
 }
 
 /**
@@ -450,9 +471,15 @@ async function preview() {
   busy.value = 'preview'
   previewItems.value = []
   try {
-    const result = unwrap(
-      await postPluginApi(props.api, props.pluginId, 'preview', {}, { timeoutMs: 600000 }),
+    const start = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'preview', {}, { timeoutMs: 60000 }),
     )
+    if (!start?.started) {
+      setTip(start?.message || '已有发现任务正在运行，本次跳过')
+      return
+    }
+    setTip('预览已在后台开始，正在等结果（首次可能要一两分钟）…')
+    const result = await waitTaskDone('preview/result')
     if (result?.skipped) {
       setTip('已有发现任务正在运行，本次跳过')
       return

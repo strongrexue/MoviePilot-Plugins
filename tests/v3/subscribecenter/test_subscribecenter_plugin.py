@@ -229,7 +229,9 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/card_theme",
         "/card_theme/save",
         "/run_once",
+        "/run_once/result",
         "/preview",
+        "/preview/result",
         "/system_share",
         "/system_share/save",
         "/mapping_cache",
@@ -272,7 +274,9 @@ def test_every_route_has_a_response_model():
         "/card_theme",
         "/card_theme/save",
         "/run_once",
+        "/run_once/result",
         "/preview",
+        "/preview/result",
         "/system_share",
         "/system_share/save",
         "/mapping_cache",
@@ -491,6 +495,45 @@ async def test_run_once_skips_when_busy(plugin):
     try:
         result = await plugin.run_once()
         assert result["skipped"] is True
+    finally:
+        plugin._bridge._lock.release()
+
+
+@pytest.mark.asyncio
+async def test_start_preview_returns_before_pipeline_finishes(plugin, monkeypatch):
+    """预览只「启动」就返回，结果靠轮询 —— 同步等会被网关断成 HTTP 502。
+
+    真机（2026-10-22）：「请求被网关中断（HTTP 502）·发现任务可能仍在后台运行」。
+    """
+    import asyncio
+
+    async def fake_job():
+        await asyncio.sleep(0.05)
+        return {"items": [{"title": "x"}], "summary": {"fetched": 1}, "rejections": {}}
+
+    monkeypatch.setattr(plugin, "_preview_job", fake_job)
+    state = plugin.start_preview()
+    assert state["started"] is True
+    assert state["running"] is True
+
+    for _ in range(200):
+        await asyncio.sleep(0.02)
+        if not plugin.preview_state()["running"]:
+            break
+    done = plugin.preview_state()
+    assert done["running"] is False
+    assert done["result"]["items"] == [{"title": "x"}]
+    assert done["error"] == ""
+
+
+def test_start_preview_refuses_when_discovery_busy(plugin):
+    """发现任务在跑时不抢锁，只回报「未启动」而不是干等。"""
+    held = plugin._bridge._lock.acquire(blocking=False)
+    assert held is True
+    try:
+        state = plugin.start_preview()
+        assert state["started"] is False
+        assert "已有发现任务正在运行" in state["message"]
     finally:
         plugin._bridge._lock.release()
 

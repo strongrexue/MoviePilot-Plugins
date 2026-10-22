@@ -422,3 +422,40 @@ def test_query_retries_on_decode_error(monkeypatch):
     source = _source_with([broken, {"data": {"ok": 1}}])
     result = asyncio.run(source._query("query { x }", {}))
     assert result == {"data": {"ok": 1}}
+
+
+def test_upstream_shutdown_is_reported_as_official_outage(monkeypatch):
+    """AniList 官方停服要翻译成「上游停服」，别甩原始报错让人以为是插件坏了。
+
+    真机（2026-10-22）状态卡原文：
+    ``RuntimeError: AniList 查询失败：The AniList API has been temporarily
+    disabled due to severe stability issues.``
+    """
+    import asyncio
+
+    import pytest
+    import subscribecenter.sources.anilist as mod
+
+    monkeypatch.setattr(mod, "_THROTTLE", 0)
+    monkeypatch.setattr(mod, "_BACKOFF", 0)
+
+    message = (
+        "The AniList API has been temporarily disabled due to severe stability issues."
+    )
+    source = _source_with([{"errors": [{"message": message}]}])
+    with pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(source._query("query { x }", {}))
+    text = str(excinfo.value)
+    assert "官方临时停服" in text
+    assert "其余数据源不受影响" in text
+    assert source._client.calls == 1, "官方停服重试也没用，不该重试"
+
+
+def test_upstream_outage_markers_only_match_shutdown_messages():
+    """只有「停服 / 维护」类描述才算上游停服，普通参数错误仍按原样报。"""
+    import subscribecenter.sources.anilist as mod
+
+    assert mod._is_upstream_outage("temporarily disabled due to severe stability") is True
+    assert mod._is_upstream_outage("This endpoint is under maintenance") is True
+    assert mod._is_upstream_outage("Validation error: season must be WINTER") is False
+    assert mod._is_upstream_outage("") is False

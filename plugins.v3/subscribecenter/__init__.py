@@ -14,6 +14,8 @@ Bangumi / 豆瓣 RSS / Simkl / 前端联邦组件 尚未实现（见开发文档
 - ``get_sidebar_nav()`` 不是基类方法，而是契约钩子，由宿主 ``getattr`` 调用；
 - 写入订阅走 ``SubscribeChain().async_add()``，身份是 ``media_source``+``media_id``。
 """
+import threading
+import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.sdk.logging import logger
@@ -56,7 +58,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.14.2"
+    plugin_version = "1.14.3"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -1666,8 +1668,12 @@ class SubscribeCenter(_PluginBase):
         return await api_controller.api_card_theme_save(self, request)
 
     async def api_run_once(self, source: str = "") -> Any:
-        """手动触发一次发现任务（可只跑某个源）。"""
+        """启动一次发现任务（后台跑，前端轮询 /run_once/result）。"""
         return await api_controller.api_run_once(self, source=source)
+
+    async def api_run_once_result(self) -> Any:
+        """读取发现任务的进度 / 结果。"""
+        return await api_controller.api_run_once_result(self)
 
     async def api_history_clear(self) -> Any:
         """清空发现流水（清掉之后之前订过的作品才会被重新发现）。"""
@@ -1680,8 +1686,12 @@ class SubscribeCenter(_PluginBase):
         return await api_controller.api_history_subscribe(self, request)
 
     async def api_preview(self) -> Any:
-        """只读预览：跑一次但不写入。"""
+        """启动只读预览（后台跑，前端轮询 /preview/result）。"""
         return await api_controller.api_preview(self)
+
+    async def api_preview_result(self) -> Any:
+        """读取预览进度 / 结果。"""
+        return await api_controller.api_preview_result(self)
 
     async def api_mapping_cache(self) -> Any:
         """查看身份映射缓存。"""
@@ -1817,6 +1827,10 @@ class SubscribeCenter(_PluginBase):
             lambda: self._pipeline_coroutine(force_dry_run=False, only_sources=only),
             timeout=600,
         )
+        return self._run_once_payload(summary)
+
+    def _run_once_payload(self, summary: Optional[RunSummary]) -> Dict[str, Any]:
+        """把一次真实运行的 ``RunSummary`` 转成前端要的载荷（并落流水）。"""
         if summary is None:
             return {"accepted": True, "skipped": True, "summary": self._last_summary}
         self._after_run(summary)
@@ -1833,6 +1847,10 @@ class SubscribeCenter(_PluginBase):
         summary = await self._bridge.run_async(
             lambda: self._pipeline_coroutine(force_dry_run=True), timeout=600
         )
+        return self._preview_payload(summary)
+
+    def _preview_payload(self, summary: Optional[RunSummary]) -> Dict[str, Any]:
+        """把一次预览的 ``RunSummary`` 转成前端要的载荷。"""
         if summary is None:
             return {"skipped": True, "summary": self._last_summary, "items": []}
 
@@ -1879,6 +1897,117 @@ class SubscribeCenter(_PluginBase):
             "items": items,
             "rejections": data.get("rejected_reasons") or {},
         }
+
+    # ------------------------------------------------ 后台任务（绕开网关超时）
+    #
+    # 真机：预览要拉四个源、再逐条解析身份，动辄一两分钟；而宿主前面的网关
+    # 几十秒就断，浏览器只会看到「HTTP 502 请求被网关中断」。这类请求不能
+    # 同步等结果，改成「POST 启动 → 立即返回 → GET 轮询」，网关只看到秒级响应。
+
+    def _task_slot(self, name: str) -> Dict[str, Any]:
+        """取（或建）一个后台任务槽，跨请求保存进度与结果。"""
+        slots = self.__dict__.setdefault("_task_slots", {})
+        return slots.setdefault(
+            name,
+            {
+                "running": False,
+                "started_at": "",
+                "started_ts": 0.0,
+                "error": "",
+                "result": {},
+            },
+        )
+
+    def _task_state(self, name: str) -> Dict[str, Any]:
+        """读任务状态；超过 1 小时的「运行中」视为崩溃残留并自动复位。"""
+        slot = self._task_slot(name)
+        if slot.get("running") and time.time() - float(slot.get("started_ts") or 0.0) > 3600:
+            slot["running"] = False
+            slot["error"] = slot.get("error") or "上一次运行超过 1 小时未结束，状态已复位"
+        return {
+            "name": name,
+            "running": bool(slot.get("running")),
+            "started": bool(slot.get("running")),
+            "started_at": str(slot.get("started_at") or ""),
+            "error": str(slot.get("error") or ""),
+            "result": dict(slot.get("result") or {}),
+            "message": "",
+        }
+
+    def _start_task(self, name: str, factory: Any) -> Dict[str, Any]:
+        """启动后台任务并立即返回（同一任务不并发，也不与定时任务抢锁）。"""
+        state = self._task_state(name)
+        if state["running"]:
+            return {**state, "started": False, "message": "上一次还在跑，请稍等"}
+        if self._bridge.busy:
+            return {
+                **state,
+                "running": True,
+                "started": False,
+                "message": "已有发现任务正在运行，本次未启动",
+            }
+        slot = self._task_slot(name)
+        slot.update(
+            {
+                "running": True,
+                "started_at": local_now_text(self._tz()),
+                "started_ts": time.time(),
+                "error": "",
+                "result": {},
+            }
+        )
+        started_at = slot["started_at"]
+
+        def runner() -> None:
+            """后台线程：bridge.run 自带互斥，异常必须自己兜住。"""
+            try:
+                slot["result"] = self._bridge.run(factory, timeout=1800) or {}
+            except Exception as err:  # noqa: BLE001 - 线程里没人接异常
+                slot["error"] = f"{type(err).__name__}: {err}"
+                logger.error(f"[SubscribeCenter] 后台任务 {name} 失败：{err}", exc_info=True)
+            finally:
+                slot["running"] = False
+
+        threading.Thread(
+            target=runner, name=f"subscribecenter-{name}", daemon=True
+        ).start()
+        return {
+            "name": name,
+            "running": True,
+            "started": True,
+            "started_at": started_at,
+            "error": "",
+            "result": {},
+            "message": "已在后台开始，稍后自动刷新结果",
+        }
+
+    def start_preview(self) -> Dict[str, Any]:
+        """启动只读预览（后台跑，立即返回）。"""
+        return self._start_task("preview", lambda: self._preview_job())
+
+    async def _preview_job(self) -> Dict[str, Any]:
+        """后台线程里的预览协程：不经过 bridge（锁已由 ``run`` 持有）。"""
+        summary = await self._pipeline_coroutine(force_dry_run=True)
+        return self._preview_payload(summary)
+
+    def preview_state(self) -> Dict[str, Any]:
+        """读取预览进度 / 结果。"""
+        return self._task_state("preview")
+
+    def start_run_once(self, source: str = "") -> Dict[str, Any]:
+        """启动一次真实发现（后台跑，立即返回）。"""
+        only = [source] if source else None
+        return self._start_task("run_once", lambda: self._run_once_job(only))
+
+    async def _run_once_job(self, only: Optional[List[str]]) -> Dict[str, Any]:
+        summary = await self._pipeline_coroutine(
+            force_dry_run=False, only_sources=only
+        )
+        return self._run_once_payload(summary)
+
+    def run_once_state(self) -> Dict[str, Any]:
+        """读取「立即运行一次」的进度 / 结果。"""
+        return self._task_state("run_once")
 
     async def _pipeline_coroutine(
         self, *, force_dry_run: bool = False, only_sources: Optional[List[str]] = None

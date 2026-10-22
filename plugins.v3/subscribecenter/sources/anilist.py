@@ -63,6 +63,32 @@ _MAX_ATTEMPTS = 3
 #: 重试退避基数（秒），第 n 次等待 n * _BACKOFF
 _BACKOFF = 1.5
 
+#: AniList 官方停机 / 维护时返回的提示片段（不是本插件的问题）
+_OUTAGE_MARKERS = (
+    "temporarily disabled",
+    "severe stability",
+    "under maintenance",
+    "undergoing maintenance",
+)
+
+#: 上游停服时给用户看的人话（带上原始 message 便于核对）
+_OUTAGE_HINT = (
+    "AniList 官方临时停服：{message} —— 不是本插件的问题，其余数据源不受影响。"
+    "可以在「AniList」分区先关掉这个源，等官方恢复后再打开。"
+)
+
+
+def _is_upstream_outage(message: str) -> bool:
+    """判断 AniList 返回的是不是「官方停服 / 维护」类错误。
+
+    真机（2026-10-22）：GraphQL 返回
+    ``The AniList API has been temporarily disabled due to severe stability issues.``
+    —— 这类错误重试没用、也不是我们写错了，应该直接告诉用户「上游停服」，
+    而不是抛一个看着像插件 bug 的原始报错。
+    """
+    text = str(message or "").lower()
+    return any(marker in text for marker in _OUTAGE_MARKERS)
+
 #: 每页条数（AniList 上限 50）
 PAGE_SIZE = 50
 
@@ -359,6 +385,8 @@ class AniListSource:
                     if response.get("errors"):
                         errors = response["errors"] or []
                         message = (errors[0] or {}).get("message") or "未知错误"
+                        if _is_upstream_outage(message):
+                            raise RuntimeError(_OUTAGE_HINT.format(message=message))
                         raise RuntimeError(f"AniList 查询失败：{message}")
                     return response
                 last_error = f"返回内容不是 JSON（{str(response)[:60]!r}）"

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-CxDzLz0P.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-um1eDH3D.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -719,25 +719,46 @@ async function runOnce() {
   if (busy.value) return
   busy.value = 'run';
   try {
-    const result = unwrap(
-      await postPluginApi(props.api, props.pluginId, 'run_once', {}, { timeoutMs: 600000 }),
+    const start = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'run_once', {}, { timeoutMs: 60000 }),
     );
-    if (result?.skipped) {
-      setTip('已有发现任务正在运行，本次跳过');
-    } else {
-      const s = result?.summary || {};
-      setTip(
-        `本次完成：拉取 ${s.fetched ?? 0} 条 / 新增 ${s.added ?? 0} 条 / `
-          + `跳过 ${s.skipped ?? 0} 条 / 待确认 ${s.pending_review ?? 0} 条`
-          ,
-      );
+    if (!start?.started) {
+      setTip(start?.message || '已有发现任务正在运行，本次跳过');
+      return
     }
+    setTip('已在后台开始执行，正在等结果（可能要一两分钟）…');
+    const result = await waitTaskDone('run_once/result');
+    const s = result?.summary || {};
+    setTip(
+      `本次完成：拉取 ${s.fetched ?? 0} 条 / 新增 ${s.added ?? 0} 条 / `
+        + `跳过 ${s.skipped ?? 0} 条 / 待确认 ${s.pending_review ?? 0} 条`
+        ,
+    );
     await loadStatus();
   } catch (error) {
     setTip(error?.message || '运行失败', false);
   } finally {
     busy.value = '';
   }
+}
+
+/**
+ * 轮询后台任务直到跑完。
+ *
+ * 预览与「立即运行一次」都要跑一两分钟（拉四个源 + 逐条解析），而宿主
+ * 前面的网关几十秒就断——同步等只会拿到 HTTP 502。所以后端那两个接口
+ * 只负责「启动」，结果一律靠这里轮询 /…/result 取。
+ */
+async function waitTaskDone(path, { intervalMs = 4000, maxTries = 450 } = {}) {
+  for (let i = 0; i < maxTries; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    const state = unwrap(
+      await getPluginApi(props.api, props.pluginId, path, { timeoutMs: 60000 }),
+    );
+    if (state?.error) throw new Error(state.error)
+    if (!state?.running) return state?.result || {}
+  }
+  throw new Error('等待超时：任务可能还在后台跑，稍后回到这一页看状态')
 }
 
 /**
@@ -749,9 +770,15 @@ async function preview() {
   busy.value = 'preview';
   previewItems.value = [];
   try {
-    const result = unwrap(
-      await postPluginApi(props.api, props.pluginId, 'preview', {}, { timeoutMs: 600000 }),
+    const start = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'preview', {}, { timeoutMs: 60000 }),
     );
+    if (!start?.started) {
+      setTip(start?.message || '已有发现任务正在运行，本次跳过');
+      return
+    }
+    setTip('预览已在后台开始，正在等结果（首次可能要一两分钟）…');
+    const result = await waitTaskDone('preview/result');
     if (result?.skipped) {
       setTip('已有发现任务正在运行，本次跳过');
       return
@@ -1496,7 +1523,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[93] || (_cache[93] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-af528224><b data-v-af528224>电影上映类</b>（<code data-v-af528224>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-af528224><b data-v-af528224>剧集类</b>（<code data-v-af528224>/douban/tv/coming</code>、<code data-v-af528224>/douban/list/tv_*</code>、 <code data-v-af528224>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-af528224><b data-v-af528224>电影榜单类</b>没有日期，会被跳过。<code data-v-af528224>ustop250</code> 与 <code data-v-af528224>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[93] || (_cache[93] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-0ebde379><b data-v-0ebde379>电影上映类</b>（<code data-v-0ebde379>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-0ebde379><b data-v-0ebde379>剧集类</b>（<code data-v-0ebde379>/douban/tv/coming</code>、<code data-v-0ebde379>/douban/list/tv_*</code>、 <code data-v-0ebde379>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-0ebde379><b data-v-0ebde379>电影榜单类</b>没有日期，会被跳过。<code data-v-0ebde379>ustop250</code> 与 <code data-v-0ebde379>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2181,7 +2208,7 @@ return (_ctx, _cache) => {
                   color: "primary"
                 }, null, 8, ["modelValue"])
               ]),
-              _cache[121] || (_cache[121] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-af528224><b data-v-af528224>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-af528224>BL</code> 不会命中 <code data-v-af528224>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-af528224>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-af528224>regex:</code> 用正则；行首加 <code data-v-af528224>case:</code> 区分大小写；空行与 <code data-v-af528224>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-af528224><b data-v-af528224>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-af528224>试一下</div>", 3)),
+              _cache[121] || (_cache[121] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-0ebde379><b data-v-0ebde379>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-0ebde379>BL</code> 不会命中 <code data-v-0ebde379>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-0ebde379>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-0ebde379>regex:</code> 用正则；行首加 <code data-v-0ebde379>case:</code> 区分大小写；空行与 <code data-v-0ebde379>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-0ebde379><b data-v-0ebde379>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-0ebde379>试一下</div>", 3)),
               _createVNode(_component_VRow, { dense: "" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VCol, {
@@ -2998,6 +3025,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-af528224"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0ebde379"]]);
 
 export { Config as default };

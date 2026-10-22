@@ -553,13 +553,44 @@ TMDB 的 genre 表里**没有「同性」这个词**（电影 19 类、剧集 16
 | `/history` | GET | 分页流水，支持 `decision` / `source` / `keyword` 筛选 |
 | `/history/clear` | POST | 清空发现流水（同时解锁「流水记过就不再自动重订」） |
 | `/history/subscribe` | POST | 从一条流水手动补订阅（`{key}`；绕开窗口/评分/额度/流水去重） |
-| `/run_once` | POST | 手动触发一次发现（与定时任务互斥） |
+| `/run_once` | POST | 启动一次发现（后台跑，立即返回 `{started, running}`） |
+| `/run_once/result` | GET | 读发现任务的进度与结果（前端每 4 秒轮询一次） |
+| `/preview` | POST | 启动只读预览（后台跑，不写入、不消耗每日额度） |
+| `/preview/result` | GET | 读预览进度与结果 |
 | `/mapping_cache` | GET | 查看身份映射缓存 |
 | `/mapping_cache/fix` | POST | 人工修正一条身份映射 |
 | `/auto_toggle` | GET | 按播出日算一遍，**只算不写**（自动启停的预览） |
 | `/auto_toggle/apply` | POST | 执行自动启停（暂停 / 恢复订阅状态） |
 | `/blacklist` | GET | 排除规则元数据（内置题材预设 + TMDB 类型中文名） |
 | `/blacklist/test` | POST | 自测一条内容会不会被拦、命中哪条规则（`{title, tags, media_type}`） |
+
+---
+
+## 为什么「预览 / 立即运行一次」是后台任务（1.14.3）
+
+真机报过 **「请求被网关中断（HTTP 502）·发现任务可能仍在后台运行」**。
+
+原因不在插件逻辑：一次发现要拉四个源、再逐条解析身份，动辄一两分钟；
+而请求在网关（反代 / 宿主前面的 nginx 类）上撑不过几十秒，网关先断了连接，
+浏览器只会看到 502 —— **后台其实还在跑**。
+
+因此这两个动作都拆成了「启动 + 轮询」：
+
+| 动作 | 启动 | 读结果 |
+|---|---|---|
+| 只读预览 | `POST /preview` → `{started, running}` | `GET /preview/result` |
+| 立即运行一次 | `POST /run_once` → `{started, running}` | `GET /run_once/result` |
+
+前端点完按钮每 4 秒轮询一次，页面顶部提示「正在等结果」，跑完自动刷新。
+两个任务共用宿主的发现互斥锁：定时任务在跑时点按钮会提示「已有发现任务正在
+运行」，不会并发；预览依旧不写订阅、不消耗每日额度。
+
+## AniList 官方停服时
+
+AniList 会整体停服（真机 2026-10-22 原话：`The AniList API has been temporarily
+disabled due to severe stability issues.`）。这时状态卡会明确写「AniList 官方
+临时停服 …… 不是本插件的问题，其余数据源不受影响」，而不是甩一条看着像插件
+坏了的原始报错。处理办法：在「AniList」分区临时关掉这个源，等官方恢复再开。
 
 ---
 

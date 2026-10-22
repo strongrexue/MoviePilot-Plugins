@@ -53,8 +53,20 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ),
         ("/card_theme", plugin.api_card_theme, ["GET"], "读取订阅卡片配色"),
         ("/card_theme/save", plugin.api_card_theme_save, ["POST"], "保存订阅卡片配色"),
-        ("/run_once", plugin.api_run_once, ["POST"], "手动触发一次发现任务"),
-        ("/preview", plugin.api_preview, ["POST"], "只读预览：跑一次但不写入"),
+        ("/run_once", plugin.api_run_once, ["POST"], "启动一次发现任务（后台跑）"),
+        (
+            "/run_once/result",
+            plugin.api_run_once_result,
+            ["GET"],
+            "读取发现任务的进度与结果",
+        ),
+        ("/preview", plugin.api_preview, ["POST"], "启动只读预览（后台跑，不写入）"),
+        (
+            "/preview/result",
+            plugin.api_preview_result,
+            ["GET"],
+            "读取预览的进度与结果",
+        ),
         ("/system_share", plugin.api_system_share, ["GET"], "读取订阅数据共享开关"),
         ("/system_share/save", plugin.api_system_share_save, ["POST"], "设置订阅数据共享开关"),
         ("/mapping_cache", plugin.api_mapping_cache, ["GET"], "查看身份映射缓存"),
@@ -191,16 +203,28 @@ async def api_poster(plugin, path: str = "") -> Any:
 
 
 async def api_preview(plugin) -> Any:
-    """只读预览：跑完整流水线但不写入订阅，返回会订哪些。
+    """只读预览（后台跑，立即返回）。
 
-    与 `/run_once` 共用同一把互斥锁，但**不消耗每日写入额度**。
+    真机：预览要跑完整流水线（拉四源 + 逐条解析），网关等不到就断成
+    HTTP 502。改成本接口只「启动」，前端轮询 ``GET /preview/result``。
+    与 ``/run_once`` 共用同一把互斥锁，但**不消耗每日写入额度**。
     """
     try:
-        result = await plugin.preview()
-        return schemas.Response(success=True, data=result)
+        result = plugin.start_preview()
+        return schemas.Response(success=True, data=api_schemas.TaskState(**result))
     except Exception as err:  # noqa: BLE001
-        logger.error(f"[SubscribeCenter] 预览失败：{err}", exc_info=True)
-        raise HTTPException(status_code=500, detail="预览失败") from err
+        logger.error(f"[SubscribeCenter] 启动预览失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="启动预览失败") from err
+
+
+async def api_preview_result(plugin) -> Any:
+    """读取预览进度 / 结果（跑完才有 ``result``）。"""
+    try:
+        result = plugin.preview_state()
+        return schemas.Response(success=True, data=api_schemas.TaskState(**result))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取预览状态失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取预览状态失败") from err
 
 
 async def api_mapping_cache(plugin) -> Any:
@@ -245,8 +269,10 @@ __all__ = [
     "api_history_subscribe",
     "api_mapping_cache",
     "api_preview",
+    "api_preview_result",
     "api_mapping_fix",
     "api_run_once",
+    "api_run_once_result",
     "api_status",
     "get_api",
 ]
@@ -362,17 +388,28 @@ async def api_card_theme_save(plugin, request: api_schemas.CardThemeRequest) -> 
 
 
 async def api_run_once(plugin, source: str = "") -> Any:
-    """手动触发一次发现任务。
+    """手动触发一次发现任务（后台跑，立即返回）。
 
-    与定时任务共用同一把互斥锁（开发文档 §7.2）：已有运行在跑时返回
-    ``skipped=True``，不排队、不并发。
+    真机：整条流水线要一两分钟，网关几十秒就断成 HTTP 502。所以这里只
+    「启动」并返回任务状态，进度与结果用 ``GET /run_once/result`` 轮询。
+    与定时任务共用同一把互斥锁：已有运行在跑时不启动（``started=False``）。
     """
     try:
-        result = await plugin.run_once()
-        return schemas.Response(success=True, data=result)
+        result = plugin.start_run_once(source)
+        return schemas.Response(success=True, data=api_schemas.TaskState(**result))
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 手动运行失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="手动运行失败") from err
+
+
+async def api_run_once_result(plugin) -> Any:
+    """读取「立即运行一次」的进度 / 结果。"""
+    try:
+        result = plugin.run_once_state()
+        return schemas.Response(success=True, data=api_schemas.TaskState(**result))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取运行状态失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取运行状态失败") from err
 
 
 async def api_system_share(plugin) -> Any:

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-CxDzLz0P.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-um1eDH3D.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -579,18 +579,29 @@ async function runOnce() {
   if (busy.value) return
   busy.value = 'run';
   try {
-    const result = unwrap(
-      await postPluginApi(props.api, props.pluginId, 'run_once', {}, { timeoutMs: 600000 }),
+    const start = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'run_once', {}, { timeoutMs: 60000 }),
     );
-    if (result?.skipped) {
-      setTip('已有发现任务正在运行，本次跳过');
-    } else {
-      const s = result?.summary || {};
-      setTip(
-        `本次完成：拉取 ${s.fetched ?? 0} 条 / 新增 ${s.added ?? 0} 条 / `
-          + `跳过 ${s.skipped ?? 0} 条 / 待确认 ${s.pending_review ?? 0} 条`,
-      );
+    if (!start?.started) {
+      setTip(start?.message || '已有发现任务正在运行，本次跳过');
+      return
     }
+    setTip('已在后台开始执行，正在等结果（可能要一两分钟）…');
+    // 整条流水线跑得比网关超时久，只能轮询结果（真机 502 的修法）
+    let state = null;
+    for (let i = 0; i < 450; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      state = unwrap(
+        await getPluginApi(props.api, props.pluginId, 'run_once/result', { timeoutMs: 60000 }),
+      );
+      if (state?.error) throw new Error(state.error)
+      if (!state?.running) break
+    }
+    const s = state?.result?.summary || {};
+    setTip(
+      `本次完成：拉取 ${s.fetched ?? 0} 条 / 新增 ${s.added ?? 0} 条 / `
+        + `跳过 ${s.skipped ?? 0} 条 / 待确认 ${s.pending_review ?? 0} 条`,
+    );
     await refreshAll();
   } catch (error) {
     setTip(error?.message || '运行失败', false);
@@ -1581,6 +1592,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a09277c6"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f295d464"]]);
 
 export { Page as default };

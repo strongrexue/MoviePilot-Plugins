@@ -183,6 +183,23 @@ class SystemShareRequest(BaseModel):
     enabled: bool = Field(default=False, description="是否开启")
 
 
+class TaskState(BaseModel):
+    """后台任务状态（预览 / 立即运行共用）。
+
+    真机：这两个动作要跑一两分钟，网关几十秒就断（HTTP 502），所以改成
+    「POST 启动 → 立即返回 → GET 轮询」—— ``running`` 变 false 后 ``result``
+    才有效。
+    """
+
+    name: str = Field(default="", description="任务名：preview / run_once")
+    running: bool = Field(default=False, description="是否还在跑")
+    started: bool = Field(default=False, description="本次请求是否真的启动了任务")
+    started_at: str = Field(default="", description="本轮开始时间")
+    error: str = Field(default="", description="失败原因（跑挂时才有）")
+    result: Dict[str, Any] = Field(default_factory=dict, description="任务结果（跑完才有）")
+    message: str = Field(default="", description="给人看的一句话")
+
+
 class RunOnceResult(BaseModel):
     """手动触发一次发现的结果。"""
 
@@ -477,8 +494,10 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/blacklist/test": BlacklistTestResult,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
-    "/run_once": RunOnceResult,
-    "/preview": PreviewResult,
+    "/run_once": TaskState,
+    "/run_once/result": TaskState,
+    "/preview": TaskState,
+    "/preview/result": TaskState,
     "/system_share": SystemShareState,
     "/system_share/save": SystemShareState,
     "/mapping_cache": MappingCacheView,
@@ -517,6 +536,7 @@ __all__ = [
     "PluginStatus",
     "PreviewItem",
     "PreviewResult",
+    "TaskState",
     "SystemShareState",
     "SystemShareRequest",
     "RunOnceResult",

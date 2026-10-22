@@ -85,7 +85,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.14.2",
+        "version": "1.14.3",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -93,6 +93,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.14.3": "预览与「立即运行一次」改成后台任务 + 轮询结果，修网关 502；AniList 官方停服给出人话提示（1.14.3）",
             "v1.14.2": "自测加「为什么测不出命中」的提示：只在片名里找题材词是找不到「同性」的（那个词在豆瓣来源的题材串里），空片名+空题材串时直接说明，免得被当成功能坏了。",
             "v1.14.1": "修「黑名单自测」500：FastAPI 按端点签名判断要不要解析 JSON body，插件里三个端点的 request 注解写成了 Any，body 被当成 dict 传进来，request.title 直接 AttributeError。把 /blacklist/test、/system_share/save、/history/subscribe 的注解改成具体 pydantic 模型，并在控制器加 _payload 兜一层（dict/模型/空 body 都能归一）。自测顺带改成认「页面上当前填的规则」——勾完预设不点保存也能测出结果，否则会误以为功能坏了。新增两条回归锁：POST 端点必须用模型注解、端点拿到 dict 也不能 500。",
             "v1.14.0": "新增「排除规则（黑名单）」：排除类型（TMDB genre id 多选，电影/剧集分开）+ 排除题材（6 个内置预设需用户勾选才生效，另有自定义词表，支持空格 AND / regex: / case: 语法）。纯文本层在身份解析之前拦（省 TMDB 请求），TMDB keyword 层只对即将写入的少量条目查（默认关）。命中记 skipped_blacklist，不算订过、不影响已有订阅；配置页新增「排除规则」分区与当场自测。",

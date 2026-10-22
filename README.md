@@ -98,6 +98,7 @@ Telegram 频道消息
 | 〃 | `cache_sync_mode` / `cache_sync_days` / `cache_batch_size` | 同步方式与批量 |
 | 〃 | `cache_subscribe_enabled` | 新增订阅回搜开关（只控制宿主 `subscribe.added` 实时通道，默认开） |
 | 〃 | `cache_reshuffle_enabled` | 洗版回搜开关（默认关）：定时兜底跳过媒体库判定、遍历全部订阅回搜，用于捞更高画质资源洗版 |
+| 〃 | `cache_push_batch_size` / `cache_push_batch_interval` | 推送节流（默认 10 条 / 15 秒）：每批领取条数与批间隔，实时任务与洗版批量任务各占一半额度 |
 | 〃 | `cache_cron` / `cache_subscribe_cron` | 增量同步 / 订阅兜底的 Cron（默认 `0 */6 * * *`、`*/30 * * * *`） |
 | 转发 | `forward_enabled` / `forward_rules` | 开关与规则列表 |
 | 通知 | `notify_on_hit` / `notify_on_error` / `notify_on_search` | 转存通知 / 失败通知 / 回搜通知 |
@@ -113,7 +114,7 @@ Telegram 频道消息
 ```text
 MoviePilot-Plugins/
 ├── plugins.v3/tgmediacenter/     # 插件源码（Vue 联邦前端产物在 dist/assets/）
-├── tests/v3/tgmediacenter/       # 插件测试（pytest，基线 544）
+├── tests/v3/tgmediacenter/       # 插件测试（pytest，基线 551）
 ├── package.v3.json               # V3 插件索引（version / icon / history）
 ├── icons/tgmediacenter.png       # 插件图标（索引仓库用；插件目录内另有一份随包发布）
 └── .github/                      # 发布工作流与门禁脚本

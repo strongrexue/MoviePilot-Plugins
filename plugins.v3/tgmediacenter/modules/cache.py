@@ -63,10 +63,10 @@ _BACKFILL_BATCH = 100
 # 已成功推送过的被命中流水拦住，入队失败的那批（无流水记录）得以补推。
 _SUB_SNAPSHOT_KEY = "cache_sub_snapshot_v2"
 _SUB_STATE_KEY = "cache_sub_state"
-# 洗版回搜（1.13.24）：每轮最多入队的推送条数。开启后跳过媒体库判定、回搜全部
-# 订阅，首次开启时可能一次捞出大量从未推送过的老资源；限流让队列不被瞬间灌满，
-# 剩下的下一轮继续（流水去重保证不会重复入队）。
-RESHUFFLE_PUSH_CAP = 100
+# 洗版回搜（1.13.24）每轮入队条数不再设上限（1.13.25）：一轮定时就能把全部订阅
+# 捞完，不必反复点「立即洗版回搜」。推送节奏改由推送 worker 的「每批条数 / 批间隔」
+# 控制（见 core/pipeline.py 的 push_batch_size / push_batch_interval），队列不会
+# 被瞬间灌满；重复入队仍由命中流水挡住。
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
 DEFAULT_SUBSCRIBE_CRON = "*/30 * * * *"
@@ -368,6 +368,8 @@ class CacheModule:
             "batch_size": self.batch_size(),
             "subscribe_enabled": self.subscribe_enabled(),
             "reshuffle_enabled": self.reshuffle_enabled(),
+            "push_batch_size": self.push_batch_size(),
+            "push_batch_interval": self.push_batch_interval(),
             "backfill_enabled": self.backfill_enabled(),
             "backfill_cron": self.backfill_cron(),
             "cron": self.cron(),
@@ -411,6 +413,11 @@ class CacheModule:
             patch["cache_subscribe_enabled"] = bool(data.get("subscribe_enabled"))
         if "reshuffle_enabled" in data:
             patch["cache_reshuffle_enabled"] = bool(data.get("reshuffle_enabled"))
+        if "push_batch_size" in data:
+            patch["cache_push_batch_size"] = self._coerce_batch_size(data.get("push_batch_size"))
+        if "push_batch_interval" in data:
+            patch["cache_push_batch_interval"] = self._coerce_batch_interval(
+                data.get("push_batch_interval"))
         if "backfill_enabled" in data:
             patch["cache_backfill_enabled"] = bool(data.get("backfill_enabled"))
         if "backfill_cron" in data:
@@ -429,6 +436,37 @@ class CacheModule:
             return min(500, max(20, int(self._cfg("cache_batch_size", 200) or 200)))
         except (TypeError, ValueError):
             return 200
+
+    @staticmethod
+    def _coerce_batch_size(raw: Any) -> int:
+        """每批条数收敛到 1~200；缺省/非法回默认 10（0 属于越界，收敛到下限 1）。"""
+        if raw is None or raw == "":
+            return 10
+        try:
+            return min(200, max(1, int(raw)))
+        except (TypeError, ValueError):
+            return 10
+
+    @staticmethod
+    def _coerce_batch_interval(raw: Any) -> int:
+        """批间隔秒数收敛到 5~3600；缺省/非法回默认 15。"""
+        if raw is None or raw == "":
+            return 15
+        try:
+            return min(3600, max(5, int(raw)))
+        except (TypeError, ValueError):
+            return 15
+
+    def push_batch_size(self) -> int:
+        """推送每批条数（1.13.25 新增，推送 worker 读取，默认 10）。
+
+        注意只把「缺省 / 空值」当默认：填 0 是越界要收敛到下限 1，不能悄悄变成 10。
+        """
+        return self._coerce_batch_size(self._cfg("cache_push_batch_size", 10))
+
+    def push_batch_interval(self) -> int:
+        """推送批间隔秒数（1.13.25 新增，推送 worker 读取，默认 15 秒）。"""
+        return self._coerce_batch_interval(self._cfg("cache_push_batch_interval", 15))
 
     # ------------------------------------------------------------------ 写入
 
@@ -594,8 +632,9 @@ class CacheModule:
           媒体库判定——洗版的目的就是不管库里有什么，只要频道有、还没推过就推。
         - **去重**：常规按 ``cache_search`` 虚拟规则去重；这里按**任何路径**的命中
           流水去重（``_hit_exists_any``），否则监控/补扫推过的会被再推一遍。
-        - **限流**：单轮最多入队 ``RESHUFFLE_PUSH_CAP`` 条，避免首次开启瞬间把队列
-          灌满；剩下的下一轮继续（流水已记录，不会重复）。
+        - **节奏**：本轮不再限制入队条数（1.13.25）——一轮定时就把全部订阅捞完，
+          推送速度交给推送 worker 的「每批条数 / 批间隔」（``cache_push_batch_size``
+          / ``cache_push_batch_interval``），队列不会被瞬间灌满。
         """
         # 快照照旧维护：洗版开关关掉后仍要能按常规口径继续跑
         self._plugin.save_data(_SUB_SNAPSHOT_KEY, snapshot)
@@ -606,32 +645,22 @@ class CacheModule:
 
         logger.info(
             f"[{self._plugin_id()}] 洗版回搜（{trigger}）：遍历 {len(snapshot)} 个订阅，"
-            f"跳过媒体库判定，单轮最多推送 {RESHUFFLE_PUSH_CAP} 条"
+            f"跳过媒体库判定，不限入队条数"
         )
-        budget = RESHUFFLE_PUSH_CAP
         pushed_total = 0
         details: List[dict] = []
         for key in snapshot:
             sub = snapshot[key]
             try:
-                result = self._search_subscription(sub, reshuffle=True, budget=budget)
+                result = self._search_subscription(sub, reshuffle=True)
             except Exception as err:  # 单个订阅失败不影响其余
                 logger.warning(f"[{self._plugin_id()}] 订阅「{sub.get('name')}」洗版回搜失败：{err}")
                 result = {"name": sub.get("name"), "candidates": 0, "pushed": 0, "error": str(err)}
-            pushed = int(result.get("pushed") or 0)
-            pushed_total += pushed
-            budget -= pushed
+            pushed_total += int(result.get("pushed") or 0)
             details.append(result)
-            if budget <= 0:
-                logger.info(
-                    f"[{self._plugin_id()}] 洗版回搜已达单轮上限 {RESHUFFLE_PUSH_CAP} 条，"
-                    f"剩余订阅留到下一轮"
-                )
-                break
 
         self._remember_check(new=len(snapshot), pushed=pushed_total, error="")
         self._notify_search_result(len(snapshot), details, reshuffle=True)
-        capped = "（已达单轮上限，剩余留到下一轮）" if budget <= 0 else ""
         return {
             "checked": True,
             "reshuffle": True,
@@ -639,29 +668,29 @@ class CacheModule:
             "new": len(snapshot),
             "pushed": pushed_total,
             "details": details,
-            "message": f"洗版回搜 {len(snapshot)} 个订阅，推送 {pushed_total} 条{capped}",
+            "message": f"洗版回搜 {len(snapshot)} 个订阅，推送 {pushed_total} 条",
         }
 
     def _notify_search_result(self, new_count: int, details: List[dict], *,
                               reshuffle: bool = False) -> None:
         """回搜结果通知。
 
-        两种口径都要发：**推了**要说清推了几条；**一条没推**更要说清为什么
-        （媒体库已存在 / 已推送过），否则界面上就是"什么都没发生"，
-        用户无法判断是漏推还是正常跳过（1.4.3 真机反馈"新增订阅插件没有任何输出"）。
+        1.13.25 起口径收窄（用户要求）：**只有真正推出去东西才发**。一条都没推
+        （「已推送过」「订阅无缺集」「无可用链接」「未订阅」）就完全不发——那些
+        判定照旧写命中流水，运行详情页可查，不再发一条"什么都没做"的通知。
 
         渲染（1.6.10 起，1.7.5 定稿，1.7.6 去头行）：去「· 」前缀、媒体名带年份、
         附真实链接、来源用频道名；已推送的**按消息分块**——每条被推送的消息一个块，
         块内列链接、块自带「来源：频道名」（缓存本就能配多个频道，多频道时才能看出
-        每条链接来自哪）；未推送的订阅块名带年份（订阅年份优先，缺则候选识别年份
-        最多者）、原因不带计数、「来源」与「媒体库未收录」备注另起一行顶格（与 115
-        转存通知同款）；「未订阅」不在通知里展示（1.7.4 用户拍板：标题包含匹配带进的
-        候选没对上订阅，展示只会引疑惑）。1.7.6：去掉「新增订阅 N 个…」头行直接从块
-        开始，3a / 3b 混排以空行分隔。总量兜底：推送块最多列 20 条，其余只计数。
+        每条链接来自哪）。1.7.6：去掉「新增订阅 N 个…」头行直接从块开始。
+        总量兜底：推送块最多列 20 条，其余只计数。
         """
         candidates = sum(int(item.get("candidates") or 0) for item in details)
         pushed_total = sum(int(item.get("pushed") or 0) for item in details)
-        if not candidates and not pushed_total:
+        # 1.13.25 用户要求：只有真正推了东西才发通知。「已推送过」「订阅无缺集」
+        # 「无可用链接」「未订阅」这些没推的订阅不再打扰——它们只记在流水里
+        # （运行详情页可查），通知正文也不再出现「无需推送」块。
+        if not pushed_total:
             return
         names = self._dialog_names()
         lines: List[str] = []
@@ -692,37 +721,9 @@ class CacheModule:
         if len(pushed_items) > shown_count:
             lines.append(f"…其余 {len(pushed_items) - shown_count} 条资源请在运行详情页查看")
 
-        # 未推送的订阅：说明原因 + 来源（频道名），每行顶格（1.7.5 定稿版式，
-        # 与 115 转存通知同款：块名带年份、原因不带计数、来源另起一行）
-        skipped_details = [
-            item for item in details
-            if not int(item.get("pushed") or 0) and int(item.get("candidates") or 0)
-        ]
-        for item in skipped_details:
-            # 块名年份：订阅自带年份优先；订阅没写年份就用候选识别年份里
-            # 最多的一种（_search_subscription 已统计）；都没有不显示
-            year = str(item.get("year") or "").strip() or str(item.get("candidate_year") or "").strip()
-            name = _media_label({"title": str(item.get("name") or ""), "year": year}) or str(item.get("name") or "")
-            # 「未订阅」不在通知里展示（用户拍板）：候选是标题包含匹配捞出来的，
-            # 识别出的片名/年份/季没对上订阅就会被记未订阅，展示出来只会让人
-            # 疑惑"明明新增订阅了怎么还有未订阅"；单条判定在流水里仍可查。
-            reasons = dict(item.get("reasons") or {})
-            reasons.pop("未订阅", None)
-            # 原因不带计数（1.7.5 用户定稿）：头部已有候选总数，此处只列原因名
-            display_reason = "、".join(label for label, _ in _reason_order(reasons))
-            head = f"{media_line(name)}（候选 {item.get('candidates', 0)} 条，无需推送）"
-            if display_reason:
-                lines.append(f"{head}：{display_reason}")
-            else:
-                lines.append(head)
-            # 全推出去时必须说清"为什么判定媒体库没有"——否则用户只知道推了，
-            # 不知道判定依据对不对（1.4.6 真机：媒体库明明有却被判成不存在）
-            if item.get("media_note"):
-                lines.append(f"{ICON_NOTE} 媒体库未收录：{item['media_note']}")
-            channels = item.get("channels") or []
-            if channels:
-                joined = "、".join(names.get(int(c)) or str(c) for c in channels)
-                lines.append(f"{ICON_SOURCE} 来源：{joined}")
+        # 未推送的订阅块（「候选 N 条，无需推送」）1.13.25 起不再渲染——用户要求
+        # 「已推送过 / 无需推送」的不再进通知。这些判定照旧写入命中流水，
+        # 在运行详情页可查；通知只报真正推出去的东西。
 
         # 1.7.6 用户定稿：去「新增订阅 N 个，命中并推送 N 条资源：」/
         # 「新增订阅 N 个，候选 N 条」头行，通知直接从块开始；总量只在
@@ -733,12 +734,12 @@ class CacheModule:
                  else f"{ICON_SEARCH} 胖虎媒体中心 缓存回搜")
         self._notify(title, body)
 
-    def _search_subscription(self, sub: dict, *, reshuffle: bool = False,
-                             budget: Optional[int] = None) -> dict:
+    def _search_subscription(self, sub: dict, *, reshuffle: bool = False) -> dict:
         """对单个订阅在缓存里回搜并推送。
 
         ``reshuffle=True``（洗版回搜，1.13.24）：跳过媒体库缺失判定、按**任何路径**
-        的命中流水去重，``budget`` 为本次还可入队的条数（None 表示不限）。
+        的命中流水去重。1.13.25 起不再有单轮条数上限——一轮定时把全部订阅(
+        每个最多 200 条候选)都捞进队列，推送节奏交给推送 worker 的批处理。
         """
         title = str(sub.get("name") or "").strip()
         if not title:
@@ -755,8 +756,6 @@ class CacheModule:
         reasons: Dict[str, int] = {}
         media_note = ""
         for item in candidates:
-            if budget is not None and pushed >= budget:
-                break
             links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
             if not links:
                 skipped += 1

@@ -390,7 +390,8 @@
         </div>
         <div class="cache-note">
           判缺<strong>以媒体库逐集比对为准</strong>（媒体库不可用才退回订阅缺集数），库内查询按「片名+年份 → 仅片名 → 名称变体」逐层放宽；
-          无链接 / 已推送的过滤后入队，同一目标合并下发不超过 20 条链接，推送结果含跳过原因与媒体库未收录原因。
+          无链接 / 已推送的过滤后入队，同一目标合并下发不超过 20 条链接。通知<strong>只报真正推出去的资源</strong>，
+          「已推送过 / 无需推送」只记运行详情，不再发通知。
         </div>
         <!-- 洗版回搜（1.13.24）：兜底口径开关，只影响本卡的定时/手动兜底 -->
         <div class="cache-switch-row">
@@ -406,8 +407,41 @@
           />
           <span class="cache-hint">
             开：本卡每次运行都遍历<strong>全部订阅</strong>、<strong>不探测媒体库入库状态</strong>，
-            频道后来进了更高质量的资源也会被捞出来洗版（只按推送流水去重，单轮最多 100 条）。
+            频道后来进了更高质量的资源也会被捞出来洗版（只按推送流水去重，入队条数不限，
+            推送速度由下面的「每批条数 / 批间隔」控制）。
             关：与之前一致，只处理快照新增订阅并逐条判缺。
+          </span>
+        </div>
+        <!-- 推送节流（1.13.25）：洗版回搜不再限制入队条数，改由推送 worker 分批推送 -->
+        <div class="cache-actions">
+          <VTextField
+            v-model.number="settings.push_batch_size"
+            label="每批推送条数"
+            type="number"
+            min="1"
+            max="200"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="cache-num-input"
+            @update:model-value="syncSettingsToForm"
+          />
+          <VTextField
+            v-model.number="settings.push_batch_interval"
+            label="批间隔（秒）"
+            type="number"
+            min="5"
+            max="3600"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="cache-num-input"
+            @update:model-value="syncSettingsToForm"
+          />
+          <span class="cache-hint">
+            推送 worker 每 <strong>{{ settings.push_batch_interval ?? 15 }}</strong> 秒取
+            <strong>{{ settings.push_batch_size ?? 10 }}</strong> 条下发；
+            实时监控 / 普通转发任务与洗版批量任务各占一半额度，不会被洗版挤掉。
           </span>
         </div>
         <div class="cache-actions">
@@ -445,7 +479,8 @@
         <div class="cache-hint">
           <template v-if="settings.reshuffle_enabled">
             「立即洗版回搜」= 立刻按洗版口径跑一次（遍历全部订阅、跳过媒体库判定），
-            适合频道刚进了一批好资源时手动捞一遍；单轮最多入队 100 条。
+            适合频道刚进了一批好资源时手动捞一遍；入队条数不限，会按上面的
+            「每批条数 / 批间隔」分批慢慢推完，队列里的任务不会丢。
           </template>
           <template v-else>
             「立即检查」= 手动跑一次快照对比，用于升级后补跑、排查漏推送；
@@ -619,6 +654,8 @@ const settings = ref({
   batch_size: 200,
   subscribe_enabled: true,
   reshuffle_enabled: false,
+  push_batch_size: 10,
+  push_batch_interval: 15,
   backfill_enabled: false,
   backfill_cron: '*/30 * * * *',
   cron: '0 */6 * * *',
@@ -656,6 +693,8 @@ function syncSettingsToForm() {
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200
   form.value.cache_subscribe_enabled = Boolean(settings.value.subscribe_enabled)
   form.value.cache_reshuffle_enabled = Boolean(settings.value.reshuffle_enabled)
+  form.value.cache_push_batch_size = Number(settings.value.push_batch_size) || 10
+  form.value.cache_push_batch_interval = Number(settings.value.push_batch_interval) || 15
   form.value.cache_backfill_enabled = Boolean(settings.value.backfill_enabled)
   form.value.cache_backfill_cron = settings.value.backfill_cron
   form.value.cache_cron = settings.value.cron
@@ -673,6 +712,8 @@ function applySettings(data) {
     batch_size: Number(source.batch_size) || 200,
     subscribe_enabled: source.subscribe_enabled !== false,
     reshuffle_enabled: Boolean(source.reshuffle_enabled),
+    push_batch_size: Number(source.push_batch_size) || 10,
+    push_batch_interval: Number(source.push_batch_interval) || 15,
     backfill_enabled: Boolean(source.backfill_enabled),
     backfill_cron: source.backfill_cron || '*/30 * * * *',
     cron: source.cron || '0 */6 * * *',
@@ -737,6 +778,8 @@ async function saveSettings() {
       batch_size: Number(settings.value.batch_size) || 200,
       subscribe_enabled: Boolean(settings.value.subscribe_enabled),
       reshuffle_enabled: Boolean(settings.value.reshuffle_enabled),
+      push_batch_size: Number(settings.value.push_batch_size) || 10,
+      push_batch_interval: Number(settings.value.push_batch_interval) || 15,
       backfill_enabled: Boolean(settings.value.backfill_enabled),
       backfill_cron: String(settings.value.backfill_cron || '').trim() || '*/30 * * * *',
       cron: String(settings.value.cron || '').trim() || '0 */6 * * *',
@@ -1096,8 +1139,11 @@ onUnmounted(() => {
 .cache-switch-row .cache-hint { flex: 1 1 260px; min-width: 0; }
 /* 按钮行里的 cron 输入：约 200px 宽、垂直居中；窄屏换行时独占一行而不是被压扁 */
 .cache-cron-input { flex: 0 0 200px; width: 200px; min-width: 0; }
+/* 推送节流的两个数字输入（每批条数 / 批间隔）：固定宽度，说明文字填满剩余 */
+.cache-num-input { flex: 0 0 140px; width: 140px; min-width: 0; }
 @media (max-width: 760px) {
   .cache-cron-input { flex: 1 1 200px; width: auto; }
+  .cache-num-input { flex: 1 1 140px; width: auto; }
 }
 /* 逻辑分组：组内纵向 4px（提示文字与上方控件固定 4px） */
 .cache-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

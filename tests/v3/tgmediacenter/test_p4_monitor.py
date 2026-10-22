@@ -1520,6 +1520,74 @@ class TestPushWorker:
         assert "炸了" in row.error
 
 
+class TestPushBatching:
+    """1.13.25：洗版回搜不限入队条数，改由推送 worker 分批匀速消费。"""
+
+    def _enqueue(self, plugin, message_id, *, rule_id, links=None):
+        from app.plugins.tgmediacenter.core import push_queue
+
+        return push_queue.enqueue_push(
+            plugin.get_database(), "FakePlugin",
+            rule_id=rule_id, chat_id=CHAT_A, message_id=message_id,
+            destination="pan115",
+            links=list(links or [f"https://115.com/s/sw{message_id}?password=abcd"]),
+            text="测试", title="测试剧集",
+        )
+
+    def test_batch_size_and_interval_from_config(self, plugin, monitor, pipeline):
+        assert pipeline.push_batch_size() == 10  # 默认
+        assert pipeline.push_batch_interval() == 15.0
+        plugin.save_config(cache_push_batch_size=40, cache_push_batch_interval=90)
+        assert pipeline.push_batch_size() == 40
+        assert pipeline.push_batch_interval() == 90.0
+        # 越界收敛，非法值回默认
+        plugin.save_config(cache_push_batch_size=0, cache_push_batch_interval=1)
+        assert pipeline.push_batch_size() == 1
+        assert pipeline.push_batch_interval() == 5.0
+        plugin.save_config(cache_push_batch_size=9999, cache_push_batch_interval=99999)
+        assert pipeline.push_batch_size() == 200
+        assert pipeline.push_batch_interval() == 3600.0
+        plugin.save_config(cache_push_batch_size="abc", cache_push_batch_interval="xyz")
+        assert pipeline.push_batch_size() == 10
+        assert pipeline.push_batch_interval() == 15.0
+
+    def test_batch_config_tolerates_missing_monitor(self, plugin):
+        """测试里常见 MessagePipeline(plugin, monitor=None)：读配置必须容错。"""
+        bare = pipeline_module.MessagePipeline(plugin, None, None)
+        assert bare.push_batch_size() == 10
+        assert bare.push_batch_interval() == 15.0
+
+    def test_claim_limits_to_batch_size(self, plugin, monitor, pipeline):
+        for index in range(25):
+            self._enqueue(plugin, 700 + index, rule_id="r1")
+        plugin.save_config(cache_push_batch_size=5)
+        claimed = pipeline._claim_pending_tasks()
+        assert len(claimed) == 5
+        # 下一轮继续领剩下（先进先出，不丢任务）
+        assert len(pipeline._claim_pending_tasks()) == 5
+
+    def test_bulk_and_realtime_share_the_batch(self, plugin, monitor, pipeline):
+        """洗版/补扫的批量任务与实时任务平分一批额度，互不饿死。"""
+        for index in range(10):
+            self._enqueue(plugin, 800 + index, rule_id="cache_search")
+        for index in range(10):
+            self._enqueue(plugin, 900 + index, rule_id="r-realtime")
+        plugin.save_config(cache_push_batch_size=10)
+        claimed = pipeline._claim_pending_tasks()
+        assert len(claimed) == 10
+        rules = [task["rule_id"] for task in claimed]
+        assert rules.count("cache_search") == 5
+        assert rules.count("r-realtime") == 5
+
+    def test_only_bulk_pending_gets_whole_batch(self, plugin, monitor, pipeline):
+        for index in range(10):
+            self._enqueue(plugin, 950 + index, rule_id="cache_search")
+        plugin.save_config(cache_push_batch_size=6)
+        claimed = pipeline._claim_pending_tasks()
+        assert len(claimed) == 6
+        assert all(task["rule_id"] == "cache_search" for task in claimed)
+
+
 class _FakeDest:
     def __init__(self, result):
         self._result = result

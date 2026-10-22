@@ -78,8 +78,16 @@ from ..services import recognizer as recognizer_service
 _MAX_BATCH = 20
 # 「最近消息来源」环形记录上限：只记录被监听会话（状态卡「来源 ID」行）
 _MAX_RECENT_SOURCES = 40
-# 推送 worker 扫描周期（秒）
-_PUSH_INTERVAL = 15.0
+# 推送 worker 扫描周期由「批间隔秒」配置决定（见下方 _PUSH_BATCH_INTERVAL）
+# 推送节流默认值（缓存面板可改，配置键 cache_push_batch_size / cache_push_batch_interval）：
+# 每批领多少条、两批之间至少隔多少秒。洗版回搜不再限制入队条数（1.13.25），
+# 一次定时可能把上千条老资源灌进队列；靠这里把"入队洪峰"变成"分批匀速推送"，
+# 既不重复点「立即洗版回搜」，也不会把 115 风控和通知刷屏一次打爆。
+_PUSH_BATCH_SIZE = 10
+_PUSH_BATCH_INTERVAL = 15.0
+# 单批条数 / 批间隔的合法区间（防手滑填 0 或 100000 把 worker 弄死）
+_PUSH_BATCH_SIZE_RANGE = (1, 200)
+_PUSH_BATCH_INTERVAL_RANGE = (5.0, 3600.0)
 # 合并下发：同一目标的多条待推送任务合成一次调用，单次链接数上限。
 # 逐条调用会让每条链接都走一遍"新建客户端 + 风控间隔"——一次回搜 34 条链接
 # 就是 34 次调用、拖上一分钟，还更容易触发 115 风控（1.4.4 真机观察到的
@@ -94,6 +102,9 @@ _CREDENTIAL_NOTIFY_WINDOW = 6 * 3600.0
 # 缓存回搜入队任务专用的规则 ID（同 modules.cache.CACHE_SEARCH_RULE_ID）。
 # core 不能反向 import modules（会循环），字面量同源、由测试兜底断言一致。
 _CACHE_SEARCH_RULE_ID = "cache_search"
+# 批量型任务（洗版回搜 / 存量补扫）的规则 ID：这两类会一次性灌进大量历史资源，
+# 领取时按"额度平分"处理，避免把实时监控/转发任务饿死。
+_BULK_RULE_IDS = ("cache_search", "cache_backfill")
 # 判定"这是登录态/鉴权问题"的关键词（115 侧文案不完全固定，按语义兜）。
 # 注意：这里**不能**放裸的「失效」——"分享链接已失效 / 文件已失效"是资源本身
 # 的问题，跟登录态无关；误判会给失败通知挂上"重新扫码"引导，更要命的是它会
@@ -454,6 +465,34 @@ class MessagePipeline:
         except (TypeError, ValueError):
             value = 3.0
         return min(30.0, max(1.0, value))
+
+    def _config_number(self, key: str, default: float) -> float:
+        """读数值配置（monitor 可能为 None，测试里直接构造 pipeline 时必须容错）。"""
+        monitor = self._monitor
+        if monitor is None:
+            return default
+        try:
+            value = monitor.config_value(key, default)
+        except Exception:
+            return default
+        if value is None or value == "":
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def push_batch_size(self) -> int:
+        """每批领多少条推送任务（配置 cache_push_batch_size，收敛 1~200）。"""
+        low, high = _PUSH_BATCH_SIZE_RANGE
+        value = self._config_number("cache_push_batch_size", float(_PUSH_BATCH_SIZE))
+        return int(min(float(high), max(float(low), value)))
+
+    def push_batch_interval(self) -> float:
+        """两批推送之间的间隔秒数（配置 cache_push_batch_interval，收敛 5~3600）。"""
+        low, high = _PUSH_BATCH_INTERVAL_RANGE
+        value = self._config_number("cache_push_batch_interval", _PUSH_BATCH_INTERVAL)
+        return float(min(high, max(low, value)))
 
     def _flush_batches(self) -> None:
         """处理窗口已到（或批量已满）的缓冲。"""
@@ -835,8 +874,14 @@ class MessagePipeline:
     # ------------------------------------------------------------------ 推送 worker
 
     def _push_cycle(self) -> None:
+        """一轮推送：领一批任务 → 合并下发 → 汇总通知。
+
+        1.13.25：批大小与批间隔都由配置决定（``cache_push_batch_size`` /
+        ``cache_push_batch_interval``）。洗版回搜不再限制入队条数，队列里可能
+        一次排上千条，靠这里的节奏分批匀速消费。
+        """
         now = time.monotonic()
-        if now - self._last_push_cycle < _PUSH_INTERVAL:
+        if now - self._last_push_cycle < self.push_batch_interval():
             return
         self._last_push_cycle = now
         self._cycle = self._empty_cycle()
@@ -1028,27 +1073,64 @@ class MessagePipeline:
         return bool(getattr(target, "supports_batch", False))
 
     def _claim_pending_tasks(self) -> List[Dict[str, Any]]:
-        """领取待处理任务（带重试退避：退避窗口内的失败任务不提前重试）。"""
+        """领取本批待处理任务（带重试退避：退避窗口内的失败任务不提前重试）。
+
+        1.13.25：一批领多少条由配置 ``cache_push_batch_size`` 决定（默认 10），
+        批与批的间隔由 ``cache_push_batch_interval`` 决定。洗版回搜一次会把全部
+        订阅的候选都灌进队列，靠分批匀速消费既不丢任务、也不会把 115 风控/
+        通知一次打爆。
+
+        公平性：实时监控/转发任务与洗版/补扫的批量任务**平分**一批额度，避免
+        洗版洪峰把实时推送饿死，也避免实时消息不断插队让洗版永远轮不上。
+        """
         db = self._db()
         if db is None:
             return []
+        batch = self.push_batch_size()
         try:
-            from sqlalchemy import select
+            from sqlalchemy import or_, select
 
             with db.session() as session:
-                rows = session.execute(
-                    select(TgPushTask)
-                    .where(
-                        TgPushTask.plugin_id == self._plugin_id(),
-                        TgPushTask.status == STATUS_PENDING,
+                def _fetch(bulk: bool, limit: int) -> List[Any]:
+                    if limit <= 0:
+                        return []
+                    condition = (
+                        TgPushTask.rule_id.in_(_BULK_RULE_IDS) if bulk
+                        else or_(TgPushTask.rule_id.is_(None),
+                                 TgPushTask.rule_id.notin_(_BULK_RULE_IDS))
                     )
-                    .order_by(TgPushTask.id)
-                    .limit(TgPushTask.worker_batch())
-                ).scalars().all()
-                tasks = [self._task_view(row) for row in rows]
+                    rows = session.execute(
+                        select(TgPushTask)
+                        .where(
+                            TgPushTask.plugin_id == self._plugin_id(),
+                            TgPushTask.status == STATUS_PENDING,
+                            condition,
+                        )
+                        .order_by(TgPushTask.id)
+                        .limit(limit)
+                    ).scalars().all()
+                    return list(rows)
+
+                realtime_rows = _fetch(False, batch)
+                bulk_rows = _fetch(True, batch)
+                if realtime_rows and bulk_rows:
+                    # 两类都有：实时保底一半，剩下的给批量；额度用完即止
+                    realtime_quota = max(1, batch // 2)
+                    selected = list(realtime_rows[:realtime_quota])
+                    remaining = batch - len(selected)
+                    if remaining > 0:
+                        selected.extend(bulk_rows[:remaining])
+                        remaining = batch - len(selected)
+                    if remaining > 0:
+                        selected.extend(realtime_rows[realtime_quota:realtime_quota + remaining])
+                else:
+                    selected = list((realtime_rows or bulk_rows)[:batch])
+                # 执行顺序仍按 id（先进先出），只是"领多少条/领谁"上调了公平
+                selected.sort(key=lambda row: int(row.id or 0))
+                tasks = [self._task_view(row) for row in selected]
                 now = datetime.now()
                 claimable = []
-                for row, view in zip(rows, tasks):
+                for row, view in zip(selected, tasks):
                     retries = int(view.get("retries") or 0)
                     backoff = min(_RETRY_MAX_SECONDS, _RETRY_BASE_SECONDS * (2 ** max(0, retries - 1)))
                     updated = view.get("updated_at")

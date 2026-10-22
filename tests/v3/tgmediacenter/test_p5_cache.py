@@ -745,8 +745,8 @@ class TestSubscriptionSearch:
         assert plugin.messages
         assert "缓存回搜" in plugin.messages[-1]["title"]
 
-    def test_skip_reasons_reported_and_notified(self, cache, subscriptions, plugin, fake_metavideo):
-        """一条都没推时也要说清为什么（媒体库已存在），否则界面等于"什么都没发生"。"""
+    def test_skip_reasons_reported_but_not_notified(self, cache, subscriptions, plugin, fake_metavideo):
+        """1.13.25：一条都没推时**不再发通知**（用户要求），但明细口径照旧保留。"""
         subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
         cache.check_subscriptions(trigger="测试")
         cache.history().record(CHAT_A, 4601, _text("青与碧 (2026) S01E01"))
@@ -756,24 +756,19 @@ class TestSubscriptionSearch:
             FakeSubscription("老片", media_id="1"),
             FakeSubscription("青与碧", media_id="2"),
         ]
+        before = len(plugin.messages)
         result = cache.check_subscriptions(trigger="测试")
         assert result["pushed"] == 0
         detail = result["details"][0]
         assert detail["candidates"] == 2
         assert detail["skipped"] == 2
-        # 明细/日志口径保留计数
+        # 明细/日志口径保留计数（排障仍在）
         assert detail["reason_text"] == "订阅无缺集 2"
-        assert plugin.messages
-        # 1.7.5 定稿：原因不带计数；1.7.6：去「新增订阅 N 个，候选 N 条」头行，
-        # 通知直接从块开始（「无需推送」只作为块名的一部分出现）
-        assert "新增订阅" not in plugin.messages[-1]["text"]
-        assert "无需推送：" not in plugin.messages[-1]["text"]
-        assert "候选 2 条，无需推送" in plugin.messages[-1]["text"]
-        assert "订阅无缺集" in plugin.messages[-1]["text"]
-        assert "订阅无缺集 2" not in plugin.messages[-1]["text"]
+        # 1.13.25：没推东西就不发通知，运行详情页查明细
+        assert len(plugin.messages) == before
 
     def test_no_push_block_layout_with_year_and_source_line(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.7.5 定稿版式：块名带年份、来源另起一行顶格。"""
+        """1.13.25：跳过块不再进通知；明细里片名+年份、来源照旧可查。"""
         class FullMatcher:
             def is_missing(self, **kwargs):
                 return {"missing": False, "reason": "订阅已存在且无缺集",
@@ -788,16 +783,20 @@ class TestSubscriptionSearch:
             FakeSubscription("老片", media_id="1"),
             FakeSubscription("青与碧", media_id="2"),
         ]
-        assert cache.check_subscriptions(trigger="测试")["pushed"] == 0
-        text = plugin.messages[-1]["text"]
-        assert "青与碧 (2026)（候选 1 条，无需推送）：订阅无缺集" in text
-        # 来源另起一行顶格（1.7.7：带 📢 图标）
-        assert "\n📢 来源：" in text
+        before = len(plugin.messages)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 0
+        detail = result["details"][0]
+        assert detail["candidate_year"] == "2026"
+        assert detail["channels"] == [CHAT_A]
+        assert len(plugin.messages) == before  # 没推就不发通知
 
     def test_not_subscribed_reason_hidden_from_notification(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.7.4：「未订阅」不在回搜通知里展示——候选是标题包含匹配捞出来的，
-        识别片名/年份/季没对上订阅就记未订阅，展示出来只会让人疑惑"明明新增
-        订阅了怎么还有未订阅"；其余跳过原因照常展示，单条判定在流水里仍可查。"""
+        """1.7.4：「未订阅」不在通知里展示；1.13.25 起整条跳过通知都不再发。
+
+        候选是标题包含匹配捞出来的，识别片名/年份/季没对上订阅就记未订阅；
+        这些判定只进命中流水与运行详情页。
+        """
         class MixedMatcher:
             def __init__(self) -> None:
                 self.calls = 0
@@ -820,17 +819,15 @@ class TestSubscriptionSearch:
             FakeSubscription("老片", media_id="1"),
             FakeSubscription("青与碧", media_id="2"),
         ]
+        before = len(plugin.messages)
         result = cache.check_subscriptions(trigger="测试")
         assert result["pushed"] == 0
         # 明细/日志里的 reason_text 保留未订阅（排障口径不变）
         assert result["details"][0]["reason_text"] == "未订阅 2、订阅无缺集 1"
-        text = plugin.messages[-1]["text"]
-        assert "无需推送" in text
-        assert "订阅无缺集" in text
-        assert "未订阅" not in text
+        assert len(plugin.messages) == before
 
     def test_notification_with_only_hidden_reasons(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.7.4：「未订阅」全部隐藏后，块里只剩候选数与来源（不留空原因）。"""
+        """1.13.25：「未订阅」全部隐藏 + 没有推送 → 整条通知都不发。"""
         class NotSubscribedMatcher:
             def is_missing(self, **kwargs):
                 return {"missing": False, "reason": "未订阅",
@@ -845,12 +842,9 @@ class TestSubscriptionSearch:
             FakeSubscription("老片", media_id="1"),
             FakeSubscription("青与碧", media_id="2"),
         ]
+        before = len(plugin.messages)
         assert cache.check_subscriptions(trigger="测试")["pushed"] == 0
-        text = plugin.messages[-1]["text"]
-        assert "候选 2 条，无需推送" in text
-        assert "未订阅" not in text
-        # 1.7.5：来源另起一行顶格（1.7.7：带 📢 图标）
-        assert "\n📢 来源：" in text
+        assert len(plugin.messages) == before
 
     def test_skip_reason_marks_media_library_hit(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
         """真机口径：媒体库已有的候选要归类成"媒体库已存在"（而不是笼统的跳过）。"""
@@ -956,7 +950,7 @@ class TestSubscriptionSearch:
         assert "https://115.com/s/swabc888" in text
 
     def test_search_notification_mixed_pushed_and_skipped(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.7.6：3a（已推送）与 3b（未推送）混排无头行；1.7.7：紧凑不插空行。"""
+        """1.13.25：只报推出去的；跳过（无需推送）那部分不再进通知正文。"""
         plugin.save_config(cache_chat_ids=[CHAT_A])
         subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
         cache.check_subscriptions(trigger="测试")
@@ -985,11 +979,12 @@ class TestSubscriptionSearch:
         # 无头行（1.7.6）
         assert "新增订阅" not in text
         assert "命中并推送" not in text
-        # 推送块在前、未推送块在后；1.7.7 紧凑版式：整篇不出现空行
+        # 只列推送块，跳过块（无需推送）不出现
         lines = text.split("\n")
         push_idx = next(i for i, ln in enumerate(lines) if ln.startswith("📺 青与碧 (2026) S01E01"))
-        skip_idx = next(i for i, ln in enumerate(lines) if ln.startswith("🎬 你好时光 (2026)"))
-        assert skip_idx > push_idx
+        assert push_idx >= 0
+        assert "你好时光" not in text
+        assert "无需推送" not in text
         assert "" not in lines
 
     def test_disabled_module_skips_check(self, plugin, fake_metavideo):
@@ -1074,21 +1069,44 @@ class TestReshuffleSearch:
         assert result["details"][0]["reasons"] == {"已推送过": 1}
         assert _count(plugin, TgPushTask) == 0
 
-    def test_push_cap_limits_single_run(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
-        import app.plugins.tgmediacenter.modules.cache as cache_module
-
-        monkeypatch.setattr(cache_module, "RESHUFFLE_PUSH_CAP", 1)
-        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+    def test_no_push_cap_all_subscriptions_pushed_in_one_run(
+        self, cache, subscriptions, plugin, fake_metavideo
+    ):
+        """1.13.25：不再限制单轮入队条数——一轮定时就把全部命中推出去。"""
+        subscriptions["items"] = [
+            FakeSubscription("青与碧", year="2026", media_id="2"),
+            FakeSubscription("你好时光", year="2026", media_id="3"),
+            FakeSubscription("老片", year="2025", media_id="4"),
+        ]
         cache.check_subscriptions(trigger="测试")
         cache.history().record(CHAT_A, 4841, _text("青与碧 (2026) S01E01"))
         cache.history().record(CHAT_A, 4842, _text("青与碧 (2026) S01E02", "https://115.com/s/swabc888"))
+        cache.history().record(CHAT_A, 4843, _text("你好时光 (2026) S01E01"))
+        cache.history().record(CHAT_A, 4844, _text("老片 (2025) S01E01"))
         plugin.save_config(cache_reshuffle_enabled=True)
+
         result = cache.check_subscriptions(trigger="测试")
-        assert result["pushed"] == 1
-        assert "单轮上限" in result["message"]
-        # 下一轮继续捞剩下的（流水去重保证不重复）
+        assert result["reshuffle"] is True
+        assert result["pushed"] == 4  # 全部一次推完，没有上限截断
+        assert "单轮上限" not in result["message"]
+        assert _count(plugin, TgPushTask) == 4
+        # 再跑一轮：流水去重，一条都不重复推
+        assert cache.check_subscriptions(trigger="测试")["pushed"] == 0
+        assert _count(plugin, TgPushTask) == 4
+
+    def test_skipped_subscription_not_notified(self, cache, subscriptions, plugin, fake_metavideo):
+        """1.13.25：洗版一轮里全是「已推送过」时不发通知（用户要求）。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 4851, _text("老片 (2026) S01E01"))
+        plugin.save_config(cache_reshuffle_enabled=True)
         assert cache.check_subscriptions(trigger="测试")["pushed"] == 1
-        assert _count(plugin, TgPushTask) == 2
+        before = len(plugin.messages)
+        # 第二轮同一批候选全部「已推送过」→ 不发任何通知
+        second = cache.check_subscriptions(trigger="测试")
+        assert second["pushed"] == 0
+        assert second["details"][0]["reasons"] == {"已推送过": 1}
+        assert len(plugin.messages) == before
 
     def test_snapshot_still_maintained(self, cache, subscriptions, plugin, fake_metavideo):
         """洗版模式下也要维护快照，关掉开关后能按常规口径继续跑。"""
@@ -1111,6 +1129,26 @@ class TestReshuffleSearch:
         payload = cache.status()
         assert api_schemas.CacheStatusData.model_validate(payload).subscribe.reshuffle is True
         assert cache.save_settings({"reshuffle_enabled": False})["reshuffle_enabled"] is False
+
+    def test_push_batch_settings_roundtrip_and_normalize(self, plugin, cache):
+        """1.13.25：每批条数 / 批间隔可存可读，非法值收敛到合法区间。"""
+        saved = cache.save_settings({"push_batch_size": 25, "push_batch_interval": 45})
+        assert saved["push_batch_size"] == 25
+        assert saved["push_batch_interval"] == 45
+        assert plugin.config["cache_push_batch_size"] == 25
+        assert plugin.config["cache_push_batch_interval"] == 45
+        assert api_schemas.CacheSettingsData.model_validate(saved).push_batch_size == 25
+        # 越界收敛：0 → 下限、9999 → 上限
+        low = cache.save_settings({"push_batch_size": 0, "push_batch_interval": 1})
+        assert low["push_batch_size"] == 1
+        assert low["push_batch_interval"] == 5
+        high = cache.save_settings({"push_batch_size": 9999, "push_batch_interval": 99999})
+        assert high["push_batch_size"] == 200
+        assert high["push_batch_interval"] == 3600
+        # 非法字符串回默认
+        bad = cache.save_settings({"push_batch_size": "abc", "push_batch_interval": "xyz"})
+        assert bad["push_batch_size"] == 10
+        assert bad["push_batch_interval"] == 15
 
     def test_empty_subscription_list_reports_cleanly(self, cache, subscriptions, plugin):
         plugin.save_config(cache_reshuffle_enabled=True)

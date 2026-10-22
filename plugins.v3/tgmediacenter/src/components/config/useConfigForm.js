@@ -37,6 +37,10 @@ export const configDefaults = {
   cache_subscribe_enabled: true,
   // 洗版回搜（1.13.24）：定时兜底跳过媒体库判定、遍历全部订阅回搜，默认关
   cache_reshuffle_enabled: false,
+  // 推送节流（1.13.25）：洗版回搜不限入队条数，改由推送 worker 每批 N 条、
+  // 批间隔 M 秒匀速消费（实时任务与批量任务各占一半额度）
+  cache_push_batch_size: 10,
+  cache_push_batch_interval: 15,
   cache_backfill_enabled: false,
   cache_cron: '0 */6 * * *',
   cache_subscribe_cron: '*/30 * * * *',

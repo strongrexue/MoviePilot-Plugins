@@ -199,6 +199,7 @@ def test_default_template_display_names_have_no_suffix(tmp_path):
         "荣耀视界",
         "极简",
         "动态平铺",
+        "暗场右文",
     } <= names
     assert not [name for name in names if name.endswith(("默认", "预设"))]
     # 文件名保持原样：auto_cover_template 存的是它，老配置不能失效

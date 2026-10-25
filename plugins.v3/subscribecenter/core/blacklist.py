@@ -467,6 +467,54 @@ def check_keywords(rules: BlacklistRules, keywords: Iterable[str]) -> str:
     return ""
 
 
+def check_parts(
+    rules: BlacklistRules,
+    *,
+    name: str = "",
+    original: str = "",
+    media_type: str = MEDIA_TYPE_TV,
+    genre_ids: Iterable[Any] = (),
+    tags: Iterable[Any] = (),
+    keywords: Iterable[Any] = (),
+) -> str:
+    """按「拆开的字段」判一次黑名单 —— 给「体检已有订阅」用。
+
+    和 :func:`check_item` 的区别只是入参形态：宿主的 ``Subscribe`` 行不是
+    ``DiscoveredItem``，它只有名字和类型，没有 ``raw``；而体检还要把外部查到的
+    ``genre_ids`` / ``keywords`` 一并喂进来。判定顺序与流水线保持一致。
+
+    :return: 命中原因；未命中返回空串。
+    """
+    if not rules.active:
+        return ""
+
+    genres: Set[int] = set()
+    for value in genre_ids or ():
+        try:
+            genre_id = int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        if genre_id > 0:
+            genres.add(genre_id)
+    excluded = rules.tv_genres if media_type == MEDIA_TYPE_TV else rules.movie_genres
+    if excluded and genres:
+        hit = sorted(genres & set(excluded))
+        if hit:
+            return "命中排除类型：" + "、".join(genre_label(genre_id) for genre_id in hit)
+
+    if rules.match_title and rules.words:
+        hit_word = match_words(rules, [name or "", original or ""])
+        if hit_word:
+            return f"命中排除题材（标题）：{hit_word}"
+
+    if rules.match_tags and rules.words:
+        hit_word = match_words(rules, [str(entry) for entry in tags or () if entry])
+        if hit_word:
+            return f"命中排除题材（题材）：{hit_word}"
+
+    return check_keywords(rules, [str(entry) for entry in keywords or () if entry])
+
+
 __all__ = [
     "BlacklistRules",
     "GENRE_ALIASES",
@@ -475,6 +523,7 @@ __all__ = [
     "PRESET_MAP",
     "check_item",
     "check_keywords",
+    "check_parts",
     "compile_line",
     "genre_label",
     "item_genre_ids",

@@ -673,6 +673,117 @@ async function runBlacklistTest() {
   }
 }
 
+// ---------------------------------------------------------------- 体检已有订阅
+//
+// 用户真机遇到的现象：勾好黑名单、流水里也写着「命中排除题材」，宿主的订阅
+// 列表里却确实有这部剧。原因是排除规则只挂在「自动发现 → 写订阅」这条线上，
+// 已经存在的订阅（早先订的、重装后数据库带回来的、或从流水手动点「加入订阅」
+// 的）它一概不管。体检就是补这一刀：按同一套规则把已有订阅判一遍，只出报告，
+// 暂停与否由用户自己勾。
+
+const audit = ref(null)            // { running, started_at, result }
+const auditBusy = ref(false)
+const auditSelected = ref([])
+const auditDone = ref(false)
+const auditHits = computed(() => audit.value?.result?.hits || [])
+const auditUncheckable = computed(() => audit.value?.result?.uncheckable || [])
+const auditStats = computed(() => {
+  const data = audit.value?.result
+  if (!data || !data.total) return ''
+  const parts = [
+    `共 ${data.total} 条订阅`,
+    `核对成功 ${data.checked}`,
+    `命中 ${(data.hits || []).length}`,
+  ]
+  if (data.skipped) parts.push(`核不了 ${data.skipped}`)
+  if (data.unchecked) parts.push(`未覆盖 ${data.unchecked}`)
+  if (data.elapsed) parts.push(`耗时 ${data.elapsed}s`)
+  return parts.join(' · ')
+})
+
+async function fetchAudit() {
+  const state = unwrap(
+    await getPluginApi(props.api, props.pluginId, 'blacklist/audit/result', {
+      timeoutMs: 60000,
+    }),
+  )
+  audit.value = state || null
+  return state
+}
+
+async function waitAuditDone() {
+  for (let i = 0; i < 300; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const state = await fetchAudit()
+    if (!state?.running) return state
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+  }
+  return null
+}
+
+async function runBlacklistAudit() {
+  if (auditBusy.value) return
+  auditBusy.value = true
+  auditDone.value = false
+  auditSelected.value = []
+  try {
+    const start = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'blacklist/audit', {}, {
+        timeoutMs: 60000,
+      }),
+    )
+    setTip(start?.message || '已开始体检，正在核对已有订阅')
+    const state = await waitAuditDone()
+    if (!state) {
+      setTip('体检还没跑完，稍后再点一次「读结果」', false)
+      return
+    }
+    auditDone.value = true
+    auditSelected.value = (state.result?.hits || []).map((hit) => hit.id)
+    const hits = state.result?.hits || []
+    setTip(
+      hits.length
+        ? `体检完成：${hits.length} 条已有订阅命中排除规则，已默认勾选，点「暂停选中」处理`
+        : '体检完成：没有已有订阅命中排除规则',
+      hits.length === 0,
+    )
+  } catch (error) {
+    setTip(error?.message || '体检失败', false)
+  } finally {
+    auditBusy.value = false
+  }
+}
+
+async function sweepAudit(action) {
+  if (auditBusy.value || !auditSelected.value.length) return
+  const verb = action === 'pause' ? '暂停' : '恢复'
+  if (!window.confirm(`确定要${verb}选中的 ${auditSelected.value.length} 条订阅？`)) return
+  auditBusy.value = true
+  try {
+    const data = unwrap(
+      await postPluginApi(
+        props.api,
+        props.pluginId,
+        'blacklist/sweep',
+        { ids: auditSelected.value, action },
+        { timeoutMs: 120000 },
+      ),
+    )
+    const failed = data?.failed || 0
+    setTip(
+      `已${verb} ${data?.applied || 0} 条${failed ? `，${failed} 条失败` : ''}`,
+      failed === 0,
+    )
+    auditSelected.value = []
+    await loadStatus()
+  } catch (error) {
+    setTip(error?.message || `${verb}失败`, false)
+  } finally {
+    auditBusy.value = false
+  }
+}
+
 onMounted(() => {
   loadShare()
   loadConfig()
@@ -1644,6 +1755,78 @@ onMounted(() => {
           </div>
           <div v-if="!form.blacklist_enabled" class="sc-hint mt-2">
             总开关没开：上面这些规则一条都不会生效。
+          </div>
+        </div>
+
+        <div class="sc-card mt-3">
+          <div class="sc-card-title">体检已有订阅</div>
+          <div class="sc-hint">
+            上面的规则只拦「自动发现」将要写入的新条目，<b>不管已经存在的订阅</b>
+            —— 早先订的、重装后随数据库恢复带回来的、或从发现流水手动点
+            「加入订阅」的，都不会被它清掉。这里按当前规则把已有订阅逐条核对一遍：
+            <b>只出报告，不动手</b>；要暂停哪几条，自己勾。
+            每条订阅要查一次 TMDB 详情，200 条大约一两分钟。
+          </div>
+          <div class="d-flex align-center flex-wrap mt-2" style="gap: 8px">
+            <VBtn
+              size="small"
+              color="primary"
+              variant="flat"
+              :loading="auditBusy"
+              :disabled="!form.blacklist_enabled"
+              @click="runBlacklistAudit"
+            >
+              开始体检
+            </VBtn>
+            <VBtn
+              size="small"
+              variant="tonal"
+              color="warning"
+              :disabled="auditBusy || !auditSelected.length"
+              @click="sweepAudit('pause')"
+            >
+              暂停选中（{{ auditSelected.length }}）
+            </VBtn>
+            <VBtn
+              size="small"
+              variant="text"
+              :disabled="auditBusy || !auditSelected.length"
+              @click="sweepAudit('resume')"
+            >
+              恢复选中
+            </VBtn>
+            <span v-if="audit?.running" class="sc-hint">正在核对，请稍候…</span>
+          </div>
+          <div v-if="auditStats" class="sc-hint mt-2">{{ auditStats }}</div>
+          <div v-if="audit?.error" class="sc-hint mt-1" style="color: #f97373">
+            体检失败：{{ audit.error }}
+          </div>
+          <div v-if="auditHits.length" class="mt-2">
+            <div
+              v-for="hit in auditHits"
+              :key="hit.id"
+              class="d-flex align-center flex-wrap"
+              style="gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06)"
+            >
+              <input v-model="auditSelected" type="checkbox" :value="hit.id" />
+              <span style="font-weight: 600">{{ hit.name }}</span>
+              <span class="sc-hint">
+                S{{ hit.season }} · {{ hit.state }} · {{ hit.media_type === 'movie' ? '电影' : '剧集' }}
+              </span>
+              <VChip size="x-small" variant="flat" color="error">{{ hit.reason }}</VChip>
+            </div>
+          </div>
+          <div v-else-if="auditDone && !audit?.running" class="sc-hint mt-2">
+            没有已有订阅命中当前规则。
+          </div>
+          <div v-if="auditUncheckable.length" class="mt-2">
+            <div class="sc-hint">
+              有 {{ auditUncheckable.length }} 条没法核（来源不是 TMDB / 查详情失败），
+              它们既不算命中也不算通过：
+            </div>
+            <div v-for="row in auditUncheckable.slice(0, 6)" :key="`u-${row.id}`" class="sc-hint">
+              · {{ row.name }} —— {{ row.skipped }}
+            </div>
           </div>
         </div>
         </template>

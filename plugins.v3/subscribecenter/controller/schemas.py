@@ -480,6 +480,66 @@ class BlacklistTestResult(BaseModel):
     hint: str = Field(default="", description="没被拦时的排查提示（为什么测不出命中）")
 
 
+class BlacklistAuditHit(BaseModel):
+    """体检命中的一条**已有订阅**。"""
+
+    id: int = Field(default=0, description="宿主订阅 ID")
+    name: str = Field(default="", description="订阅名")
+    season: int = Field(default=0, description="季")
+    state: str = Field(default="", description="宿主当前状态 R / P / S / N")
+    media_type: str = Field(default="", description="tv / movie")
+    media_source: str = Field(default="", description="来源")
+    media_id: str = Field(default="", description="来源 ID")
+    original_title: str = Field(default="", description="TMDB 原名")
+    reason: str = Field(default="", description="命中的规则（与流水原因同格式）")
+    skipped: str = Field(default="", description="非空 = 这条没核成（原因）")
+    poster: str = Field(default="", description="TMDB 海报路径")
+    genres: List[int] = Field(default_factory=list, description="TMDB 类型 id")
+    keywords: List[str] = Field(default_factory=list, description="TMDB 关键词（前 20 个）")
+
+
+class BlacklistAuditView(BaseModel):
+    """已有订阅体检报告（只读，不改任何订阅）。"""
+
+    active: bool = Field(default=False, description="是否有生效规则")
+    rules: int = Field(default=0, description="生效规则条数")
+    tmdb_keywords: bool = Field(default=False, description="是否额外查了 TMDB 关键词")
+    total: int = Field(default=0, description="宿主订阅总数")
+    checked: int = Field(default=0, description="真正核对成功的条数")
+    skipped: int = Field(default=0, description="没法核的条数（来源不是 TMDB 等）")
+    unchecked: int = Field(default=0, description="预算用尽、没来得及核的条数")
+    hits: List[BlacklistAuditHit] = Field(
+        default_factory=list, description="命中排除规则的订阅"
+    )
+    uncheckable: List[BlacklistAuditHit] = Field(
+        default_factory=list, description="核不了的订阅（前 50 条，附原因）"
+    )
+    elapsed: float = Field(default=0.0, description="耗时（秒）")
+    budget_seconds: int = Field(default=0, description="时间预算（秒）")
+    truncated: bool = Field(default=False, description="是否因预算提前收工")
+    at: str = Field(default="", description="体检时间")
+    message: str = Field(default="", description="给人看的一句话")
+
+
+class BlacklistSweepRequest(BaseModel):
+    """把体检选中的订阅批量暂停或恢复。"""
+
+    ids: List[int] = Field(default_factory=list, description="宿主订阅 ID 列表")
+    action: str = Field(default="pause", description="pause（暂停 S）或 resume（恢复 R）")
+
+
+class BlacklistSweepResult(BaseModel):
+    """批量暂停 / 恢复的结果。"""
+
+    action: str = Field(default="", description="实际执行的动作")
+    requested: int = Field(default=0, description="请求条数")
+    applied: int = Field(default=0, description="成功条数")
+    failed: int = Field(default=0, description="失败条数")
+    errors: List[Dict[str, Any]] = Field(
+        default_factory=list, description="失败明细（最多 20 条）"
+    )
+
+
 #: 路由 → 响应业务模型
 API_RESPONSE_MODELS: Dict[str, Any] = {
     "/status": PluginStatus,
@@ -492,6 +552,9 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/auto_toggle/apply": AutoToggleStart,
     "/blacklist": BlacklistMeta,
     "/blacklist/test": BlacklistTestResult,
+    "/blacklist/audit": TaskState,
+    "/blacklist/audit/result": TaskState,
+    "/blacklist/sweep": BlacklistSweepResult,
     "/card_theme": CardTheme,
     "/card_theme/save": CardThemeResult,
     "/run_once": TaskState,
@@ -516,6 +579,10 @@ __all__ = [
     "AutoToggleView",
     "BlacklistMeta",
     "BlacklistPreset",
+    "BlacklistAuditHit",
+    "BlacklistAuditView",
+    "BlacklistSweepRequest",
+    "BlacklistSweepResult",
     "BlacklistTestRequest",
     "BlacklistTestResult",
     "HistorySubscribeRequest",

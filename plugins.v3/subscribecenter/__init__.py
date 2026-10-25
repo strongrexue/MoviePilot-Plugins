@@ -14,6 +14,7 @@ Bangumi / 豆瓣 RSS / Simkl / 前端联邦组件 尚未实现（见开发文档
 - ``get_sidebar_nav()`` 不是基类方法，而是契约钩子，由宿主 ``getattr`` 调用；
 - 写入订阅走 ``SubscribeChain().async_add()``，身份是 ``media_source``+``media_id``。
 """
+import asyncio
 import threading
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -43,6 +44,13 @@ DATA_KEY_CARD_THEME = "card_theme"
 #: 只放**本插件自己暂停过**的订阅 ID。没有这张表就分不清「订阅是用户手动暂停的」
 #: 和「是我们暂停的」—— 前者绝不能被自动恢复，否则会违背用户意图。
 DATA_KEY_AUTO_TOGGLE = "auto_toggle"
+#: 「我订过」的键集合（``来源:ID:季``），只增不减，清空流水时才清。
+#:
+#: 为什么不直接查流水：流水是**给眼睛看的**，一条作品只留最新状态（``_collapse_history``
+#: 会把「已订阅」替换成后来的「流水已记录」），又会被 ``MAX_HISTORY`` 截断。
+#: 把去重证据放在流水里，等于让「订过」的记忆取决于最近几次运行 —— 真机表现就是
+#: 「流水里明明记过，删掉订阅后又被自动订回来」（1.14.5 修的就是这个）。
+DATA_KEY_RECORDED = "recorded_keys"
 
 #: 内存中保留的流水条数上限（落盘时会截断）
 MAX_HISTORY = 500
@@ -58,7 +66,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.14.3"
+    plugin_version = "1.14.5"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -382,6 +390,20 @@ class SubscribeCenter(_PluginBase):
         （1.14.0 真机「自测」500 就是这个原因）。
         """
         return await api_controller.api_blacklist_test(self, request)
+
+    async def api_blacklist_audit(self) -> Any:
+        """启动「已有订阅体检」（后台跑），立刻返回状态。"""
+        return await api_controller.api_blacklist_audit(self)
+
+    async def api_blacklist_audit_result(self) -> Any:
+        """读体检进度 / 结果。"""
+        return await api_controller.api_blacklist_audit_result(self)
+
+    async def api_blacklist_sweep(
+        self, request: api_schemas.BlacklistSweepRequest
+    ) -> Any:
+        """把体检选中的订阅批量暂停 / 恢复（注解必须是具体模型，理由同上）。"""
+        return await api_controller.api_blacklist_sweep(self, request)
 
     async def api_system_share_save(
         self, request: api_schemas.SystemShareRequest
@@ -2205,6 +2227,237 @@ class SubscribeCenter(_PluginBase):
             "hint": hint,
         }
 
+    # -------------------------------------------------- 体检：已有订阅 vs 排除规则
+    #
+    # 真机反馈：勾好黑名单、发现流水里也写着「命中排除题材」，宿主的订阅列表里
+    # 却**确实有这部剧**。原因是黑名单只挂在「自动发现 → 写订阅」这条线上，
+    # 只拦将要写入的条目；已经存在的订阅（早先订的、重装后恢复数据库带回来的、
+    # 或从发现流水手动点「加入订阅」的）它一概不管。
+    #
+    # 体检就是补这一刀：把已有订阅逐条按**同一套规则**判一遍，只出报告不动手；
+    # 要不要暂停由用户在页面上勾着决定。
+
+    async def _subscription_rows(self) -> List[Any]:
+        """读宿主全部订阅（含暂停/待定），供体检使用。
+
+        单独抽出来（不在 ``blacklist_audit`` 里内联查询）是为了单测能直接
+        替换成假数据，不必给 ``app.db`` 打桩。
+        """
+        from sqlalchemy import select
+
+        from app.db import async_session_scope
+        from app.db.models.subscribe import Subscribe
+
+        async with async_session_scope() as session:
+            result = await session.execute(select(Subscribe))
+            return list(result.scalars().all())
+
+    async def _audit_one(
+        self,
+        row: Any,
+        rules: Any,
+        *,
+        want_keywords: bool,
+    ) -> Dict[str, Any]:
+        """核对一条已有订阅；返回 ``{id, name, ..., reason}``。
+
+        ``reason`` 为空表示「没命中」；``skipped`` 非空表示「这条没法核」
+        （来源不是 TMDB、查详情失败等），必须和「没命中」区分开 —— 否则
+        一条查失败的订阅会被当成「体检通过」，用户白高兴。
+        """
+        from .core import autotoggle
+        from .core import blacklist as blacklist_core
+        from .core import constants as C2
+
+        sid = int(getattr(row, "id", 0) or 0)
+        name = str(getattr(row, "name", "") or "")
+        entry: Dict[str, Any] = {
+            "id": sid,
+            "name": name,
+            "season": int(getattr(row, "season", 0) or 0),
+            "state": str(getattr(row, "state", "") or ""),
+            "media_source": str(getattr(row, "media_source", "") or ""),
+            "media_id": str(getattr(row, "media_id", "") or ""),
+            "reason": "",
+            "skipped": "",
+            "poster": "",
+        }
+        kind = autotoggle.media_kind(row)
+        if kind not in ("tv", "movie"):
+            entry["skipped"] = "不是剧集/电影订阅"
+            return entry
+        source = entry["media_source"]
+        if source != "themoviedb":
+            # 豆瓣/AniList 订阅存的是它们自己的 ID，要核对得先花一次识别请求；
+            # 体检是「先看一遍」的功能，不做隐式转换，如实说「核不了」。
+            entry["skipped"] = f"来源是 {source or '未知'}，不是 TMDB，未能核对"
+            return entry
+        tmdb_id = entry["media_id"]
+        if not tmdb_id.isdigit():
+            entry["skipped"] = "缺少 TMDB ID"
+            return entry
+
+        media_type = C2.MEDIA_TYPE_TV if kind == "tv" else C2.MEDIA_TYPE_MOVIE
+        entry["media_type"] = media_type
+        path = f"{'/tv' if kind == 'tv' else '/movie'}/{tmdb_id}"
+        payload: Dict[str, Any] = {}
+        try:
+            from .core.host import HostTmdbResolver
+
+            payload = await HostTmdbResolver._tmdb_get(path) or {}
+        except Exception as err:  # noqa: BLE001 - 查不到就如实标「未核对」
+            entry["skipped"] = f"查 TMDB 详情失败：{err}"
+            return entry
+
+        genres = [
+            entry.get("id")
+            for entry in (payload.get("genres") or [])
+            if isinstance(entry, dict) and entry.get("id")
+        ]
+        original = str(
+            payload.get("original_name") or payload.get("original_title") or ""
+        )
+        entry["original_title"] = original
+        poster = str(payload.get("poster_path") or "")
+        if poster:
+            entry["poster"] = poster
+
+        keywords: List[str] = []
+        if want_keywords:
+            try:
+                keywords = await self._tmdb_keywords(media_type, tmdb_id)
+            except Exception:  # noqa: BLE001 - 关键词查不到就只按类型/标题判
+                keywords = []
+
+        entry["genres"] = genres
+        entry["keywords"] = keywords[:20]
+        entry["reason"] = blacklist_core.check_parts(
+            rules,
+            name=name,
+            original=original,
+            media_type=media_type,
+            genre_ids=genres,
+            keywords=keywords,
+        )
+        return entry
+
+    async def blacklist_audit(self, *, budget_seconds: int = 240) -> Dict[str, Any]:
+        """按当前排除规则体检**已有订阅**（只读，不改任何东西）。
+
+        每条订阅要查一次 TMDB 详情（拿 genres / 原名），开了
+        ``blacklist_tmdb_keywords`` 还要再查一次关键词，所以整体放进后台任务
+        并带时间预算：到点就把剩下的标成「未核对」，下次再跑。
+
+        「查不了」与「没命中」严格分开 —— 见 :meth:`_audit_one` 的 ``skipped``。
+        """
+        from .core import blacklist as blacklist_core
+
+        rules = self.blacklist_rules()
+        result: Dict[str, Any] = {
+            "active": bool(rules.active),
+            "rules": len(rules.words) + len(rules.movie_genres) + len(rules.tv_genres),
+            "tmdb_keywords": bool(rules.tmdb_keywords),
+            "total": 0,
+            "checked": 0,
+            "skipped": 0,
+            "unchecked": 0,
+            "hits": [],
+            "uncheckable": [],
+            "elapsed": 0.0,
+            "budget_seconds": int(budget_seconds or 0),
+            "truncated": False,
+            "at": local_now_text(self._tz()),
+        }
+        if not rules.active:
+            result["message"] = "当前没有任何排除规则，先在上面配好规则再体检"
+            return result
+
+        started = time.monotonic()
+        rows = await self._subscription_rows()
+        result["total"] = len(rows)
+        if not rows:
+            result["message"] = "宿主里还没有任何订阅"
+            result["elapsed"] = round(time.monotonic() - started, 1)
+            return result
+
+        semaphore = asyncio.Semaphore(4)
+        want_keywords = bool(rules.tmdb_keywords)
+        budget = float(budget_seconds or 0)
+        exhausted = {"flag": False}
+
+        async def one(row: Any) -> Optional[Dict[str, Any]]:
+            if exhausted["flag"]:
+                return None
+            async with semaphore:
+                if exhausted["flag"]:
+                    return None
+                try:
+                    entry = await self._audit_one(row, rules, want_keywords=want_keywords)
+                except Exception as err:  # noqa: BLE001 - 单条失败不影响其余
+                    entry = {
+                        "id": int(getattr(row, "id", 0) or 0),
+                        "name": str(getattr(row, "name", "") or ""),
+                        "season": int(getattr(row, "season", 0) or 0),
+                        "state": str(getattr(row, "state", "") or ""),
+                        "reason": "",
+                        "skipped": f"核对异常：{err}",
+                    }
+                if budget > 0 and time.monotonic() - started > budget:
+                    exhausted["flag"] = True
+                return entry
+
+        entries = [
+            entry for entry in await asyncio.gather(*(one(row) for row in rows))
+            if entry is not None
+        ]
+        result["checked"] = sum(1 for entry in entries if not entry.get("skipped"))
+        result["skipped"] = sum(1 for entry in entries if entry.get("skipped"))
+        result["hits"] = [entry for entry in entries if entry.get("reason")]
+        result["uncheckable"] = [
+            entry for entry in entries if entry.get("skipped")
+        ][:50]
+        missing = result["total"] - len(entries)
+        result["unchecked"] = max(0, missing)
+        result["truncated"] = bool(missing) or exhausted["flag"]
+        result["elapsed"] = round(time.monotonic() - started, 1)
+        result["at"] = local_now_text(self._tz())
+        if result["truncated"]:
+            result["message"] = (
+                f"到 {result['budget_seconds']} 秒预算上限，还有 {result['unchecked']} 条没核；"
+                "再点一次会接着核（已核过的仍会重核，结果只读不落库）"
+            )
+        return result
+
+    def start_blacklist_audit(self) -> Dict[str, Any]:
+        """启动体检（后台线程），立刻返回状态。"""
+        return self._start_task("blacklist_audit", lambda: self.blacklist_audit())
+
+    def blacklist_audit_state(self) -> Dict[str, Any]:
+        """读体检进度 / 结果。"""
+        return self._task_state("blacklist_audit")
+
+    async def blacklist_sweep(
+        self, *, ids: List[int], action: str = "pause"
+    ) -> Dict[str, Any]:
+        """把体检出来的订阅批量暂停（``S``）或恢复（``R``）。
+
+        只改状态、不删订阅 —— 删订阅不可逆（宿主会把记录移进订阅历史），
+        而「暂停」随时能改回来，用户点错也不至于丢东西。
+        """
+        target = "S" if str(action or "pause") == "pause" else "R"
+        wanted = [int(sid) for sid in (ids or []) if int(sid or 0) > 0]
+        if not wanted:
+            raise ValueError("没有选中任何订阅")
+        changes = [{"id": sid, "name": "", "target": target} for sid in wanted]
+        applied, failed = await self._apply_auto_toggle(changes)
+        return {
+            "action": "pause" if target == "S" else "resume",
+            "requested": len(wanted),
+            "applied": len(applied),
+            "failed": len(failed),
+            "errors": failed[:20],
+        }
+
     def _future_days_by_source(self) -> Dict[str, int]:
         """返回各数据源的发现窗口天数（天）。"""
         default_days = self._int_config("tmdb_future_days", C.DEFAULT_FUTURE_DAYS)
@@ -2670,12 +2923,17 @@ class SubscribeCenter(_PluginBase):
         return list(value) if isinstance(value, list) else []
 
     def _recorded_keys(self) -> Set[str]:
-        """流水里「我订过」的键集合，供写入前查重。
+        """「我订过」的键集合，供写入前查重。
 
-        只认**真的动过手**的决策：``added``（订上了）与
-        ``skipped_already_subscribed``（宿主那边本来就有，说明用户/宿主要它）。
-        「待确认」「窗口外」「评分不够」这些都没订过，不能因为它们出现过就永久
-        拒绝 —— 否则一部片在窗口外被扫到一次，就再也订不上了。
+        两个来源取并集：
+
+        1. ``DATA_KEY_RECORDED`` —— 只增不减的持久记录（1.14.5 起的主来源）；
+        2. 流水里 ``added`` / ``skipped_already_subscribed`` / ``skipped_recorded``
+           的记录（兼容升级前已有的流水，让它立刻生效）。
+
+        **不能只靠流水**：流水同一部作品只留最新一条（后来的「流水已记录」
+        会把「已订阅」那条替换掉），还会被 ``MAX_HISTORY`` 截断 —— 真机表现就是
+        「流水里记过，删掉订阅后又被订回来」。
 
         键里带季号（见 :func:`core.writer.recorded_key`）：同一部剧的第二季是
         另一条订阅，不能被第一季的记录拦住。
@@ -2683,9 +2941,16 @@ class SubscribeCenter(_PluginBase):
         from .core.writer import recorded_key
 
         keys: Set[str] = set()
+        stored = self.get_data(DATA_KEY_RECORDED)
+        if isinstance(stored, (list, tuple, set)):
+            keys.update(str(item) for item in stored if item)
         for record in self._history():
             decision = str(record.get("decision") or "")
-            if decision not in (C.DECISION_ADDED, C.DECISION_SKIPPED_ALREADY_SUBSCRIBED):
+            if decision not in (
+                C.DECISION_ADDED,
+                C.DECISION_SKIPPED_ALREADY_SUBSCRIBED,
+                C.DECISION_SKIPPED_RECORDED,
+            ):
                 continue
             media_source = record.get("media_source")
             media_id = record.get("media_id")
@@ -2693,6 +2958,38 @@ class SubscribeCenter(_PluginBase):
                 continue
             keys.add(recorded_key(media_source, media_id, record.get("season")))
         return keys
+
+    def _remember_recorded(self, outcomes: List[WriteOutcome]) -> None:
+        """把「真的订过」的条目记进持久去重表（只增不减）。
+
+        只有 ``added`` 与 ``skipped_already_subscribed`` 算数：前者是我们写进去的，
+        后者是宿主那边本来就有（用户或宿主要它）。「待确认」「窗口外」「评分不够」
+        「命中排除规则」都没有订过，不能因为它们出现过就永久拒绝。
+        """
+        from .core.writer import recorded_key
+
+        stored = self.get_data(DATA_KEY_RECORDED)
+        current: Set[str] = set()
+        if isinstance(stored, (list, tuple, set)):
+            current.update(str(item) for item in stored if item)
+        changed = False
+        for outcome in outcomes:
+            if outcome.decision not in (
+                C.DECISION_ADDED,
+                C.DECISION_SKIPPED_ALREADY_SUBSCRIBED,
+            ):
+                continue
+            identity = outcome.item.resolved
+            if not identity or not identity.media_source or not identity.media_id:
+                continue
+            key = recorded_key(
+                identity.media_source, identity.media_id, outcome.item.season
+            )
+            if key not in current:
+                current.add(key)
+                changed = True
+        if changed:
+            self.save_data(DATA_KEY_RECORDED, sorted(current))
 
     def clear_history(self) -> api_schemas.HistoryClearResult:
         """清空发现流水。
@@ -2703,6 +3000,9 @@ class SubscribeCenter(_PluginBase):
         """
         removed = len(self._history())
         self.save_data(DATA_KEY_HISTORY, [])
+        # 去重表必须一起清：它是「流水记过就别再订」的实际依据，
+        # 只清显示用的流水会变成「界面上空了，但依然订不上」。
+        self.save_data(DATA_KEY_RECORDED, [])
         state = self._state()
         if "last_run" in state:
             # last_run 只是摘要，里面的 added 计数已经没有对应的记录了
@@ -2938,6 +3238,8 @@ class SubscribeCenter(_PluginBase):
         if len(records) > MAX_HISTORY:
             records = records[-MAX_HISTORY:]
         self.save_data(DATA_KEY_HISTORY, records)
+        # 顺手把「订过」记进去重表：流水会被合并/截断，去重证据不能跟着丢。
+        self._remember_recorded(outcomes)
 
     def _written_today(self) -> int:
         """返回今日已写入条数（跨日自动归零）。"""

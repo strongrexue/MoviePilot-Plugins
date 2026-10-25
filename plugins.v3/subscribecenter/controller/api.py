@@ -51,6 +51,24 @@ def get_api(plugin) -> List[Dict[str, Any]]:
             ["POST"],
             "自测一条内容会不会被排除规则拦下",
         ),
+        (
+            "/blacklist/audit",
+            plugin.api_blacklist_audit,
+            ["POST"],
+            "按排除规则体检已有订阅（后台跑，只读）",
+        ),
+        (
+            "/blacklist/audit/result",
+            plugin.api_blacklist_audit_result,
+            ["GET"],
+            "读取体检进度与结果",
+        ),
+        (
+            "/blacklist/sweep",
+            plugin.api_blacklist_sweep,
+            ["POST"],
+            "把体检选中的订阅批量暂停 / 恢复",
+        ),
         ("/card_theme", plugin.api_card_theme, ["GET"], "读取订阅卡片配色"),
         ("/card_theme/save", plugin.api_card_theme_save, ["POST"], "保存订阅卡片配色"),
         ("/run_once", plugin.api_run_once, ["POST"], "启动一次发现任务（后台跑）"),
@@ -267,6 +285,9 @@ __all__ = [
     "api_history",
     "api_history_clear",
     "api_history_subscribe",
+    "api_blacklist_audit",
+    "api_blacklist_audit_result",
+    "api_blacklist_sweep",
     "api_mapping_cache",
     "api_preview",
     "api_preview_result",
@@ -367,6 +388,50 @@ async def api_blacklist_test(plugin, request: api_schemas.BlacklistTestRequest) 
         logger.error(f"[SubscribeCenter] 黑名单自测失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="黑名单自测失败") from err
     return schemas.Response(success=True, data=api_schemas.BlacklistTestResult(**data))
+
+
+async def api_blacklist_audit(plugin) -> Any:
+    """启动「已有订阅体检」（后台跑，立刻返回状态）。
+
+    为什么又用后台任务：体检要给每条订阅查一次 TMDB 详情，200 条订阅就是
+    200 次请求 —— 在一次 HTTP 请求里同步跑一定被网关掐成 502（1.14.3 的教训）。
+    """
+    try:
+        data = plugin.start_blacklist_audit()
+        return schemas.Response(success=True, data=api_schemas.TaskState(**data))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 启动体检失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="启动体检失败") from err
+
+
+async def api_blacklist_audit_result(plugin) -> Any:
+    """读体检进度 / 结果（``result`` 是 ``BlacklistAuditView`` 的结构）。"""
+    try:
+        data = plugin.blacklist_audit_state()
+        return schemas.Response(success=True, data=api_schemas.TaskState(**data))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取体检结果失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取体检结果失败") from err
+
+
+async def api_blacklist_sweep(
+    plugin, request: api_schemas.BlacklistSweepRequest
+) -> Any:
+    """把体检选中的订阅批量暂停 / 恢复。
+
+    只改状态不删订阅：删订阅会进订阅历史且不可逆，「暂停」随时能改回来。
+    """
+    try:
+        payload = _payload(request, api_schemas.BlacklistSweepRequest)
+        data = await plugin.blacklist_sweep(ids=payload.ids, action=payload.action)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 批量暂停失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="批量暂停失败") from err
+    return schemas.Response(
+        success=True, data=api_schemas.BlacklistSweepResult(**data)
+    )
 
 
 async def api_card_theme(plugin) -> Any:

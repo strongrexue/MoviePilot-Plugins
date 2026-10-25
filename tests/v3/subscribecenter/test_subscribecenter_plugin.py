@@ -2,6 +2,7 @@
 
 覆盖开发文档里几条「照抄 V2 就会失败」的契约，以及配置一致性与路由声明。
 """
+import asyncio
 import sys
 from pathlib import Path
 
@@ -226,6 +227,9 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/auto_toggle/apply",
         "/blacklist",
         "/blacklist/test",
+        "/blacklist/audit",
+        "/blacklist/audit/result",
+        "/blacklist/sweep",
         "/card_theme",
         "/card_theme/save",
         "/run_once",
@@ -271,6 +275,9 @@ def test_every_route_has_a_response_model():
         "/auto_toggle/apply",
         "/blacklist",
         "/blacklist/test",
+        "/blacklist/audit",
+        "/blacklist/audit/result",
+        "/blacklist/sweep",
         "/card_theme",
         "/card_theme/save",
         "/run_once",
@@ -594,6 +601,57 @@ def test_clear_history_on_empty_history_is_harmless(plugin):
     assert result.removed == 0 and result.remaining == 0
 
 
+def _outcome(media_id: str, season: int, decision: str, title: str = "某剧"):
+    """造一条落流水的写入结果（只需要身份与决策）。"""
+    from core.model import DiscoveredItem, ResolvedIdentity
+    from core.writer import WriteOutcome
+
+    item = DiscoveredItem(
+        source="tmdb",
+        source_id="1",
+        title=title,
+        media_type=C.MEDIA_TYPE_TV,
+        season=season,
+        resolved=ResolvedIdentity(media_source="themoviedb", media_id=media_id),
+    )
+    return WriteOutcome(item=item, decision=decision, success=decision == C.DECISION_ADDED)
+
+
+def test_recorded_keys_survive_decision_changes(plugin):
+    """「订过」的证据不能因为后来的「流水已记录」而丢失。
+
+    真机事故：第一轮 `added` 记进流水；从第二轮起同一部作品每轮都被判
+    `skipped_recorded`，而流水同一作品只留最新一条 → `added` 那条被替换掉。
+    用户删掉订阅后再跑，去重证据已经没了，于是被重新自动订阅（1.14.5 修）。
+    """
+    plugin._append_history([_outcome("7", 1, C.DECISION_ADDED)], run_at="2026-10-01 05:00:00")
+    assert "themoviedb:7:1" in plugin._recorded_keys()
+
+    # 之后的运行把它记成「流水已记录」，流水里只剩这一条
+    plugin._append_history(
+        [_outcome("7", 1, C.DECISION_SKIPPED_RECORDED)], run_at="2026-10-02 05:00:00"
+    )
+    assert plugin.history_page().total == 1
+    assert plugin._recorded_keys() >= {"themoviedb:7:1"}
+
+
+def test_recorded_keys_ignores_history_truncation(plugin):
+    """流水被 MAX_HISTORY 截断也不能丢「订过」的证据。"""
+    plugin._append_history([_outcome("8", 2, C.DECISION_ADDED)], run_at="2026-10-01 05:00:00")
+    # 模拟流水被后来的记录挤掉
+    plugin.save_data("run_history", [])
+    assert "themoviedb:8:2" in plugin._recorded_keys()
+
+
+def test_clear_history_clears_recorded_store(plugin):
+    """清空流水必须同时清去重表，否则界面空了却依然订不上。"""
+    plugin._append_history([_outcome("9", 1, C.DECISION_ADDED)], run_at="2026-10-01 05:00:00")
+    assert plugin._recorded_keys() == {"themoviedb:9:1"}
+
+    plugin.clear_history()
+    assert plugin._recorded_keys() == set()
+
+
 # --------------------------------------------------------------------- 配置一致性
 
 def test_default_config_key_set_matches_frontend(plugin_cls):
@@ -811,3 +869,122 @@ def test_post_endpoints_use_concrete_body_model(plugin_cls):
     from subscribecenter.controller import schemas as api_schemas
 
     assert hasattr(api_schemas.CardThemeRequest, "model_fields")
+
+
+# ------------------------------------------------------- 体检已有订阅（黑名单补刀）
+
+
+def _row(sid, name="某剧", season=1, state="R", media_source="themoviedb", media_id="1"):
+    """造一条宿主的 ``Subscribe`` 行（只需要体检用到的字段）。"""
+    import types
+
+    return types.SimpleNamespace(
+        id=sid,
+        name=name,
+        season=season,
+        state=state,
+        type="电视剧",
+        media_source=media_source,
+        media_id=media_id,
+    )
+
+
+def test_blacklist_audit_needs_active_rules(plugin, monkeypatch):
+    """没有生效规则时不做任何请求，直接告诉用户「先去配规则」。"""
+    monkeypatch.setattr(plugin, "_config", {**plugin._config, "blacklist_enabled": False})
+    called = {"n": 0}
+
+    async def fake_rows():
+        called["n"] += 1
+        return []
+
+    monkeypatch.setattr(plugin, "_subscription_rows", fake_rows)
+    result = asyncio.run(plugin.blacklist_audit())
+    assert result["active"] is False
+    assert result["hits"] == []
+    assert called["n"] == 0
+
+
+def test_blacklist_audit_separates_hits_skipped_and_checked(plugin, monkeypatch):
+    """「命中」「没命中」「核不了」必须三分类，不能把查失败的算成通过。"""
+    monkeypatch.setattr(
+        plugin,
+        "_config",
+        {
+            **plugin._config,
+            "blacklist_enabled": True,
+            "blacklist_words": "同性",
+            "blacklist_tmdb_keywords": False,
+        },
+    )
+
+    async def fake_rows():
+        return [_row(1, "以你的心诠释我的爱"), _row(2, "凡人修仙传"), _row(3, "豆瓣剧", media_source="douban")]
+
+    async def fake_one(row, rules, *, want_keywords):
+        base = {
+            "id": row.id,
+            "name": row.name,
+            "season": row.season,
+            "state": row.state,
+            "reason": "",
+            "skipped": "",
+        }
+        if row.id == 1:
+            base["reason"] = "命中排除题材（TMDB 关键词）：lgbt"
+        elif row.id == 3:
+            base["skipped"] = "来源是 douban，不是 TMDB，未能核对"
+        return base
+
+    monkeypatch.setattr(plugin, "_subscription_rows", fake_rows)
+    monkeypatch.setattr(plugin, "_audit_one", fake_one)
+    result = asyncio.run(plugin.blacklist_audit())
+    assert result["total"] == 3
+    assert result["checked"] == 2
+    assert result["skipped"] == 1
+    assert [hit["id"] for hit in result["hits"]] == [1]
+    assert result["uncheckable"][0]["id"] == 3
+    assert result["unchecked"] == 0
+
+
+def test_blacklist_sweep_pauses_and_resumes(plugin, monkeypatch):
+    """体检的「暂停选中」只改状态、不删订阅：pause → S，resume → R。"""
+    seen = {}
+
+    async def fake_apply(changes):
+        seen["changes"] = changes
+        return [item["id"] for item in changes], []
+
+    monkeypatch.setattr(plugin, "_apply_auto_toggle", fake_apply)
+    paused = asyncio.run(plugin.blacklist_sweep(ids=[7, 9], action="pause"))
+    assert seen["changes"] == [
+        {"id": 7, "name": "", "target": "S"},
+        {"id": 9, "name": "", "target": "S"},
+    ]
+    assert paused["action"] == "pause"
+    assert paused["applied"] == 2
+
+    resumed = asyncio.run(plugin.blacklist_sweep(ids=[7], action="resume"))
+    assert seen["changes"] == [{"id": 7, "name": "", "target": "R"}]
+    assert resumed["action"] == "resume"
+
+
+def test_blacklist_sweep_requires_ids(plugin):
+    """一条都没选就报错，别静默返回成功骗用户。"""
+    import pytest
+
+    with pytest.raises(ValueError):
+        asyncio.run(plugin.blacklist_sweep(ids=[], action="pause"))
+
+
+def test_blacklist_audit_runs_in_background(plugin, monkeypatch):
+    """体检必须走后台任务：200 条订阅就是 200 次请求，同步跑一定被网关 502。"""
+
+    async def fake_audit(**kwargs):
+        return {"active": True, "total": 0, "hits": []}
+
+    monkeypatch.setattr(plugin, "blacklist_audit", fake_audit)
+    started = plugin.start_blacklist_audit()
+    assert started["started"] is True
+    state = plugin.blacklist_audit_state()
+    assert "running" in state and "result" in state

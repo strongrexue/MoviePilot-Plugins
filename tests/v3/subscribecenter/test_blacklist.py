@@ -23,6 +23,7 @@ from core.blacklist import (  # noqa: E402
     BlacklistRules,
     check_item,
     check_keywords,
+    check_parts,
     compile_line,
     item_genre_ids,
     match_words,
@@ -304,3 +305,36 @@ def test_check_keywords_reports_layer():
     compiled = rules(blacklist_words="gay")
     assert check_keywords(compiled, ["lgbt", "gay"]) == "命中排除题材（TMDB 关键词）：gay"
     assert check_keywords(compiled, []) == ""
+
+
+# ------------------------------------------------------- 体检：check_parts（已有订阅）
+
+
+def test_check_parts_matches_genre_by_id():
+    """体检拿到的是宿主订阅行 + TMDB 详情，判定要与流水线同源同序。"""
+    compiled = rules(blacklist_genre_tv=[10764])
+    assert check_parts(compiled, name="某真人秀", genre_ids=[10764]) == "命中排除类型：真人秀(10764)"
+    assert check_parts(compiled, name="某剧", genre_ids=[18]) == ""
+
+
+def test_check_parts_respects_media_type_for_genres():
+    """电影与剧集的类型表不同：同一个 id 在另一侧不该命中。"""
+    compiled = rules(blacklist_genre_movie=[10764])
+    assert check_parts(compiled, name="x", media_type="tv", genre_ids=[10764]) == ""
+    assert check_parts(compiled, name="x", media_type="movie", genre_ids=[10764]) != ""
+
+
+def test_check_parts_matches_title_and_keywords():
+    compiled = rules(blacklist_words="同性")
+    assert check_parts(compiled, name="以你的心诠释我的爱") == ""
+    assert check_parts(compiled, name="同性恋研究") != ""
+    compiled_kw = rules(blacklist_words="gay")
+    assert check_parts(compiled_kw, name="某剧", keywords=["lgbt", "gay"]) == (
+        "命中排除题材（TMDB 关键词）：gay"
+    )
+
+
+def test_check_parts_inactive_rules_never_match():
+    """总开关关掉时体检必须一条都不命中（否则会让人以为规则在生效）。"""
+    compiled = rules(blacklist_enabled=False, blacklist_genre_tv=[10764], blacklist_words="同性")
+    assert check_parts(compiled, name="同性", genre_ids=[10764], keywords=["gay"]) == ""

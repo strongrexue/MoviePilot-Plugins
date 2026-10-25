@@ -114,7 +114,7 @@ const DECISION_LABELS = {
   skipped_daily_limit: '触达上限',
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
-  skipped_recorded: '流水已记录',
+  skipped_recorded: '流水已记录（不再自动订）',
   skipped_blacklist: '命中排除规则',
 }
 

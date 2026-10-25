@@ -652,6 +652,53 @@ def test_clear_history_clears_recorded_store(plugin):
     assert plugin._recorded_keys() == set()
 
 
+def test_second_run_skips_after_user_deleted_subscription(plugin):
+    """端到端复刻用户场景：订上 → 用户删掉订阅 → 下一轮不能再自动订回来。
+
+    这条把「插件去重表」和「writer 的查重」接在一起跑：第一轮真写入并把键记进
+    去重表，第二轮宿主说「订阅不存在」也不算数，必须判成 skipped_recorded。
+    """
+    from core.writer import SubscriptionWriter
+
+    class Backend:
+        def __init__(self):
+            self.adds = 0
+
+        async def subscription_exists(self, media_source, media_id, season=None):
+            # 用户已经把订阅删了
+            return False
+
+        async def history_exists(self, media_source, media_id, season=None):
+            return False
+
+        async def add(self, *args, **kwargs):
+            self.adds += 1
+            return 42, "新增订阅"
+
+    backend = Backend()
+    writer = SubscriptionWriter(
+        backend, daily_limit=0, dedupe_history=True, recorded_keys=plugin._recorded_keys
+    )
+    from core.model import DiscoveredItem, ResolvedIdentity
+
+    item = DiscoveredItem(
+        source="tmdb",
+        source_id="298546",
+        title="新手上路",
+        media_type=C.MEDIA_TYPE_TV,
+        season=1,
+        resolved=ResolvedIdentity(media_source="themoviedb", media_id="298546"),
+    )
+    first = asyncio.run(writer.write([item], dry_run=False)).outcomes
+    assert first[0].decision == C.DECISION_ADDED and backend.adds == 1
+    plugin._append_history(first, run_at="2026-10-25 05:00:00")
+
+    # 第二轮：宿主那边已经没有这条订阅了
+    second = asyncio.run(writer.write([item], dry_run=False)).outcomes
+    assert second[0].decision == C.DECISION_SKIPPED_RECORDED
+    assert backend.adds == 1, "删掉订阅后又被订回来了"
+
+
 # --------------------------------------------------------------------- 配置一致性
 
 def test_default_config_key_set_matches_frontend(plugin_cls):

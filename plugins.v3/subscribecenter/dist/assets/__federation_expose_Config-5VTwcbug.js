@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-D5ylwtsG.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-CyUsK1HM.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -459,7 +459,7 @@ const DECISION_LABELS = {
   skipped_daily_limit: '触达上限',
   skipped_already_subscribed: '已订阅',
   skipped_already_completed: '已完成过',
-  skipped_recorded: '流水已记录',
+  skipped_recorded: '流水已记录（不再自动订）',
   skipped_blacklist: '命中排除规则',
 };
 
@@ -1665,7 +1665,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[96] || (_cache[96] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-38ec00ab><b data-v-38ec00ab>电影上映类</b>（<code data-v-38ec00ab>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-38ec00ab><b data-v-38ec00ab>剧集类</b>（<code data-v-38ec00ab>/douban/tv/coming</code>、<code data-v-38ec00ab>/douban/list/tv_*</code>、 <code data-v-38ec00ab>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-38ec00ab><b data-v-38ec00ab>电影榜单类</b>没有日期，会被跳过。<code data-v-38ec00ab>ustop250</code> 与 <code data-v-38ec00ab>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[96] || (_cache[96] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-9847e08c><b data-v-9847e08c>电影上映类</b>（<code data-v-9847e08c>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-9847e08c><b data-v-9847e08c>剧集类</b>（<code data-v-9847e08c>/douban/tv/coming</code>、<code data-v-9847e08c>/douban/list/tv_*</code>、 <code data-v-9847e08c>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-9847e08c><b data-v-9847e08c>电影榜单类</b>没有日期，会被跳过。<code data-v-9847e08c>ustop250</code> 与 <code data-v-9847e08c>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2351,7 +2351,7 @@ return (_ctx, _cache) => {
                     color: "primary"
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[124] || (_cache[124] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-38ec00ab><b data-v-38ec00ab>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-38ec00ab>BL</code> 不会命中 <code data-v-38ec00ab>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-38ec00ab>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-38ec00ab>regex:</code> 用正则；行首加 <code data-v-38ec00ab>case:</code> 区分大小写；空行与 <code data-v-38ec00ab>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-38ec00ab><b data-v-38ec00ab>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-38ec00ab>试一下</div>", 3)),
+                _cache[124] || (_cache[124] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-9847e08c><b data-v-9847e08c>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-9847e08c>BL</code> 不会命中 <code data-v-9847e08c>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-9847e08c>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-9847e08c>regex:</code> 用正则；行首加 <code data-v-9847e08c>case:</code> 区分大小写；空行与 <code data-v-9847e08c>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-9847e08c><b data-v-9847e08c>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-9847e08c>试一下</div>", 3)),
                 _createVNode(_component_VRow, { dense: "" }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -3270,6 +3270,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-38ec00ab"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9847e08c"]]);
 
 export { Config as default };

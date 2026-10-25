@@ -85,7 +85,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.14.6",
+        "version": "1.14.7",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -93,6 +93,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.14.7": "修：宿主订阅复查失败时绕过流水去重，导致订过的作品被重复自动订阅（真机事故：数据库 worker 忙时批量重订）",
             "v1.14.6": "流水决策文案：「流水已记录」改为「流水已记录（不再自动订）」，便于真机自查去重是否生效",
             "v1.14.5": "修「流水记过仍然被重新自动订阅」：去重证据从流水里独立出来（只增不减），流水合并/截断不再丢失；清空流水同时清去重表",
             "v1.14.4": "黑名单补刀：新增「体检已有订阅」，按同一套规则核对已有订阅并支持批量暂停/恢复（只改状态不删订阅）",

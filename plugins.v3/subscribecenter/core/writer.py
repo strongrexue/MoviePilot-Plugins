@@ -362,6 +362,25 @@ class SubscriptionWriter:
                     ),
                 )
 
+        # ---- 流水去重（必须在宿主复查**之前**）
+        #
+        # 与「宿主已有该订阅」是两回事：那条查的是**当下**，用户把订阅一删就
+        # 查不到了，下一轮又会自动订回来。这里查的是**历史** —— 只要流水里还
+        # 记着「这部我订过」，就不订；清空流水（或删掉那条记录）之后才会重新订。
+        #
+        # 顺序是 1.14.7 的教训（真机 200 条订阅）：宿主复查是可失败的（数据库
+        # worker 忙时 ``subscription_exists`` 直接抛错），原先的 fail-open 分支
+        # 会**跳过这道检查**直接写入 —— 于是「复查失败」的日子里，所有订过的作品
+        # 又被重新订了一遍，日志里写的是「复查失败但写入成功」。
+        # 这道检查只读插件自己的数据，不会失败，所以放在最前面。
+        key = recorded_key(identity.media_source, identity.media_id, item.season)
+        if recorded_keys and key in recorded_keys:
+            return WriteOutcome(
+                item=item,
+                decision=DECISION_SKIPPED_RECORDED,
+                reason="发现流水里记着这部订阅过（删掉订阅后不再自动重订，清空流水可恢复）",
+            )
+
         # ---- 写入前实时复查（两层：活跃订阅 + 已完成历史）
         #
         # 去重**必须带季号**：同一部剧的不同季是不同订阅。
@@ -390,19 +409,6 @@ class SubscriptionWriter:
                 )
         except Exception as err:  # noqa: BLE001 - 复查失败按 fail-open 交给 add() 幂等兜底
             return await self._do_write(item, dry_run=dry_run, precheck_error=str(err))
-
-        # ---- 流水去重（最后一道，且不受上面异常影响）
-        #
-        # 与「宿主已有该订阅」是两回事：那条查的是**当下**，用户把订阅一删就
-        # 查不到了，下一轮又会自动订回来。这里查的是**历史** —— 只要流水里还
-        # 记着「这部我订过」，就不订；清空流水（或删掉那条记录）之后才会重新订。
-        key = recorded_key(identity.media_source, identity.media_id, item.season)
-        if recorded_keys and key in recorded_keys:
-            return WriteOutcome(
-                item=item,
-                decision=DECISION_SKIPPED_RECORDED,
-                reason="发现流水里记着这部订阅过（删掉订阅后不再自动重订，清空流水可恢复）",
-            )
 
         return await self._do_write(item, dry_run=dry_run, precheck_error="")
 

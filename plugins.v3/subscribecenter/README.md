@@ -246,6 +246,21 @@ esubscribe_completed
 升级兼容：仍会额外读一遍流水里 `added` / `skipped_already_subscribed` /
 `skipped_recorded` 的记录，所以旧流水里的「订过」升级后立刻生效，不用重新跑。
 
+#### 1.14.7：去重必须排在「问宿主」之前
+
+判断一条要不要订，顺序是**先查自己的去重表，再问宿主**（`subscription_exists` /
+`history_exists`）。1.14.6 的顺序是反的，于是有个洞：宿主数据库 worker 忙的时候
+（订阅上千条、同时跑刷新就会出现），复查直接抛异常，而异常分支是「问不出来就照
+订」，**顺带把去重也跳过去了** —— 真机日志原文是：
+
+> `reason: 复查失败但写入成功（数据库 worker 当前不可接收任务）`
+
+结果就是那天的情况：所有订过的作品被批量重订一遍，Telegram 连发一串「已添加订阅」。
+
+现在去重排在最前面，宿主的复查只是「补充判断」，无论它成功、失败还是超时，都
+绕不过「流水里记着这部作品」这一关。回归测试
+`test_recorded_item_is_not_resubscribed_when_precheck_fails` 锁住这个顺序。
+
 ### 结构哨兵（0.8.5）
 
 	tests/v3/subscribecenter/test_host_structure.py 只做结构断言：HostTmdbResolver

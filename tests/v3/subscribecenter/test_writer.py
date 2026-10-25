@@ -447,6 +447,27 @@ async def test_recorded_item_is_not_resubscribed():
 
 
 @pytest.mark.asyncio
+async def test_recorded_item_is_not_resubscribed_when_precheck_fails():
+    """宿主复查抛错时也必须守住流水去重（1.14.7 真机事故）。
+
+    真机日志原文：``reason: 复查失败但写入成功（数据库 worker 当前不可接收任务）``。
+    200 条订阅、宿主数据库 worker 忙的时候 ``subscription_exists`` 直接抛错，
+    原先的 fail-open 分支跳过了流水去重 → 所有订过的作品又被重订一遍。
+    """
+    backend = FakeBackend(exists=False, history=False, raise_precheck=True)
+    writer = SubscriptionWriter(
+        backend,
+        daily_limit=30,
+        recorded_keys=lambda: {recorded_key("themoviedb", "693134", None)},
+    )
+    report = await writer.write([item()], dry_run=False)
+
+    assert backend.add_calls == [], "复查失败不能成为绕过去重的理由"
+    assert backend.precheck_calls == 0, "流水去重应该排在宿主复查之前"
+    assert report.outcomes[0].decision == C.DECISION_SKIPPED_RECORDED
+
+
+@pytest.mark.asyncio
 async def test_unrecorded_item_is_written():
     """流水里没有记录 → 正常订阅。"""
     backend = FakeBackend(exists=False, history=False)

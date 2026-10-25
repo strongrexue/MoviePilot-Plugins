@@ -286,6 +286,8 @@ def test_date_unknown_movie_is_skipped():
     """无定档日期的**电影**跳过 —— 无从判断是否即将上映。
 
     榜单里的电影往往是老片（重映/口碑榜），订了就是浪费每日额度。
+    「TMDB 发行日兜底」也查不到日期时，仍然走这条路（见
+    ``test_fill_movie_release_dates_*``）。
     """
     film = item(
         media_type=C.MEDIA_TYPE_MOVIE,
@@ -297,3 +299,111 @@ def test_date_unknown_movie_is_skipped():
     assert not passed
     assert rejected[0].decision == C.DECISION_SKIPPED_NO_DATE
     assert "电影" in rejected[0].reason
+
+
+# --------------------------------------------------- 电影发行日兜底（1.14.8）
+
+def test_grace_window_lets_recent_movie_through():
+    """电影发行日刚过去几天：宽限期内放行，0 宽限则拒绝。
+
+    真机事故：《空枪》数字发行 2026-10-23，当天被「日期已过去」拒掉，
+    可那时候站点上才刚刚有资源 —— 卡死「必须在未来」等于永远订不到。
+    """
+    recent = item(release_date=(TODAY - timedelta(days=2)).isoformat())
+    assert filter_by_window(recent, 3, now=TODAY) is False
+    assert filter_by_window(recent, 3, now=TODAY, past_days=7) is True
+
+    # 老片不会被宽限期捞进来
+    old = item(release_date=(TODAY - timedelta(days=30)).isoformat())
+    assert filter_by_window(old, 3, now=TODAY, past_days=7) is False
+
+
+def test_grace_window_is_movie_only():
+    """宽限期只给电影：剧集「已过去」就是过去，交给未播集判定兜底。"""
+    show = item(
+        media_type=C.MEDIA_TYPE_TV,
+        release_date=(TODAY - timedelta(days=2)).isoformat(),
+    )
+    assert filter_by_window(show, 3, now=TODAY, past_days=7) is False
+
+
+def test_fill_movie_release_dates_only_undated_movies():
+    """只给「来源没给日期」的电影补日期，剧集与已有日期的一律不碰。"""
+    import asyncio
+
+    from core.pipeline import fill_movie_release_dates
+
+    undated = item(
+        release_date=None,
+        date_unknown=True,
+        resolved=ResolvedIdentity("themoviedb", "777"),
+    )
+    dated = item(source_id="2")
+    show = item(
+        source_id="3",
+        media_type=C.MEDIA_TYPE_TV,
+        release_date=None,
+        date_unknown=True,
+    )
+
+    asked = []
+
+    async def lookup(media_source, media_id):
+        asked.append((media_source, media_id))
+        return ("2026-10-23", "数字发行")
+
+    filled = asyncio.run(fill_movie_release_dates([undated, dated, show], lookup))
+
+    assert filled == 1
+    assert asked == [("themoviedb", "777")]
+    assert undated.release_date == "2026-10-23"
+    assert undated.release_date_source == "TMDB 数字发行"
+    assert undated.date_unknown is False
+    assert show.date_unknown is True  # 剧集不补
+    assert dated.release_date == (TODAY + timedelta(days=5)).isoformat()
+
+
+def test_fill_movie_release_dates_is_fail_closed():
+    """查不到 / 抛异常 / 开关关闭时，条目保持「无日期」，绝不放行。"""
+    import asyncio
+
+    from core.pipeline import fill_movie_release_dates
+
+    async def boom(*args):
+        raise RuntimeError("tmdb down")
+
+    async def nothing(*args):
+        return None
+
+    for lookup, enabled in ((boom, True), (nothing, True), (boom, False)):
+        film = item(release_date=None, date_unknown=True)
+        filled = asyncio.run(
+            fill_movie_release_dates([film], lookup, enabled=enabled)
+        )
+        assert filled == 0
+        assert film.release_date is None
+        assert film.date_unknown is True
+
+    # lookup 为 None（兜底关闭）时一条都不查
+    film = item(release_date=None, date_unknown=True)
+    assert asyncio.run(fill_movie_release_dates([film], None)) == 0
+
+
+def test_filled_movie_then_passes_window_with_grace():
+    """补出日期之后，走的是「发行日 + 宽限期」的窗口判定，而不是直接放行。"""
+    film = item(release_date=None, date_unknown=True)
+    film.release_date = (TODAY - timedelta(days=2)).isoformat()
+    film.release_date_source = "TMDB 数字发行"
+    film.date_unknown = False
+
+    without, rejected = select_items(
+        [film], future_days=3, min_rating=0.0, now=TODAY, movie_grace_days=0
+    )
+    assert not without
+    assert rejected[0].decision == C.DECISION_SKIPPED_NOT_FUTURE
+    assert "TMDB 数字发行" in rejected[0].reason
+
+    passed, _ = select_items(
+        [film], future_days=3, min_rating=0.0, now=TODAY, movie_grace_days=7
+    )
+    assert [i.source_id for i in passed] == [film.source_id]

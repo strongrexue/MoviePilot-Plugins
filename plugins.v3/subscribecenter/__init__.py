@@ -66,7 +66,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.14.7"
+    plugin_version = "1.14.8"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -2076,6 +2076,19 @@ class SubscribeCenter(_PluginBase):
                 min_popularity_by_source=self._min_popularity_by_source(),
                 # 黑名单第三层（TMDB keyword）只在配置打开时才会被调用
                 keyword_lookup=self._tmdb_keywords,
+                # 电影发行日兜底：来源没给日期时用 TMDB 发行日补上，
+                # 再按「发行日 + 宽限期」判窗口（关掉就回到旧的「无日期跳过」）
+                movie_release_lookup=(
+                    self._movie_release_lookup
+                    if self._config.get("movie_release_fallback", True)
+                    else None
+                ),
+                movie_grace_days=max(
+                    0,
+                    self._int_config(
+                        "movie_release_grace_days", C.DEFAULT_MOVIE_RELEASE_GRACE
+                    ),
+                ),
                 dry_run=force_dry_run,
                 already_written_today=self._written_today(),
                 tz_name=self._tz(),
@@ -2126,6 +2139,85 @@ class SubscribeCenter(_PluginBase):
             cache.clear()
         cache[key] = keywords
         return keywords
+
+    # ---------------------------------------------------------- 电影发行日兜底
+
+    async def _movie_tmdb_id(
+        self, media_source: str, media_id: str
+    ) -> Optional[int]:
+        """把条目上的 ``media_id`` 换成 TMDB ID。
+
+        豆瓣榜单条目的 ``media_id`` 解析后通常已经是 TMDB ID，但自定义源
+        可能给的是来源自己的 ID —— 直接拿去查 TMDB 会查到另一部片子，
+        那会把别人的发行日当成它的，属于最坏的一种错。
+        """
+        value = str(media_id or "").strip()
+        if not value.isdigit():
+            return None
+        if media_source in ("", "themoviedb"):
+            return int(value)
+        try:
+            from app.chain.media import MediaChain
+            from app.schemas.types import MediaType
+
+            media = await MediaChain().async_recognize_media(
+                mtype=MediaType.MOVIE, media_source=media_source, media_id=value
+            )
+            tmdb_id = self._field(media, "tmdb_id")
+            return int(tmdb_id) if tmdb_id else None
+        except Exception as err:  # noqa: BLE001 - 识别失败就跳过这部
+            logger.debug(
+                f"[SubscribeCenter] 电影识别失败 {media_source}:{value}：{err}"
+            )
+            return None
+
+    async def _movie_release_lookup(
+        self, media_source: str, media_id: str
+    ) -> Optional[Tuple[str, str]]:
+        """电影发行日兜底：``(YYYY-MM-DD, 类型中文名)``，查不到返回 ``None``。
+
+        只对「来源没给日期」的电影调用（豆瓣榜单类 RSS 只有片名），
+        量级 = 每轮榜单里的电影数，且进程内缓存 12 小时。
+
+        优先级与自动启停完全一致（``autotoggle.movie_basis``）：数字发行 →
+        实体 → 院线 → 首映 → 电视 → 顶层 ``release_date``。**必须优先数字发行**：
+        院线首映日往往比数字版早几周，拿它判窗口会把刚上线数字版的片子
+        判成「已过去」—— 而那时才是站点真正出种的时候。
+
+        失败一律返回 ``None``：该片继续按「来源没日期」跳过，绝不猜。
+        """
+        from .core import autotoggle
+
+        key = f"{media_source}:{media_id}"
+        cache = self.__dict__.setdefault("_movie_release_lookup_cache", {})
+        hit = cache.get(key)
+        if hit and time.time() - hit[0] < 12 * 3600:
+            return hit[1]
+
+        result: Optional[Tuple[str, str]] = None
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+            from app.schemas.types import MediaType
+
+            tmdb_id = await self._movie_tmdb_id(media_source, media_id)
+            if tmdb_id:
+                info = await TmdbApi().async_get_info(MediaType.MOVIE, tmdb_id)
+                records = autotoggle.release_records(info)
+                date_text, kind = autotoggle.movie_basis(records, best_version=False)
+                if date_text:
+                    result = (
+                        date_text,
+                        autotoggle.RELEASE_KIND_LABELS.get(kind, kind or "发行日"),
+                    )
+        except Exception as err:  # noqa: BLE001 - 单部查不到只影响它自己
+            logger.debug(
+                f"[SubscribeCenter] 电影发行日查询失败 {key}：{err}"
+            )
+
+        if len(cache) > 2000:
+            cache.clear()
+        cache[key] = (time.time(), result)
+        return result
 
     # ---------------------------------------------------------- 排除规则（黑名单）
 

@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "tgmediacenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "胖虎媒体中心"
-    assert TgMediaCenter.plugin_version == "1.13.25"
+    assert TgMediaCenter.plugin_version == "1.13.26"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 
@@ -32,6 +32,32 @@ def test_frontend_version_matches_backend():
     assert match, "未能在 version.js 中找到 FRONTEND_VERSION"
     assert match.group(1) == TgMediaCenter.plugin_version, (
         "前端 version.js 与插件 plugin_version 不一致，发版时需同步"
+    )
+
+
+def test_built_bundle_carries_current_frontend_version():
+    """构建产物里烤的版本必须等于 plugin_version。
+
+    回归保护（1.13.25 的真实事故）：只把源码里的版本号改到 1.13.25、却没有重建
+    ``dist``，产物里烤的还是 1.13.24。界面上的「前端组件 ≠ 后端」横幅于是永久
+    常亮 —— 用户按 Ctrl+Shift+R 也没用，因为服务端发出来的就是那个旧产物。
+    版本号是构建时烤进去的，所以只有「源码版本 == 产物版本」这条不变量成立，
+    横幅才有意义。
+    """
+    assets = PLUGIN_DIR / "dist" / "assets"
+    bundles = sorted(assets.glob("*.js"))
+    assert bundles, "dist/assets 里没有构建产物，发版前必须 npm run build"
+
+    pattern = re.compile(r"FRONTEND_VERSION\s*=\s*'([^']+)'")
+    baked = set()
+    for bundle in bundles:
+        text = bundle.read_text(encoding="utf-8", errors="ignore")
+        baked.update(match.group(1) for match in pattern.finditer(text))
+
+    assert baked, "构建产物里找不到 FRONTEND_VERSION，dist 可能不完整"
+    assert baked == {TgMediaCenter.plugin_version}, (
+        f"产物里烤的前端版本 {sorted(baked)} 与 plugin_version "
+        f"{TgMediaCenter.plugin_version} 不一致 —— 改完版本号必须重建 dist"
     )
 
 

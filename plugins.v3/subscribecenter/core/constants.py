@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.14.7"
+PLUGIN_VERSION = "1.14.8"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -62,6 +62,10 @@ DEFAULT_AUTO_TOGGLE_BEST_KEEP = 90
 #: 一次请求都不发。
 DEFAULT_AUTO_TOGGLE_PROBE_BUDGET = 300
 DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL = 1.5
+#: 电影「刚上映也算数」的宽限天数。数字版上线之后站点上才有资源，卡死
+#: 「必须在未来」等于永远订不到刚上线的片子（真机：《空枪》数字发行当天
+#: 被「已过去」拒掉）。7 天足够覆盖出种延迟，又不至于把老片捞进来。
+DEFAULT_MOVIE_RELEASE_GRACE = 7
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
@@ -284,7 +288,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 11
+CONFIG_VERSION = 12
 
 
 def default_config() -> Dict[str, Any]:
@@ -356,6 +360,19 @@ def default_config() -> Dict[str, Any]:
         #: 是否额外查 TMDB keyword。**默认关**：每条多一次 TMDB 详情请求，
         #: 只在「标题和题材串都拦不住、但确实想按关键词拦」时才值得开。
         "blacklist_tmdb_keywords": False,
+        # ---------------- 电影发行日兜底
+        #: 来源没给日期时（豆瓣榜单类 RSS 常见），用 TMDB 的发行日补上。
+        #:
+        #: **默认开**：关掉的话，榜单里的电影一律按「无日期」跳过 ——
+        #: 真机里刚上线数字版的《空枪》就是这样订不到的。
+        #: 补日期只是拿到「哪天上的」，值不值得订仍由窗口 + 宽限期决定，
+        #: 所以老片不会被误订。
+        "movie_release_fallback": True,
+        #: 电影「刚上映也算数」的宽限天数（0 = 严格未来，与旧行为一致）。
+        #:
+        #: 数字版上线之后站点上才有资源，卡死「必须在未来」等于永远订不到
+        #: 刚上线的片子。默认 7 天：足够覆盖出种延迟，又不至于把老片捞进来。
+        "movie_release_grace_days": DEFAULT_MOVIE_RELEASE_GRACE,
         # ---------------- 豆瓣 RSS 源列表
         #: 豆瓣 RSS 榜单列表：内置预设 + 自定义，每条独立控制
         #: （name / url / enabled / max_items / future_days / min_want）

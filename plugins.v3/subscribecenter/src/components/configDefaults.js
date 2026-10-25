@@ -49,6 +49,11 @@ export const configDefaults = {
   blacklist_match_tags: true,
   //: 是否额外查 TMDB 关键词（每条多一次请求，默认关）
   blacklist_tmdb_keywords: false,
+  // ---------------- 电影发行日兜底
+  //: 来源没给日期时，用 TMDB 的数字/实体发行日补上（默认开）
+  movie_release_fallback: true,
+  //: 电影「刚上映也算数」的宽限天数（0 = 严格未来）
+  movie_release_grace_days: 7,
   // ---------------- 豆瓣 RSS 源列表
   // ---------------- 豆瓣 RSS 榜单（每榜独立配置）
   rsshub_domain: 'https://rsshub.ddsrem.com',
@@ -117,7 +122,7 @@ export const configDefaults = {
   //: 一次性开关：保存配置时把「今日已写入条数」清零，便于同一天反复测试
   reset_daily_counter: false,
   // ---------------- 配置结构版本（随本次发布一起更新，用于默认值迁移）
-  config_version: 11,
+  config_version: 12,
   // ---------------- 一次性执行
   onlyonce: false,
 }

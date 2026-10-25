@@ -10,6 +10,7 @@
 """
 import asyncio
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import (
     Any,
     Awaitable,
@@ -41,6 +42,11 @@ from .writer import SubscriptionWriter, WriteOutcome, WriteReport
 
 #: TMDB 关键词查询函数签名：``(media_type, tmdb_id) -> [keyword, ...]``
 KeywordLookup = Callable[[str, str], Awaitable[Sequence[str]]]
+
+#: 电影发行日查询签名：``(media_source, media_id) -> (YYYY-MM-DD, 类型中文名)``
+#:
+#: 返回 ``None`` 表示查不到（该片继续按「无日期」处理，不会被误放行）。
+MovieReleaseLookup = Callable[[str, str], Awaitable[Optional[Tuple[str, str]]]]
 
 
 
@@ -86,6 +92,8 @@ class RunSummary:
     dry_run: bool = False
     #: 源内去重时被丢弃的条目数（不进流水，但要计入总数才能对账）
     deduped_out: int = 0
+    #: 用 TMDB 发行日补全日期的电影条数（0 = 没开兜底或没有这类条目）
+    movie_release_filled: int = 0
     started_at: str = ""
     finished_at: str = ""
 
@@ -304,15 +312,22 @@ def filter_by_window(
     *,
     tz_name: Optional[str] = None,
     now: Any = None,
+    past_days: int = 0,
 ) -> bool:
-    """窗口过滤：只保留「今天 ~ 今天+N 天」内的条目。
+    """窗口过滤：只保留「今天-N ~ 今天+N 天」内的条目。
 
     无定档日期 → 拦截（无法判断「即将开播」，宁缺毋滥）。
+
+    ``past_days`` 是「刚上映也算数」的宽限天数，只对电影生效（见
+    ``in_window`` 的说明）；剧集不需要——它靠「TMDB 还有没有未播集」判定。
     """
     release = parse_date(item.release_date, tz_name)
     if release is None:
         return False
-    return in_window(release, future_days, tz_name=tz_name, now=now)
+    grace = int(past_days or 0) if item.is_movie else 0
+    return in_window(
+        release, future_days, tz_name=tz_name, now=now, past_days=grace
+    )
 
 
 def filter_blacklist(
@@ -409,6 +424,7 @@ def select_items(
     future_days_by_source: Optional[Dict[str, int]] = None,
     min_rating_by_source: Optional[Dict[str, float]] = None,
     min_popularity_by_source: Optional[Dict[str, float]] = None,
+    movie_grace_days: int = 0,
 ) -> Tuple[List[DiscoveredItem], List[WriteOutcome]]:
     """对（已解析身份的）条目做过滤，返回 ``(通过, 被拦下的带原因结果)``。
 
@@ -416,6 +432,9 @@ def select_items(
     被拦下的条目也返回，便于流水线写入「跳过原因」日志。
 
     :param min_popularity: 最低关注度；``<=0`` 表示不过滤
+    :param movie_grace_days: 电影的「刚上映宽限天数」——发行日已过去但在这么多
+        天以内仍放行。数字版上线之后站点上才有资源，卡死「必须在未来」会
+        把刚上映的片子全部拒掉，而它们恰恰是最该订的。
     :param future_days_by_source: 按源覆盖窗口天数。**必须按源区分**：
         TMDB 与 Bangumi 的窗口是各自配置的，用同一个值会把窗口更窄的源
         的条目错误放行、或把更宽的源错误拦下。
@@ -499,8 +518,11 @@ def select_items(
             # 剧集：放行 —— 它是否值得订由「TMDB 还有没有未播集」判定
             # （在 IdentityResolver._resolve_target_season 里已完成），
             # 这比时间窗口更准：正在连载的剧本来就没有「上映日」。
-            # 电影：跳过 —— 没有日期就无从判断是否即将上映，
-            # 榜单里的电影往往是老片，订了就是浪费额度。
+            # 电影：先别急着跳过 —— 如果开了「发行日兜底」，上游已经用
+            # TMDB 的数字/实体发行日把 release_date 补上了（见
+            # fill_movie_release_dates），那种条目的 date_unknown 已被清掉，
+            # 走不到这里。还留着 date_unknown 的，说明 TMDB 也查不到，
+            # 那就只能跳过。
             if item.is_tv:
                 passed.append(item)
             else:
@@ -508,18 +530,33 @@ def select_items(
                     WriteOutcome(
                         item=item,
                         decision=DECISION_SKIPPED_NO_DATE,
-                        reason="来源未提供上映日期（榜单类），电影无从判断是否即将上映",
+                        reason=(
+                            "来源未提供上映日期（榜单类），"
+                            "TMDB 也查不到发行日，电影无从判断是否即将上映"
+                        ),
                     )
                 )
             continue
 
-        if not filter_by_window(item, window_days, tz_name=tz_name, now=now):
+        if not filter_by_window(
+            item, window_days, tz_name=tz_name, now=now, past_days=movie_grace_days
+        ):
             release = parse_date(item.release_date, tz_name)
             if release is None:
                 reason = "无定档日期，无法判断是否即将开播"
                 decision = DECISION_PENDING_REVIEW
             elif release < (now or today(tz_name)):
-                reason = f"定档日期 {release.isoformat()} 已过去"
+                origin = f"（{item.release_date_source}）" if item.release_date_source else ""
+                grace = int(movie_grace_days or 0) if item.is_movie else 0
+                if grace and release >= (now or today(tz_name)) - timedelta(days=grace):
+                    # 理论上 filter_by_window 已放行；这里只是兜底，避免
+                    # 以后有人改窗口口径时把「刚上映」的片子误拒。
+                    passed.append(item)
+                    continue
+                reason = (
+                    f"发行/定档日期 {release.isoformat()}{origin} 已过去"
+                    + (f"，超出 {grace} 天宽限期" if grace else "")
+                )
                 decision = DECISION_SKIPPED_NOT_FUTURE
             else:
                 reason = f"定档日期 {release.isoformat()} 超出 {window_days} 天窗口"
@@ -555,6 +592,73 @@ async def fetch_all(
     return list(await asyncio.gather(*(one(a) for a in sources)))
 
 
+async def fill_movie_release_dates(
+    items: Sequence[DiscoveredItem],
+    lookup: Optional[MovieReleaseLookup],
+    *,
+    enabled: bool = True,
+    concurrency: int = 4,
+) -> int:
+    """给「来源没给日期」的电影补上 TMDB 发行日，返回补上的条数。
+
+    为什么必须补：豆瓣榜单类 RSS 只有片名，没有日期。旧逻辑对这类电影一律
+    跳过（"无从判断是否即将上映"），结果是**刚上线数字版的片子也订不到** ——
+    真机：《空枪》数字发行 2026-10-23，界面显示"无日期（跳过）"。
+
+    为什么只补电影：剧集没有「上映日」这个概念，它靠「TMDB 还有没有未播集」
+    判定（IdentityResolver._resolve_target_season），补日期反而会误伤。
+
+    为什么补完还要过窗口：补日期只是拿到"哪天上的"，是否值得订仍由窗口 +
+    宽限期决定（老片的发行日远在过去，照样被拒）。查不到日期的条目保持
+    ``date_unknown``，继续按老路径跳过 —— 不会因为"查不到"就被放行。
+
+    :param lookup: ``(media_source, media_id) -> (日期, 类型名)``；``None`` 视为关闭
+    :param enabled: 开关（``movie_release_fallback``）；关闭时一条都不查
+    """
+    if not enabled or lookup is None:
+        return 0
+
+    targets = [
+        item
+        for item in items
+        if item.is_movie
+        and item.date_unknown
+        and not item.release_date
+        and item.resolved is not None
+    ]
+    if not targets:
+        return 0
+
+    filled = 0
+    semaphore = asyncio.Semaphore(max(1, int(concurrency or 1)))
+
+    async def one(item: DiscoveredItem) -> None:
+        nonlocal filled
+        identity = item.resolved
+        if identity is None:  # pragma: no cover - 上面已过滤，防御性判断
+            return
+        async with semaphore:
+            try:
+                result = await lookup(identity.media_source, identity.media_id)
+            except Exception as err:  # noqa: BLE001 - 单部失败不影响其余
+                item.raw.setdefault(
+                    "release_lookup_error", f"{type(err).__name__}: {err}"
+                )
+                return
+        if not result:
+            return
+        date_text, kind = result
+        if not date_text:
+            return
+        item.release_date = str(date_text)[:10]
+        item.release_date_source = f"TMDB {kind}" if kind else "TMDB 发行日"
+        item.date_unknown = False
+        filled += 1
+
+    await asyncio.gather(*(one(item) for item in targets))
+    return filled
+
+
 async def run_pipeline(
     *,
     sources: Sequence[SourceAdapter],
@@ -574,6 +678,8 @@ async def run_pipeline(
     min_rating_by_source: Optional[Dict[str, float]] = None,
     min_popularity_by_source: Optional[Dict[str, float]] = None,
     keyword_lookup: Optional[KeywordLookup] = None,
+    movie_release_lookup: Optional[MovieReleaseLookup] = None,
+    movie_grace_days: int = 0,
 ) -> RunSummary:
     """执行一次完整发现流水线。
 
@@ -626,6 +732,18 @@ async def run_pipeline(
 
     await asyncio.gather(*(_resolve_one(item) for item in raw))
 
+    # ---- 3.5 电影发行日兜底（只补「来源没给日期」的电影）
+    #
+    # 放在身份解析之后：只有解析出 TMDB 身份的条目才查得到发行日；
+    # 放在过滤之前：补出来的日期要参与窗口判定。
+    filled = await fill_movie_release_dates(
+        raw,
+        movie_release_lookup,
+        enabled=bool(movie_release_lookup),
+        concurrency=min(4, width),
+    )
+    summary.movie_release_filled = filled
+
     # ---- 4. 过滤（跨源去重 / 评分 / 窗口）
     summary.selected, summary.prefiltered = select_items(
         raw,
@@ -638,6 +756,7 @@ async def run_pipeline(
         min_popularity_by_source=min_popularity_by_source,
         tz_name=tz_name,
         now=now,
+        movie_grace_days=movie_grace_days,
     )
     if blocked:
         summary.prefiltered = blocked + summary.prefiltered
@@ -668,12 +787,14 @@ async def run_pipeline(
 
 __all__ = [
     "KeywordLookup",
+    "MovieReleaseLookup",
     "RunSummary",
     "SourceAdapter",
     "SourceResult",
     "dedupe_cross_source",
     "dedupe_within_source",
     "fetch_all",
+    "fill_movie_release_dates",
     "filter_blacklist",
     "filter_blacklist_keywords",
     "filter_by_rating",

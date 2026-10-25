@@ -101,17 +101,24 @@ def in_window(
     tz_name: Optional[str] = None,
     now: Optional[date] = None,
     allow_today: bool = True,
+    past_days: int = 0,
 ) -> bool:
-    """判断定档日期是否落在「今天 ~ 今天+N 天」窗口内。
+    """判断定档日期是否落在「今天-N ~ 今天+N 天」窗口内。
 
     - ``release`` 为 ``None`` → ``False``（无定档日期无法判断，宁缺毋滥）
-    - 已过去的日期（早于今天）→ ``False``
+    - 已过去的日期（早于今天）→ ``False``，除非给了 ``past_days``
     - ``allow_today=False`` 时，今天也算窗口外（用于「严格未来」口径）
+
+    ``past_days`` 是「刚上映也算数」的宽限天数，**只给电影用**：数字版上线
+    之后站点上才有资源，卡死「必须在未来」等于永远订不到刚上线的片子
+    （真机：豆瓣榜单里《空枪》数字发行 2026-10-23，当天被「已过去」拒掉）。
+    宽限期一过照样拒绝，所以榜单里的老片不会被误订。
     """
     if release is None:
         return False
     base = now or today(tz_name)
-    if release < base:
+    grace = past_days if isinstance(past_days, int) and past_days > 0 else 0
+    if release < base - timedelta(days=grace):
         return False
     if release == base and not allow_today:
         return False

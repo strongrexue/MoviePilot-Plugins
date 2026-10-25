@@ -116,6 +116,12 @@ class DiscoveredItem:
     #: 未播集」来替代窗口判定（见 IdentityResolver._resolve_target_season）；
     #: 电影没有日期就无从判断是否即将上映，直接跳过。
     date_unknown: bool = False
+    #: 日期是从哪儿来的（空 = 来源自带）。
+    #:
+    #: 只有「来源没给日期、由 TMDB 兜底」的条目会填，例如
+    #: ``"TMDB 数字发行"``。流水里要能看出这个日期不是豆瓣给的 ——
+    #: 否则排查时会去问豆瓣为什么没日期。
+    release_date_source: str = ""
     #: TMDB episode group id。
     #:
     #: 用于「被 TMDB 压成单季」的番剧按真实季精确订阅 —— 真机：
@@ -184,6 +190,8 @@ class DiscoveredItem:
             "year": self.year,
             "media_type": self.media_type,
             "release_date": self.release_date,
+            # 日期来源（空 = 来源自带；"TMDB 数字发行" = 兜底补的）
+            "release_date_source": self.release_date_source,
             "season": self.season,
             "rating": self.rating,
             "confidence": self.confidence,

@@ -1887,6 +1887,40 @@ onMounted(() => {
             <div class="sc-hint">修改 cron 后需要重新保存配置才会重建定时任务。</div>
 
             <VDivider class="my-3" />
+            <div class="sc-card-title" style="font-size: 0.95rem">电影发行日</div>
+            <VSwitch
+              v-model="form.movie_release_fallback"
+              label="来源没给日期时，用 TMDB 发行日兜底"
+              density="compact"
+              hide-details
+              color="primary"
+              class="mb-1"
+            />
+            <div class="sc-hint">
+              豆瓣榜单类 RSS 只有片名、没有日期。关掉这个开关，这类电影会一律按「无日期」跳过 ——
+              刚上线数字版的片子也就订不到了。
+            </div>
+            <VRow dense class="mt-2">
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.movie_release_grace_days"
+                  label="发行后宽限天数（0 = 必须在未来）"
+                  type="number"
+                  min="0"
+                  max="90"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">
+              数字版上线之后站点上才有资源。留几天宽限，刚上映的片子才订得到；
+              老片的发行日远在过去，宽限期一过照样跳过。
+            </div>
+
+            <VDivider class="my-3" />
             <!-- 注意：这里要把 switchRows 里除 enabled 之外的全部渲染出来。
                  之前写成 slice(0, 1) 只渲染了第一项，导致部分开关渲染不出来。
                  「发送运行摘要通知」三个开关在界面上消失（真机反馈：通知开关没了）。 -->

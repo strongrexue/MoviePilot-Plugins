@@ -124,7 +124,9 @@ def test_resolve_canvas_follows_preset_and_keyart(tmp_path):
     buffer = io.BytesIO()
     art.save(buffer, format="PNG")
     assets_meta.save_keyart(_FakePlugin(tmp_path), "big.png", buffer.getvalue())
-    assert engine.resolve_canvas({"canvas_preset": "auto", "keyart_file": "big.png"}) == (3840, 2160)
+    # 只有「真的拿主视觉当底图」的布局才跟随原图尺寸（见 _layout_uses_keyart）
+    keyart_config = {"canvas_preset": "auto", "keyart_file": "big.png", "engine": "分类横幅", "bg_source": "keyart"}
+    assert engine.resolve_canvas(keyart_config) == (3840, 2160)
     engine.close()
 
 
@@ -145,11 +147,17 @@ def test_resolve_canvas_floor_keeps_small_keyart_sharp(tmp_path):
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         assets_meta.save_keyart(plugin, name, buffer.getvalue())
-    assert engine.resolve_canvas({"canvas_preset": "auto", "keyart_file": "small-720.png"}) == (1920, 1080)
+    assert engine.resolve_canvas(
+        {"canvas_preset": "auto", "keyart_file": "small-720.png", "engine": "分类横幅", "bg_source": "keyart"}
+    ) == (1920, 1080)
     # 1:1 原图按比例放大到 1080 高（边长 1080→1080，仍不小于 1080）
-    assert engine.resolve_canvas({"canvas_preset": "auto", "keyart_file": "square.png"}) == (1920, 1920)
+    assert engine.resolve_canvas(
+        {"canvas_preset": "auto", "keyart_file": "square.png", "engine": "分类横幅", "bg_source": "keyart"}
+    ) == (1920, 1920)
     # 已经不小于 1080p 的原图保持原尺寸，不被缩小
-    assert engine.resolve_canvas({"canvas_preset": "auto", "keyart_file": "big.png"}) == (3840, 2160)
+    assert engine.resolve_canvas(
+        {"canvas_preset": "auto", "keyart_file": "big.png", "engine": "分类横幅", "bg_source": "keyart"}
+    ) == (3840, 2160)
     engine.close()
 
 
@@ -241,3 +249,34 @@ def test_shipped_preset_uses_library_background_without_scrim(tmp_path):
     assert config["canvas_preset"] == "auto"
     assert config["output_quality"] == 95
     assert CANVAS_PRESETS["2160p"] == (3840, 2160)
+
+
+def test_leftover_keyart_does_not_inflate_other_layouts(tmp_path):
+    """1.6.30：配置里残留的 keyart_file 不该把「不用主视觉」的布局画布撑大。
+
+    用户在「分类横幅」上传过 3840×2160 主视觉后，这个 keyart_file 会留在配置里；
+    切到经典平铺 / 经典堆叠等预设时，若画布仍按主视觉原图定成 3840×2160，而这些
+    布局只用 Emby 下发的 1000px 海报，就会被放大三四倍 —— 表现为「预览正常、应用
+    到媒体库就糊」。这里锁定：只有真用主视觉的布局才跟随它。
+    """
+    engine = _make_engine(tmp_path)
+    plugin = _FakePlugin(tmp_path)
+    buffer = io.BytesIO()
+    Image.new("RGB", (3840, 2160), (30, 40, 60)).save(buffer, format="PNG")
+    assets_meta.save_keyart(plugin, "big.png", buffer.getvalue())
+
+    for layout in ("经典平铺", "经典堆叠", "海报墙"):
+        config = {"canvas_preset": "auto", "keyart_file": "big.png", "engine": layout}
+        assert engine.resolve_canvas(config) == (1920, 1080), f"{layout} 被残留主视觉撑大了画布"
+        # 布局不认识 keyart 这个概念 → 不该声称自己用主视觉
+        assert engine._layout_uses_keyart(config) is False
+
+    # 分类横幅但底图来源是媒体库背景图 → 同样不跟随主视觉
+    assert engine.resolve_canvas(
+        {"canvas_preset": "auto", "keyart_file": "big.png", "engine": "分类横幅", "bg_source": "library"}
+    ) == (1920, 1080)
+    # 分类横幅声明用主视觉、却没有真的配主视觉 → 退回 1080p
+    assert engine.resolve_canvas(
+        {"canvas_preset": "auto", "keyart_file": "", "engine": "分类横幅", "bg_source": "keyart"}
+    ) == (1920, 1080)
+    engine.close()

@@ -550,6 +550,26 @@ class PosterEngine:
             return fallback
         return number if number > 0 else fallback
 
+    def _layout_uses_keyart(self, config: Dict[str, Any]) -> bool:
+        """当前布局是否真的拿主视觉当底图。
+
+        只有「主视觉确实是这张封面的素材来源」时，``canvas_preset=auto`` 才允许
+        用主视觉原图尺寸定画布。否则配置里残留的 ``keyart_file``（在「分类横幅」
+        上传过、之后切到别的预设）会把画布撑到 3840×2160，而其它布局用的是
+        Emby 下发的海报（最高 1000px），放大三四倍就糊了。
+        """
+        layout = str(config.get("engine") or config.get("cover_layout") or DEFAULT_ENGINE)
+        module = self.layout_modules.get(layout)
+        if module is None:
+            return False
+        probe = getattr(module, "uses_keyart", None)
+        if callable(probe):
+            try:
+                return bool(probe(config))
+            except Exception:  # pragma: no cover - 布局自检失败就当它不用主视觉
+                return False
+        return bool(getattr(module, "USES_KEYART", False))
+
     def resolve_canvas(self, config: Dict[str, Any]) -> tuple:
         """按 ``canvas_preset`` 决定画布尺寸：自动跟随主视觉 / 预设 / 自定义。"""
         preset = str(config.get("canvas_preset") or "auto").strip().lower()
@@ -562,7 +582,9 @@ class PosterEngine:
                 self._positive_int(config.get("canvas_height"), 1080),
             )
         else:
-            size = self._floor_canvas(self._keyart_size_hint(config))
+            # auto：仅当布局真的用主视觉当底图时才跟随它，否则按画布配置走 1080p。
+            if self._layout_uses_keyart(config):
+                size = self._floor_canvas(self._keyart_size_hint(config))
             if size is None:
                 size = (
                     self._positive_int(config.get("canvas_width"), 1920),

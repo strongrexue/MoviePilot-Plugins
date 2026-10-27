@@ -610,6 +610,25 @@ def _keyart(ctx, config, assets, size):
     return None
 
 
+def uses_keyart(config):
+    """布局自检：``bg_source=keyart`` 且确实配了主视觉，才算用主视觉当底图。
+
+    引擎的 ``canvas_preset=auto`` 靠这个判断能不能拿主视觉原图尺寸定画布。
+    这里必须与 ``_keyart()`` 的取值条件一致，否则又会出现「画布跟着一张没被用上的
+    主视觉走」——那种情况在别的布局上表现为海报被放大三四倍、应用后发糊。
+
+    只认 ``keyart_url`` / ``keyart_file``，不认 ``keyart_per_library`` 映射：按库映射
+    需要知道当前库 ID，而这里只有 config；宁可退回 1080p（最多轻微降采样，不会糊），
+    也不要因为映射存在就把画布撑到主视觉尺寸。
+    """
+    if _choice(config, "bg_source", ("keyart", "library"), "keyart") != "keyart":
+        return False
+    return bool(
+        str(_value(config, "keyart_url", "") or "").strip()
+        or str(_value(config, "keyart_file", "") or "").strip()
+    )
+
+
 def _build_scene(ctx, bg, config, assets):
     """底图：返回 RGBA 画布；素材缺失时退回引擎给的背景图。不做任何锐化/调色。"""
     width, height = bg.size

@@ -8,6 +8,6 @@
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/embycovercenter）。
  */
-const FRONTEND_VERSION = '1.6.29';
+const FRONTEND_VERSION = '1.6.30';
 
 export { FRONTEND_VERSION as F };

@@ -17,7 +17,7 @@
   都不会画人物——那是美术资产，插件只负责版式、调色与压字。
 
 分层顺序（自下而上）：
-底图 → 右侧断崖压暗（可选）→ 溢光 → 底部压暗 → 统一调色
+底图 → 右侧压暗（可选）→ 溢光 → 底部压暗 → 统一调色
 → 暗角 + 颗粒 → 标题（金属渐变）→ 光带 → 英文名 → 中文标语
 → 英文标语 → 题材标签 → 书法水印 → 圆角边框。
 """
@@ -116,23 +116,71 @@ def _radial_glow(size, center, radius, color, strength):
     return layer
 
 
-def _side_scrim(size, start_ratio, color, strength, ramp_ratio=0.17):
-    """从 start_ratio 起向右压暗，ramp_ratio 宽度内吃满（断崖式，不是线性渐变）。
+def _side_scrim(size, start_ratio, color, strength, ramp_ratio=0.30):
+    """从 start_ratio 起向右压暗，``ramp_ratio`` 是过渡带宽度。
 
-    线性渐变会在文字区留下灰调，标题读不清；参考图是「亮场保持 → 迅速沉黑」。
+    两段叠加：一段在 ``start`` 之前就开始缓慢起势（前导），一段在 ``ramp``
+    宽度内吃满 —— 单段 smoothstep 在起点处仍会留下一条可见的直边，参考图是
+    「亮场慢慢退去、文字区才彻底沉黑」，所以这里用长跨度 + 短跨度两条曲线叠加。
     """
     width, height = int(size[0]), int(size[1])
     if strength <= 0:
         return None
     start = max(0, min(width, int(width * start_ratio)))
     ramp = max(1, int(width * max(0.01, ramp_ratio)))
+    lead = int(ramp * 1.2)
+    span = float(ramp) * 2.4
     alpha = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(alpha)
-    for x in range(start, width):
-        draw.line([(x, 0), (x, height)], fill=int(strength * _smooth((x - start) / ramp)))
+    for x in range(max(0, start - lead), width):
+        long_side = _smooth((x - (start - lead)) / span)
+        short_side = _smooth((x - start) / float(ramp))
+        draw.line([(x, 0), (x, height)], fill=int(strength * min(1.0, 0.45 * long_side + 0.55 * short_side)))
     layer = Image.new("RGBA", (width, height), tuple(color) + (0,))
     layer.putalpha(alpha)
     return layer
+
+
+def _glow_line(size, center, length, thickness, color, flare_color, strength):
+    """标题下的灯带：横向高斯 + 纵向更窄的高斯，中心最亮、两端自然淡进背景。
+
+    参考图里这条不是「一条实线 + 一个高光点」的拼接，而是一整条连续光带：
+    中心发白、向外过渡到本色、再淡出；所以这里直接铺可分离高斯，不描边、
+    不额外叠椭圆高光，避免出现直边和「中间一坨」的接缝。
+
+    返回的图层是**预乘过的光**（RGB 已按强度缩放、alpha 铺满），调用方要用
+    ``ImageChops.screen`` 叠上去——灯带是「发光」，压在亮底图上也该亮得起来。
+    """
+    width, height = int(size[0]), int(size[1])
+    if strength <= 0 or length <= 1:
+        return None
+    sigma_x = max(1.0, length / 4.6)
+    sigma_y = max(0.9, float(thickness) * 1.35)
+    cx, cy = float(center[0]), float(center[1])
+    x0 = max(0, int(cx - sigma_x * 3.0))
+    x1 = min(width, int(cx + sigma_x * 3.0) + 1)
+    y0 = max(0, int(cy - sigma_y * 3.5))
+    y1 = min(height, int(cy + sigma_y * 3.5) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    layer = Image.new("RGBA", (x1 - x0, y1 - y0), (0, 0, 0, 255))
+    pixels = layer.load()
+    two_sx = 2.0 * sigma_x * sigma_x
+    two_sy = 2.0 * sigma_y * sigma_y
+    for y in range(y0, y1):
+        gy = math.exp(-((y - cy) ** 2) / two_sy)
+        if gy <= 0.004:
+            continue
+        for x in range(x0, x1):
+            gx = math.exp(-((x - cx) ** 2) / two_sx)
+            factor = strength * gx * gy / 255.0
+            if factor <= 0.002:
+                continue
+            tint = _mix(color, flare_color, min(1.0, gx ** 1.2))
+            pixels[x - x0, y - y0] = (
+                int(tint[0] * factor), int(tint[1] * factor), int(tint[2] * factor), 255,
+            )
+    return x0, y0, layer
 
 
 def _vignette(size, strength, power=2.6):
@@ -400,7 +448,7 @@ def get_schema():
                 {"key": "scrim_enabled", "label": "右侧压暗层", "type": "boolean", "default": True},
                 {"key": "scrim_color", "label": "压暗颜色", "type": "color", "default": "#0A0705"},
                 {"key": "scrim_start", "label": "压暗起点 %", "type": "range", "min": 0, "max": 90, "step": 1, "default": 44},
-                {"key": "scrim_ramp", "label": "断崖过渡宽度 %", "type": "range", "min": 5, "max": 60, "step": 1, "default": 17},
+                {"key": "scrim_ramp", "label": "过渡宽度 %（越大越自然）", "type": "range", "min": 5, "max": 60, "step": 1, "default": 30},
                 {"key": "scrim_strength", "label": "压暗强度", "type": "range", "min": 0, "max": 255, "step": 1, "default": 250},
             ],
         },
@@ -466,12 +514,12 @@ def get_schema():
             "items": [
                 {"key": "divider_enabled", "label": "显示光带", "type": "boolean", "default": True},
                 {"key": "divider_width", "label": "长度 % 画布宽", "type": "range", "min": 5, "max": 100, "step": 1, "default": 30},
-                {"key": "divider_thickness", "label": "粗细（1080 高基准）", "type": "range", "min": 1, "max": 12, "step": 0.1, "default": 2.4},
+                {"key": "divider_thickness", "label": "灯带高度（1080 高基准）", "type": "range", "min": 1, "max": 12, "step": 0.1, "default": 2.4},
                 {"key": "divider_gap", "label": "与标题下沿距离 % 画布高", "type": "range", "min": 0, "max": 15, "step": 0.1, "default": 5.0},
                 {"key": "divider_color", "label": "灯带颜色", "type": "color", "default": "#C4A470"},
-                {"key": "divider_flare_color", "label": "高光点颜色", "type": "color", "default": "#FFE8BE"},
+                {"key": "divider_flare_color", "label": "中心亮色", "type": "color", "default": "#FFFAF0"},
                 {"key": "divider_flare_pos", "label": "高光点位置 %（50=正中）", "type": "range", "min": 0, "max": 100, "step": 1, "default": 50},
-                {"key": "divider_flare_strength", "label": "高光点强度", "type": "range", "min": 0, "max": 255, "step": 1, "default": 175},
+                {"key": "divider_flare_strength", "label": "中心亮度", "type": "range", "min": 0, "max": 255, "step": 1, "default": 245},
                 {"key": "divider_align", "label": "对齐方式", "type": "select", "default": "inherit",
                  "options": [{"label": "跟随标题", "value": "inherit"}, {"label": "左对齐", "value": "left"},
                              {"label": "居中", "value": "center"}, {"label": "右对齐", "value": "right"}]},
@@ -513,7 +561,7 @@ def get_schema():
                 {"key": "watermark_max_height", "label": "竖排总高上限 %（按字数自动缩）", "type": "range",
                  "min": 20, "max": 100, "step": 1, "default": 84},
                 {"key": "watermark_x", "label": "锚点 X %（>100 = 右侧出血）", "type": "range",
-                 "min": 0, "max": 130, "step": 0.1, "default": 98.5},
+                 "min": 0, "max": 130, "step": 0.1, "default": 85},
                 {"key": "watermark_y", "label": "锚点 Y %", "type": "range", "min": 0, "max": 100, "step": 0.1, "default": 50},
                 {"key": "watermark_line_gap", "label": "字间空隙（相对字号）", "type": "range",
                  "min": 0, "max": 1, "step": 0.01, "default": 0.04},
@@ -775,7 +823,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
             _clamp(_value(config, "scrim_start", 44), 0, 90, 44) / 100.0,
             _rgb(_value(config, "scrim_color", "#0A0705"), (10, 7, 5)),
             _clamp(_value(config, "scrim_strength", 250), 0, 255, 250),
-            _clamp(_value(config, "scrim_ramp", 17), 5, 60, 17) / 100.0,
+            _clamp(_value(config, "scrim_ramp", 30), 5, 60, 30) / 100.0,
         )
         if scrim is not None:
             frame = Image.alpha_composite(frame, scrim)
@@ -805,6 +853,48 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     if vignette is not None:
         frame = Image.alpha_composite(frame, vignette)
     frame = _grain(frame, _clamp(_value(config, "grain", 14), 0, 100, 14))
+
+    # ---- 书法水印：整段标题竖排，字号按字数自动收缩，可整块关闭。
+    # 默认锚点 85%，会落在标题右侧的可见区里，所以先画它、再画文字，
+    # 让它当背景纹理而不是压在标题上（否则字叠字像重影）。
+    if _flag(config, "watermark_enabled", True):
+        mark_text = str(_value(config, "watermark_text", "") or title).strip()
+        chars = [char for char in mark_text if not char.isspace()]
+        mark_font_name = _value(config, "font_watermark", DEFAULT_FONT_BRUSH)
+        # 字体缺失就整块跳过，别把中文画成一排方框（tofu）。
+        raw_fonts_dir = str(getattr(ctx, "fonts_dir", "") or "").strip()
+        font_available = True
+        if mark_font_name:
+            font_available = bool(raw_fonts_dir) and (Path(raw_fonts_dir) / str(mark_font_name)).is_file()
+        if chars and font_available:
+            base_mark = px(_clamp(_value(config, "watermark_size", 520), 0, 900, 520))
+            available = height * _clamp(_value(config, "watermark_max_height", 84), 20, 100, 84) / 100.0
+            per = max(8, int(min(base_mark, available / len(chars) * 0.92)))
+            mark_font = book.get(mark_font_name, per)
+            line_gap = int(per * _clamp(_value(config, "watermark_line_gap", 0.04), 0, 1, 0.04))
+            col_w = max(mark_font.getlength(char) for char in chars)
+            total_h = per * len(chars) + line_gap * (len(chars) - 1)
+            mark_img = Image.new("RGBA", (max(1, int(col_w * 1.7)), max(1, int(total_h + per * 0.5))), (0, 0, 0, 0))
+            mark_draw = ImageDraw.Draw(mark_img)
+            mark_color = _rgb(_value(config, "watermark_color", "#FFDCBC"), (255, 220, 188)) + (255,)
+            for index, char in enumerate(chars):
+                char_w = mark_font.getlength(char)
+                mark_draw.text(
+                    ((mark_img.width - char_w) / 2, index * (per + line_gap)),
+                    char, font=mark_font, fill=mark_color,
+                )
+            mark_img = mark_img.rotate(
+                _clamp(_value(config, "watermark_rotate", -6), -30, 30, -6), resample=Image.BICUBIC, expand=True
+            )
+            opacity = _clamp(_value(config, "watermark_opacity", 12), 0, 40, 12) / 100.0
+            mark_img.putalpha(mark_img.getchannel("A").point(lambda v: int(v * opacity)))
+            frame.alpha_composite(
+                mark_img,
+                (
+                    int(width * _clamp(_value(config, "watermark_x", 85), 0, 130, 85) / 100.0 - mark_img.width / 2),
+                    int(height * _clamp(_value(config, "watermark_y", 50), 0, 100, 50) / 100.0 - mark_img.height / 2),
+                ),
+            )
 
     # ---- 标题：决定整块文字的锚点与对齐，其余元素默认 inherit
     title_align = _choice(config, "title_align", tuple(_ALIGN_OPTIONS), "center")
@@ -843,29 +933,22 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     line_x0 = int(_align_x(anchor, line_w, divider_align))
     line_thickness = px(_clamp(_value(config, "divider_thickness", 2.4), 1, 12, 2.4))
     if _flag(config, "divider_enabled", True) and line_w > 0:
-        line_mask = Image.new("L", (width, height), 0)
-        line_draw = ImageDraw.Draw(line_mask)
-        for x in range(max(0, line_x0), min(width, line_x0 + line_w)):
-            t = (x - line_x0) / max(1, line_w - 1)
-            line_draw.line([(x, line_y), (x, line_y + line_thickness)], fill=int(150 * (1.0 - _smooth(t)) + 26))
-        line_layer = Image.new("RGBA", (width, height), _rgb(_value(config, "divider_color", "#C4A470"), (196, 164, 112)) + (0,))
-        line_layer.putalpha(line_mask)
-        frame = Image.alpha_composite(frame, line_layer)
-
-        flare_x = line_x0 + int(line_w * _clamp(_value(config, "divider_flare_pos", 50), 0, 100, 50) / 100.0)
-        flare_strength = _clamp(_value(config, "divider_flare_strength", 175), 0, 255, 175)
-        if flare_strength > 0:
-            flare = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-            ImageDraw.Draw(flare).ellipse(
-                (flare_x - int(width * 0.075), line_y - int(height * 0.010),
-                 flare_x + int(width * 0.075), line_y + int(height * 0.010)),
-                fill=_rgb(_value(config, "divider_flare_color", "#FFE8BE"), (255, 232, 190)) + (int(flare_strength),),
-            )
-            frame = Image.alpha_composite(frame, flare.filter(ImageFilter.GaussianBlur(max(1, int(height * 0.008)))))
-            ImageDraw.Draw(frame).line(
-                [(flare_x - int(width * 0.028), line_y), (flare_x + int(width * 0.028), line_y)],
-                fill=(255, 252, 240, 225), width=max(2, line_thickness),
-            )
+        flare_ratio = _clamp(_value(config, "divider_flare_pos", 50), 0, 100, 50) / 100.0
+        glow = _glow_line(
+            (width, height),
+            (line_x0 + line_w * flare_ratio, line_y),
+            line_w,
+            line_thickness,
+            _rgb(_value(config, "divider_color", "#C4A470"), (196, 164, 112)),
+            _rgb(_value(config, "divider_flare_color", "#FFFAF0"), (255, 250, 240)),
+            _clamp(_value(config, "divider_flare_strength", 245), 0, 255, 245),
+        )
+        if glow is not None:
+            # 光带要「发光」而不是「贴一张白纸」：用 screen 叠，压到亮底图上也亮得起来。
+            # （alpha 叠加时，白光照在本来就白的地方等于没画。）
+            glow_x, glow_y, layer = glow
+            box = (glow_x, glow_y, glow_x + layer.width, glow_y + layer.height)
+            frame.paste(ImageChops.screen(frame.crop(box), layer), box)
 
     # ---- 英文名（全大写 + 宽字距）
     subtitle = str(_value(config, "subtitle", "") or assets.get("library_en") or "").strip().upper()
@@ -967,46 +1050,6 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
             if index < len(tags) - 1:
                 _draw_tracked(draw, separator, tag_x + tag_size * 0.75, tag_y, tag_font, separator_color, tag_tracking, "left")
                 tag_x += _tracked_width(separator, tag_font, tag_tracking) + tag_size * 1.65
-
-    # ---- 书法水印：整段标题竖排，字号按字数自动收缩，可整块关闭
-    if _flag(config, "watermark_enabled", True):
-        mark_text = str(_value(config, "watermark_text", "") or title).strip()
-        chars = [char for char in mark_text if not char.isspace()]
-        mark_font_name = _value(config, "font_watermark", DEFAULT_FONT_BRUSH)
-        # 字体缺失就整块跳过，别把中文画成一排方框（tofu）。
-        raw_fonts_dir = str(getattr(ctx, "fonts_dir", "") or "").strip()
-        font_available = True
-        if mark_font_name:
-            font_available = bool(raw_fonts_dir) and (Path(raw_fonts_dir) / str(mark_font_name)).is_file()
-        if chars and font_available:
-            base_mark = px(_clamp(_value(config, "watermark_size", 520), 0, 900, 520))
-            available = height * _clamp(_value(config, "watermark_max_height", 84), 20, 100, 84) / 100.0
-            per = max(8, int(min(base_mark, available / len(chars) * 0.92)))
-            mark_font = book.get(mark_font_name, per)
-            line_gap = int(per * _clamp(_value(config, "watermark_line_gap", 0.04), 0, 1, 0.04))
-            col_w = max(mark_font.getlength(char) for char in chars)
-            total_h = per * len(chars) + line_gap * (len(chars) - 1)
-            mark_img = Image.new("RGBA", (max(1, int(col_w * 1.7)), max(1, int(total_h + per * 0.5))), (0, 0, 0, 0))
-            mark_draw = ImageDraw.Draw(mark_img)
-            mark_color = _rgb(_value(config, "watermark_color", "#FFDCBC"), (255, 220, 188)) + (255,)
-            for index, char in enumerate(chars):
-                char_w = mark_font.getlength(char)
-                mark_draw.text(
-                    ((mark_img.width - char_w) / 2, index * (per + line_gap)),
-                    char, font=mark_font, fill=mark_color,
-                )
-            mark_img = mark_img.rotate(
-                _clamp(_value(config, "watermark_rotate", -6), -30, 30, -6), resample=Image.BICUBIC, expand=True
-            )
-            opacity = _clamp(_value(config, "watermark_opacity", 12), 0, 40, 12) / 100.0
-            mark_img.putalpha(mark_img.getchannel("A").point(lambda v: int(v * opacity)))
-            frame.alpha_composite(
-                mark_img,
-                (
-                    int(width * _clamp(_value(config, "watermark_x", 98.5), 0, 130, 98.5) / 100.0 - mark_img.width / 2),
-                    int(height * _clamp(_value(config, "watermark_y", 50), 0, 100, 50) / 100.0 - mark_img.height / 2),
-                ),
-            )
 
     # ---- 圆角 + 双层描边（最后画，保证边框压在文字上沿）
     radius = px(_clamp(_value(config, "frame_radius", 44), 0, 80, 44), minimum=0)

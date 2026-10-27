@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -60,6 +61,7 @@ def seed_default_templates(plugin) -> int:
     if not source.exists():
         return 0
     ensure_dirs(plugin)
+    retire_legacy_templates(plugin)
     target = templates_dir(plugin)
     copied = 0
     for item in sorted(source.iterdir()):
@@ -159,6 +161,56 @@ def rename_legacy_template_names(plugin) -> int:
         except Exception as error:
             logger.warning(f"[EmbyCoverCenter] 更新模板名失败 {filename}: {error}")
     return renamed
+
+
+def _template_digest(data: Dict[str, Any]) -> str:
+    """模板内容指纹：名字 + 布局 + 配置（不含预览图与键顺序）。"""
+    payload = json.dumps(
+        {"name": data.get("name"), "layout": data.get("layout"), "config": data.get("config")},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+# 1.6.23 一次性铺开的 6 套「分类横幅」预设，1.6.24 收成单套；老用户数据目录里
+# 已经拷过这些文件，只靠「补缺失」清不掉，所以按内容指纹精确回收。
+RETIRED_TEMPLATES = {
+    "分类横幅-暖金.json": "49ad552d4d9372e6ce8af67b1b0506d8a7cc6fcdd365cac288db9885901431d9",
+    "分类横幅-冷蓝.json": "7e1c97d3ccd29d3aada0f142b8eecd4abda32430e422d417daaae74cd705e460",
+    "分类横幅-朱红.json": "9979c46144f92440644084f6095cce9021436fa28b00bbb0e52dc67360ffb4a6",
+    "分类横幅-左对齐.json": "5db7a383365f3c6cea8b83e3c7a2d6e138326624326e1f0c08f24c0722c20c5c",
+    "分类横幅-海报阵列.json": "1bc3e53879e8ca44be9be95c652208f8ee6ebbc10d53cc9d16201f1dd98b4607",
+    "分类横幅-无压暗全幅.json": "7c5c746cc87cbe9f1ea149a50513b3aa745a8855e1f41160b5db4abdede61107",
+}
+
+
+def retire_legacy_templates(plugin) -> int:
+    """回收已下线的内置预设（连同缩略图）；返回删除的模板数。
+
+    只在内容指纹仍等于发行时那一版时才删：用户改过配置或改过名就原样保留，
+    不碰自定义模板。
+    """
+    target = templates_dir(plugin)
+    removed = 0
+    for filename, digest in RETIRED_TEMPLATES.items():
+        path = target / filename
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or _template_digest(data) != digest:
+                continue  # 用户已自定义，跳过
+            path.unlink()
+            preview = path.with_suffix(PREVIEW_EXTENSION)
+            if preview.exists():
+                preview.unlink()
+            removed += 1
+            logger.info(f"[EmbyCoverCenter] 已移除过时的内置预设：{filename}")
+        except Exception as error:
+            logger.warning(f"[EmbyCoverCenter] 移除内置预设失败 {filename}: {error}")
+    return removed
 
 
 def seed_default_fonts(plugin) -> int:

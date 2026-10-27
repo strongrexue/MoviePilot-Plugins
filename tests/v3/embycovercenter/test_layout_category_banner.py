@@ -12,23 +12,11 @@ from app.plugins.embycovercenter.service.render_engine import PosterEngine
 
 PACKAGE = Path(assets_meta.__file__).resolve().parent.parent
 LAYOUT = "分类横幅"
-PRESETS = (
-    "分类横幅-暖金",
-    "分类横幅-冷蓝",
-    "分类横幅-朱红",
-    "分类横幅-左对齐",
-    "分类横幅-海报阵列",
-    "分类横幅-无压暗全幅",
-)
+PRESETS = ("分类横幅",)
 
 # 文件名 → 界面显示名（文件名是唯一标识，显示名可以带说明）
 DISPLAY_NAMES = {
-    "分类横幅-暖金": "分类横幅 · 暖金",
-    "分类横幅-冷蓝": "分类横幅 · 冷蓝",
-    "分类横幅-朱红": "分类横幅 · 朱红",
-    "分类横幅-左对齐": "分类横幅 · 左对齐（参考图原版式）",
-    "分类横幅-海报阵列": "分类横幅 · 海报阵列",
-    "分类横幅-无压暗全幅": "分类横幅 · 无压暗全幅",
+    "分类横幅": "分类横幅",
 }
 
 
@@ -268,7 +256,7 @@ def test_long_title_shrinks_instead_of_overflowing(tmp_path, monkeypatch):
 
 
 def test_shipped_presets_match_schema(tmp_path):
-    """6 套随包预设都能加载、布局名一致、schema 字段齐全、缩略图 640×360。"""
+    """随包预设都能加载、布局名一致、schema 字段齐全、缩略图 640×360。"""
     engine = _make_engine(tmp_path)
     schema_keys = {
         item["key"]
@@ -308,3 +296,116 @@ def test_all_presets_render(tmp_path, monkeypatch):
         frame = _render(engine, config, assets)
         assert frame.size == (640, 360), f"{stem} 渲染尺寸不对"
     engine.close()
+
+
+def _plain_config(**overrides):
+    """只留灯带、其它元素全关的最小配置，便于单独测灯带形状。"""
+    config = {
+        "engine": LAYOUT, "canvas_width": 640, "canvas_height": 360,
+        "bg_source": "library", "title": "", "subtitle": "",
+        "slogan_cn": "", "slogan_en": "", "tags_text": "",
+        "watermark_enabled": False, "scrim_enabled": False, "glow_strength": 0,
+        "grade_strength": 0, "grain": 0, "vignette_strength": 0,
+        "frame_radius": 0, "frame_border_width": 0, "badge_style": "none",
+        "divider_enabled": True, "divider_width": 40, "divider_thickness": 3,
+        "divider_flare_pos": 50, "divider_flare_strength": 245,
+        "divider_color": "#FFFFFF", "divider_flare_color": "#FFFFFF",
+    }
+    config.update(overrides)
+    return config
+
+
+def test_divider_is_a_continuous_glow(tmp_path, monkeypatch):
+    """灯带必须是一条连续的高斯光带：单峰、没有平台段、两端淡进背景。
+
+    旧实现是「一条接近等亮的横杠 + 中间一坨椭圆高光」，横杠左右两端还各自
+    带硬边，看起来像贴上去的；参考图（哆啦A梦那张）是一条中心发白、
+    向外连续衰减的光带。
+    """
+    engine = _make_engine(tmp_path)
+    scene = Image.new("RGB", (640, 360), (20, 22, 28))
+    monkeypatch.setattr(engine, "download_img", lambda url: scene.copy() if url else None)
+    frame = _render(engine, _plain_config(), {"bg_url": "http://bg", "posters": [], "count": 0})
+    gray = frame.convert("L")
+    width, height = gray.size
+
+    row = max(range(height // 2, height), key=lambda y: sum(gray.getpixel((x, y)) for x in range(width)))
+    profile = [gray.getpixel((x, row)) for x in range(width)]
+    background = profile[0]
+    peak = max(profile)
+    peak_at = profile.index(peak)
+    assert peak - background > 80, "灯带没画出来"
+
+    span = [x for x in range(width) if profile[x] > background + 0.02 * (peak - background)]
+    left, right = span[0], span[-1]
+    # 不能有台阶：相邻两列的最大跳变必须远小于整体高度（硬边/贴上去的横杠会超标）
+    steps = [abs(profile[x] - profile[x - 1]) for x in range(left + 1, right + 1)]
+    assert max(steps) <= 0.22 * (peak - background), "灯带有硬边（相邻列亮度突跳）"
+
+    for ratio in (0.35, 0.45):
+        for x in (peak_at - int((right - left) * ratio), peak_at + int((right - left) * ratio)):
+            if left <= x <= right:
+                assert profile[x] < background + 0.3 * (peak - background), "灯带两端没有淡出"
+
+    # 从中心向外单调衰减（允许 1 级量化抖动），左端不再「左高右低」的斜坡
+    for x in range(peak_at + 1, right + 1):
+        assert profile[x] <= profile[x - 1] + 1, "灯带右侧不是单调衰减"
+    for x in range(peak_at - 1, left - 1, -1):
+        assert profile[x] <= profile[x + 1] + 1, "灯带左侧不是单调衰减"
+
+    # 纵向也应是柔和衰减，而不是一条 1px 硬线
+    column = [gray.getpixel((peak_at, y)) for y in range(max(0, row - 4), min(height, row + 5))]
+    assert abs(column[0] - column[-1]) <= 3, "灯带纵向不对称"
+    assert column[0] < peak - 40 and column[-1] < peak - 40, "灯带纵向没有过渡（硬线）"
+    engine.close()
+
+
+def test_schema_defaults_for_divider_and_watermark(tmp_path):
+    """水印锚点默认 85%、压暗过渡默认 30%、灯带中心亮度默认 245。"""
+    engine = _make_engine(tmp_path)
+    schema = engine.layout_modules[LAYOUT].get_schema()
+    defaults = {item["key"]: item.get("default") for group in schema for item in group["items"]}
+    assert defaults["watermark_x"] == 85
+    assert defaults["scrim_ramp"] == 30
+    assert defaults["divider_flare_strength"] == 245
+    engine.close()
+
+
+def test_retire_legacy_templates_only_when_unmodified(tmp_path, monkeypatch):
+    """1.6.23 铺开的 6 套预设按内容指纹回收；用户改过配置或改过名的原样保留。"""
+    plugin = _FakePlugin(tmp_path)
+    assets_meta.ensure_dirs(plugin)
+    target = assets_meta.templates_dir(plugin)
+    shipped = {"name": "分类横幅 · 暖金", "layout": LAYOUT, "config": {"title_size": 189}}
+    path = target / "分类横幅-暖金.json"
+    path.write_text(json.dumps(shipped, ensure_ascii=False), encoding="utf-8")
+    (target / "分类横幅-暖金.jpg").write_bytes(b"preview")
+
+    monkeypatch.setattr(
+        assets_meta,
+        "RETIRED_TEMPLATES",
+        {
+            "分类横幅-暖金.json": assets_meta._template_digest(shipped),
+            "分类横幅-不存在.json": "0" * 64,
+        },
+    )
+    assert assets_meta.retire_legacy_templates(plugin) == 1
+    assert not path.exists()
+    assert not (target / "分类横幅-暖金.jpg").exists()
+
+    edited = {"name": "我的分类横幅", "layout": LAYOUT, "config": {"title_size": 200}}
+    path.write_text(json.dumps(edited, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(
+        assets_meta, "RETIRED_TEMPLATES", {"分类横幅-暖金.json": assets_meta._template_digest(shipped)}
+    )
+    assert assets_meta.retire_legacy_templates(plugin) == 0
+    assert path.exists()
+
+
+def test_seeded_install_has_single_category_banner_preset(tmp_path):
+    """新装/升级后数据目录里只剩一套「分类横幅」预设。"""
+    plugin = _FakePlugin(tmp_path)
+    assets_meta.seed_default_templates(plugin)
+    entries = assets_meta.list_templates(plugin)
+    assert "分类横幅" in [entry["name"] for entry in entries]
+    assert not [entry for entry in entries if entry["name"].startswith("分类横幅-")]

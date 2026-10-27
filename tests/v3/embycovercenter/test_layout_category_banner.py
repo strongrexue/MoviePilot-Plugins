@@ -190,6 +190,8 @@ def test_tags_source_priority(tmp_path):
     assert module._tags_for(dict(base, tags_source="manual"), assets) == ["手填甲", "手填乙"]
     assert module._tags_for(dict(base, tags_source="library"), assets) == ["库标签A"]
     assert module._tags_for(dict(base, tags_source="auto"), assets) == ["剧情", "悬疑"]
+    # 不传 tags_source 时默认按接口题材优先（随包预设就是这个值，开箱即显示标签）
+    assert module._tags_for(base, assets) == ["剧情", "悬疑"]
     # 高优先级来源为空时逐级回退，最终为空列表而不是崩
     empty = {"tags_per_library": "{}", "tags_separator": "｜"}
     assert module._tags_for(dict(empty, tags_source="manual"), {}) == []

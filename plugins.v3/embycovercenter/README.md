@@ -57,7 +57,8 @@ MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / Jellyfin，提供：
   （`bottom_scrim_color` / `bottom_scrim_strength`，即「底部遮罩颜色 / 底部遮罩浓度」），
   默认 **0 = 不压**。
   底图**不做锐化**（1.6.27 起去掉底图智能锐化），需要更清晰请直接上更高分辨率的成品图。
-  题材标签三级来源（`tags_source`）：手填 / 按库映射 / 自动取 Emby 的 `Genres`。
+  题材标签三级来源（`tags_source`）：**默认自动取 Emby 的 `Genres`**，其次按库映射、最后手填；
+  手填（`tags_text`）与按库映射（`tags_per_library`）随时可以覆盖自动结果。
   主视觉通过配置页「主视觉文件」字段直接上传（`/keyart/upload`）或删除（`/keyart/delete`），
   落在数据目录 `keyart/`。
   **1.6.23 铺开的 6 套「分类横幅 · xx」预设已收成一套「分类横幅」**：升级时按内容指纹自动
@@ -75,6 +76,9 @@ MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / Jellyfin，提供：
 - **预览与自动封面共用一套文字**：库名取 `Users/{uid}/Views`，副标题按
   「按库手填英文名 → 内置词典 → 库名」回退；预览与自动封面都走同一个
   `cover_auto._subtitle_for()`，所以手动预览也能看到副标题。
+- **随机抽取是真随机**：`mode=random` 时**不走素材短缓存**（缓存 key 不含随机因子，
+  命中就等于把上一次的素材原样还回去），且素材数量不足以抽样时也会 `random.shuffle`
+  打散顺序（小库不会永远取第一张）；`mode=latest` 仍保留 120s 短缓存，因为它是确定性的。
 - **默认模板带预览缩略图**：12 个内置模板预设（`.json`）+ 对应 `.jpg` 缩略图随包分发，
   首次初始化拷入数据目录。**升级时内置预设会原地更新**（`upgrade_shipped_templates()`）：
   数据目录里的 `.json` 指纹命中某个历史发行版、或已是最新版但缩略图与随包版本字节不一致，

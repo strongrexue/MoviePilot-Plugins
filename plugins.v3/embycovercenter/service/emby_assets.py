@@ -282,8 +282,15 @@ def fetch_assets(
                         )
                     )
             if pool:
-                if mode == "random" and len(pool) > backdrop_count:
-                    backdrops = random.sample(pool, backdrop_count)
+                if mode == "random":
+                    # 素材不够抽样时也要打散顺序：否则 pool[:n] 永远取前几张，
+                    # 小库（比如只有一两张背景图）表现就是「随机抽取每次都一样」。
+                    if len(pool) > backdrop_count:
+                        backdrops = random.sample(pool, backdrop_count)
+                    else:
+                        shuffled = list(pool)
+                        random.shuffle(shuffled)
+                        backdrops = shuffled[:backdrop_count]
                 else:
                     backdrops = pool[:backdrop_count]
                 bg_url = backdrops[0]
@@ -318,8 +325,13 @@ def fetch_assets(
                         )
                     )
             if pool:
-                if mode == "random" and len(pool) > poster_count:
-                    posters = random.sample(pool, poster_count)
+                if mode == "random":
+                    if len(pool) > poster_count:
+                        posters = random.sample(pool, poster_count)
+                    else:
+                        shuffled = list(pool)
+                        random.shuffle(shuffled)
+                        posters = shuffled[:poster_count]
                 else:
                     posters = pool[:poster_count]
         except emby_gateway.GatewayError as error:

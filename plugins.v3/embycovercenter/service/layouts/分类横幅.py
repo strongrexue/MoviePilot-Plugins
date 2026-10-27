@@ -478,11 +478,11 @@ def get_schema():
             "group": "题材标签",
             "items": [
                 {"key": "tags_enabled", "label": "显示题材标签", "type": "boolean", "default": True},
-                {"key": "tags_source", "label": "取值优先级", "type": "select", "default": "manual",
+                {"key": "tags_source", "label": "取值优先级", "type": "select", "default": "auto",
                  "options": [
+                     {"label": "接口题材优先（Emby Genres）", "value": "auto"},
                      {"label": "手填优先", "value": "manual"},
                      {"label": "按库预设优先", "value": "library"},
-                     {"label": "接口题材优先（Emby Genres）", "value": "auto"},
                  ]},
                 {"key": "tags_text", "label": "手填标签（用分隔符隔开）", "type": "text", "default": ""},
                 {"key": "tags_per_library", "label": "按库预设（JSON：库ID → 爱情｜都市｜…）", "type": "text", "default": "{}"},
@@ -692,7 +692,7 @@ def _tags_for(config, assets):
         "manual": (manual, per_library, auto),
         "library": (per_library, manual, auto),
         "auto": (auto, per_library, manual),
-    }.get(_choice(config, "tags_source", ("manual", "library", "auto"), "manual"), (manual, per_library, auto))
+    }.get(_choice(config, "tags_source", ("manual", "library", "auto"), "auto"), (manual, per_library, auto))
     for candidate in order:
         if candidate:
             return candidate

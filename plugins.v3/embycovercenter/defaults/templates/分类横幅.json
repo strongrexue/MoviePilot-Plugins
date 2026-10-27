@@ -46,7 +46,7 @@
         "divider_flare_pos": 50,
         "divider_flare_strength": 245,
         "divider_align": "inherit",
-        "tags_source": "manual",
+        "tags_source": "auto",
         "tags_text": "",
         "tags_per_library": "{}",
         "tags_separator": "｜",

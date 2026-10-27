@@ -263,7 +263,12 @@ def _prepare_config(request, ref) -> Dict[str, Any]:
 
 
 def _fetch_assets(request, ref, config) -> Dict[str, Any]:
-    """读取素材：数量优先取布局 schema 里的 ``poster_count`` / ``backdrop_count``。"""
+    """读取素材：数量优先取布局 schema 里的 ``poster_count`` / ``backdrop_count``。
+
+    ``random`` 模式**不走缓存**：缓存 key 只含服务器 / 库 / 数量，不含随机因子，
+    命中缓存就等于把上一次的素材原样还给前端 —— 用户看到的现象就是「随机抽取
+    每次都一样」。只有 ``latest`` 这类确定性模式才适合短缓存。
+    """
 
     def _count(key: str, fallback: int) -> int:
         try:
@@ -273,10 +278,12 @@ def _fetch_assets(request, ref, config) -> Dict[str, Any]:
 
     poster_count = _count("poster_count", request.poster_count)
     backdrop_count = _count("backdrop_count", request.backdrop_count)
+    random_mode = str(request.mode or "random") == "random"
     cache_key = f"{ref.name}|{request.library_id}|{request.mode}|{poster_count}|{backdrop_count}"
-    cached = _ASSETS_CACHE.get(cache_key)
-    if cached and time.time() - cached[0] < _ASSETS_CACHE_TTL:
-        return cached[1]
+    if not random_mode:
+        cached = _ASSETS_CACHE.get(cache_key)
+        if cached and time.time() - cached[0] < _ASSETS_CACHE_TTL:
+            return cached[1]
 
     assets = emby_assets.fetch_assets(
         ref,
@@ -285,9 +292,10 @@ def _fetch_assets(request, ref, config) -> Dict[str, Any]:
         poster_count=poster_count,
         backdrop_count=backdrop_count,
     )
-    if len(_ASSETS_CACHE) >= _ASSETS_CACHE_MAX:
-        _ASSETS_CACHE.pop(next(iter(_ASSETS_CACHE)), None)
-    _ASSETS_CACHE[cache_key] = (time.time(), assets)
+    if not random_mode:
+        if len(_ASSETS_CACHE) >= _ASSETS_CACHE_MAX:
+            _ASSETS_CACHE.pop(next(iter(_ASSETS_CACHE)), None)
+        _ASSETS_CACHE[cache_key] = (time.time(), assets)
     return assets
 
 

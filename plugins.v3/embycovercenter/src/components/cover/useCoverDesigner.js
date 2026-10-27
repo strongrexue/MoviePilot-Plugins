@@ -413,6 +413,19 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
+  /** 删除已上传的主视觉；引用该文件名的字段一并清空，避免留下失效引用。 */
+  async function deleteKeyart(name) {
+    if (!name) return
+    try {
+      const data = unwrap(await postPluginApi(api(), pluginId(), 'keyart/delete', { name })) || {}
+      keyartFiles.value = Array.isArray(data.files) ? data.files : []
+      if (form.config.keyart_file === name) form.config.keyart_file = ''
+      report(`主视觉已删除：${name}`)
+    } catch (error) {
+      report(error?.message || '主视觉删除失败', false)
+    }
+  }
+
   async function saveTemplate(filename) {
     if (!filename) return
     try {
@@ -516,6 +529,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     loadLibraries,
     loadKeyart,
     uploadKeyart,
+    deleteKeyart,
     onServerChange,
     onLayoutChange,
     libraryEnNames,

@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-DFXxu9Tz.js';
+import { F as FRONTEND_VERSION } from './version-CtiXbcsG.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3} = await importShared('vue');
 
@@ -30,7 +30,7 @@ const _sfc_main$3 = {
   /** 文件类字段（如主视觉）可选的已上传文件清单。 */
   files: { type: Array, default: () => [] },
 },
-  emits: ['upload'],
+  emits: ['upload', 'delete'],
   setup(__props, { emit: __emit }) {
 
 /**
@@ -62,6 +62,12 @@ function onFilePicked(event) {
   const file = event.target.files?.[0];
   event.target.value = '';
   if (file) emit('upload', file);
+}
+
+/** 删除当前选中的底图文件（由上层弹确认框后执行）。 */
+function onFileDelete() {
+  const name = config[item.key];
+  if (name) emit('delete', name);
 }
 
 return (_ctx, _cache) => {
@@ -172,7 +178,22 @@ return (_ctx, _cache) => {
                       }, null, 32)
                     ]),
                     _: 1
-                  })
+                  }),
+                  _createVNode$3(_component_VBtn, {
+                    size: "small",
+                    variant: "tonal",
+                    color: "error",
+                    "prepend-icon": "mdi-delete",
+                    class: "ec-file-btn",
+                    disabled: !__props.config[__props.item.key],
+                    title: "删除选中的底图文件",
+                    onClick: onFileDelete
+                  }, {
+                    default: _withCtx$3(() => [...(_cache[9] || (_cache[9] = [
+                      _createTextVNode$3(" 删除 ", -1)
+                    ]))]),
+                    _: 1
+                  }, 8, ["disabled"])
                 ]))
               : (_openBlock$3(), _createBlock$3(_component_VTextField, {
                   key: 6,
@@ -188,7 +209,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverField = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-9d7ebfdb"]]);
+const CoverField = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-21a4b415"]]);
 
 /**
  * 封面设计器的前端状态与动作。
@@ -604,6 +625,19 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
+  /** 删除已上传的主视觉；引用该文件名的字段一并清空，避免留下失效引用。 */
+  async function deleteKeyart(name) {
+    if (!name) return
+    try {
+      const data = unwrap(await postPluginApi(api(), pluginId(), 'keyart/delete', { name })) || {};
+      keyartFiles.value = Array.isArray(data.files) ? data.files : [];
+      if (form.config.keyart_file === name) form.config.keyart_file = '';
+      report(`主视觉已删除：${name}`);
+    } catch (error) {
+      report(error?.message || '主视觉删除失败', false);
+    }
+  }
+
   async function saveTemplate(filename) {
     if (!filename) return
     try {
@@ -707,6 +741,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     loadLibraries,
     loadKeyart,
     uploadKeyart,
+    deleteKeyart,
     onServerChange,
     onLayoutChange,
     libraryEnNames,
@@ -875,6 +910,15 @@ function onLocalImagePicked(event) {
 async function onFieldUpload(item, file) {
   const name = await designer.uploadKeyart(file);
   if (name) form.config[item.key] = name;
+}
+
+/** 字段内的文件删除（主视觉）：先确认，再删文件并清空字段引用。 */
+function onFieldDelete(item, name) {
+  askDelete(
+    '删除底图',
+    `确定删除底图「${name}」吗？引用它的模板会回退到媒体库背景图。`,
+    () => designer.deleteKeyart(name),
+  );
 }
 
 const currentLayoutLabel = computed$2(() => {
@@ -1327,8 +1371,9 @@ return (_ctx, _cache) => {
                             config: _unref$2(form).config,
                             fonts: _unref$2(designer).fontItems.value,
                             files: _unref$2(designer).keyartFiles.value,
-                            onUpload: $event => (onFieldUpload(item, $event))
-                          }, null, 8, ["item", "config", "fonts", "files", "onUpload"]))
+                            onUpload: $event => (onFieldUpload(item, $event)),
+                            onDelete: $event => (onFieldDelete(item, $event))
+                          }, null, 8, ["item", "config", "fonts", "files", "onUpload", "onDelete"]))
                         }), 128))
                       ]))
                     : (block.kind === 'upload')
@@ -1482,7 +1527,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-c187ebd3"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-1162b088"]]);
 
 /**
  * Emby 计划任务中心的前端状态与动作。

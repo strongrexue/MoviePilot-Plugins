@@ -29,7 +29,9 @@ def get_schema():
                 {"key": "mask_coverage", "label": "遮罩覆盖范围 %", "type": "range", "min": 10, "max": 100, "default": 100},
                 {"key": "mask_direction", "label": "遮罩方向", "type": "select", "options": [
                     {"label": "水平渐变 (左黑右亮)", "value": "horizontal"},
-                    {"label": "垂直渐变 (上黑下亮)", "value": "vertical"}
+                    {"label": "水平渐变 (右黑左亮)", "value": "horizontal_reverse"},
+                    {"label": "垂直渐变 (下黑上亮)", "value": "vertical"},
+                    {"label": "垂直渐变 (上黑下亮)", "value": "vertical_reverse"}
                 ], "default": "horizontal"},
             ]
         },

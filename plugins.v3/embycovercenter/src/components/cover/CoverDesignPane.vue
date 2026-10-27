@@ -97,6 +97,15 @@ async function onFieldUpload(item, file) {
   if (name) form.config[item.key] = name
 }
 
+/** 字段内的文件删除（主视觉）：先确认，再删文件并清空字段引用。 */
+function onFieldDelete(item, name) {
+  askDelete(
+    '删除底图',
+    `确定删除底图「${name}」吗？引用它的模板会回退到媒体库背景图。`,
+    () => designer.deleteKeyart(name),
+  )
+}
+
 const currentLayoutLabel = computed(() => {
   const hit = designer.layoutItems.value.find(item => item.value === form.layout)
   return hit ? hit.title : form.layout
@@ -397,6 +406,7 @@ onMounted(designer.loadAll)
               :fonts="designer.fontItems.value"
               :files="designer.keyartFiles.value"
               @upload="onFieldUpload(item, $event)"
+              @delete="onFieldDelete(item, $event)"
             />
           </div>
 

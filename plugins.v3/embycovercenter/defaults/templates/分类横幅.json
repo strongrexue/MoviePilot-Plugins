@@ -8,11 +8,6 @@
         "keyart_per_library": "{}",
         "keyart_focus_x": 50,
         "keyart_focus_y": 50,
-        "scrim_enabled": false,
-        "scrim_color": "#0A0705",
-        "scrim_start": 44,
-        "scrim_ramp": 30,
-        "scrim_strength": 250,
         "title": "",
         "font_title": "优设标题黑.ttf",
         "title_size": 189,
@@ -92,6 +87,15 @@
         "engine": "分类横幅",
         "poster_count": 6,
         "backdrop_count": 2,
-        "badge_style": "none"
+        "badge_style": "none",
+        "mask_enabled": true,
+        "mask_opacity": 205,
+        "mask_coverage": 60,
+        "mask_direction": "horizontal_reverse",
+        "bottom_scrim_color": "#0A0705",
+        "bottom_scrim_strength": 204,
+        "sharpen_amount": 60,
+        "canvas_preset": "auto",
+        "output_quality": 95
     }
 }

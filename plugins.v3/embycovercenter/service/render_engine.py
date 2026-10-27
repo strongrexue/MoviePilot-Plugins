@@ -41,10 +41,19 @@ DEFAULT_ENGINE = "经典平铺"
 
 # 引擎通用参数（各布局 schema 之外的部分：画布/输出/动态/角标）。
 COMMON_SCHEMA_FIELDS: List[Dict[str, Any]] = [
-    {"key": "canvas_width", "label": "画布宽", "type": "number", "default": 1920},
-    {"key": "canvas_height", "label": "画布高", "type": "number", "default": 1080},
+    {"key": "canvas_preset", "label": "画布尺寸", "type": "select", "default": "auto",
+     "options": [
+         {"label": "跟随主视觉原图（无主视觉时 1920×1080）", "value": "auto"},
+         {"label": "1920×1080（全高清）", "value": "1080p"},
+         {"label": "2560×1440（2K）", "value": "1440p"},
+         {"label": "3840×2160（4K）", "value": "2160p"},
+         {"label": "自定义（用下面的宽高）", "value": "custom"},
+     ]},
+    {"key": "canvas_width", "label": "画布宽（预设=自定义时生效）", "type": "number", "default": 1920},
+    {"key": "canvas_height", "label": "画布高（预设=自定义时生效）", "type": "number", "default": 1080},
     {"key": "output_width", "label": "输出宽（0=原始）", "type": "number", "default": 0},
     {"key": "output_height", "label": "输出高（0=原始）", "type": "number", "default": 0},
+    {"key": "output_quality", "label": "JPEG 画质（95 以上不降采样）", "type": "number", "default": 95},
     {"key": "enable_animation", "label": "动态封面（APNG）", "type": "boolean", "default": False},
     {"key": "anim_frames", "label": "动画帧数", "type": "number", "default": 30},
     {"key": "anim_duration", "label": "帧间隔(ms)", "type": "number", "default": 100},
@@ -56,6 +65,15 @@ COMMON_SCHEMA_FIELDS: List[Dict[str, Any]] = [
     {"key": "badge_text_color", "label": "角标字色", "type": "color", "default": "#ffffff"},
     {"key": "badge_font", "label": "角标字体", "type": "font", "default": ""},
 ]
+
+# 画布预设 → (宽, 高)；``auto`` / ``custom`` 走单独分支。
+CANVAS_PRESETS: Dict[str, tuple] = {
+    "1080p": (1920, 1080),
+    "1440p": (2560, 1440),
+    "2160p": (3840, 2160),
+}
+# 单边上限：再大就是几百 MB 的 PIL 位图，预览必然超时。
+MAX_CANVAS_SIDE = 4096
 
 COMMON_GROUP_NAME = "引擎通用（画布 / 输出 / 动态 / 角标）"
 
@@ -367,30 +385,54 @@ class PosterEngine:
         coverage_percent: int,
         direction: str = "horizontal",
     ) -> Image.Image:
-        """生成渐变遮罩（水平：左黑右透；垂直：上黑下透），供布局叠加压暗层。"""
+        """生成渐变遮罩，供布局叠加压暗层。
+
+        ``direction`` 四个取值（“黑”= 遮罩最浓、“亮”= 完全透明）：
+
+        - ``horizontal``：左黑右亮（默认，文字压在左边时用）
+        - ``horizontal_reverse``：右黑左亮
+        - ``vertical``：下黑上亮（历史行为，保持输出不变）
+        - ``vertical_reverse``：上黑下亮
+
+        兼容别名：``right``/``left`` 归到水平，``top``/``bottom`` 归到垂直。
+        """
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
-        if direction == "horizontal":
-            end_x = int(width * (coverage_percent / 100))
-            if end_x <= 0:
+        key = str(direction or "horizontal").strip().lower()
+        coverage = max(0.0, min(100.0, float(coverage_percent or 0))) / 100.0
+
+        def _curve(value: float) -> float:
+            """smoothstep：两端导数为 0，渐变起止处不会留下一条可见的直边。"""
+            value = max(0.0, min(1.0, value))
+            return value * value * (3.0 - 2.0 * value)
+
+        if key in ("vertical", "vertical_reverse", "top", "bottom"):
+            # 垂直：coverage 是渐变占画布高度的比例。
+            span = int(height * coverage)
+            if span <= 0:
                 return mask
-            for x in range(width):
-                if x <= end_x:
-                    alpha = int(opacity * (1 - x / end_x))
-                else:
-                    alpha = 0
-                draw.line([(x, 0), (x, height)], fill=alpha)
-        else:
-            start_y = int(height * (1 - coverage_percent / 100))
-            if start_y >= height:
-                return mask
-            span = max(1, height - start_y)
+            # vertical / bottom：下黑上亮（y=height 最浓，y<=height-span 全透明）
+            # vertical_reverse / top：上黑下亮
+            from_top = key in ("vertical_reverse", "top")
             for y in range(height):
-                if y >= start_y:
-                    alpha = int(opacity * ((y - start_y) / span))
+                if from_top:
+                    ratio = (height - y) / span if y >= height - span else 1.0
                 else:
-                    alpha = 0
+                    ratio = (y - (height - span)) / span if y >= height - span else 0.0
+                alpha = int(opacity * _curve(ratio))
                 draw.line([(0, y), (width, y)], fill=alpha)
+        else:
+            span = int(width * coverage)
+            if span <= 0:
+                return mask
+            # horizontal：左浓右淡；horizontal_reverse：右浓左淡。
+            # 两个方向必须是严格的镜像关系：``coverage`` 表示「渐变占了多宽的边」，
+            # 因此 reverse 的渐变带贴在右边缘，左侧 (1-coverage) 的部分完全透明。
+            reverse = key in ("horizontal_reverse", "right", "right_to_left")
+            for x in range(width):
+                offset = (width - 1 - x) if reverse else x
+                ratio = offset / span if offset <= span else 1.0
+                draw.line([(x, 0), (x, height)], fill=int(opacity * (1.0 - _curve(ratio))))
         return mask
 
     def _draw_badge(self, img: Image.Image, config: Dict[str, Any], count: Any) -> Image.Image:
@@ -473,6 +515,60 @@ class PosterEngine:
         pixels = list(small.getdata())
         return sum(pixels) / max(1, len(pixels))
 
+    def _keyart_size_hint(self, config: Dict[str, Any]) -> Optional[tuple]:
+        """尽量取到用户主视觉的原图尺寸（``canvas_preset=auto`` 用）。
+
+        这里只做**只读探测**：取不到（没配、文件不在、下载失败）就返回 None，
+        由调用方退回 1920×1080，绝不影响正常渲染。
+        """
+        reference = str(config.get("keyart_url") or "").strip()
+        image = None
+        if reference:
+            image = self.download_img(reference)
+        if image is None:
+            name = str(config.get("keyart_file") or "").strip()
+            if name and not any(token in name for token in ("..", "/", "\\", ":", "|")) and not name.startswith("."):
+                candidate = Path(self.data_path) / "keyart" / name
+                if candidate.is_file():
+                    try:
+                        with Image.open(candidate) as probe:
+                            return probe.size
+                    except Exception:
+                        return None
+        return image.size if image is not None else None
+
+    @staticmethod
+    def _positive_int(value: Any, fallback: int) -> int:
+        """宽容地把配置值转成正整数（前端可能传 ``""`` / ``"abc"`` / ``None``）。"""
+        try:
+            number = int(float(value))
+        except (TypeError, ValueError):
+            return fallback
+        return number if number > 0 else fallback
+
+    def resolve_canvas(self, config: Dict[str, Any]) -> tuple:
+        """按 ``canvas_preset`` 决定画布尺寸：自动跟随主视觉 / 预设 / 自定义。"""
+        preset = str(config.get("canvas_preset") or "auto").strip().lower()
+        size = None
+        if preset in CANVAS_PRESETS:
+            size = CANVAS_PRESETS[preset]
+        elif preset == "custom":
+            size = (
+                self._positive_int(config.get("canvas_width"), 1920),
+                self._positive_int(config.get("canvas_height"), 1080),
+            )
+        else:
+            size = self._keyart_size_hint(config)
+            if size is None:
+                size = (
+                    self._positive_int(config.get("canvas_width"), 1920),
+                    self._positive_int(config.get("canvas_height"), 1080),
+                )
+        width = max(1, min(MAX_CANVAS_SIDE, self._positive_int(size[0], 1920)))
+        height = max(1, min(MAX_CANVAS_SIDE, self._positive_int(size[1], 1080)))
+        # 编码器对奇数边长不友好（JPEG 会多一行黑边），统一取偶。
+        return (width - width % 2, height - height % 2)
+
     def _build_background(self, config: Dict[str, Any], assets: Dict[str, Any], size: tuple) -> Image.Image:
         canvas_w, canvas_h = size
         posters = [url for url in (assets.get("posters") or []) if url]
@@ -516,8 +612,7 @@ class PosterEngine:
         fonts: Dict[str, Any],
         step: Optional[float] = None,
     ) -> Image.Image:
-        canvas_w = max(1, int(config.get("canvas_width") or 1920))
-        canvas_h = max(1, int(config.get("canvas_height") or 1080))
+        canvas_w, canvas_h = self.resolve_canvas(config)
         bg = self._build_background(config, assets, (canvas_w, canvas_h))
         layout = str(config.get("engine") or config.get("cover_layout") or DEFAULT_ENGINE)
         render = self.layout_modules.get(layout)
@@ -593,7 +688,20 @@ class PosterEngine:
             out_h = int(config.get("output_height") or 0)
             if out_w > 0 and out_h > 0 and frame.size != (out_w, out_h):
                 frame = frame.resize((out_w, out_h), Image.LANCZOS)
-            frame.save(output, format="JPEG", quality=90)
+            # 画质：默认 95 且关闭色度抽样，2K/4K 输出不会被再压一道；
+            # 只有用户显式调低才降质（老配置里没有这个键，按 95 走）。
+            try:
+                quality = int(config.get("output_quality") or 95)
+            except (TypeError, ValueError):
+                quality = 95
+            quality = max(60, min(100, quality))
+            frame.save(
+                output,
+                format="JPEG",
+                quality=quality,
+                subsampling=0 if quality >= 90 else 2,
+                optimize=False,
+            )
             mode = "静态"
 
         # 这里**不清空**图片缓存：素材元数据有 120s 短缓存，同一批 URL 在缓存期内

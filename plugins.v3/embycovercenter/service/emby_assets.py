@@ -15,10 +15,13 @@ from app.sdk.logging import logger
 from . import emby_gateway
 from .library_names import english_name_for
 
-# 素材图尺寸：封面画布通常 1920x1080，过大的原图只会拖慢下载。
-POSTER_MAX_HEIGHT = 600
-BACKDROP_MAX_HEIGHT = 1260
-LIBRARY_COVER_MAX_HEIGHT = 300
+# 素材图尺寸：按 4K 画布（3840×2160）留足余量，避免服务器先压到 1260 高、
+# 再被放大回 2160 导致糊掉。Emby 侧 ``maxHeight`` 只是上限，原图更小就按原图给。
+POSTER_MAX_HEIGHT = 1000
+BACKDROP_MAX_HEIGHT = 2160
+LIBRARY_COVER_MAX_HEIGHT = 600
+# 素材图质量：与渲染输出的 JPEG 画质保持一致，不在取图环节先降一档。
+ASSET_QUALITY = 95
 # 单次素材数量上限：预设里可能出现很大的数字（如海报墙 poster_count=40），
 # 不设上限会让一次预览下载几十张图，直接拖到反向代理读超时。
 MAX_POSTER_COUNT = 60
@@ -94,7 +97,7 @@ def list_libraries(ref: emby_gateway.ServerRef) -> List[Dict[str, Any]]:
                 "cover_url": image_url(
                     ref,
                     f"Items/{library_id}/Images/Primary",
-                    {"maxHeight": LIBRARY_COVER_MAX_HEIGHT, "quality": 90},
+                    {"maxHeight": LIBRARY_COVER_MAX_HEIGHT, "quality": ASSET_QUALITY},
                 ),
             }
         )
@@ -275,7 +278,7 @@ def fetch_assets(
                         image_url(
                             ref,
                             f"Items/{item.get('Id')}/Images/Backdrop/0",
-                            {"tag": tag, "maxHeight": BACKDROP_MAX_HEIGHT, "quality": 90},
+                            {"tag": tag, "maxHeight": BACKDROP_MAX_HEIGHT, "quality": ASSET_QUALITY},
                         )
                     )
             if pool:
@@ -311,7 +314,7 @@ def fetch_assets(
                         image_url(
                             ref,
                             f"Items/{item.get('Id')}/Images/Primary",
-                            {"tag": tag, "maxHeight": POSTER_MAX_HEIGHT, "quality": 90},
+                            {"tag": tag, "maxHeight": POSTER_MAX_HEIGHT, "quality": ASSET_QUALITY},
                         )
                     )
             if pool:

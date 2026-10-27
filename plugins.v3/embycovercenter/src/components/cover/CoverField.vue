@@ -12,7 +12,7 @@ const props = defineProps({
   files: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['upload'])
+const emit = defineEmits(['upload', 'delete'])
 
 /** select 的 options 统一成 {title, value}，避免 Vuetify 渲染成 [object Object]。 */
 function selectItems() {
@@ -34,6 +34,12 @@ function onFilePicked(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (file) emit('upload', file)
+}
+
+/** 删除当前选中的底图文件（由上层弹确认框后执行）。 */
+function onFileDelete() {
+  const name = config[item.key]
+  if (name) emit('delete', name)
 }
 </script>
 
@@ -103,7 +109,7 @@ function onFilePicked(event) {
       hide-details
     />
   </div>
-  <!-- 文件（主视觉）：下拉选择已上传文件 + 上传按钮 -->
+  <!-- 文件（主视觉）：下拉选择已上传文件 + 上传按钮 + 删除当前文件 -->
   <div v-else-if="item.type === 'file'" class="ec-file">
     <VSelect
       v-model="config[item.key]"
@@ -122,6 +128,18 @@ function onFilePicked(event) {
     >
       上传
       <input type="file" accept=".jpg,.jpeg,.png,.webp" class="ec-file-input" @change="onFilePicked" />
+    </VBtn>
+    <VBtn
+      size="small"
+      variant="tonal"
+      color="error"
+      prepend-icon="mdi-delete"
+      class="ec-file-btn"
+      :disabled="!config[item.key]"
+      title="删除选中的底图文件"
+      @click="onFileDelete"
+    >
+      删除
     </VBtn>
   </div>
   <!-- 数字 / 文本 -->
@@ -157,7 +175,7 @@ function onFilePicked(event) {
 .ec-file {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
 }

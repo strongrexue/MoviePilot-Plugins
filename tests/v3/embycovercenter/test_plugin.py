@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "embycovercenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert EmbyCoverCenter.plugin_name == "胖虎封面中心"
-    assert EmbyCoverCenter.plugin_version == "1.6.24"
+    assert EmbyCoverCenter.plugin_version == "1.6.25"
     assert EmbyCoverCenter.plugin_config_prefix == "embycovercenter_"
 
 

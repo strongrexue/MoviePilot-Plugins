@@ -6,20 +6,20 @@
 - 标题给一个锚点（``title_x`` / ``title_y`` / ``title_align``），
   英文名 / 中文标语 / 英文标语默认 ``inherit`` 跟随标题的锚点与对齐；
 - 光带、题材标签、书法水印、圆角边框各有自己的坐标；
-- 压暗层从「结构」降级成「图层」（``scrim_*``，可关）。
+- 压暗不再内建，改由「特效与装饰」的通用渐变遮罩（``mask_*``）提供，
+  四个方向可选，和「极简」布局共用同一套语义。
 
 默认值拼出来是参考图的居中版式；改任意一项只动那个元素，互不影响。
 
-底图三种来源（``bg_source``）：
-- ``library``：引擎给的媒体库背景图；
-- ``posters``：媒体库海报叠成一列卡片；
+底图两种来源（``bg_source``）：
+- ``library``：引擎给的媒体库背景图（自动补智能锐化）；
 - ``keyart``：用户/AI 准备的成品主视觉（本地上传 / URL / 按库配置），
   都不会画人物——那是美术资产，插件只负责版式、调色与压字。
 
 分层顺序（自下而上）：
-底图 → 右侧压暗（可选）→ 溢光 → 底部压暗 → 统一调色
-→ 暗角 + 颗粒 → 标题（金属渐变）→ 光带 → 英文名 → 中文标语
-→ 英文标语 → 题材标签 → 书法水印 → 圆角边框。
+底图 → 渐变遮罩（可选）→ 溢光 → 底部压暗 → 统一调色
+→ 暗角 + 颗粒 → 书法水印 → 标题（金属渐变）→ 光带 → 英文名 → 中文标语
+→ 英文标语 → 题材标签 → 圆角边框。
 """
 from __future__ import annotations
 
@@ -42,8 +42,6 @@ from PIL import (
 
 # 尺寸类参数（字号 / 圆角 / 线宽）都按 1080 高的画布校准，渲染时按实际高度等比缩放。
 REFERENCE_HEIGHT = 1080
-# 海报阵列最多取几张（再多只是互相遮挡，白下载）。
-POSTER_STACK_MAX = 6
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -72,10 +70,26 @@ def _mix(color, other, ratio):
     return tuple(int(round(a * (1 - ratio) + b * ratio)) for a, b in zip(color, other))
 
 
-def _smooth(t):
-    """smoothstep：两端导数为 0，渐变不会出现可见硬边。"""
-    t = max(0.0, min(1.0, t))
-    return t * t * (3.0 - 2.0 * t)
+def _unsharp(image, amount_percent):
+    """智能锐化：只锐化亮度、限制边缘光晕，放大后的底图不会变脏。
+
+    ``amount_percent`` 0-200，0 表示原样返回。用 USM 而不是逐像素卷积：
+    ``radius`` 随画布缩放，``threshold`` 让平坦区域（天空、纯色块）不被放大噪点。
+    """
+    amount = max(0.0, min(200.0, float(amount_percent or 0)))
+    if amount <= 0:
+        return image
+    scale = max(1.0, image.size[1] / float(REFERENCE_HEIGHT))
+    radius = max(0.6, 1.6 * scale)
+    percent = int(round(amount * 1.2))
+    try:
+        from PIL import ImageFilter as _Filter
+
+        return image.filter(
+            _Filter.UnsharpMask(radius=radius, percent=percent, threshold=3)
+        )
+    except Exception:
+        return image
 
 
 def _vgradient(size, stops):
@@ -113,31 +127,6 @@ def _radial_glow(size, center, radius, color, strength):
         )
     layer = Image.new("RGBA", (width, height), tuple(color) + (0,))
     layer.putalpha(mask)
-    return layer
-
-
-def _side_scrim(size, start_ratio, color, strength, ramp_ratio=0.30):
-    """从 start_ratio 起向右压暗，``ramp_ratio`` 是过渡带宽度。
-
-    两段叠加：一段在 ``start`` 之前就开始缓慢起势（前导），一段在 ``ramp``
-    宽度内吃满 —— 单段 smoothstep 在起点处仍会留下一条可见的直边，参考图是
-    「亮场慢慢退去、文字区才彻底沉黑」，所以这里用长跨度 + 短跨度两条曲线叠加。
-    """
-    width, height = int(size[0]), int(size[1])
-    if strength <= 0:
-        return None
-    start = max(0, min(width, int(width * start_ratio)))
-    ramp = max(1, int(width * max(0.01, ramp_ratio)))
-    lead = int(ramp * 1.2)
-    span = float(ramp) * 2.4
-    alpha = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(alpha)
-    for x in range(max(0, start - lead), width):
-        long_side = _smooth((x - (start - lead)) / span)
-        short_side = _smooth((x - start) / float(ramp))
-        draw.line([(x, 0), (x, height)], fill=int(strength * min(1.0, 0.45 * long_side + 0.55 * short_side)))
-    layer = Image.new("RGBA", (width, height), tuple(color) + (0,))
-    layer.putalpha(alpha)
     return layer
 
 
@@ -435,7 +424,6 @@ def get_schema():
                  "options": [
                      {"label": "成品主视觉（上传 / URL / 按库）", "value": "keyart"},
                      {"label": "媒体库背景图", "value": "library"},
-                     {"label": "媒体库海报阵列", "value": "posters"},
                  ]},
                 {"key": "keyart_file", "label": "主视觉文件（上传后从 keyart/ 选）", "type": "file", "default": ""},
                 {"key": "keyart_url", "label": "主视觉 URL（图床 / 直链）", "type": "text", "default": ""},
@@ -445,11 +433,28 @@ def get_schema():
                  "min": 0, "max": 100, "step": 1, "default": 50},
                 {"key": "keyart_focus_y", "label": "主视觉裁剪焦点 Y %", "type": "range",
                  "min": 0, "max": 100, "step": 1, "default": 50},
-                {"key": "scrim_enabled", "label": "右侧压暗层", "type": "boolean", "default": True},
-                {"key": "scrim_color", "label": "压暗颜色", "type": "color", "default": "#0A0705"},
-                {"key": "scrim_start", "label": "压暗起点 %", "type": "range", "min": 0, "max": 90, "step": 1, "default": 44},
-                {"key": "scrim_ramp", "label": "过渡宽度 %（越大越自然）", "type": "range", "min": 5, "max": 60, "step": 1, "default": 30},
-                {"key": "scrim_strength", "label": "压暗强度", "type": "range", "min": 0, "max": 255, "step": 1, "default": 250},
+            ],
+        },
+        {
+            "group": "特效与装饰",
+            "items": [
+                {"key": "mask_enabled", "label": "显示渐变遮罩", "type": "boolean", "default": False},
+                {"key": "mask_opacity", "label": "黑色遮罩浓度", "type": "range", "min": 0, "max": 255, "step": 1,
+                 "default": 180},
+                {"key": "mask_coverage", "label": "遮罩覆盖范围 %", "type": "range", "min": 10, "max": 100, "step": 1,
+                 "default": 100},
+                {"key": "mask_direction", "label": "遮罩方向", "type": "select", "default": "horizontal_reverse",
+                 "options": [
+                     {"label": "水平渐变 (左黑右亮)", "value": "horizontal"},
+                     {"label": "水平渐变 (右黑左亮)", "value": "horizontal_reverse"},
+                     {"label": "垂直渐变 (下黑上亮)", "value": "vertical"},
+                     {"label": "垂直渐变 (上黑下亮)", "value": "vertical_reverse"},
+                 ]},
+                {"key": "bottom_scrim_color", "label": "底部压暗颜色", "type": "color", "default": "#0A0705"},
+                {"key": "bottom_scrim_strength", "label": "底部压暗强度", "type": "range", "min": 0, "max": 255,
+                 "step": 1, "default": 204},
+                {"key": "sharpen_amount", "label": "底图智能锐化 %", "type": "range", "min": 0, "max": 200, "step": 1,
+                 "default": 60},
             ],
         },
         {
@@ -674,54 +679,6 @@ def _keyart(ctx, config, assets, size):
     return None
 
 
-def _poster_stack(ctx, assets, size):
-    """Mode A2：媒体库海报叠成一列略旋转、互相遮挡的卡片，向右侧渐隐。"""
-    urls = [url for url in (assets.get("posters") or []) if url][:POSTER_STACK_MAX]
-    if not urls:
-        return None
-    width, height = int(size[0]), int(size[1])
-    layer = Image.new("RGBA", (width, height), (8, 6, 6, 255))
-    glow = _radial_glow((width, height), (int(width * 0.26), int(height * 0.42)),
-                        width * 0.36, (255, 214, 160), 95)
-    if glow is not None:
-        layer = Image.alpha_composite(layer, glow)
-
-    card_h = int(height * 0.66)
-    card_w = max(1, int(card_h * 2 / 3))
-    count = len(urls)
-    rng = random.Random(11)
-    for index, url in enumerate(urls):
-        image = ctx.download_img(url)
-        if image is None:
-            continue
-        card = ImageOps.fit(image.convert("RGBA"), (card_w, card_h), method=Image.LANCZOS)
-        card.putalpha(_rounded_mask(card.size, int(card_w * 0.05)))
-
-        progress = index / max(1, count - 1)
-        cx = int(width * (0.085 + progress * 0.350))
-        cy = int(height * (0.475 + math.sin(progress * math.pi) * 0.010))
-        angle = rng.uniform(-3.0, 2.0)
-
-        shadow = Image.new("L", (card_w + 160, card_h + 160), 0)
-        ImageDraw.Draw(shadow).rounded_rectangle(
-            (80, 80, 80 + card_w, 80 + card_h), radius=int(card_w * 0.05), fill=200
-        )
-        shadow = shadow.filter(ImageFilter.GaussianBlur(28))
-        shadow_layer = Image.new("RGBA", shadow.size, (0, 0, 0, 0))
-        shadow_layer.putalpha(shadow)
-
-        rotated = card.rotate(angle, resample=Image.BICUBIC, expand=True)
-        rot_shadow = shadow_layer.rotate(angle, resample=Image.BICUBIC, expand=True)
-        layer.alpha_composite(rot_shadow, (cx - rotated.width // 2 - 62, cy - rotated.height // 2 - 55))
-        layer.alpha_composite(rotated, (cx - rotated.width // 2, cy - rotated.height // 2))
-
-    bottom = _vgradient((width, height), [(0.0, (0, 0, 0)), (1.0, (8, 6, 6))])
-    bmask = Image.new("L", (width, height), 0)
-    ImageDraw.Draw(bmask).rectangle((0, int(height * 0.70), width, height), fill=255)
-    bottom.putalpha(bmask.filter(ImageFilter.GaussianBlur(max(4, int(height * 0.09)))).point(lambda v: int(v * 0.9)))
-    return Image.alpha_composite(layer, bottom)
-
-
 def _right_brighter(image, margin=0.04):
     try:
         gray = image.convert("L")
@@ -738,17 +695,18 @@ def _build_scene(ctx, bg, config, assets):
     """底图 + 调色：返回 RGBA 画布；素材缺失时退回引擎给的背景图。"""
     width, height = bg.size
     size = (width, height)
-    source = _choice(config, "bg_source", ("keyart", "library", "posters"), "keyart")
+    source = _choice(config, "bg_source", ("keyart", "library"), "keyart")
 
     scene = None
     if source == "keyart":
         scene = _keyart(ctx, config, assets, size)
-    elif source == "posters":
-        scene = _poster_stack(ctx, assets, size)
     if scene is None:
         scene = ImageOps.fit(bg.convert("RGBA"), size, method=Image.LANCZOS)
         if source != "keyart" and _flag(config, "auto_mirror", True) and _right_brighter(scene):
             scene = ImageOps.mirror(scene)
+        # 媒体库背景图由服务器按 maxHeight 缩放后送达，放大到 2K/4K 画布会发虚，
+        # 这里补一层智能锐化（主视觉是成品图，不锐化，避免二次处理过锐）。
+        scene = _unsharp(scene, _clamp(_value(config, "sharpen_amount", 60), 0, 200, 60))
 
     scene = ImageEnhance.Brightness(scene).enhance(
         _clamp(_value(config, "scene_brightness", 0.96), 0.2, 1.4, 0.96)
@@ -816,32 +774,44 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     frame = _build_scene(ctx, bg, config, assets)
     title = str(_value(config, "title", "") or assets.get("library_name") or "").strip()
 
-    # ---- 右侧压暗：默认从 44% 起，17% 宽度内吃满
-    if _flag(config, "scrim_enabled", True):
-        scrim = _side_scrim(
-            (width, height),
-            _clamp(_value(config, "scrim_start", 44), 0, 90, 44) / 100.0,
-            _rgb(_value(config, "scrim_color", "#0A0705"), (10, 7, 5)),
-            _clamp(_value(config, "scrim_strength", 250), 0, 255, 250),
-            _clamp(_value(config, "scrim_ramp", 30), 5, 60, 30) / 100.0,
+    # ---- 渐变遮罩（特效与装饰）：与「极简」同一套参数，方向可正可反
+    if _flag(config, "mask_enabled", False):
+        mask = ctx.create_smart_mask(
+            width,
+            height,
+            _clamp(_value(config, "mask_opacity", 180), 0, 255, 180),
+            _clamp(_value(config, "mask_coverage", 100), 10, 100, 100),
+            _choice(
+                config,
+                "mask_direction",
+                ("horizontal", "horizontal_reverse", "vertical", "vertical_reverse"),
+                "horizontal_reverse",
+            ),
         )
-        if scrim is not None:
-            frame = Image.alpha_composite(frame, scrim)
-        glow = _radial_glow(
-            (width, height),
-            (int(width * _clamp(_value(config, "scrim_start", 44), 0, 90, 44) / 100.0 * 0.92), int(height * 0.42)),
-            width * 0.30,
-            _rgb(_value(config, "glow_color", "#FFD9A8"), (255, 217, 168)),
-            _clamp(_value(config, "glow_strength", 80), 0, 255, 80),
-        )
-        if glow is not None:
-            frame = Image.alpha_composite(frame, glow)
+        shade = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+        shade.putalpha(mask)
+        frame = Image.alpha_composite(frame, shade)
+
+    # ---- 溢光：主视觉与暗场的交界处补一层暖光，避免左右生硬切开
+    glow = _radial_glow(
+        (width, height),
+        (int(width * 0.42), int(height * 0.42)),
+        width * 0.30,
+        _rgb(_value(config, "glow_color", "#FFD9A8"), (255, 217, 168)),
+        _clamp(_value(config, "glow_strength", 80), 0, 255, 80),
+    )
+    if glow is not None:
+        frame = Image.alpha_composite(frame, glow)
 
     # ---- 底部压暗：给左下角的题材标签一个落脚点（整幅压，不依赖左右分区）
-    bottom = _vgradient((width, height), [(0.0, (0, 0, 0)), (1.0, _rgb(_value(config, "scrim_color", "#0A0705"), (10, 7, 5)))])
+    bottom = _vgradient((width, height), [(0.0, (0, 0, 0)), (1.0, _rgb(_value(config, "bottom_scrim_color", "#0A0705"), (10, 7, 5)))])
     bmask = Image.new("L", (width, height), 0)
     ImageDraw.Draw(bmask).rectangle((0, int(height * 0.76), width, height), fill=255)
-    bottom.putalpha(bmask.filter(ImageFilter.GaussianBlur(max(4, int(height * 0.066)))).point(lambda v: int(v * 0.8)))
+    bottom.putalpha(
+        bmask.filter(ImageFilter.GaussianBlur(max(4, int(height * 0.066)))).point(
+            lambda v: int(v * _clamp(_value(config, "bottom_scrim_strength", 204), 0, 255, 204) / 255.0)
+        )
+    )
     frame = Image.alpha_composite(frame, bottom)
 
     frame = _grade(

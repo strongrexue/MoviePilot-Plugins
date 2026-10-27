@@ -75,13 +75,15 @@ def test_layout_is_discoverable_and_has_schema(tmp_path):
     schema = module.get_schema()
     groups = {group["group"] for group in schema}
     # 用户明确要求「标题/副标题/字距/光带/圆角框/水印/标签各自可单独分区修改」
-    for expected in ("背景与底图", "主标题", "英文名", "标语", "灯带（标题下的光带）",
-                     "题材标签", "书法水印", "圆角边框"):
+    for expected in ("背景与底图", "特效与装饰", "主标题", "英文名", "标语",
+                     "灯带（标题下的光带）", "题材标签", "书法水印", "圆角边框"):
         assert expected in groups, f"缺少分组：{expected}"
 
     keys = {item["key"] for group in schema for item in group["items"]}
     for key in (
         "bg_source", "keyart_file", "keyart_per_library", "keyart_focus_x",
+        "mask_enabled", "mask_direction", "mask_coverage", "bottom_scrim_strength",
+        "sharpen_amount",
         "title_x", "title_y", "title_tracking", "title_align",
         "divider_color", "divider_flare_pos", "divider_flare_color",
         "tags_source", "tags_x", "tags_y", "tags_per_library",
@@ -89,6 +91,12 @@ def test_layout_is_discoverable_and_has_schema(tmp_path):
         "frame_radius", "frame_border_color",
     ):
         assert key in keys, f"schema 缺少字段：{key}"
+
+    # 右侧压暗层已整组移除，海报阵列底图也已移除（改由「特效与装饰」提供遮罩）
+    for removed in ("scrim_enabled", "scrim_color", "scrim_start", "scrim_ramp", "scrim_strength"):
+        assert removed not in keys, f"已删除的字段仍在 schema：{removed}"
+    bg = next(item for group in schema for item in group["items"] if item["key"] == "bg_source")
+    assert [option["value"] for option in bg["options"]] == ["keyart", "library"]
 
     listed = {item["name"]: item for item in engine.layout_schemas()}
     assert LAYOUT in listed and listed[LAYOUT]["groups"]
@@ -121,7 +129,7 @@ def test_uploaded_keyart_is_used_as_scene(tmp_path, monkeypatch):
         "engine": LAYOUT, "canvas_width": 640, "canvas_height": 360,
         "bg_source": "keyart", "keyart_file": "keyart-red.png",
         "title": "国产剧", "subtitle": "Chinese Drama", "badge_style": "none",
-        "scrim_enabled": False, "grade_strength": 0, "grain": 0,
+        "mask_enabled": False, "grade_strength": 0, "grain": 0,
         "vignette_strength": 0, "watermark_enabled": False,
     }
     frame = _render(engine, config, {"posters": [], "count": 0}).convert("RGB")
@@ -139,7 +147,7 @@ def test_missing_keyart_falls_back_to_library_background(tmp_path, monkeypatch):
         "engine": LAYOUT, "canvas_width": 640, "canvas_height": 360,
         "bg_source": "keyart", "keyart_file": "not-there.png",
         "title": "日番", "subtitle": "Anime", "badge_style": "none",
-        "scrim_enabled": False, "grade_strength": 0, "grain": 0,
+        "mask_enabled": False, "grade_strength": 0, "grain": 0,
         "vignette_strength": 0, "watermark_enabled": False,
     }
     assets = {"bg_url": "http://bg", "posters": ["http://p1"], "count": 0}
@@ -212,7 +220,7 @@ def test_extreme_and_string_config_values(tmp_path, monkeypatch):
     assert _render(engine, zeros, assets).size == (320, 180)
 
     maxed = dict(base, **{key: 255 for key in schema_keys})
-    maxed.update({"bg_source": "posters", "title_align": "center", "divider_align": "center"})
+    maxed.update({"bg_source": "library", "title_align": "center", "divider_align": "center"})
     assert _render(engine, maxed, assets).size == (320, 180)
 
     garbage = dict(base, **{key: "abc" for key in schema_keys})
@@ -227,7 +235,7 @@ def test_missing_assets_does_not_crash(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "download_img", lambda url: None)
     config = {
         "engine": LAYOUT, "canvas_width": 320, "canvas_height": 180,
-        "bg_source": "posters", "title": "无素材", "subtitle": "Fallback", "badge_style": "none",
+        "bg_source": "library", "title": "无素材", "subtitle": "Fallback", "badge_style": "none",
     }
     frame = _render(engine, config, {"posters": [], "count": 0})
     assert frame.size == (320, 180) and frame.mode == "RGBA"
@@ -304,7 +312,7 @@ def _plain_config(**overrides):
         "engine": LAYOUT, "canvas_width": 640, "canvas_height": 360,
         "bg_source": "library", "title": "", "subtitle": "",
         "slogan_cn": "", "slogan_en": "", "tags_text": "",
-        "watermark_enabled": False, "scrim_enabled": False, "glow_strength": 0,
+        "watermark_enabled": False, "mask_enabled": False, "glow_strength": 0,
         "grade_strength": 0, "grain": 0, "vignette_strength": 0,
         "frame_radius": 0, "frame_border_width": 0, "badge_style": "none",
         "divider_enabled": True, "divider_width": 40, "divider_thickness": 3,
@@ -361,13 +369,15 @@ def test_divider_is_a_continuous_glow(tmp_path, monkeypatch):
 
 
 def test_schema_defaults_for_divider_and_watermark(tmp_path):
-    """水印锚点默认 85%、压暗过渡默认 30%、灯带中心亮度默认 245。"""
+    """水印锚点默认 85%、灯带中心亮度默认 245、遮罩默认关闭。"""
     engine = _make_engine(tmp_path)
     schema = engine.layout_modules[LAYOUT].get_schema()
     defaults = {item["key"]: item.get("default") for group in schema for item in group["items"]}
     assert defaults["watermark_x"] == 85
-    assert defaults["scrim_ramp"] == 30
     assert defaults["divider_flare_strength"] == 245
+    assert defaults["mask_enabled"] is False
+    assert defaults["mask_direction"] == "horizontal_reverse"
+    assert defaults["sharpen_amount"] == 60
     engine.close()
 
 

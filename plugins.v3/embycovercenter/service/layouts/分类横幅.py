@@ -14,18 +14,21 @@
 底图两种来源（``bg_source``）：
 - ``library``：引擎给的媒体库背景图（自动补智能锐化）；
 - ``keyart``：用户/AI 准备的成品主视觉（本地上传 / URL / 按库配置），
-  都不会画人物——那是美术资产，插件只负责版式、调色与压字。
+  都不会画人物——那是美术资产，插件只负责版式与压字。
+
+**不做统一调色**：底图什么样就什么样，只保留「底图调整」三个可选开关
+（亮度 / 对比度 / 饱和度，默认 1.0 = 原样）与「特效与装饰」里的渐变遮罩、
+底部压暗、智能锐化，全部由用户显式开启才生效。
 
 分层顺序（自下而上）：
-底图 → 渐变遮罩（可选）→ 溢光 → 底部压暗 → 统一调色
-→ 暗角 + 颗粒 → 书法水印 → 标题（金属渐变）→ 光带 → 英文名 → 中文标语
+底图（+ 可选亮度/对比度/饱和度）→ 渐变遮罩（可选）→ 底部压暗
+→ 书法水印 → 标题（金属渐变）→ 光带 → 英文名 → 中文标语
 → 英文标语 → 题材标签 → 圆角边框。
 """
 from __future__ import annotations
 
 import json
 import math
-import random
 import re
 from pathlib import Path
 
@@ -110,32 +113,19 @@ def _vgradient(size, stops):
     return strip.resize((max(1, width), max(1, height)), Image.BILINEAR)
 
 
-def _radial_glow(size, center, radius, color, strength):
-    """径向光晕：中心最亮、向外平滑衰减；强度为 0 时返回 None。"""
-    if strength <= 0 or radius <= 0:
-        return None
-    width, height = int(size[0]), int(size[1])
-    mask = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(mask)
-    cx, cy = center
-    steps = 40
-    for index in range(steps, 0, -1):
-        t = index / float(steps)
-        draw.ellipse(
-            (cx - radius * t, cy - radius * t, cx + radius * t, cy + radius * t),
-            fill=int(strength * (1.0 - t) ** 2),
-        )
-    layer = Image.new("RGBA", (width, height), tuple(color) + (0,))
-    layer.putalpha(mask)
-    return layer
-
-
 def _glow_line(size, center, length, thickness, color, flare_color, strength):
-    """标题下的灯带：横向高斯 + 纵向更窄的高斯，中心最亮、两端自然淡进背景。
+    """标题下的灯带：横向「亮核 + 宽光晕」双高斯，纵向单高斯。
 
-    参考图里这条不是「一条实线 + 一个高光点」的拼接，而是一整条连续光带：
-    中心发白、向外过渡到本色、再淡出；所以这里直接铺可分离高斯，不描边、
-    不额外叠椭圆高光，避免出现直边和「中间一坨」的接缝。
+    参考图（哆啦A梦）的灯带不是「一条实线 + 一个高光点」的拼接，也不是单高斯：
+    实测剖面是**中间一段很窄的近白亮核，外面裹一层宽得多的柔光**，
+    单高斯无论怎么调都只能「要么太尖、要么太长」。所以这里用双高斯叠加：
+
+        横向 >90% 半宽 ≈ 0.044 × 灯带长度（窄核）
+        横向 >50% 半宽 ≈ 0.120 × 灯带长度
+        横向 >25% 半宽 ≈ 0.213 × 灯带长度
+        横向 >10% 半宽 ≈ 0.369 × 灯带长度（宽光晕）
+
+    参数由 `.sim/embycovercenter/fit_glow.py` 对这四档实测值做最小二乘拟合得到。
 
     返回的图层是**预乘过的光**（RGB 已按强度缩放、alpha 铺满），调用方要用
     ``ImageChops.screen`` 叠上去——灯带是「发光」，压在亮底图上也该亮得起来。
@@ -143,25 +133,30 @@ def _glow_line(size, center, length, thickness, color, flare_color, strength):
     width, height = int(size[0]), int(size[1])
     if strength <= 0 or length <= 1:
         return None
-    sigma_x = max(1.0, length / 4.6)
+    span = float(length)
+    sigma_core = max(0.6, span * 0.078)
+    sigma_halo = max(sigma_core * 1.6, span * 0.228)
+    weight_core = 0.64
     sigma_y = max(0.9, float(thickness) * 1.35)
     cx, cy = float(center[0]), float(center[1])
-    x0 = max(0, int(cx - sigma_x * 3.0))
-    x1 = min(width, int(cx + sigma_x * 3.0) + 1)
+    x0 = max(0, int(cx - sigma_halo * 3.0))
+    x1 = min(width, int(cx + sigma_halo * 3.0) + 1)
     y0 = max(0, int(cy - sigma_y * 3.5))
     y1 = min(height, int(cy + sigma_y * 3.5) + 1)
     if x1 <= x0 or y1 <= y0:
         return None
     layer = Image.new("RGBA", (x1 - x0, y1 - y0), (0, 0, 0, 255))
     pixels = layer.load()
-    two_sx = 2.0 * sigma_x * sigma_x
+    two_core = 2.0 * sigma_core * sigma_core
+    two_halo = 2.0 * sigma_halo * sigma_halo
     two_sy = 2.0 * sigma_y * sigma_y
     for y in range(y0, y1):
         gy = math.exp(-((y - cy) ** 2) / two_sy)
         if gy <= 0.004:
             continue
         for x in range(x0, x1):
-            gx = math.exp(-((x - cx) ** 2) / two_sx)
+            dx2 = (x - cx) ** 2
+            gx = weight_core * math.exp(-dx2 / two_core) + (1.0 - weight_core) * math.exp(-dx2 / two_halo)
             factor = strength * gx * gy / 255.0
             if factor <= 0.002:
                 continue
@@ -170,52 +165,6 @@ def _glow_line(size, center, length, thickness, color, flare_color, strength):
                 int(tint[0] * factor), int(tint[1] * factor), int(tint[2] * factor), 255,
             )
     return x0, y0, layer
-
-
-def _vignette(size, strength, power=2.6):
-    if strength <= 0:
-        return None
-    width, height = int(size[0]), int(size[1])
-    mask = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(mask)
-    cx, cy = width / 2.0, height / 2.0
-    max_r = math.hypot(cx, cy)
-    for index in range(48, 0, -1):
-        t = index / 48.0
-        draw.ellipse(
-            (cx - max_r * t, cy - max_r * t, cx + max_r * t, cy + max_r * t),
-            fill=int(strength * (t ** power)),
-        )
-    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    layer.putalpha(mask)
-    return layer
-
-
-def _grain(image, amount):
-    """固定种子噪点：同配置重复渲染逐像素一致（否则动态封面会闪）。"""
-    ratio = max(0.0, min(1.0, amount / 100.0)) * 0.16
-    if ratio <= 0:
-        return image
-    width, height = image.size
-    try:
-        rng = random.Random((width << 20) ^ height ^ 0x9E3779B9)
-        noise = Image.frombytes("L", (width, height), rng.randbytes(width * height))
-    except Exception:
-        return image
-    mixed = Image.blend(image.convert("RGB"), Image.merge("RGB", (noise, noise, noise)), ratio)
-    return mixed.convert("RGBA")
-
-
-def _grade(image, tint, strength=0.14, lift=6):
-    """统一调色：整体 wash 到同一色相，黑位带一点暖色，避免死黑。"""
-    strength = max(0.0, min(1.0, float(strength)))
-    if strength <= 0:
-        return image
-    wash = Image.new("RGB", image.size, tuple(tint))
-    out = Image.blend(image.convert("RGB"), wash, strength)
-    if lift:
-        out = Image.blend(out, Image.new("RGB", image.size, (255, 245, 230)), lift / 255.0)
-    return out.convert("RGBA")
 
 
 def _rounded_mask(size, radius):
@@ -433,6 +382,19 @@ def get_schema():
                  "min": 0, "max": 100, "step": 1, "default": 50},
                 {"key": "keyart_focus_y", "label": "主视觉裁剪焦点 Y %", "type": "range",
                  "min": 0, "max": 100, "step": 1, "default": 50},
+                {"key": "auto_mirror", "label": "素材右亮时自动镜像（仅媒体库背景图）", "type": "boolean",
+                 "default": True},
+            ],
+        },
+        {
+            "group": "底图调整（默认 1.0 = 保持原样）",
+            "items": [
+                {"key": "scene_brightness", "label": "亮度", "type": "range",
+                 "min": 0.5, "max": 1.6, "step": 0.01, "default": 1.0},
+                {"key": "scene_contrast", "label": "对比度", "type": "range",
+                 "min": 0.5, "max": 1.6, "step": 0.01, "default": 1.0},
+                {"key": "scene_saturation", "label": "饱和度", "type": "range",
+                 "min": 0.0, "max": 2.0, "step": 0.01, "default": 1.0},
             ],
         },
         {
@@ -451,8 +413,8 @@ def get_schema():
                      {"label": "垂直渐变 (上黑下亮)", "value": "vertical_reverse"},
                  ]},
                 {"key": "bottom_scrim_color", "label": "底部压暗颜色", "type": "color", "default": "#0A0705"},
-                {"key": "bottom_scrim_strength", "label": "底部压暗强度", "type": "range", "min": 0, "max": 255,
-                 "step": 1, "default": 204},
+                {"key": "bottom_scrim_strength", "label": "底部压暗强度（0=不压，保持原图）", "type": "range",
+                 "min": 0, "max": 255, "step": 1, "default": 0},
                 {"key": "sharpen_amount", "label": "底图智能锐化 %", "type": "range", "min": 0, "max": 200, "step": 1,
                  "default": 60},
             ],
@@ -576,20 +538,6 @@ def get_schema():
             ],
         },
         {
-            "group": "调色与质感",
-            "items": [
-                {"key": "grade_color", "label": "统一色相", "type": "color", "default": "#7A4A24"},
-                {"key": "grade_strength", "label": "调色强度 %", "type": "range", "min": 0, "max": 100, "step": 1, "default": 14},
-                {"key": "scene_brightness", "label": "底图亮度", "type": "range", "min": 0.2, "max": 1.4, "step": 0.01, "default": 0.96},
-                {"key": "scene_saturation", "label": "底图饱和度", "type": "range", "min": 0, "max": 2, "step": 0.01, "default": 1.05},
-                {"key": "glow_color", "label": "溢光颜色", "type": "color", "default": "#FFD9A8"},
-                {"key": "glow_strength", "label": "溢光强度", "type": "range", "min": 0, "max": 255, "step": 1, "default": 80},
-                {"key": "vignette_strength", "label": "暗角强度", "type": "range", "min": 0, "max": 255, "step": 1, "default": 130},
-                {"key": "grain", "label": "颗粒强度", "type": "range", "min": 0, "max": 100, "step": 1, "default": 14},
-                {"key": "auto_mirror", "label": "素材右亮时自动镜像（仅背景/海报）", "type": "boolean", "default": True},
-            ],
-        },
-        {
             "group": "圆角边框",
             "items": [
                 {"key": "frame_radius", "label": "圆角半径（1080 高基准，0=直角）", "type": "range",
@@ -708,12 +656,16 @@ def _build_scene(ctx, bg, config, assets):
         # 这里补一层智能锐化（主视觉是成品图，不锐化，避免二次处理过锐）。
         scene = _unsharp(scene, _clamp(_value(config, "sharpen_amount", 60), 0, 200, 60))
 
-    scene = ImageEnhance.Brightness(scene).enhance(
-        _clamp(_value(config, "scene_brightness", 0.96), 0.2, 1.4, 0.96)
-    )
-    scene = ImageEnhance.Color(scene).enhance(
-        _clamp(_value(config, "scene_saturation", 1.05), 0.0, 2.0, 1.05)
-    )
+    # 底图调整：默认全部 1.0，等于「底图什么样就什么样」；只有用户显式调了才生效。
+    brightness = _clamp(_value(config, "scene_brightness", 1.0), 0.5, 1.6, 1.0)
+    contrast = _clamp(_value(config, "scene_contrast", 1.0), 0.5, 1.6, 1.0)
+    saturation = _clamp(_value(config, "scene_saturation", 1.0), 0.0, 2.0, 1.0)
+    if abs(brightness - 1.0) > 1e-3:
+        scene = ImageEnhance.Brightness(scene).enhance(brightness)
+    if abs(contrast - 1.0) > 1e-3:
+        scene = ImageEnhance.Contrast(scene).enhance(contrast)
+    if abs(saturation - 1.0) > 1e-3:
+        scene = ImageEnhance.Color(scene).enhance(saturation)
     return scene
 
 
@@ -792,37 +744,19 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
         shade.putalpha(mask)
         frame = Image.alpha_composite(frame, shade)
 
-    # ---- 溢光：主视觉与暗场的交界处补一层暖光，避免左右生硬切开
-    glow = _radial_glow(
-        (width, height),
-        (int(width * 0.42), int(height * 0.42)),
-        width * 0.30,
-        _rgb(_value(config, "glow_color", "#FFD9A8"), (255, 217, 168)),
-        _clamp(_value(config, "glow_strength", 80), 0, 255, 80),
-    )
-    if glow is not None:
-        frame = Image.alpha_composite(frame, glow)
-
     # ---- 底部压暗：给左下角的题材标签一个落脚点（整幅压，不依赖左右分区）
-    bottom = _vgradient((width, height), [(0.0, (0, 0, 0)), (1.0, _rgb(_value(config, "bottom_scrim_color", "#0A0705"), (10, 7, 5)))])
-    bmask = Image.new("L", (width, height), 0)
-    ImageDraw.Draw(bmask).rectangle((0, int(height * 0.76), width, height), fill=255)
-    bottom.putalpha(
-        bmask.filter(ImageFilter.GaussianBlur(max(4, int(height * 0.066)))).point(
-            lambda v: int(v * _clamp(_value(config, "bottom_scrim_strength", 204), 0, 255, 204) / 255.0)
+    # 默认 0 = 完全不压，底图什么样就什么样；用户想要压暗再往上调。
+    bottom_strength = _clamp(_value(config, "bottom_scrim_strength", 0), 0, 255, 0)
+    if bottom_strength > 0:
+        bottom = _vgradient((width, height), [(0.0, (0, 0, 0)), (1.0, _rgb(_value(config, "bottom_scrim_color", "#0A0705"), (10, 7, 5)))])
+        bmask = Image.new("L", (width, height), 0)
+        ImageDraw.Draw(bmask).rectangle((0, int(height * 0.76), width, height), fill=255)
+        bottom.putalpha(
+            bmask.filter(ImageFilter.GaussianBlur(max(4, int(height * 0.066)))).point(
+                lambda v: int(v * bottom_strength / 255.0)
+            )
         )
-    )
-    frame = Image.alpha_composite(frame, bottom)
-
-    frame = _grade(
-        frame,
-        _rgb(_value(config, "grade_color", "#7A4A24"), (122, 74, 36)),
-        _clamp(_value(config, "grade_strength", 14), 0, 100, 14) / 100.0,
-    )
-    vignette = _vignette((width, height), _clamp(_value(config, "vignette_strength", 130), 0, 255, 130))
-    if vignette is not None:
-        frame = Image.alpha_composite(frame, vignette)
-    frame = _grain(frame, _clamp(_value(config, "grain", 14), 0, 100, 14))
+        frame = Image.alpha_composite(frame, bottom)
 
     # ---- 书法水印：整段标题竖排，字号按字数自动收缩，可整块关闭。
     # 默认锚点 85%，会落在标题右侧的可见区里，所以先画它、再画文字，

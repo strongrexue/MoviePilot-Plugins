@@ -222,25 +222,17 @@ def test_empty_title_draws_no_text(tmp_path, monkeypatch):
     engine.close()
 
 
-def test_shipped_preset_matches_schema(tmp_path):
-    """随包预设「暗场右文」存在、能加载、字段与 schema 对得上、缩略图尺寸正确。"""
+def test_preset_retired_but_layout_still_available(tmp_path):
+    """1.6.26 起随包预设「暗场右文」下线，但布局模块本身保留（用户可自建模板）。"""
     template = PACKAGE / "defaults" / "templates" / f"{LAYOUT}.json"
-    assert template.exists()
-    payload = json.loads(template.read_text(encoding="utf-8"))
-    assert payload["name"] == LAYOUT
-    assert payload["layout"] == LAYOUT
+    assert not template.exists(), "「暗场右文」预设应已下线"
+    assert not (PACKAGE / "defaults" / "templates" / f"{LAYOUT}.jpg").exists()
 
+    # 布局仍然可被发现、仍然能渲染
     engine = _make_engine(tmp_path)
-    schema_keys = {
-        item["key"]
-        for group in engine.layout_modules[LAYOUT].get_schema()
-        for item in group["items"]
-    }
-    # 预设里不能缺布局自己的参数（缺了配置页会显示为空）
-    assert not (schema_keys - set(payload["config"]))
+    assert LAYOUT in engine.layout_modules
+    frame = _render(engine, {"engine": LAYOUT, "canvas_width": 320, "canvas_height": 180,
+                             "title": "电影", "subtitle": "Movies", "badge_style": "none"},
+                    {"bg_url": "http://bg", "posters": [], "count": 0})
+    assert frame.size == (320, 180)
     engine.close()
-
-    preview = PACKAGE / "defaults" / "templates" / f"{LAYOUT}.jpg"
-    assert preview.exists()
-    with Image.open(preview) as image:
-        assert image.size == (640, 360)

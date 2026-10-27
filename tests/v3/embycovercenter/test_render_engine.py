@@ -199,8 +199,10 @@ def test_default_template_display_names_have_no_suffix(tmp_path):
         "荣耀视界",
         "极简",
         "动态平铺",
-        "暗场右文",
+        "分类横幅",
     } <= names
+    # 1.6.26 起「暗场右文」预设下线（布局模块仍在，用户自建模板可用）
+    assert "暗场右文" not in names
     assert not [name for name in names if name.endswith(("默认", "预设"))]
     # 文件名保持原样：auto_cover_template 存的是它，老配置不能失效
     filenames = {item["filename"] for item in templates}

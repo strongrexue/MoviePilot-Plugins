@@ -75,15 +75,17 @@ def test_layout_is_discoverable_and_has_schema(tmp_path):
     schema = module.get_schema()
     groups = {group["group"] for group in schema}
     # 用户明确要求「标题/副标题/字距/光带/圆角框/水印/标签各自可单独分区修改」
-    for expected in ("背景与底图", "特效与装饰", "主标题", "英文名", "标语",
+    for expected in ("背景与底图", "底图调整（默认 1.0 = 保持原样）", "特效与装饰", "主标题", "英文名", "标语",
                      "灯带（标题下的光带）", "题材标签", "书法水印", "圆角边框"):
         assert expected in groups, f"缺少分组：{expected}"
+    # 用户要求「去掉调色与质感组件，底图什么样就什么样」
+    assert "调色与质感" not in groups, "调色与质感分组应已移除"
 
     keys = {item["key"] for group in schema for item in group["items"]}
     for key in (
         "bg_source", "keyart_file", "keyart_per_library", "keyart_focus_x",
         "mask_enabled", "mask_direction", "mask_coverage", "bottom_scrim_strength",
-        "sharpen_amount",
+        "sharpen_amount", "scene_brightness", "scene_contrast", "scene_saturation",
         "title_x", "title_y", "title_tracking", "title_align",
         "divider_color", "divider_flare_pos", "divider_flare_color",
         "tags_source", "tags_x", "tags_y", "tags_per_library",
@@ -95,6 +97,13 @@ def test_layout_is_discoverable_and_has_schema(tmp_path):
     # 右侧压暗层已整组移除，海报阵列底图也已移除（改由「特效与装饰」提供遮罩）
     for removed in ("scrim_enabled", "scrim_color", "scrim_start", "scrim_ramp", "scrim_strength"):
         assert removed not in keys, f"已删除的字段仍在 schema：{removed}"
+    # 「调色与质感」整组下线：统一色相 / 溢光 / 暗角 / 颗粒都不再参与渲染
+    for removed in ("grade_color", "grade_strength", "glow_color", "glow_strength",
+                    "vignette_strength", "grain"):
+        assert removed not in keys, f"调色与质感字段仍在 schema：{removed}"
+    # auto_mirror 语义属于底图，移到「背景与底图」分组
+    bg_group = next(group for group in schema if group["group"] == "背景与底图")
+    assert "auto_mirror" in {item["key"] for item in bg_group["items"]}
     bg = next(item for group in schema for item in group["items"] if item["key"] == "bg_source")
     assert [option["value"] for option in bg["options"]] == ["keyart", "library"]
 
@@ -129,8 +138,7 @@ def test_uploaded_keyart_is_used_as_scene(tmp_path, monkeypatch):
         "engine": LAYOUT, "canvas_width": 640, "canvas_height": 360,
         "bg_source": "keyart", "keyart_file": "keyart-red.png",
         "title": "国产剧", "subtitle": "Chinese Drama", "badge_style": "none",
-        "mask_enabled": False, "grade_strength": 0, "grain": 0,
-        "vignette_strength": 0, "watermark_enabled": False,
+        "mask_enabled": False, "watermark_enabled": False,
     }
     frame = _render(engine, config, {"posters": [], "count": 0}).convert("RGB")
     left = ImageStat.Stat(frame.crop((0, 0, 320, 360))).mean
@@ -147,8 +155,7 @@ def test_missing_keyart_falls_back_to_library_background(tmp_path, monkeypatch):
         "engine": LAYOUT, "canvas_width": 640, "canvas_height": 360,
         "bg_source": "keyart", "keyart_file": "not-there.png",
         "title": "日番", "subtitle": "Anime", "badge_style": "none",
-        "mask_enabled": False, "grade_strength": 0, "grain": 0,
-        "vignette_strength": 0, "watermark_enabled": False,
+        "mask_enabled": False, "watermark_enabled": False,
     }
     assets = {"bg_url": "http://bg", "posters": ["http://p1"], "count": 0}
     frame = _render(engine, config, assets)
@@ -184,14 +191,14 @@ def test_tags_source_priority(tmp_path):
 
 
 def test_render_is_deterministic(tmp_path, monkeypatch):
-    """同配置重复渲染逐像素一致（噪点固定种子，否则动态封面会闪）。"""
+    """同配置重复渲染逐像素一致（遮罩 / 锐化都必须是确定性的）。"""
     engine = _make_engine(tmp_path)
     scene = _gradient((480, 270), (200, 170, 110), (24, 28, 40))
     monkeypatch.setattr(engine, "download_img", lambda url: scene.copy() if url else None)
     config = {
         "engine": LAYOUT, "canvas_width": 480, "canvas_height": 270,
         "bg_source": "library", "title": "欧美剧", "subtitle": "Western Drama",
-        "grain": 30, "badge_style": "none",
+        "mask_enabled": True, "badge_style": "none",
     }
     assets = {"bg_url": "http://bg", "posters": ["http://p1"], "count": 0}
     first = _render(engine, config, assets).convert("RGB")
@@ -312,8 +319,7 @@ def _plain_config(**overrides):
         "engine": LAYOUT, "canvas_width": 640, "canvas_height": 360,
         "bg_source": "library", "title": "", "subtitle": "",
         "slogan_cn": "", "slogan_en": "", "tags_text": "",
-        "watermark_enabled": False, "mask_enabled": False, "glow_strength": 0,
-        "grade_strength": 0, "grain": 0, "vignette_strength": 0,
+        "watermark_enabled": False, "mask_enabled": False,
         "frame_radius": 0, "frame_border_width": 0, "badge_style": "none",
         "divider_enabled": True, "divider_width": 40, "divider_thickness": 3,
         "divider_flare_pos": 50, "divider_flare_strength": 245,
@@ -369,7 +375,7 @@ def test_divider_is_a_continuous_glow(tmp_path, monkeypatch):
 
 
 def test_schema_defaults_for_divider_and_watermark(tmp_path):
-    """水印锚点默认 85%、灯带中心亮度默认 245、遮罩默认关闭。"""
+    """水印锚点默认 85%、灯带中心亮度默认 245、遮罩默认关闭、底图不做任何调整。"""
     engine = _make_engine(tmp_path)
     schema = engine.layout_modules[LAYOUT].get_schema()
     defaults = {item["key"]: item.get("default") for group in schema for item in group["items"]}
@@ -378,6 +384,11 @@ def test_schema_defaults_for_divider_and_watermark(tmp_path):
     assert defaults["mask_enabled"] is False
     assert defaults["mask_direction"] == "horizontal_reverse"
     assert defaults["sharpen_amount"] == 60
+    # 「底图什么样就什么样」：亮度/对比度/饱和度默认 1.0，底部压暗默认 0
+    assert defaults["scene_brightness"] == 1.0
+    assert defaults["scene_contrast"] == 1.0
+    assert defaults["scene_saturation"] == 1.0
+    assert defaults["bottom_scrim_strength"] == 0
     engine.close()
 
 

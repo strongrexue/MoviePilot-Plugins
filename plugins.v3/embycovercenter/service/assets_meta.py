@@ -176,6 +176,7 @@ def _template_digest(data: Dict[str, Any]) -> str:
 
 # 1.6.23 一次性铺开的 6 套「分类横幅」预设，1.6.24 收成单套；老用户数据目录里
 # 已经拷过这些文件，只靠「补缺失」清不掉，所以按内容指纹精确回收。
+# 1.6.26 起「暗场右文」预设也下线（布局模块保留，用户自建模板仍可用它）。
 RETIRED_TEMPLATES = {
     "分类横幅-暖金.json": "49ad552d4d9372e6ce8af67b1b0506d8a7cc6fcdd365cac288db9885901431d9",
     "分类横幅-冷蓝.json": "7e1c97d3ccd29d3aada0f142b8eecd4abda32430e422d417daaae74cd705e460",
@@ -183,6 +184,7 @@ RETIRED_TEMPLATES = {
     "分类横幅-左对齐.json": "5db7a383365f3c6cea8b83e3c7a2d6e138326624326e1f0c08f24c0722c20c5c",
     "分类横幅-海报阵列.json": "1bc3e53879e8ca44be9be95c652208f8ee6ebbc10d53cc9d16201f1dd98b4607",
     "分类横幅-无压暗全幅.json": "7c5c746cc87cbe9f1ea149a50513b3aa745a8855e1f41160b5db4abdede61107",
+    "暗场右文.json": "aef05ccba607e529845cfafeef4335ebc5cc931027782848787e29dc53be3e97",
 }
 
 

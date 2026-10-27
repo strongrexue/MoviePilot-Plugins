@@ -208,7 +208,7 @@ def test_category_banner_sharpen_improves_edge_contrast(tmp_path, monkeypatch):
 
 
 def test_shipped_preset_uses_library_background_without_scrim(tmp_path):
-    """随包预设走媒体库背景图 + 通用遮罩，不再带右侧压暗字段。"""
+    """随包预设走媒体库背景图，默认不压暗、不调色（底图什么样就什么样）。"""
     payload = json.loads(
         (PACKAGE / "defaults" / "templates" / "分类横幅.json").read_text(encoding="utf-8")
     )
@@ -216,7 +216,15 @@ def test_shipped_preset_uses_library_background_without_scrim(tmp_path):
     assert config["bg_source"] == "library"
     for removed in ("scrim_enabled", "scrim_color", "scrim_start", "scrim_ramp", "scrim_strength"):
         assert removed not in config, f"预设仍带已删除字段：{removed}"
-    assert config["mask_enabled"] is True
+    for removed in ("grade_color", "grade_strength", "glow_color", "glow_strength",
+                    "vignette_strength", "grain"):
+        assert removed not in config, f"预设仍带已下线的调色字段：{removed}"
+    # 预设默认「保持原图」：遮罩关、底部不压、亮度/对比度/饱和度都是 1.0
+    assert config["mask_enabled"] is False
+    assert config["bottom_scrim_strength"] == 0
+    assert config["scene_brightness"] == 1.0
+    assert config["scene_contrast"] == 1.0
+    assert config["scene_saturation"] == 1.0
     assert config["mask_direction"] == "horizontal_reverse"
     assert config["canvas_preset"] == "auto"
     assert config["output_quality"] == 95

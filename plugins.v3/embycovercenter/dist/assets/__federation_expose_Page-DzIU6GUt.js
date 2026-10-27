@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-CHwci9P4.js';
+import { F as FRONTEND_VERSION } from './version-CRpUmkdY.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3} = await importShared('vue');
 
@@ -1360,7 +1360,7 @@ return (_ctx, _cache) => {
                         variant: "outlined",
                         "hide-details": ""
                       }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                      _cache[21] || (_cache[21] = _createElementVNode$2("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题自动取英文名（手填即记住该库），载入模板不会改它们。 ", -1))
+                      _cache[21] || (_cache[21] = _createElementVNode$2("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题默认取媒体库英文名（手填即记住该库），载入模板不会改它们。 ", -1))
                     ]))
                   : (block.kind === 'style' || block.kind === 'engine')
                     ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_18, [
@@ -1527,7 +1527,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-1162b088"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-8fac52c3"]]);
 
 /**
  * Emby 计划任务中心的前端状态与动作。

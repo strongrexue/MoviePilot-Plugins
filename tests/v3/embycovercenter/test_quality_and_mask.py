@@ -181,29 +181,14 @@ def test_draw_keeps_2k_canvas_instead_of_downscaling(tmp_path, monkeypatch):
     engine.close()
 
 
-def test_category_banner_sharpen_improves_edge_contrast(tmp_path, monkeypatch):
-    """分类横幅的 sharpen_amount 必须真的提升边缘锐度，0 时原样返回。"""
+def test_category_banner_does_not_sharpen_background(tmp_path, monkeypatch):
+    """用户要求去掉底图智能锐化：底图应原样进出，不再有 _unsharp。"""
     engine = _make_engine(tmp_path)
     module = engine.layout_modules["分类横幅"]
-    # 模糊过的棋盘格：锐化后相邻像素差异（边缘能量）应明显变大
-    board = Image.new("RGB", (320, 180))
-    draw = ImageDraw.Draw(board)
-    for y in range(0, 180, 20):
-        for x in range(0, 320, 20):
-            if (x // 20 + y // 20) % 2 == 0:
-                draw.rectangle([x, y, x + 19, y + 19], fill=(200, 200, 200))
-    from PIL import ImageFilter
-
-    soft = board.filter(ImageFilter.GaussianBlur(2.0)).convert("RGBA")
-    sharp = module._unsharp(soft, 120)
-
-    def edge_energy(image):
-        gray = image.convert("L")
-        return ImageStat.Stat(ImageChops.difference(gray, gray.filter(ImageFilter.GaussianBlur(1.0)))).mean[0]
-
-    assert edge_energy(sharp) > edge_energy(soft) * 1.3, "锐化没有提升边缘对比度"
-    # amount=0 时逐像素原样返回
-    assert ImageChops.difference(module._unsharp(soft, 0).convert("RGB"), soft.convert("RGB")).getbbox() is None
+    assert not hasattr(module, "_unsharp"), "底图智能锐化应已移除"
+    assert "sharpen_amount" not in {
+        item["key"] for group in module.get_schema() for item in group["items"]
+    }
     engine.close()
 
 

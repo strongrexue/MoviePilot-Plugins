@@ -75,24 +75,29 @@ def test_layout_is_discoverable_and_has_schema(tmp_path):
     schema = module.get_schema()
     groups = {group["group"] for group in schema}
     # 用户明确要求「标题/副标题/字距/光带/圆角框/水印/标签各自可单独分区修改」
-    for expected in ("背景与底图", "底图调整（默认 1.0 = 保持原样）", "特效与装饰", "主标题", "英文名", "标语",
+    for expected in ("背景与底图", "底图调整（默认 1.0 = 保持原样）", "特效与装饰", "主标题", "副标题", "标语",
                      "灯带（标题下的光带）", "题材标签", "书法水印", "圆角边框"):
         assert expected in groups, f"缺少分组：{expected}"
     # 用户要求「去掉调色与质感组件，底图什么样就什么样」
     assert "调色与质感" not in groups, "调色与质感分组应已移除"
+    # 「英文名」已按用户要求改名为「副标题」
+    assert "英文名" not in groups, "「英文名」分组应已改名为「副标题」"
 
     keys = {item["key"] for group in schema for item in group["items"]}
     for key in (
         "bg_source", "keyart_file", "keyart_per_library", "keyart_focus_x",
-        "mask_enabled", "mask_direction", "mask_coverage", "bottom_scrim_strength",
-        "sharpen_amount", "scene_brightness", "scene_contrast", "scene_saturation",
-        "title_x", "title_y", "title_tracking", "title_align",
+        "mask_enabled", "mask_color", "mask_direction", "mask_coverage", "bottom_scrim_strength",
+        "scene_brightness", "scene_contrast", "scene_saturation",
+        "title_enabled", "title_x", "title_y", "title_tracking", "title_align",
+        "subtitle_enabled", "slogan_enabled", "tags_enabled",
         "divider_color", "divider_flare_pos", "divider_flare_color",
         "tags_source", "tags_x", "tags_y", "tags_per_library",
         "watermark_enabled", "watermark_x", "watermark_rotate",
         "frame_radius", "frame_border_color",
     ):
         assert key in keys, f"schema 缺少字段：{key}"
+    # 用户要求「去掉底图智能锐化」
+    assert "sharpen_amount" not in keys, "底图智能锐化应已移除"
 
     # 右侧压暗层已整组移除，海报阵列底图也已移除（改由「特效与装饰」提供遮罩）
     for removed in ("scrim_enabled", "scrim_color", "scrim_start", "scrim_ramp", "scrim_strength"):
@@ -382,13 +387,16 @@ def test_schema_defaults_for_divider_and_watermark(tmp_path):
     assert defaults["watermark_x"] == 85
     assert defaults["divider_flare_strength"] == 245
     assert defaults["mask_enabled"] is False
+    assert defaults["mask_color"] == "#000000"
     assert defaults["mask_direction"] == "horizontal_reverse"
-    assert defaults["sharpen_amount"] == 60
-    # 「底图什么样就什么样」：亮度/对比度/饱和度默认 1.0，底部压暗默认 0
+    # 「底图什么样就什么样」：亮度/对比度/饱和度默认 1.0，底部遮罩默认 0
     assert defaults["scene_brightness"] == 1.0
     assert defaults["scene_contrast"] == 1.0
     assert defaults["scene_saturation"] == 1.0
     assert defaults["bottom_scrim_strength"] == 0
+    # 四个文字区块各自带独立开关，默认全开
+    for key in ("title_enabled", "subtitle_enabled", "slogan_enabled", "tags_enabled"):
+        assert defaults[key] is True, f"{key} 默认应为开"
     engine.close()
 
 
@@ -430,3 +438,74 @@ def test_seeded_install_has_single_category_banner_preset(tmp_path):
     entries = assets_meta.list_templates(plugin)
     assert "分类横幅" in [entry["name"] for entry in entries]
     assert not [entry for entry in entries if entry["name"].startswith("分类横幅-")]
+
+
+def test_upgrade_shipped_templates_replaces_legacy_copy(tmp_path):
+    """内置预设原地升级：老指纹被覆盖成随包版本，缩略图同步换新，重复调用幂等。"""
+    plugin = _FakePlugin(tmp_path)
+    assets_meta.ensure_dirs(plugin)
+    target = assets_meta.templates_dir(plugin)
+    packaged = json.loads(
+        (assets_meta.PACKAGE_DEFAULTS_DIR / "templates" / "分类横幅.json").read_text(encoding="utf-8")
+    )
+    packaged_digest = assets_meta._template_digest(packaged)
+    legacy = {"name": packaged["name"], "layout": LAYOUT, "config": {"title_size": 111}}
+    legacy_digest = assets_meta._template_digest(legacy)
+    assert legacy_digest != packaged_digest
+
+    path = target / "分类横幅.json"
+    preview = target / "分类横幅.jpg"
+    path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    preview.write_bytes(b"old-preview")
+
+    monkeypatch_target = assets_meta.SHIPPED_TEMPLATE_HISTORY
+    assets_meta.SHIPPED_TEMPLATE_HISTORY = {"分类横幅.json": {legacy_digest}}
+    try:
+        assert assets_meta.upgrade_shipped_templates(plugin) == 1
+    finally:
+        assets_meta.SHIPPED_TEMPLATE_HISTORY = monkeypatch_target
+
+    assert assets_meta._template_digest(json.loads(path.read_text(encoding="utf-8"))) == packaged_digest
+    assert preview.read_bytes() == (
+        assets_meta.PACKAGE_DEFAULTS_DIR / "templates" / "分类横幅.jpg"
+    ).read_bytes()
+    # 幂等：已经是随包版本时不再改动
+    assets_meta.SHIPPED_TEMPLATE_HISTORY = {"分类横幅.json": {legacy_digest}}
+    try:
+        assert assets_meta.upgrade_shipped_templates(plugin) == 0
+    finally:
+        assets_meta.SHIPPED_TEMPLATE_HISTORY = monkeypatch_target
+
+
+def test_upgrade_shipped_templates_keeps_user_edits(tmp_path):
+    """用户改过配置的预设不能被覆盖。"""
+    plugin = _FakePlugin(tmp_path)
+    assets_meta.ensure_dirs(plugin)
+    target = assets_meta.templates_dir(plugin)
+    packaged = json.loads(
+        (assets_meta.PACKAGE_DEFAULTS_DIR / "templates" / "分类横幅.json").read_text(encoding="utf-8")
+    )
+    legacy = {"name": packaged["name"], "layout": LAYOUT, "config": {"title_size": 111}}
+    edited = {"name": "我的分类横幅", "layout": LAYOUT, "config": {"title_size": 300}}
+    path = target / "分类横幅.json"
+    path.write_text(json.dumps(edited, ensure_ascii=False), encoding="utf-8")
+    before = path.read_bytes()
+
+    original = assets_meta.SHIPPED_TEMPLATE_HISTORY
+    assets_meta.SHIPPED_TEMPLATE_HISTORY = {"分类横幅.json": {assets_meta._template_digest(legacy)}}
+    try:
+        assert assets_meta.upgrade_shipped_templates(plugin) == 0
+    finally:
+        assets_meta.SHIPPED_TEMPLATE_HISTORY = original
+    assert path.read_bytes() == before
+
+
+def test_shipped_preset_history_matches_packaged_file(tmp_path):
+    """登记的历史指纹必须都和随包版本不同，否则这条记录毫无意义。"""
+    packaged = json.loads(
+        (assets_meta.PACKAGE_DEFAULTS_DIR / "templates" / "分类横幅.json").read_text(encoding="utf-8")
+    )
+    packaged_digest = assets_meta._template_digest(packaged)
+    history = assets_meta.SHIPPED_TEMPLATE_HISTORY["分类横幅.json"]
+    assert history, "应登记至少一个历史版本指纹"
+    assert packaged_digest not in history

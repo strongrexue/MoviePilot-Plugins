@@ -393,7 +393,7 @@ onMounted(designer.loadAll)
               @update:model-value="designer.onSubtitleEdited"
             />
             <div class="text-caption text-medium-emphasis ec-span">
-              主标题跟随所选媒体库，副标题自动取英文名（手填即记住该库），载入模板不会改它们。
+              主标题跟随所选媒体库，副标题默认取媒体库英文名（手填即记住该库），载入模板不会改它们。
             </div>
           </div>
 

@@ -1,4 +1,13 @@
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter
+
+
+def _mask_rgb(value):
+    """遮罩颜色：解析 #rrggbb / 颜色名，非法值退回黑色。"""
+    try:
+        return ImageColor.getrgb(str(value or "#000000"))[:3]
+    except Exception:
+        return (0, 0, 0)
+
 
 # === 1. 定义布局参数 (已重构顺序) ===
 def get_schema():
@@ -25,7 +34,8 @@ def get_schema():
         {
             "group": "特效与装饰",
             "items": [
-                {"key": "mask_opacity", "label": "黑色遮罩浓度", "type": "range", "min": 0, "max": 255, "default": 180},
+                {"key": "mask_color", "label": "遮罩颜色", "type": "color", "default": "#000000"},
+                {"key": "mask_opacity", "label": "遮罩浓度", "type": "range", "min": 0, "max": 255, "default": 180},
                 {"key": "mask_coverage", "label": "遮罩覆盖范围 %", "type": "range", "min": 10, "max": 100, "default": 100},
                 {"key": "mask_direction", "label": "遮罩方向", "type": "select", "options": [
                     {"label": "水平渐变 (左黑右亮)", "value": "horizontal"},
@@ -82,9 +92,10 @@ def render(ctx, bg, config, assets, fonts):
     mask_opacity = int(config.get('mask_opacity', 180))
     mask_coverage = int(config.get('mask_coverage', 100))
     direction = config.get('mask_direction', 'horizontal')
-    
+    mask_color = str(config.get('mask_color') or '#000000')
+
     mask = ctx.create_smart_mask(width, height, mask_opacity, mask_coverage, direction)
-    black_layer = Image.new('RGBA', (width, height), (0,0,0,255))
+    black_layer = Image.new('RGBA', (width, height), _mask_rgb(mask_color) + (255,))
     black_layer.putalpha(mask)
     bg = Image.alpha_composite(bg, black_layer)
 

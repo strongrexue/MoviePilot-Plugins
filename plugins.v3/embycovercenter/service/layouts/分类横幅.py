@@ -4,25 +4,27 @@
 这里不把「左右分区」写死成结构，而是把每个元素都做成独立图层：
 
 - 标题给一个锚点（``title_x`` / ``title_y`` / ``title_align``），
-  英文名 / 中文标语 / 英文标语默认 ``inherit`` 跟随标题的锚点与对齐；
+  副标题 / 中文标语 / 英文标语默认 ``inherit`` 跟随标题的锚点与对齐；
 - 光带、题材标签、书法水印、圆角边框各有自己的坐标；
 - 压暗不再内建，改由「特效与装饰」的通用渐变遮罩（``mask_*``）提供，
-  四个方向可选，和「极简」布局共用同一套语义。
+  四个方向可选，颜色可调，和「极简」布局共用同一套语义。
 
 默认值拼出来是参考图的居中版式；改任意一项只动那个元素，互不影响。
 
 底图两种来源（``bg_source``）：
-- ``library``：引擎给的媒体库背景图（自动补智能锐化）；
+- ``library``：引擎给的媒体库背景图；
 - ``keyart``：用户/AI 准备的成品主视觉（本地上传 / URL / 按库配置），
   都不会画人物——那是美术资产，插件只负责版式与压字。
 
-**不做统一调色**：底图什么样就什么样，只保留「底图调整」三个可选开关
-（亮度 / 对比度 / 饱和度，默认 1.0 = 原样）与「特效与装饰」里的渐变遮罩、
-底部压暗、智能锐化，全部由用户显式开启才生效。
+``auto_mirror`` 对两种来源都生效：画面左暗右亮时水平翻转，让亮区始终在左。
+
+**不做统一调色**：底图什么样就什么样，「底图调整」三个开关（亮度 / 对比度 /
+饱和度，默认 1.0 = 原样）显式开启才生效；「特效与装饰」里的渐变遮罩与底部
+遮罩同样默认关闭。
 
 分层顺序（自下而上）：
-底图（+ 可选亮度/对比度/饱和度）→ 渐变遮罩（可选）→ 底部压暗
-→ 书法水印 → 标题（金属渐变）→ 光带 → 英文名 → 中文标语
+底图（+ 可选亮度/对比度/饱和度）→ 渐变遮罩（可选）→ 底部遮罩
+→ 书法水印 → 标题（金属渐变）→ 光带 → 副标题 → 中文标语
 → 英文标语 → 题材标签 → 圆角边框。
 """
 from __future__ import annotations
@@ -71,28 +73,6 @@ def _rgb(value, fallback=(0, 0, 0)):
 def _mix(color, other, ratio):
     ratio = max(0.0, min(1.0, ratio))
     return tuple(int(round(a * (1 - ratio) + b * ratio)) for a, b in zip(color, other))
-
-
-def _unsharp(image, amount_percent):
-    """智能锐化：只锐化亮度、限制边缘光晕，放大后的底图不会变脏。
-
-    ``amount_percent`` 0-200，0 表示原样返回。用 USM 而不是逐像素卷积：
-    ``radius`` 随画布缩放，``threshold`` 让平坦区域（天空、纯色块）不被放大噪点。
-    """
-    amount = max(0.0, min(200.0, float(amount_percent or 0)))
-    if amount <= 0:
-        return image
-    scale = max(1.0, image.size[1] / float(REFERENCE_HEIGHT))
-    radius = max(0.6, 1.6 * scale)
-    percent = int(round(amount * 1.2))
-    try:
-        from PIL import ImageFilter as _Filter
-
-        return image.filter(
-            _Filter.UnsharpMask(radius=radius, percent=percent, threshold=3)
-        )
-    except Exception:
-        return image
 
 
 def _vgradient(size, stops):
@@ -382,7 +362,7 @@ def get_schema():
                  "min": 0, "max": 100, "step": 1, "default": 50},
                 {"key": "keyart_focus_y", "label": "主视觉裁剪焦点 Y %", "type": "range",
                  "min": 0, "max": 100, "step": 1, "default": 50},
-                {"key": "auto_mirror", "label": "素材右亮时自动镜像（仅媒体库背景图）", "type": "boolean",
+                {"key": "auto_mirror", "label": "素材镜像（左暗右亮时自动水平翻转）", "type": "boolean",
                  "default": True},
             ],
         },
@@ -401,7 +381,8 @@ def get_schema():
             "group": "特效与装饰",
             "items": [
                 {"key": "mask_enabled", "label": "显示渐变遮罩", "type": "boolean", "default": False},
-                {"key": "mask_opacity", "label": "黑色遮罩浓度", "type": "range", "min": 0, "max": 255, "step": 1,
+                {"key": "mask_color", "label": "遮罩颜色", "type": "color", "default": "#000000"},
+                {"key": "mask_opacity", "label": "遮罩浓度", "type": "range", "min": 0, "max": 255, "step": 1,
                  "default": 180},
                 {"key": "mask_coverage", "label": "遮罩覆盖范围 %", "type": "range", "min": 10, "max": 100, "step": 1,
                  "default": 100},
@@ -412,16 +393,15 @@ def get_schema():
                      {"label": "垂直渐变 (下黑上亮)", "value": "vertical"},
                      {"label": "垂直渐变 (上黑下亮)", "value": "vertical_reverse"},
                  ]},
-                {"key": "bottom_scrim_color", "label": "底部压暗颜色", "type": "color", "default": "#0A0705"},
-                {"key": "bottom_scrim_strength", "label": "底部压暗强度（0=不压，保持原图）", "type": "range",
+                {"key": "bottom_scrim_color", "label": "底部遮罩颜色", "type": "color", "default": "#0A0705"},
+                {"key": "bottom_scrim_strength", "label": "底部遮罩浓度（0=不压，保持原图）", "type": "range",
                  "min": 0, "max": 255, "step": 1, "default": 0},
-                {"key": "sharpen_amount", "label": "底图智能锐化 %", "type": "range", "min": 0, "max": 200, "step": 1,
-                 "default": 60},
             ],
         },
         {
             "group": "主标题",
             "items": [
+                {"key": "title_enabled", "label": "显示主标题", "type": "boolean", "default": True},
                 {"key": "title", "label": "主标题（空 = 媒体库名）", "type": "text", "default": ""},
                 {"key": "font_title", "label": "主标题字体", "type": "font", "default": DEFAULT_FONT_TITLE},
                 {"key": "title_size", "label": "字号（1080 高基准，超宽自动缩）", "type": "range",
@@ -439,10 +419,11 @@ def get_schema():
             ],
         },
         {
-            "group": "英文名",
+            "group": "副标题",
             "items": [
-                {"key": "subtitle", "label": "英文名（空 = 内置词典 / 库名）", "type": "text", "default": ""},
-                {"key": "font_subtitle", "label": "英文字体", "type": "font", "default": DEFAULT_FONT_LIGHT},
+                {"key": "subtitle_enabled", "label": "显示副标题", "type": "boolean", "default": True},
+                {"key": "subtitle", "label": "副标题（空 = 内置词典 / 库名）", "type": "text", "default": ""},
+                {"key": "font_subtitle", "label": "副标题字体", "type": "font", "default": DEFAULT_FONT_LIGHT},
                 {"key": "subtitle_size_ratio", "label": "字号（相对主标题）", "type": "range",
                  "min": 0.05, "max": 0.6, "step": 0.005, "default": 0.225},
                 {"key": "subtitle_tracking", "label": "字距 em", "type": "range", "min": 0, "max": 0.8, "step": 0.01, "default": 0.46},
@@ -457,6 +438,7 @@ def get_schema():
         {
             "group": "标语",
             "items": [
+                {"key": "slogan_enabled", "label": "显示标语", "type": "boolean", "default": True},
                 {"key": "slogan_cn", "label": "中文标语（空格分段）", "type": "text", "default": "好故事 好人生"},
                 {"key": "slogan_en", "label": "英文标语（全大写渲染）", "type": "text", "default": "GOOD STORIES, GOOD LIFE"},
                 {"key": "font_slogan", "label": "标语的字体", "type": "font", "default": DEFAULT_FONT_TEXT},
@@ -464,7 +446,7 @@ def get_schema():
                  "min": 0.05, "max": 0.6, "step": 0.005, "default": 0.215},
                 {"key": "slogan_spacing", "label": "中文两段之间的间距 em（0=贴紧）", "type": "range",
                  "min": 0, "max": 3, "step": 0.05, "default": 0.85},
-                {"key": "slogan_gap", "label": "与英文名距离 % 画布高", "type": "range", "min": 0, "max": 10, "step": 0.1, "default": 3.0},
+                {"key": "slogan_gap", "label": "与副标题距离 % 画布高", "type": "range", "min": 0, "max": 10, "step": 0.1, "default": 3.0},
                 {"key": "slogan_en_size_ratio", "label": "英文标语字号（相对中文标语）", "type": "range",
                  "min": 0.1, "max": 1.2, "step": 0.01, "default": 0.46},
                 {"key": "slogan_en_tracking", "label": "英文标语字距 em", "type": "range",
@@ -495,6 +477,7 @@ def get_schema():
         {
             "group": "题材标签",
             "items": [
+                {"key": "tags_enabled", "label": "显示题材标签", "type": "boolean", "default": True},
                 {"key": "tags_source", "label": "取值优先级", "type": "select", "default": "manual",
                  "options": [
                      {"label": "手填优先", "value": "manual"},
@@ -640,7 +623,7 @@ def _right_brighter(image, margin=0.04):
 
 
 def _build_scene(ctx, bg, config, assets):
-    """底图 + 调色：返回 RGBA 画布；素材缺失时退回引擎给的背景图。"""
+    """底图：返回 RGBA 画布；素材缺失时退回引擎给的背景图。不做任何锐化/调色。"""
     width, height = bg.size
     size = (width, height)
     source = _choice(config, "bg_source", ("keyart", "library"), "keyart")
@@ -650,11 +633,10 @@ def _build_scene(ctx, bg, config, assets):
         scene = _keyart(ctx, config, assets, size)
     if scene is None:
         scene = ImageOps.fit(bg.convert("RGBA"), size, method=Image.LANCZOS)
-        if source != "keyart" and _flag(config, "auto_mirror", True) and _right_brighter(scene):
-            scene = ImageOps.mirror(scene)
-        # 媒体库背景图由服务器按 maxHeight 缩放后送达，放大到 2K/4K 画布会发虚，
-        # 这里补一层智能锐化（主视觉是成品图，不锐化，避免二次处理过锐）。
-        scene = _unsharp(scene, _clamp(_value(config, "sharpen_amount", 60), 0, 200, 60))
+    # 素材镜像：两种底图来源都适用（主视觉 / 媒体库背景图），
+    # 左暗右亮时水平翻转，让亮区始终落在左侧、文字压在暗侧。
+    if _flag(config, "auto_mirror", True) and _right_brighter(scene):
+        scene = ImageOps.mirror(scene)
 
     # 底图调整：默认全部 1.0，等于「底图什么样就什么样」；只有用户显式调了才生效。
     brightness = _clamp(_value(config, "scene_brightness", 1.0), 0.5, 1.6, 1.0)
@@ -726,7 +708,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     frame = _build_scene(ctx, bg, config, assets)
     title = str(_value(config, "title", "") or assets.get("library_name") or "").strip()
 
-    # ---- 渐变遮罩（特效与装饰）：与「极简」同一套参数，方向可正可反
+    # ---- 渐变遮罩（特效与装饰）：与「极简」同一套参数，方向可正可反，颜色可选
     if _flag(config, "mask_enabled", False):
         mask = ctx.create_smart_mask(
             width,
@@ -740,11 +722,12 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
                 "horizontal_reverse",
             ),
         )
-        shade = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+        mask_color = _rgb(_value(config, "mask_color", "#000000"), (0, 0, 0))
+        shade = Image.new("RGBA", (width, height), mask_color + (255,))
         shade.putalpha(mask)
         frame = Image.alpha_composite(frame, shade)
 
-    # ---- 底部压暗：给左下角的题材标签一个落脚点（整幅压，不依赖左右分区）
+    # ---- 底部遮罩：给左下角的题材标签一个落脚点（整幅压，不依赖左右分区）
     # 默认 0 = 完全不压，底图什么样就什么样；用户想要压暗再往上调。
     bottom_strength = _clamp(_value(config, "bottom_scrim_strength", 0), 0, 255, 0)
     if bottom_strength > 0:
@@ -812,7 +795,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     title_tracking = int(title_size * title_tracking_ratio)
     title_font = book.get(title_font_name, title_size)
 
-    if title:
+    if title and _flag(config, "title_enabled", True):
         metal = _metal_text(
             (width, height), title, title_font, title_tracking, anchor, title_top, title_align,
             _rgb(_value(config, "title_gradient_top", "#FFF6DC"), (255, 246, 220)),
@@ -854,7 +837,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
             box = (glow_x, glow_y, glow_x + layer.width, glow_y + layer.height)
             frame.paste(ImageChops.screen(frame.crop(box), layer), box)
 
-    # ---- 英文名（全大写 + 宽字距）
+    # ---- 副标题（全大写 + 宽字距）
     subtitle = str(_value(config, "subtitle", "") or assets.get("library_en") or "").strip().upper()
     subtitle_align = _choice(config, "subtitle_align", tuple(_INHERIT_ALIGN_OPTIONS), "inherit")
     if subtitle_align == "inherit":
@@ -868,7 +851,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     subtitle_font = book.get(_value(config, "font_subtitle", DEFAULT_FONT_LIGHT), subtitle_size)
     subtitle_tracking = int(subtitle_size * subtitle_tracking_ratio)
     subtitle_y = line_y + int(height * _clamp(_value(config, "subtitle_gap", 2.8), 0, 10, 2.8) / 100.0)
-    if subtitle:
+    if subtitle and _flag(config, "subtitle_enabled", True):
         _draw_tracked(
             ImageDraw.Draw(frame), subtitle, anchor, subtitle_y, subtitle_font,
             _rgb(_value(config, "subtitle_color", "#D9C9AE"), (217, 201, 174)) + (255,),
@@ -894,7 +877,8 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
         slogan_gap = int(slogan_size * slogan_spacing)
         slogan_block = sum(slogan_font.getlength(part) for part in slogan_parts) + slogan_gap * max(0, len(slogan_parts) - 1)
     slogan_y = subtitle_y + int(subtitle_size * 1.45 + height * _clamp(_value(config, "slogan_gap", 3.0), 0, 10, 3.0) / 100.0)
-    if slogan_parts:
+    slogan_enabled = _flag(config, "slogan_enabled", True)
+    if slogan_parts and slogan_enabled:
         draw = ImageDraw.Draw(frame)
         x = _align_x(anchor, slogan_block, slogan_align)
         for index, part in enumerate(slogan_parts):
@@ -903,7 +887,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
 
     # ---- 英文标语
     slogan_en = str(_value(config, "slogan_en", "") or "").strip().upper()
-    if slogan_en:
+    if slogan_en and slogan_enabled:
         en_ratio = _clamp(_value(config, "slogan_en_size_ratio", 0.46), 0.1, 1.2, 0.46)
         en_tracking_ratio = _clamp(_value(config, "slogan_en_tracking", 0.30), 0, 1, 0.30)
         en_base = int(max(8, slogan_size) * en_ratio)
@@ -918,7 +902,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
         )
 
     # ---- 题材标签：默认左下；手填 > 按库预设 > 接口题材
-    tags = _tags_for(config, assets)
+    tags = _tags_for(config, assets) if _flag(config, "tags_enabled", True) else []
     if tags:
         tag_size = px(_clamp(_value(config, "tags_size", 25), 8, 60, 25))
         tag_tracking_ratio = _clamp(_value(config, "tags_tracking", 0.22), 0, 1, 0.22)

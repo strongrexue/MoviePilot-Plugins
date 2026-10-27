@@ -77,6 +77,7 @@ def seed_default_templates(plugin) -> int:
             logger.warning(f"[EmbyCoverCenter] 拷贝默认模板失败 {item.name}: {error}")
     copied += fix_known_template_bugs(plugin)
     copied += rename_legacy_template_names(plugin)
+    upgrade_shipped_templates(plugin)
     return copied
 
 
@@ -213,6 +214,65 @@ def retire_legacy_templates(plugin) -> int:
         except Exception as error:
             logger.warning(f"[EmbyCoverCenter] 移除内置预设失败 {filename}: {error}")
     return removed
+
+
+# 内置预设「原地升级」：数据目录里的文件只在首次初始化时拷一次，之后只补缺失，
+# 所以插件升级时老用户拿到的还是旧配置、旧缩略图（界面上就是「缩略图没变」）。
+# 这里登记历代发行版的模板内容指纹：指纹仍命中说明用户没改过，整体换成新版
+# （json + 缩略图一起换）；改过配置的保持原样，不碰用户数据。
+SHIPPED_TEMPLATE_HISTORY = {
+    "分类横幅.json": {
+        "a2a8f578e7e6a4dc5437c833dd447c3f47251f17303a928a371896e10e6c298e",  # 1.6.24
+        "325ccc52e84786261c94ee9b07072f38ceb8beaad84088abce65b470e584a95c",  # 1.6.25
+        "2cb529284350541a43c72c48ce8ec9990d171af8cbddf79c48f610296cb7863a",  # 1.6.26
+    },
+}
+
+
+def upgrade_shipped_templates(plugin) -> int:
+    """把未被用户改动过的内置预设升级到本版随包版本（含缩略图）；返回升级数量。
+
+    两种情况会触发升级：``json`` 指纹命中历史发行版，或 ``json`` 已是最新版
+    但缩略图与随包版本字节不一致（老装机「缩略图没变」就是后者）。缩略图字节
+    相同则不写盘，避免无谓 IO。
+    """
+    source = PACKAGE_DEFAULTS_DIR / "templates"
+    if not source.exists():
+        return 0
+    target = templates_dir(plugin)
+    upgraded = 0
+    for filename, history in SHIPPED_TEMPLATE_HISTORY.items():
+        packaged = source / filename
+        path = target / filename
+        if not packaged.exists() or not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+            digest = _template_digest(data)
+            packaged_data = json.loads(packaged.read_text(encoding="utf-8"))
+            packaged_digest = _template_digest(packaged_data) if isinstance(packaged_data, dict) else ""
+            if digest != packaged_digest and digest not in history:
+                continue  # 用户已自定义，跳过
+            changed = False
+            if digest != packaged_digest:
+                path.write_bytes(packaged.read_bytes())
+                changed = True
+            preview_name = path.with_suffix(PREVIEW_EXTENSION).name
+            packaged_preview = source / preview_name
+            if packaged_preview.exists():
+                local_preview = target / preview_name
+                if not local_preview.exists() or local_preview.read_bytes() != packaged_preview.read_bytes():
+                    local_preview.write_bytes(packaged_preview.read_bytes())
+                    changed = True
+            if not changed:
+                continue
+            upgraded += 1
+            logger.info(f"[EmbyCoverCenter] 已更新内置预设：{filename}")
+        except Exception as error:
+            logger.warning(f"[EmbyCoverCenter] 更新内置预设失败 {filename}: {error}")
+    return upgraded
 
 
 def seed_default_fonts(plugin) -> int:

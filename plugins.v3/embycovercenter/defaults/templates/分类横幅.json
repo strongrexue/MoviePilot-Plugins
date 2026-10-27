@@ -88,9 +88,13 @@
         "mask_direction": "horizontal_reverse",
         "bottom_scrim_color": "#0A0705",
         "bottom_scrim_strength": 0,
-        "sharpen_amount": 60,
         "canvas_preset": "auto",
         "output_quality": 95,
-        "scene_contrast": 1.0
+        "scene_contrast": 1.0,
+        "mask_color": "#000000",
+        "title_enabled": true,
+        "subtitle_enabled": true,
+        "slogan_enabled": true,
+        "tags_enabled": true
     }
 }

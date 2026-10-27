@@ -1,7 +1,7 @@
 {
     "name":  "moviepilot-embycovercenter-plugin",
     "private":  true,
-    "version": "1.6.28",
+    "version": "1.6.29",
     "type":  "module",
     "scripts":  {
                     "clean":  "node -e \"const fs=require(\u0027fs\u0027);const dir=\u0027dist/assets\u0027;if(fs.existsSync(dir)){for(const f of fs.readdirSync(dir)){if(f!==\u0027.gitkeep\u0027)fs.unlinkSync(dir+\u0027/\u0027+f);}}\"",

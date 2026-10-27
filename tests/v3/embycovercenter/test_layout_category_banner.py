@@ -195,6 +195,36 @@ def test_tags_source_priority(tmp_path):
     assert module._tags_for(dict(empty, tags_source="manual"), {}) == []
 
 
+def test_auto_mirror_flips_unconditionally(tmp_path, monkeypatch):
+    """素材镜像 = 开启就水平翻转、关闭就用原图；不判断画面哪边更亮，默认关闭。"""
+    engine = _make_engine(tmp_path)
+    module = engine.layout_modules[LAYOUT]
+    # 左亮右暗：本身就符合版式期望，旧版「右亮才翻」的实现不会动它
+    scene = _gradient((320, 180), (220, 200, 160), (20, 24, 34))
+    monkeypatch.setattr(engine, "download_img", lambda url: scene.copy() if url else None)
+    assets = {"bg_url": "http://bg", "posters": [], "count": 0}
+    plain = {
+        "engine": LAYOUT, "canvas_width": 320, "canvas_height": 180,
+        "bg_source": "library", "badge_style": "none",
+    }
+
+    def scene_of(**overrides):
+        config = dict(plain, **overrides)
+        bg = engine._build_background(config, assets, (320, 180))
+        return module._build_scene(engine, bg, config, assets).convert("RGB")
+
+    original = scene_of()
+    flipped = scene_of(auto_mirror=True)
+    assert ImageChops.difference(original, flipped).getbbox() is not None, "开启素材镜像应翻转画面"
+    assert ImageChops.difference(flipped, original.transpose(Image.FLIP_LEFT_RIGHT)).getbbox() is None
+    # 关闭或压根没配该键时，必须逐像素等于原图
+    assert ImageChops.difference(scene_of(auto_mirror=False), original).getbbox() is None
+
+    defaults = {item["key"]: item.get("default") for group in module.get_schema() for item in group["items"]}
+    assert defaults["auto_mirror"] is False
+    engine.close()
+
+
 def test_render_is_deterministic(tmp_path, monkeypatch):
     """同配置重复渲染逐像素一致（遮罩 / 锐化都必须是确定性的）。"""
     engine = _make_engine(tmp_path)
@@ -400,6 +430,9 @@ def test_schema_defaults_for_divider_and_watermark(tmp_path):
     # 四个文字区块各自带独立开关，默认全开
     for key in ("title_enabled", "subtitle_enabled", "slogan_enabled", "tags_enabled"):
         assert defaults[key] is True, f"{key} 默认应为开"
+    # 圆角与边框：默认就是最大档（半径 80、粗细 8），开箱即圆角描边效果
+    assert defaults["frame_radius"] == 80
+    assert defaults["frame_border_width"] == 8
     engine.close()
 
 

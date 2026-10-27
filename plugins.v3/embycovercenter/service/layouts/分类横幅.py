@@ -16,11 +16,12 @@
 - ``keyart``：用户/AI 准备的成品主视觉（本地上传 / URL / 按库配置），
   都不会画人物——那是美术资产，插件只负责版式与压字。
 
-``auto_mirror`` 对两种来源都生效：画面左暗右亮时水平翻转，让亮区始终在左。
+``auto_mirror``（文案「素材镜像」）对两种来源都生效：**开启即水平翻转、关闭就用原图**，
+不判断画面哪边更亮，默认关闭。
 
 **不做统一调色**：底图什么样就什么样，「底图调整」三个开关（亮度 / 对比度 /
-饱和度，默认 1.0 = 原样）显式开启才生效；「特效与装饰」里的渐变遮罩与底部
-遮罩同样默认关闭。
+饱和度，默认 1.0 = 原样）显式开启才生效；「特效与装饰」里的渐变遮罩默认开启
+（浓度 180 / 范围 66%），底部遮罩默认关闭。
 
 分层顺序（自下而上）：
 底图（+ 可选亮度/对比度/饱和度）→ 渐变遮罩（可选）→ 底部遮罩
@@ -42,7 +43,6 @@ from PIL import (
     ImageEnhance,
     ImageFilter,
     ImageOps,
-    ImageStat,
 )
 
 # 尺寸类参数（字号 / 圆角 / 线宽）都按 1080 高的画布校准，渲染时按实际高度等比缩放。
@@ -362,8 +362,8 @@ def get_schema():
                  "min": 0, "max": 100, "step": 1, "default": 50},
                 {"key": "keyart_focus_y", "label": "主视觉裁剪焦点 Y %", "type": "range",
                  "min": 0, "max": 100, "step": 1, "default": 50},
-                {"key": "auto_mirror", "label": "素材镜像（左暗右亮时自动水平翻转）", "type": "boolean",
-                 "default": True},
+                {"key": "auto_mirror", "label": "素材镜像（开启即水平翻转，关闭用原图）", "type": "boolean",
+                 "default": False},
             ],
         },
         {
@@ -524,9 +524,9 @@ def get_schema():
             "group": "圆角边框",
             "items": [
                 {"key": "frame_radius", "label": "圆角半径（1080 高基准，0=直角）", "type": "range",
-                 "min": 0, "max": 80, "step": 1, "default": 44},
+                 "min": 0, "max": 160, "step": 1, "default": 80},
                 {"key": "frame_border_width", "label": "边框粗细（1080 高基准）", "type": "range",
-                 "min": 0, "max": 8, "step": 0.1, "default": 2},
+                 "min": 0, "max": 16, "step": 0.1, "default": 8},
                 {"key": "frame_border_color", "label": "边框颜色", "type": "color", "default": "#D8966C"},
                 {"key": "frame_border_opacity", "label": "边框不透明度 %", "type": "range", "min": 0, "max": 100, "step": 1, "default": 66},
                 {"key": "frame_glow", "label": "边框柔光 %", "type": "range", "min": 0, "max": 100, "step": 1, "default": 100},
@@ -610,18 +610,6 @@ def _keyart(ctx, config, assets, size):
     return None
 
 
-def _right_brighter(image, margin=0.04):
-    try:
-        gray = image.convert("L")
-        width, height = gray.size
-        third = max(1, width // 3)
-        left = ImageStat.Stat(gray.crop((0, 0, third, height))).mean[0]
-        right = ImageStat.Stat(gray.crop((width - third, 0, width, height))).mean[0]
-        return right > left * (1.0 + margin)
-    except Exception:
-        return False
-
-
 def _build_scene(ctx, bg, config, assets):
     """底图：返回 RGBA 画布；素材缺失时退回引擎给的背景图。不做任何锐化/调色。"""
     width, height = bg.size
@@ -633,9 +621,10 @@ def _build_scene(ctx, bg, config, assets):
         scene = _keyart(ctx, config, assets, size)
     if scene is None:
         scene = ImageOps.fit(bg.convert("RGBA"), size, method=Image.LANCZOS)
-    # 素材镜像：两种底图来源都适用（主视觉 / 媒体库背景图），
-    # 左暗右亮时水平翻转，让亮区始终落在左侧、文字压在暗侧。
-    if _flag(config, "auto_mirror", True) and _right_brighter(scene):
+    # 素材镜像：两种底图来源都适用（主视觉 / 媒体库背景图）。
+    # 语义是「开启就镜像、关闭就用原图」，不判断画面哪边更亮 —— 用户要的是可控的翻转开关，
+    # 而不是让插件猜。默认关闭。
+    if _flag(config, "auto_mirror", False):
         scene = ImageOps.mirror(scene)
 
     # 底图调整：默认全部 1.0，等于「底图什么样就什么样」；只有用户显式调了才生效。
@@ -940,13 +929,13 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
                 tag_x += _tracked_width(separator, tag_font, tag_tracking) + tag_size * 1.65
 
     # ---- 圆角 + 双层描边（最后画，保证边框压在文字上沿）
-    radius = px(_clamp(_value(config, "frame_radius", 44), 0, 80, 44), minimum=0)
+    radius = px(_clamp(_value(config, "frame_radius", 80), 0, 160, 80), minimum=0)
     if radius > 0:
         frame.putalpha(_rounded_mask((width, height), radius))
         outside = _rgb(_value(config, "frame_outside_color", "#060404"), (6, 4, 4))
         frame = Image.alpha_composite(Image.new("RGBA", (width, height), outside + (255,)), frame)
 
-    border_w = px(_clamp(_value(config, "frame_border_width", 2), 0, 8, 2), minimum=0)
+    border_w = px(_clamp(_value(config, "frame_border_width", 8), 0, 16, 8), minimum=0)
     border_opacity = _clamp(_value(config, "frame_border_opacity", 66), 0, 100, 66) / 100.0
     if border_w > 0 and border_opacity > 0:
         inset = max(2, int(height * 0.0035))

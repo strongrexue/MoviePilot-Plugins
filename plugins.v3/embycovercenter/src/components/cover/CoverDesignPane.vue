@@ -91,6 +91,12 @@ function onLocalImagePicked(event) {
   if (file) designer.applyLocalImage(file)
 }
 
+/** 字段内的文件上传（主视觉）：上传成功后把文件名写回该字段。 */
+async function onFieldUpload(item, file) {
+  const name = await designer.uploadKeyart(file)
+  if (name) form.config[item.key] = name
+}
+
 const currentLayoutLabel = computed(() => {
   const hit = designer.layoutItems.value.find(item => item.value === form.layout)
   return hit ? hit.title : form.layout
@@ -389,6 +395,8 @@ onMounted(designer.loadAll)
               :item="item"
               :config="form.config"
               :fonts="designer.fontItems.value"
+              :files="designer.keyartFiles.value"
+              @upload="onFieldUpload(item, $event)"
             />
           </div>
 

@@ -53,6 +53,9 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/fonts", plugin.api_fonts, ["GET"], "获取可用字体"),
         ("/fonts/upload", plugin.api_font_upload, ["POST"], "上传字体（base64）"),
         ("/fonts/delete", plugin.api_font_delete, ["POST"], "删除字体"),
+        ("/keyart", plugin.api_keyart, ["GET"], "获取主视觉文件列表"),
+        ("/keyart/upload", plugin.api_keyart_upload, ["POST"], "上传主视觉（base64）"),
+        ("/keyart/delete", plugin.api_keyart_delete, ["POST"], "删除主视觉"),
         ("/templates", plugin.api_templates, ["GET"], "获取模板预设"),
         ("/templates/save", plugin.api_template_save, ["POST"], "保存模板预设"),
         ("/templates/delete", plugin.api_template_delete, ["POST"], "删除模板预设"),
@@ -237,18 +240,25 @@ def _library_name(ref, library_id: str) -> str:
     """按 ID 取媒体库名称（取不到时退回 ID 本身）。"""
     if not library_id:
         return ""
-    for library in emby_assets.list_libraries(ref):
-        if library.get("id") == library_id:
-            return str(library.get("name") or library_id)
-    return library_id
+    name = emby_assets.library_name(ref, library_id)
+    return name or library_id
 
 
 def _prepare_config(request, ref) -> Dict[str, Any]:
-    """把请求参数整理成引擎可用的渲染配置。"""
+    """把请求参数整理成引擎可用的渲染配置。
+
+    所有布局都读 ``config["subtitle"]`` 当副标题；手动预览若只补 title，
+    预览出来的副标题会是空的（自动封面走 ``cover_auto`` 才有值），
+    所以这里用同一套取值逻辑补齐：手填 > 内置英文名 > 库名。
+    """
     config = dict(request.config or {})
     config["engine"] = request.layout or "classic"
     if not config.get("title"):
         config["title"] = _library_name(ref, request.library_id)
+    if not config.get("subtitle"):
+        config["subtitle"] = cover_auto._subtitle_for(
+            config, request.library_id, str(config.get("title") or "")
+        )
     return config
 
 
@@ -318,6 +328,24 @@ def api_font_delete(plugin, request: api_schemas.NameRequest):
     if not _guard(lambda: assets_meta.delete_font(plugin, request.name)):
         raise HTTPException(status_code=404, detail="字体不存在")
     return _to_response({"fonts": assets_meta.list_fonts(plugin)}, api_schemas.FontListData)
+
+
+def api_keyart(plugin):
+    """返回数据目录内已上传的主视觉文件。"""
+    return _to_response({"files": assets_meta.list_keyart(plugin)}, api_schemas.KeyartListData)
+
+
+def api_keyart_upload(plugin, request: api_schemas.KeyartUploadRequest):
+    """上传主视觉（base64），布局「分类横幅」的 keyart_file 直接引用文件名。"""
+    _guard(lambda: assets_meta.save_keyart_base64(plugin, request.name, request.data))
+    return _to_response({"files": assets_meta.list_keyart(plugin)}, api_schemas.KeyartListData)
+
+
+def api_keyart_delete(plugin, request: api_schemas.NameRequest):
+    """删除主视觉。"""
+    if not _guard(lambda: assets_meta.delete_keyart(plugin, request.name)):
+        raise HTTPException(status_code=404, detail="主视觉不存在")
+    return _to_response({"files": assets_meta.list_keyart(plugin)}, api_schemas.KeyartListData)
 
 
 def api_templates(plugin):

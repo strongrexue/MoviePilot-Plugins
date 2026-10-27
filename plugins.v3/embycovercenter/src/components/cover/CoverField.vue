@@ -8,7 +8,11 @@ const props = defineProps({
   item: { type: Object, required: true },
   config: { type: Object, required: true },
   fonts: { type: Array, default: () => [] },
+  /** 文件类字段（如主视觉）可选的已上传文件清单。 */
+  files: { type: Array, default: () => [] },
 })
+
+const emit = defineEmits(['upload'])
 
 /** select 的 options 统一成 {title, value}，避免 Vuetify 渲染成 [object Object]。 */
 function selectItems() {
@@ -16,6 +20,20 @@ function selectItems() {
     title: option.label !== undefined ? option.label : option.title,
     value: option.value,
   }))
+}
+
+/** 文件字段：已上传文件清单 + 「不使用」空选项。 */
+function fileItems() {
+  return [
+    { title: '（不使用）', value: '' },
+    ...(props.files || []).map(name => ({ title: name, value: name })),
+  ]
+}
+
+function onFilePicked(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (file) emit('upload', file)
 }
 </script>
 
@@ -85,6 +103,27 @@ function selectItems() {
       hide-details
     />
   </div>
+  <!-- 文件（主视觉）：下拉选择已上传文件 + 上传按钮 -->
+  <div v-else-if="item.type === 'file'" class="ec-file">
+    <VSelect
+      v-model="config[item.key]"
+      :items="fileItems()"
+      :label="item.label"
+      density="compact"
+      variant="outlined"
+      hide-details
+    />
+    <VBtn
+      tag="label"
+      size="small"
+      variant="tonal"
+      prepend-icon="mdi-upload"
+      class="ec-file-btn"
+    >
+      上传
+      <input type="file" accept=".jpg,.jpeg,.png,.webp" class="ec-file-input" @change="onFilePicked" />
+    </VBtn>
+  </div>
   <!-- 数字 / 文本 -->
   <VTextField
     v-else
@@ -114,6 +153,24 @@ function selectItems() {
   grid-template-columns: 36px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
+}
+.ec-file {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.ec-file-btn {
+  height: 40px;
+}
+/* 隐藏原生 input：只让 label 触发文件选择（同 CoverDesignPane 的处理）。 */
+.ec-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 .ec-color-swatch {
   width: 36px;

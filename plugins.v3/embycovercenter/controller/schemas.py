@@ -272,6 +272,19 @@ class FontUploadRequest(BaseModel):
     data: str = ""
 
 
+class KeyartListData(BaseModel):
+    """主视觉（keyart）文件列表。"""
+
+    files: List[str] = Field(default_factory=list)
+
+
+class KeyartUploadRequest(BaseModel):
+    """主视觉上传请求（base64）。"""
+
+    name: str = ""
+    data: str = ""
+
+
 class NameRequest(BaseModel):
     """按文件名操作（删除字体 / 模板）。"""
 
@@ -316,6 +329,9 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/fonts": FontListData,
     "/fonts/upload": FontListData,
     "/fonts/delete": FontListData,
+    "/keyart": KeyartListData,
+    "/keyart/upload": KeyartListData,
+    "/keyart/delete": KeyartListData,
     "/templates": TemplateListData,
     "/templates/save": TemplateListData,
     "/templates/delete": TemplateListData,

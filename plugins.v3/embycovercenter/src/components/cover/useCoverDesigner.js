@@ -72,7 +72,7 @@ function coerceValues(groups, raw) {
         result[key] = Number.isFinite(num) ? num : (item.default !== undefined ? item.default : 0)
       } else if (item.type === 'boolean') {
         result[key] = value === true || value === 'true' || value === 1 || value === '1'
-      } else if (['text', 'color', 'select', 'font'].includes(item.type)) {
+      } else if (['text', 'color', 'select', 'font', 'file'].includes(item.type)) {
         result[key] = String(value)
       }
     }
@@ -89,6 +89,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   const commonGroup = ref('引擎通用')
   const commonFields = ref([])
   const fonts = ref([])
+  const keyartFiles = ref([])
   const templates = ref([])
   const previewImage = ref('')
   const previewInfo = ref({ count: 0, title: '' })
@@ -214,6 +215,35 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       fonts.value = Array.isArray(data.fonts) ? data.fonts : []
     } catch (error) {
       report(error?.message || '字体读取失败', false)
+    }
+  }
+
+  async function loadKeyart() {
+    try {
+      const data = unwrap(await getPluginApi(api(), pluginId(), 'keyart')) || {}
+      keyartFiles.value = Array.isArray(data.files) ? data.files : []
+    } catch (error) {
+      keyartFiles.value = []
+      report(error?.message || '主视觉列表读取失败', false)
+    }
+  }
+
+  /** 上传主视觉到插件数据目录，成功后自动选中（布局直接引用文件名）。 */
+  async function uploadKeyart(file) {
+    if (!file) return ''
+    try {
+      const data = unwrap(
+        await postPluginApi(api(), pluginId(), 'keyart/upload', {
+          name: file.name,
+          data: await readFileAsDataUrl(file),
+        }),
+      ) || {}
+      keyartFiles.value = Array.isArray(data.files) ? data.files : keyartFiles.value
+      report(`主视觉已上传：${file.name}`)
+      return file.name
+    } catch (error) {
+      report(error?.message || '主视觉上传失败', false)
+      return ''
     }
   }
 
@@ -453,6 +483,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   async function loadAll() {
     await loadLayouts()
     await loadFonts()
+    await loadKeyart()
     await loadTemplates()
     await loadLibraries()
   }
@@ -466,6 +497,7 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     layouts,
     commonFields,
     fonts,
+    keyartFiles,
     templates,
     previewImage,
     previewInfo,
@@ -482,6 +514,8 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     fontItems,
     loadAll,
     loadLibraries,
+    loadKeyart,
+    uploadKeyart,
     onServerChange,
     onLayoutChange,
     libraryEnNames,

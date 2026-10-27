@@ -21,6 +21,7 @@ from app.sdk.logging import logger
 
 from . import assets_meta, cover_backup, emby_assets, emby_gateway
 from .emby_gateway import GatewayError
+from .library_names import LIBRARY_EN_NAMES, english_name_for
 from .render_engine import PosterEngine
 
 # 库级并行度：每库 = 并行下载素材 + PIL 渲染 + 上传，多为 I/O，4 路并行
@@ -28,30 +29,7 @@ from .render_engine import PosterEngine
 AUTO_COVER_WORKERS = 4
 
 # 常见媒体库名的中英对照（副标题默认取英文名；与前端 useCoverDesigner 同源，键小写）。
-LIBRARY_EN_NAMES = {
-    "电影": "Movies",
-    "电影库": "Movies",
-    "欧美电影": "Western Movies",
-    "华语电影": "Chinese Movies",
-    "日韩电影": "Asian Movies",
-    "4k电影": "4K Movies",
-    "电视剧": "TV Shows",
-    "剧集": "TV Shows",
-    "电视节目": "TV Shows",
-    "动漫": "Anime",
-    "动画": "Anime",
-    "番剧": "Anime",
-    "综艺": "Variety Shows",
-    "纪录片": "Documentaries",
-    "儿童": "Kids",
-    "少儿": "Kids",
-    "亲子": "Kids",
-    "音乐": "Music",
-    "mv": "Music Videos",
-    "体育": "Sports",
-    "教育": "Education",
-    "有声书": "Audiobooks",
-}
+# 词典本体已抽到 ``library_names``（素材层也要用），这里只做转出，保持既有导入路径可用。
 
 # 同一 (服务器, 媒体库) 两次入库触发刷新的最小间隔（秒）。
 WEBHOOK_DEBOUNCE_SECONDS = 600
@@ -60,12 +38,6 @@ WEBHOOK_DEBOUNCE_SECONDS = 600
 _TASK_LOCK = threading.Lock()
 # 入库防抖位图：{ (服务器名, 媒体库ID): 最近一次触发时间 }。
 _WEBHOOK_LAST: Dict[Tuple[str, str], float] = {}
-
-
-def english_name_for(name: Any) -> str:
-    """按库名查内置英文名；未命中返回空串（键统一小写，兼容「4K电影/4k电影」）。"""
-    key = str(name or "").strip().lower()
-    return LIBRARY_EN_NAMES.get(key, "")
 
 
 def _subtitle_for(config: Dict[str, Any], library_id: str, library_name: str) -> str:

@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 import random
+import time
 from typing import Any, Dict, List, Optional
 
 from app.sdk.logging import logger
 
 from . import emby_gateway
+from .library_names import english_name_for
 
 # 素材图尺寸：封面画布通常 1920x1080，过大的原图只会拖慢下载。
 POSTER_MAX_HEIGHT = 600
@@ -21,8 +23,13 @@ LIBRARY_COVER_MAX_HEIGHT = 300
 # 不设上限会让一次预览下载几十张图，直接拖到反向代理读超时。
 MAX_POSTER_COUNT = 60
 MAX_BACKDROP_COUNT = 6
+# 题材标签上限：布局会把标签铺在画面左下角，超过 6 个只能无限缩字号。
+MAX_GENRES = 6
 # 素材/用户 ID 的短缓存，避免每次预览都重复请求。
 _ADMIN_USER_CACHE: Dict[str, str] = {}
+# 库名缓存：{(服务器名, 库ID): (时间戳, 名称)}。
+_LIBRARY_NAME_CACHE: Dict[tuple, tuple] = {}
+_LIBRARY_NAME_TTL = 300
 
 
 def image_url(ref: emby_gateway.ServerRef, path: str, query: Optional[dict] = None) -> str:
@@ -138,6 +145,73 @@ def library_type(ref: emby_gateway.ServerRef, library_id: str) -> str:
     return ""
 
 
+def library_name(ref: emby_gateway.ServerRef, library_id: str) -> str:
+    """返回媒体库名称；取不到时返回空串（调用方自行回退到 ID）。
+
+    预览 / 应用 / 自动封面每轮都要用库名当标题，这里按 (服务器, 库) 缓存 5 分钟，
+    避免一次渲染里重复打 ``Users/{uid}/Views``。
+    """
+    if not library_id:
+        return ""
+    cache_key = (str(ref.name), str(library_id))
+    cached = _LIBRARY_NAME_CACHE.get(cache_key)
+    if cached and time.time() - cached[0] < _LIBRARY_NAME_TTL:
+        return cached[1]
+    name = ""
+    uid = admin_user_id(ref)
+    if uid:
+        try:
+            views = emby_gateway.get_json(ref, f"Users/{uid}/Views")
+            items = views.get("Items") if isinstance(views, dict) else views
+            for item in items or []:
+                if isinstance(item, dict) and str(item.get("Id") or "") == str(library_id):
+                    name = str(item.get("Name") or "")
+                    break
+        except emby_gateway.GatewayError as error:
+            logger.warning(f"[EmbyCoverCenter] 读取媒体库名称失败: {error}")
+    if name:
+        if len(_LIBRARY_NAME_CACHE) >= 64:
+            _LIBRARY_NAME_CACHE.pop(next(iter(_LIBRARY_NAME_CACHE)), None)
+        _LIBRARY_NAME_CACHE[cache_key] = (time.time(), name)
+    return name
+
+
+def library_genres(ref: emby_gateway.ServerRef, library_id: str) -> List[str]:
+    """汇总媒体库内条目的题材（Emby ``Genres`` 字段），按出现次数降序取前几个。
+
+    取不到（接口失败 / 库为空 / 未刮削）时返回空列表，由布局回退到手填标签。
+    """
+    if not library_id:
+        return []
+    try:
+        # 题材只统计库的**主体类型**（音乐库取 MusicAlbum，不把 MusicArtist 也算进来），
+        # 否则歌手条目会把标签稀释成演员名。
+        include_types = _include_types(ref, library_id).split(",")[0]
+        data = emby_gateway.get_json(
+            ref,
+            _items_endpoint(ref),
+            {
+                "ParentId": library_id,
+                "Recursive": "true",
+                "IncludeItemTypes": include_types,
+                "Fields": "Genres",
+                "Limit": 120,
+                "EnableTotalRecordCount": "false",
+            },
+        )
+    except emby_gateway.GatewayError as error:
+        logger.warning(f"[EmbyCoverCenter] 读取媒体库题材失败: {error}")
+        return []
+    counts: Dict[str, int] = {}
+    for item in (data or {}).get("Items", []) if isinstance(data, dict) else []:
+        for genre in (item or {}).get("Genres") or []:
+            text = str(genre or "").strip()
+            if text:
+                counts[text] = counts.get(text, 0) + 1
+    ranked = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+    return [name for name, _ in ranked[:MAX_GENRES]]
+
+
 def _include_types(ref: emby_gateway.ServerRef, library_id: str) -> str:
     """按库类型决定素材查询的 IncludeItemTypes：音乐库取专辑封面 + 艺术家图
     （只刮削了艺术家的库专辑无 Primary，艺术家图兜底），电影/剧集库照旧，
@@ -248,9 +322,16 @@ def fetch_assets(
         except emby_gateway.GatewayError as error:
             logger.warning(f"[EmbyCoverCenter] 读取海报失败: {error}")
 
+    # 库名 / 英文名 / 题材一并带上：布局可以直接把库名当标题、库题材当标签，
+    # 不必每个布局各自再查一次 Emby（「分类横幅」的按库主视觉与自动标签依赖这些）。
+    name = library_name(ref, library_id)
     return {
         "bg_url": bg_url,
         "backdrops": backdrops,
         "posters": posters,
         "count": library_count(ref, library_id),
+        "library_id": str(library_id),
+        "library_name": name,
+        "library_en": english_name_for(name) or name,
+        "genres": library_genres(ref, library_id),
     }

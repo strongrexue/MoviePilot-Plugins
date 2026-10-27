@@ -15,6 +15,8 @@ from app.sdk.logging import logger
 FONT_EXTENSIONS = (".ttf", ".otf", ".ttc")
 TEMPLATE_EXTENSION = ".json"
 PREVIEW_EXTENSION = ".jpg"
+# 主视觉（keyart）只收常见位图：布局用 Pillow 打开，矢量 / 动图一律不认。
+KEYART_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 # 预览图最大边（等比缩放后保存）。
 PREVIEW_MAX_SIDE = 640
 # 随插件分发的默认资源目录（首次初始化时只补缺失，不覆盖用户文件）。
@@ -38,9 +40,14 @@ def layouts_dir(plugin) -> Path:
     return data_root(plugin) / "layouts"
 
 
+def keyart_dir(plugin) -> Path:
+    """主视觉（keyart）目录：布局 ``分类横幅`` 按裸文件名从这里取图。"""
+    return data_root(plugin) / "keyart"
+
+
 def ensure_dirs(plugin) -> None:
     """确保资源子目录存在（init_plugin 调用）。"""
-    for path in (fonts_dir(plugin), templates_dir(plugin), layouts_dir(plugin)):
+    for path in (fonts_dir(plugin), templates_dir(plugin), layouts_dir(plugin), keyart_dir(plugin)):
         try:
             path.mkdir(parents=True, exist_ok=True)
         except Exception as error:  # pragma: no cover - 磁盘异常
@@ -376,3 +383,67 @@ def save_template_base64(plugin, filename: Any, payload: str) -> str:
         json.dumps(payload_data, ensure_ascii=False, indent=4), encoding="utf-8"
     )
     return safe
+
+
+# --------------------------------------------------------------------------- 主视觉
+
+
+def list_keyart(plugin) -> List[str]:
+    """返回数据目录内已上传的主视觉文件名（按名称排序）。"""
+    directory = keyart_dir(plugin)
+    if not directory.exists():
+        return []
+    return sorted(
+        item.name for item in directory.iterdir()
+        if item.is_file() and item.name.lower().endswith(KEYART_EXTENSIONS)
+    )
+
+
+def keyart_path(plugin, name: Any) -> Path:
+    """返回主视觉的绝对路径（调用方需先完成文件名校验）。"""
+    safe = _safe_name(name, KEYART_EXTENSIONS)
+    path = keyart_dir(plugin) / safe
+    if not path.exists():
+        raise ValueError(f"主视觉不存在：{safe}")
+    return path
+
+
+def save_keyart(plugin, name: Any, content: bytes) -> str:
+    """保存上传的主视觉（base64 已在调用方解码）。"""
+    if not content:
+        raise ValueError("主视觉内容为空")
+    safe = _safe_name(name, KEYART_EXTENSIONS)
+    ensure_dirs(plugin)
+    (keyart_dir(plugin) / safe).write_bytes(content)
+    return safe
+
+
+def save_keyart_base64(plugin, name: Any, payload: str) -> str:
+    """保存 base64 上传的主视觉；顺便校验确实是可解析的位图。"""
+    encoded = str(payload or "").split(",", 1)[-1]
+    try:
+        content = base64.b64decode(encoded, validate=False)
+    except Exception as error:
+        raise ValueError("主视觉 base64 解码失败") from error
+    if not content:
+        raise ValueError("主视觉内容为空")
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(BytesIO(content)) as probe:
+            probe.verify()
+    except Exception as error:
+        raise ValueError("主视觉不是有效的图片文件") from error
+    return save_keyart(plugin, name, content)
+
+
+def delete_keyart(plugin, name: Any) -> bool:
+    """删除主视觉文件。"""
+    safe = _safe_name(name, KEYART_EXTENSIONS)
+    path = keyart_dir(plugin) / safe
+    if not path.exists():
+        return False
+    path.unlink()
+    return True

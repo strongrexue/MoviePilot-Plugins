@@ -1,8 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-D5etKHBp.js';
+import { F as FRONTEND_VERSION } from './version-D1O1dX3J.js';
 
-const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle} = await importShared('vue');
+const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3} = await importShared('vue');
 
 
 const _hoisted_1$3 = {
@@ -15,6 +15,10 @@ const _hoisted_3$2 = {
   class: "ec-color"
 };
 const _hoisted_4$2 = ["value"];
+const _hoisted_5$2 = {
+  key: 5,
+  class: "ec-file"
+};
 
 
 const _sfc_main$3 = {
@@ -23,8 +27,11 @@ const _sfc_main$3 = {
   item: { type: Object, required: true },
   config: { type: Object, required: true },
   fonts: { type: Array, default: () => [] },
+  /** 文件类字段（如主视觉）可选的已上传文件清单。 */
+  files: { type: Array, default: () => [] },
 },
-  setup(__props) {
+  emits: ['upload'],
+  setup(__props, { emit: __emit }) {
 
 /**
  * 单个布局参数字段的渲染器：按 schema 的 type 生成控件。
@@ -32,6 +39,8 @@ const _sfc_main$3 = {
  * 直接修改传入的 `config` 对象（同一个 reactive 实例），避免为每个字段做 v-model 代理。
  */
 const props = __props;
+
+const emit = __emit;
 
 /** select 的 options 统一成 {title, value}，避免 Vuetify 渲染成 [object Object]。 */
 function selectItems() {
@@ -41,11 +50,26 @@ function selectItems() {
   }))
 }
 
+/** 文件字段：已上传文件清单 + 「不使用」空选项。 */
+function fileItems() {
+  return [
+    { title: '（不使用）', value: '' },
+    ...(props.files || []).map(name => ({ title: name, value: name })),
+  ]
+}
+
+function onFilePicked(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (file) emit('upload', file);
+}
+
 return (_ctx, _cache) => {
   const _component_VSlider = _resolveComponent$3("VSlider");
   const _component_VSelect = _resolveComponent$3("VSelect");
   const _component_VSwitch = _resolveComponent$3("VSwitch");
   const _component_VTextField = _resolveComponent$3("VTextField");
+  const _component_VBtn = _resolveComponent$3("VBtn");
 
   return (__props.item.type === 'range')
     ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_1$3, [
@@ -120,21 +144,51 @@ return (_ctx, _cache) => {
                   "hide-details": ""
                 }, null, 8, ["modelValue", "label"])
               ]))
-            : (_openBlock$3(), _createBlock$3(_component_VTextField, {
-                key: 5,
-                modelValue: __props.config[__props.item.key],
-                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((__props.config[__props.item.key]) = $event)),
-                label: __props.item.label,
-                type: __props.item.type === 'number' ? 'number' : 'text',
-                density: "compact",
-                variant: "outlined",
-                "hide-details": ""
-              }, null, 8, ["modelValue", "label", "type"]))
+            : (__props.item.type === 'file')
+              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_5$2, [
+                  _createVNode$3(_component_VSelect, {
+                    modelValue: __props.config[__props.item.key],
+                    "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((__props.config[__props.item.key]) = $event)),
+                    items: fileItems(),
+                    label: __props.item.label,
+                    density: "compact",
+                    variant: "outlined",
+                    "hide-details": ""
+                  }, null, 8, ["modelValue", "items", "label"]),
+                  _createVNode$3(_component_VBtn, {
+                    tag: "label",
+                    size: "small",
+                    variant: "tonal",
+                    "prepend-icon": "mdi-upload",
+                    class: "ec-file-btn"
+                  }, {
+                    default: _withCtx$3(() => [
+                      _cache[8] || (_cache[8] = _createTextVNode$3(" 上传 ", -1)),
+                      _createElementVNode$3("input", {
+                        type: "file",
+                        accept: ".jpg,.jpeg,.png,.webp",
+                        class: "ec-file-input",
+                        onChange: onFilePicked
+                      }, null, 32)
+                    ]),
+                    _: 1
+                  })
+                ]))
+              : (_openBlock$3(), _createBlock$3(_component_VTextField, {
+                  key: 6,
+                  modelValue: __props.config[__props.item.key],
+                  "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((__props.config[__props.item.key]) = $event)),
+                  label: __props.item.label,
+                  type: __props.item.type === 'number' ? 'number' : 'text',
+                  density: "compact",
+                  variant: "outlined",
+                  "hide-details": ""
+                }, null, 8, ["modelValue", "label", "type"]))
 }
 }
 
 };
-const CoverField = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-a7f6afc8"]]);
+const CoverField = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-9d7ebfdb"]]);
 
 /**
  * 封面设计器的前端状态与动作。
@@ -209,7 +263,7 @@ function coerceValues(groups, raw) {
         result[key] = Number.isFinite(num) ? num : (item.default !== undefined ? item.default : 0);
       } else if (item.type === 'boolean') {
         result[key] = value === true || value === 'true' || value === 1 || value === '1';
-      } else if (['text', 'color', 'select', 'font'].includes(item.type)) {
+      } else if (['text', 'color', 'select', 'font', 'file'].includes(item.type)) {
         result[key] = String(value);
       }
     }
@@ -226,6 +280,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   const commonGroup = ref$2('引擎通用');
   const commonFields = ref$2([]);
   const fonts = ref$2([]);
+  const keyartFiles = ref$2([]);
   const templates = ref$2([]);
   const previewImage = ref$2('');
   const previewInfo = ref$2({ count: 0, title: '' });
@@ -351,6 +406,35 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       fonts.value = Array.isArray(data.fonts) ? data.fonts : [];
     } catch (error) {
       report(error?.message || '字体读取失败', false);
+    }
+  }
+
+  async function loadKeyart() {
+    try {
+      const data = unwrap(await getPluginApi(api(), pluginId(), 'keyart')) || {};
+      keyartFiles.value = Array.isArray(data.files) ? data.files : [];
+    } catch (error) {
+      keyartFiles.value = [];
+      report(error?.message || '主视觉列表读取失败', false);
+    }
+  }
+
+  /** 上传主视觉到插件数据目录，成功后自动选中（布局直接引用文件名）。 */
+  async function uploadKeyart(file) {
+    if (!file) return ''
+    try {
+      const data = unwrap(
+        await postPluginApi(api(), pluginId(), 'keyart/upload', {
+          name: file.name,
+          data: await readFileAsDataUrl(file),
+        }),
+      ) || {};
+      keyartFiles.value = Array.isArray(data.files) ? data.files : keyartFiles.value;
+      report(`主视觉已上传：${file.name}`);
+      return file.name
+    } catch (error) {
+      report(error?.message || '主视觉上传失败', false);
+      return ''
     }
   }
 
@@ -590,6 +674,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   async function loadAll() {
     await loadLayouts();
     await loadFonts();
+    await loadKeyart();
     await loadTemplates();
     await loadLibraries();
   }
@@ -603,6 +688,7 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     layouts,
     commonFields,
     fonts,
+    keyartFiles,
     templates,
     previewImage,
     previewInfo,
@@ -619,6 +705,8 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     fontItems,
     loadAll,
     loadLibraries,
+    loadKeyart,
+    uploadKeyart,
     onServerChange,
     onLayoutChange,
     libraryEnNames,
@@ -781,6 +869,12 @@ function onLocalImagePicked(event) {
   const file = event.target.files?.[0];
   event.target.value = '';
   if (file) designer.applyLocalImage(file);
+}
+
+/** 字段内的文件上传（主视觉）：上传成功后把文件名写回该字段。 */
+async function onFieldUpload(item, file) {
+  const name = await designer.uploadKeyart(file);
+  if (name) form.config[item.key] = name;
 }
 
 const currentLayoutLabel = computed$2(() => {
@@ -1231,8 +1325,10 @@ return (_ctx, _cache) => {
                             key: item.key,
                             item: item,
                             config: _unref$2(form).config,
-                            fonts: _unref$2(designer).fontItems.value
-                          }, null, 8, ["item", "config", "fonts"]))
+                            fonts: _unref$2(designer).fontItems.value,
+                            files: _unref$2(designer).keyartFiles.value,
+                            onUpload: $event => (onFieldUpload(item, $event))
+                          }, null, 8, ["item", "config", "fonts", "files", "onUpload"]))
                         }), 128))
                       ]))
                     : (block.kind === 'upload')
@@ -1386,7 +1482,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-800a5c68"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-c187ebd3"]]);
 
 /**
  * Emby 计划任务中心的前端状态与动作。

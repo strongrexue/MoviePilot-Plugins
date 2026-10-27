@@ -25,7 +25,7 @@ class EmbyCoverCenter(_PluginBase):
     plugin_desc = "Emby 媒体库封面生成、封面任务与 Emby 计划任务中心，通知走 MoviePilot 通知渠道。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/embycovercenter.png"
     plugin_color = "#52B54B"
-    plugin_version = "1.6.22"
+    plugin_version = "1.6.23"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "embycovercenter_"
@@ -302,6 +302,18 @@ class EmbyCoverCenter(_PluginBase):
     def api_font_delete(self, request: api_schemas.NameRequest):
         """删除字体。"""
         return api_controller.api_font_delete(self, request=request)
+
+    def api_keyart(self):
+        """获取主视觉文件列表。"""
+        return api_controller.api_keyart(self)
+
+    def api_keyart_upload(self, request: api_schemas.KeyartUploadRequest):
+        """上传主视觉（base64）。"""
+        return api_controller.api_keyart_upload(self, request=request)
+
+    def api_keyart_delete(self, request: api_schemas.NameRequest):
+        """删除主视觉。"""
+        return api_controller.api_keyart_delete(self, request=request)
 
     def api_templates(self):
         """获取模板预设。"""

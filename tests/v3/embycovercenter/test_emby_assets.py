@@ -93,3 +93,92 @@ def test_fetch_assets_music_uses_album_posters(monkeypatch):
     assert all(p["IncludeItemTypes"] == "MusicAlbum,MusicArtist" for p in asset_queries)
     assert count_queries and all(p["IncludeItemTypes"] == "MusicAlbum" for p in count_queries)
     assert assets["posters"] == [] and assets["count"] == 0
+
+
+def test_library_name_reads_views_and_caches(monkeypatch):
+    """库名取自 Users/{uid}/Views；同一库连续查询只打一次接口（预览会反复要库名）。"""
+    emby_assets._LIBRARY_NAME_CACHE.clear()
+    calls = []
+
+    def fake_get_json(ref, path, params=None):
+        calls.append(path)
+        if path == "Users/uid/Views":
+            return {"Items": [{"Id": "lib1", "Name": "国产剧"}]}
+        return {}
+
+    monkeypatch.setattr(emby_assets.emby_gateway, "get_json", fake_get_json)
+    monkeypatch.setattr(emby_assets, "admin_user_id", lambda ref: "uid")
+    assert emby_assets.library_name(_Ref(), "lib1") == "国产剧"
+    assert emby_assets.library_name(_Ref(), "lib1") == "国产剧"
+    assert calls.count("Users/uid/Views") == 1, "第二次应命中缓存"
+    # 查不到的库返回空串（调用方回退到 ID），且不该污染缓存
+    assert emby_assets.library_name(_Ref(), "ghost") == ""
+    assert emby_assets.library_name(_Ref(), "") == ""
+    emby_assets._LIBRARY_NAME_CACHE.clear()
+
+
+def test_library_genres_ranks_by_frequency(monkeypatch):
+    """题材按出现次数降序、最多 6 个；只统计主体类型（音乐库不混入艺术家）。"""
+    captured = []
+
+    def fake_get_json(ref, path, params=None):
+        if path == "Library/MediaFolders":
+            return {"Items": [{"Id": "lib1", "CollectionType": "movies"}]}
+        if path.endswith("/Items"):
+            captured.append(dict(params or {}))
+            return {"Items": [
+                {"Genres": ["剧情", "悬疑"]},
+                {"Genres": ["剧情", "动作"]},
+                {"Genres": ["剧情", "悬疑", "犯罪"]},
+            ]}
+        return {}
+
+    monkeypatch.setattr(emby_assets.emby_gateway, "get_json", fake_get_json)
+    monkeypatch.setattr(emby_assets, "admin_user_id", lambda ref: "uid")
+    genres = emby_assets.library_genres(_Ref(), "lib1")
+    assert genres[:2] == ["剧情", "悬疑"], f"排序不对：{genres}"
+    assert "动作" in genres and "犯罪" in genres
+    assert len(genres) <= emby_assets.MAX_GENRES
+    assert captured and captured[0]["Fields"] == "Genres"
+    assert captured[0]["IncludeItemTypes"] == "Movie"
+
+
+def test_library_genres_returns_empty_on_error(monkeypatch):
+    """题材接口失败时返回空列表，由布局回退到手填标签。"""
+
+    def boom(ref, path, params=None):
+        raise emby_assets.emby_gateway.GatewayError("timeout")
+
+    monkeypatch.setattr(emby_assets.emby_gateway, "get_json", boom)
+    assert emby_assets.library_genres(_Ref(), "lib1") == []
+    assert emby_assets.library_genres(_Ref(), "") == []
+
+
+def test_fetch_assets_exposes_library_metadata(monkeypatch):
+    """fetch_assets 必须带回 library_id / library_name / library_en / genres。
+
+    布局「分类横幅」直接读这四个键当标题、英文名、按库主视觉与自动标签，
+    缺了它们就只能靠用户手填。
+    """
+    emby_assets._LIBRARY_NAME_CACHE.clear()
+
+    def fake_get_json(ref, path, params=None):
+        if path == "Library/MediaFolders":
+            return {"Items": [{"Id": "lib1", "CollectionType": "movies"}]}
+        if path == "Users/uid/Views":
+            return {"Items": [{"Id": "lib1", "Name": "华语电影"}]}
+        if path.endswith("/Items"):
+            if params and params.get("Fields") == "Genres":
+                return {"Items": [{"Genres": ["剧情"]}]}
+            return {"Items": [], "TotalRecordCount": 0}
+        return {}
+
+    monkeypatch.setattr(emby_assets.emby_gateway, "get_json", fake_get_json)
+    monkeypatch.setattr(emby_assets, "admin_user_id", lambda ref: "uid")
+    ref = ServerRef(name="Emby", type="emby", instance=object())
+    assets = emby_assets.fetch_assets(ref, "lib1", mode="random", poster_count=1, backdrop_count=1)
+    assert assets["library_id"] == "lib1"
+    assert assets["library_name"] == "华语电影"
+    assert assets["library_en"] == "Chinese Movies"
+    assert assets["genres"] == ["剧情"]
+    emby_assets._LIBRARY_NAME_CACHE.clear()

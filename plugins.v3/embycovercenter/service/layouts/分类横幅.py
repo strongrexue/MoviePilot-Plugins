@@ -383,7 +383,7 @@ def get_schema():
                 {"key": "mask_enabled", "label": "显示渐变遮罩", "type": "boolean", "default": False},
                 {"key": "mask_color", "label": "遮罩颜色", "type": "color", "default": "#000000"},
                 {"key": "mask_opacity", "label": "遮罩浓度", "type": "range", "min": 0, "max": 255, "step": 1,
-                 "default": 180},
+                 "default": 255},
                 {"key": "mask_coverage", "label": "遮罩覆盖范围 %", "type": "range", "min": 10, "max": 100, "step": 1,
                  "default": 100},
                 {"key": "mask_direction", "label": "遮罩方向", "type": "select", "default": "horizontal_reverse",
@@ -515,7 +515,7 @@ def get_schema():
                 {"key": "watermark_y", "label": "锚点 Y %", "type": "range", "min": 0, "max": 100, "step": 0.1, "default": 50},
                 {"key": "watermark_line_gap", "label": "字间空隙（相对字号）", "type": "range",
                  "min": 0, "max": 1, "step": 0.01, "default": 0.04},
-                {"key": "watermark_opacity", "label": "透明度 %", "type": "range", "min": 0, "max": 40, "step": 1, "default": 12},
+                {"key": "watermark_opacity", "label": "透明度 %", "type": "range", "min": 0, "max": 40, "step": 1, "default": 3},
                 {"key": "watermark_rotate", "label": "旋转角度", "type": "range", "min": -30, "max": 30, "step": 1, "default": -6},
                 {"key": "watermark_color", "label": "颜色", "type": "color", "default": "#FFDCBC"},
             ],
@@ -713,7 +713,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
         mask = ctx.create_smart_mask(
             width,
             height,
-            _clamp(_value(config, "mask_opacity", 180), 0, 255, 180),
+            _clamp(_value(config, "mask_opacity", 255), 0, 255, 255),
             _clamp(_value(config, "mask_coverage", 100), 10, 100, 100),
             _choice(
                 config,
@@ -773,7 +773,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
             mark_img = mark_img.rotate(
                 _clamp(_value(config, "watermark_rotate", -6), -30, 30, -6), resample=Image.BICUBIC, expand=True
             )
-            opacity = _clamp(_value(config, "watermark_opacity", 12), 0, 40, 12) / 100.0
+            opacity = _clamp(_value(config, "watermark_opacity", 3), 0, 40, 3) / 100.0
             mark_img.putalpha(mark_img.getchannel("A").point(lambda v: int(v * opacity)))
             frame.alpha_composite(
                 mark_img,

@@ -226,6 +226,7 @@ SHIPPED_TEMPLATE_HISTORY = {
         "325ccc52e84786261c94ee9b07072f38ceb8beaad84088abce65b470e584a95c",  # 1.6.25
         "2cb529284350541a43c72c48ce8ec9990d171af8cbddf79c48f610296cb7863a",  # 1.6.26
         "ef7a582c506e384cbac56ea3645e04d0aa9e207f2e37b68a2f52b0c17116852c",  # 1.6.27
+        "e03a6ec0ecf7e075e0dfadad45e9b8d7b45cc1220d14c0c4007d813af9d52fc6",  # 1.6.27 发布版
     },
 }
 

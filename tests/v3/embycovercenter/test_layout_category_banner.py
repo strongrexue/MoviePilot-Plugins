@@ -380,17 +380,17 @@ def test_divider_is_a_continuous_glow(tmp_path, monkeypatch):
 
 
 def test_schema_defaults_for_divider_and_watermark(tmp_path):
-    """水印锚点默认 85%、灯带中心亮度默认 245、遮罩默认关闭、底图不做任何调整。"""
+    """水印锚点默认 85%、灯带中心亮度默认 245、遮罩默认开启（浓度 180 / 范围 66%）、底图不做任何调整。"""
     engine = _make_engine(tmp_path)
     schema = engine.layout_modules[LAYOUT].get_schema()
     defaults = {item["key"]: item.get("default") for group in schema for item in group["items"]}
     assert defaults["watermark_x"] == 85
     assert defaults["watermark_opacity"] == 3
     assert defaults["divider_flare_strength"] == 245
-    assert defaults["mask_enabled"] is False
+    assert defaults["mask_enabled"] is True
     assert defaults["mask_color"] == "#000000"
-    assert defaults["mask_opacity"] == 255
-    assert defaults["mask_coverage"] == 100
+    assert defaults["mask_opacity"] == 180
+    assert defaults["mask_coverage"] == 66
     assert defaults["mask_direction"] == "horizontal_reverse"
     # 「底图什么样就什么样」：亮度/对比度/饱和度默认 1.0，底部遮罩默认 0
     assert defaults["scene_brightness"] == 1.0

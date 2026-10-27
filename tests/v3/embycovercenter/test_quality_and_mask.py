@@ -128,6 +128,31 @@ def test_resolve_canvas_follows_preset_and_keyart(tmp_path):
     engine.close()
 
 
+def test_resolve_canvas_floor_keeps_small_keyart_sharp(tmp_path):
+    """1.6.28：主视觉比 1080p 小时，auto 画布按比例托到 1080p 起步。
+
+    否则画布就跟着小原图（1280×720 / 1024×1024），Emby 铺满封面位要放大数倍，
+    表现就是「自己上传的底图应用后模糊，而媒体库背景图不会」。
+    """
+    engine = _make_engine(tmp_path)
+    plugin = _FakePlugin(tmp_path)
+    for name, size in (
+        ("small-720.png", (1280, 720)),
+        ("square.png", (1024, 1024)),
+        ("big.png", (3840, 2160)),
+    ):
+        image = Image.new("RGB", size, (40, 50, 70))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        assets_meta.save_keyart(plugin, name, buffer.getvalue())
+    assert engine.resolve_canvas({"canvas_preset": "auto", "keyart_file": "small-720.png"}) == (1920, 1080)
+    # 1:1 原图按比例放大到 1080 高（边长 1080→1080，仍不小于 1080）
+    assert engine.resolve_canvas({"canvas_preset": "auto", "keyart_file": "square.png"}) == (1920, 1920)
+    # 已经不小于 1080p 的原图保持原尺寸，不被缩小
+    assert engine.resolve_canvas({"canvas_preset": "auto", "keyart_file": "big.png"}) == (3840, 2160)
+    engine.close()
+
+
 def test_resolve_canvas_clamps_and_forces_even(tmp_path):
     """超大尺寸被 MAX_CANVAS_SIDE 截断，奇数边取偶（JPEG 奇数边会多黑边）。"""
     engine = _make_engine(tmp_path)
@@ -204,8 +229,10 @@ def test_shipped_preset_uses_library_background_without_scrim(tmp_path):
     for removed in ("grade_color", "grade_strength", "glow_color", "glow_strength",
                     "vignette_strength", "grain"):
         assert removed not in config, f"预设仍带已下线的调色字段：{removed}"
-    # 预设默认「保持原图」：遮罩关、底部不压、亮度/对比度/饱和度都是 1.0
-    assert config["mask_enabled"] is False
+    # 预设默认「保持原图」：底部不压、亮度/对比度/饱和度都是 1.0；遮罩只做轻压暗
+    assert config["mask_enabled"] is True
+    assert config["mask_opacity"] == 180
+    assert config["mask_coverage"] == 66
     assert config["bottom_scrim_strength"] == 0
     assert config["scene_brightness"] == 1.0
     assert config["scene_contrast"] == 1.0

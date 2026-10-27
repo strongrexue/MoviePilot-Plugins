@@ -43,7 +43,7 @@ DEFAULT_ENGINE = "经典平铺"
 COMMON_SCHEMA_FIELDS: List[Dict[str, Any]] = [
     {"key": "canvas_preset", "label": "画布尺寸", "type": "select", "default": "auto",
      "options": [
-         {"label": "跟随主视觉原图（无主视觉时 1920×1080）", "value": "auto"},
+         {"label": "跟随主视觉原图（不足 1920×1080 时按比例补到 1080p）", "value": "auto"},
          {"label": "1920×1080（全高清）", "value": "1080p"},
          {"label": "2560×1440（2K）", "value": "1440p"},
          {"label": "3840×2160（4K）", "value": "2160p"},
@@ -74,6 +74,10 @@ CANVAS_PRESETS: Dict[str, tuple] = {
 }
 # 单边上限：再大就是几百 MB 的 PIL 位图，预览必然超时。
 MAX_CANVAS_SIDE = 4096
+# ``auto`` 画布的最小尺寸：主视觉本身很小（1024 方图、1280×720）时，
+# 若照抄它的原图尺寸，Emby 把封面铺满时会放大数倍，肉眼就是「应用后变模糊」。
+# 这里按比例托到 1080p 起步，宁可放大一次也不让成品低于 1080p。
+MIN_CANVAS_SIZE = (1920, 1080)
 
 COMMON_GROUP_NAME = "引擎通用（画布 / 输出 / 动态 / 角标）"
 
@@ -558,7 +562,7 @@ class PosterEngine:
                 self._positive_int(config.get("canvas_height"), 1080),
             )
         else:
-            size = self._keyart_size_hint(config)
+            size = self._floor_canvas(self._keyart_size_hint(config))
             if size is None:
                 size = (
                     self._positive_int(config.get("canvas_width"), 1920),
@@ -568,6 +572,24 @@ class PosterEngine:
         height = max(1, min(MAX_CANVAS_SIDE, self._positive_int(size[1], 1080)))
         # 编码器对奇数边长不友好（JPEG 会多一行黑边），统一取偶。
         return (width - width % 2, height - height % 2)
+
+    @staticmethod
+    def _floor_canvas(size: Optional[tuple]) -> Optional[tuple]:
+        """把主视觉原图尺寸托到 1080p 起步（保持宽高比，只放大不缩小）。"""
+        if not size:
+            return None
+        try:
+            width = int(size[0])
+            height = int(size[1])
+        except (TypeError, ValueError, IndexError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        floor_w, floor_h = MIN_CANVAS_SIZE
+        if width >= floor_w and height >= floor_h:
+            return (width, height)
+        scale = max(floor_w / float(width), floor_h / float(height))
+        return (int(round(width * scale)), int(round(height * scale)))
 
     def _build_background(self, config: Dict[str, Any], assets: Dict[str, Any], size: tuple) -> Image.Image:
         canvas_w, canvas_h = size

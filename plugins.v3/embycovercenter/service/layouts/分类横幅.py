@@ -380,12 +380,12 @@ def get_schema():
         {
             "group": "特效与装饰",
             "items": [
-                {"key": "mask_enabled", "label": "显示渐变遮罩", "type": "boolean", "default": False},
+                {"key": "mask_enabled", "label": "显示渐变遮罩", "type": "boolean", "default": True},
                 {"key": "mask_color", "label": "遮罩颜色", "type": "color", "default": "#000000"},
                 {"key": "mask_opacity", "label": "遮罩浓度", "type": "range", "min": 0, "max": 255, "step": 1,
-                 "default": 255},
+                 "default": 180},
                 {"key": "mask_coverage", "label": "遮罩覆盖范围 %", "type": "range", "min": 10, "max": 100, "step": 1,
-                 "default": 100},
+                 "default": 66},
                 {"key": "mask_direction", "label": "遮罩方向", "type": "select", "default": "horizontal_reverse",
                  "options": [
                      {"label": "水平渐变 (左黑右亮)", "value": "horizontal"},
@@ -709,12 +709,12 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     title = str(_value(config, "title", "") or assets.get("library_name") or "").strip()
 
     # ---- 渐变遮罩（特效与装饰）：与「极简」同一套参数，方向可正可反，颜色可选
-    if _flag(config, "mask_enabled", False):
+    if _flag(config, "mask_enabled", True):
         mask = ctx.create_smart_mask(
             width,
             height,
-            _clamp(_value(config, "mask_opacity", 255), 0, 255, 255),
-            _clamp(_value(config, "mask_coverage", 100), 10, 100, 100),
+            _clamp(_value(config, "mask_opacity", 180), 0, 255, 180),
+            _clamp(_value(config, "mask_coverage", 66), 10, 100, 66),
             _choice(
                 config,
                 "mask_direction",

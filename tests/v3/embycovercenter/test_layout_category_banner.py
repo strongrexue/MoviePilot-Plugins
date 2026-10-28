@@ -76,7 +76,7 @@ def test_layout_is_discoverable_and_has_schema(tmp_path):
     groups = {group["group"] for group in schema}
     # 用户明确要求「标题/副标题/字距/光带/圆角框/水印/标签各自可单独分区修改」
     for expected in ("背景与底图", "底图调整（默认 1.0 = 保持原样）", "特效与装饰", "主标题", "副标题", "标语",
-                     "灯带（标题下的光带）", "题材标签", "书法水印", "圆角边框"):
+                     "灯带（标题下的光带）", "题材标签", "书法水印（右侧竖排）", "右下角引文", "圆角边框"):
         assert expected in groups, f"缺少分组：{expected}"
     # 用户要求「去掉调色与质感组件，底图什么样就什么样」
     assert "调色与质感" not in groups, "调色与质感分组应已移除"
@@ -93,6 +93,8 @@ def test_layout_is_discoverable_and_has_schema(tmp_path):
         "divider_color", "divider_flare_pos", "divider_flare_color",
         "tags_source", "tags_x", "tags_y", "tags_per_library",
         "watermark_enabled", "watermark_x", "watermark_rotate",
+        "quote_enabled", "quote_text", "quote_source", "quote_per_library",
+        "font_quote", "quote_size", "quote_x", "quote_y",
         "frame_radius", "frame_border_color",
     ):
         assert key in keys, f"schema 缺少字段：{key}"
@@ -179,9 +181,9 @@ def test_path_traversal_file_name_is_rejected(tmp_path):
 
 
 def test_tags_source_priority(tmp_path):
-    """标签三级来源：manual / library / auto 的优先级必须按配置生效。"""
+    """标签四级来源：builtin / manual / library / auto 的优先级必须按配置生效。"""
     module = _make_engine(tmp_path).layout_modules[LAYOUT]
-    assets = {"library_id": "lib-1", "genres": ["剧情", "悬疑"]}
+    assets = {"library_id": "lib-1", "library_name": "国漫", "genres": ["剧情", "悬疑"]}
     base = {
         "tags_text": "手填甲｜手填乙",
         "tags_per_library": json.dumps({"lib-1": ["库标签A"]}, ensure_ascii=False),
@@ -190,8 +192,13 @@ def test_tags_source_priority(tmp_path):
     assert module._tags_for(dict(base, tags_source="manual"), assets) == ["手填甲", "手填乙"]
     assert module._tags_for(dict(base, tags_source="library"), assets) == ["库标签A"]
     assert module._tags_for(dict(base, tags_source="auto"), assets) == ["剧情", "悬疑"]
-    # 不传 tags_source 时默认按接口题材优先（随包预设就是这个值，开箱即显示标签）
-    assert module._tags_for(base, assets) == ["剧情", "悬疑"]
+    assert module._tags_for(dict(base, tags_source="builtin"), assets) == [
+        "玄幻", "武侠", "修仙", "热血", "传承",
+    ]
+    # 不传 tags_source 时默认按内置分类文案（随包预设就是这个值，开箱即显示标签）
+    assert module._tags_for(base, assets) == ["玄幻", "武侠", "修仙", "热血", "传承"]
+    # 库名不在内置词典里时，builtin 取不到就退回按库映射，再退回接口题材
+    assert module._tags_for(base, {"library_id": "lib-1", "genres": ["剧情"]}) == ["库标签A"]
     # 高优先级来源为空时逐级回退，最终为空列表而不是崩
     empty = {"tags_per_library": "{}", "tags_separator": "｜"}
     assert module._tags_for(dict(empty, tags_source="manual"), {}) == []
@@ -435,6 +442,12 @@ def test_schema_defaults_for_divider_and_watermark(tmp_path):
     # 圆角与边框：默认就是最大档（半径 80、粗细 8），开箱即圆角描边效果
     assert defaults["frame_radius"] == 80
     assert defaults["frame_border_width"] == 8
+    # 1.6.32：水印与引文默认关闭；标语留空走内置文案；题材标签默认取内置分类文案
+    assert defaults["watermark_enabled"] is False
+    assert defaults["quote_enabled"] is False
+    assert defaults["slogan_cn"] == ""
+    assert defaults["slogan_en"] == ""
+    assert defaults["tags_source"] == "builtin"
     engine.close()
 
 

@@ -179,6 +179,6 @@ def test_fetch_assets_exposes_library_metadata(monkeypatch):
     assets = emby_assets.fetch_assets(ref, "lib1", mode="random", poster_count=1, backdrop_count=1)
     assert assets["library_id"] == "lib1"
     assert assets["library_name"] == "华语电影"
-    assert assets["library_en"] == "Chinese Movies"
+    assert assets["library_en"] == "CHINESE FILMS"
     assert assets["genres"] == ["剧情"]
     emby_assets._LIBRARY_NAME_CACHE.clear()

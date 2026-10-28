@@ -30,6 +30,7 @@
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import re
@@ -47,6 +48,39 @@ from PIL import (
 
 # 尺寸类参数（字号 / 圆角 / 线宽）都按 1080 高的画布校准，渲染时按实际高度等比缩放。
 REFERENCE_HEIGHT = 1080
+
+
+# ---------------------------------------------------------------- 文案词典
+#
+# 布局模块由 ``PosterEngine`` 用 importlib 按文件路径加载（模块名是
+# ``embycovercenter_layout_xxx``、没有包上下文），所以不能用相对 import 拿
+# ``service/library_names.py``。这里按文件路径加载一次并缓存，词典仍然只有
+# 一份（与 ``emby_assets`` / ``cover_auto`` / 前端共用同一份数据）。
+_LIBRARY_NAMES = None
+
+
+def _library_copy(name, getter, default=""):
+    """按库名取内置文案；``getter`` 是 ``library_names`` 里的函数名（如 ``slogan_cn_for``）。"""
+    global _LIBRARY_NAMES
+    if _LIBRARY_NAMES is None:
+        try:
+            path = Path(__file__).resolve().parent.parent / "library_names.py"
+            spec = importlib.util.spec_from_file_location("embycovercenter_library_names", path)
+            module = importlib.util.module_from_spec(spec) if spec and spec.loader else None
+            if module is not None:
+                spec.loader.exec_module(module)
+                _LIBRARY_NAMES = module
+        except Exception:  # 词典加载失败不能影响渲染，回退到空文案
+            _LIBRARY_NAMES = False
+    if not _LIBRARY_NAMES:
+        return default
+    getter_fn = getattr(_LIBRARY_NAMES, getter, None)
+    if not callable(getter_fn):
+        return default
+    try:
+        return getter_fn(name) or default
+    except Exception:
+        return default
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -439,8 +473,8 @@ def get_schema():
             "group": "标语",
             "items": [
                 {"key": "slogan_enabled", "label": "显示标语", "type": "boolean", "default": True},
-                {"key": "slogan_cn", "label": "中文标语（空格分段）", "type": "text", "default": "好故事 好人生"},
-                {"key": "slogan_en", "label": "英文标语（全大写渲染）", "type": "text", "default": "GOOD STORIES, GOOD LIFE"},
+                {"key": "slogan_cn", "label": "中文标语（空 = 按库内置文案；空格分段）", "type": "text", "default": ""},
+                {"key": "slogan_en", "label": "英文标语（空 = 按库内置文案；全大写渲染）", "type": "text", "default": ""},
                 {"key": "font_slogan", "label": "标语的字体", "type": "font", "default": DEFAULT_FONT_TEXT},
                 {"key": "slogan_size_ratio", "label": "中文标语字号（相对主标题）", "type": "range",
                  "min": 0.05, "max": 0.6, "step": 0.005, "default": 0.215},
@@ -478,8 +512,9 @@ def get_schema():
             "group": "题材标签",
             "items": [
                 {"key": "tags_enabled", "label": "显示题材标签", "type": "boolean", "default": True},
-                {"key": "tags_source", "label": "取值优先级", "type": "select", "default": "auto",
+                {"key": "tags_source", "label": "取值优先级", "type": "select", "default": "builtin",
                  "options": [
+                     {"label": "内置分类文案优先", "value": "builtin"},
                      {"label": "接口题材优先（Emby Genres）", "value": "auto"},
                      {"label": "手填优先", "value": "manual"},
                      {"label": "按库预设优先", "value": "library"},
@@ -501,9 +536,9 @@ def get_schema():
             ],
         },
         {
-            "group": "书法水印",
+            "group": "书法水印（右侧竖排）",
             "items": [
-                {"key": "watermark_enabled", "label": "显示水印", "type": "boolean", "default": True},
+                {"key": "watermark_enabled", "label": "显示书法水印", "type": "boolean", "default": False},
                 {"key": "watermark_text", "label": "水印文字（空 = 整段标题）", "type": "text", "default": ""},
                 {"key": "font_watermark", "label": "水印字体（缺失时自动跳过）", "type": "font", "default": DEFAULT_FONT_BRUSH},
                 {"key": "watermark_size", "label": "单字字号上限（1080 高基准）", "type": "range",
@@ -518,6 +553,32 @@ def get_schema():
                 {"key": "watermark_opacity", "label": "透明度 %", "type": "range", "min": 0, "max": 40, "step": 1, "default": 3},
                 {"key": "watermark_rotate", "label": "旋转角度", "type": "range", "min": -30, "max": 30, "step": 1, "default": -6},
                 {"key": "watermark_color", "label": "颜色", "type": "color", "default": "#FFDCBC"},
+            ],
+        },
+        {
+            "group": "右下角引文",
+            "items": [
+                {"key": "quote_enabled", "label": "显示右下角引文", "type": "boolean", "default": False},
+                {"key": "quote_text", "label": "引文正文（空 = 按库内置）", "type": "text", "default": ""},
+                {"key": "quote_source", "label": "出处（如 ——《无间道》）", "type": "text", "default": ""},
+                {"key": "quote_per_library", "label": "按库预设（JSON：库ID → 引文）", "type": "text", "default": "{}"},
+                {"key": "font_quote", "label": "引文字体", "type": "font", "default": DEFAULT_FONT_TEXT},
+                {"key": "quote_size", "label": "字号（1080 高基准）", "type": "range", "min": 8, "max": 60, "step": 1,
+                 "default": 22},
+                {"key": "quote_tracking", "label": "字距 em", "type": "range", "min": 0, "max": 1, "step": 0.01,
+                 "default": 0.12},
+                {"key": "quote_x", "label": "锚点 X %", "type": "range", "min": 0, "max": 100, "step": 0.1,
+                 "default": 95},
+                {"key": "quote_y", "label": "锚点 Y %", "type": "range", "min": 0, "max": 100, "step": 0.1,
+                 "default": 92},
+                {"key": "quote_align", "label": "对齐方式（默认右下）", "type": "select", "default": "right",
+                 "options": [{"label": "左对齐", "value": "left"}, {"label": "居中", "value": "center"},
+                             {"label": "右对齐", "value": "right"}]},
+                {"key": "quote_max_width", "label": "最大宽度 %（超过缩字号）", "type": "range",
+                 "min": 10, "max": 100, "step": 1, "default": 42},
+                {"key": "quote_color", "label": "颜色", "type": "color", "default": "#B9A98F"},
+                {"key": "quote_opacity", "label": "不透明度 %", "type": "range", "min": 0, "max": 100, "step": 1,
+                 "default": 78},
             ],
         },
         {
@@ -669,10 +730,12 @@ def _split_tags(text, separator):
 
 
 def _tags_for(config, assets):
-    """标签三级取值：手填 / 按库预设 / 接口题材，按 tags_source 决定谁优先。"""
+    """标签四级取值：按库预设 / 内置分类文案 / 接口题材 / 手填，按 tags_source 决定谁优先。"""
     library_id = str(assets.get("library_id") or config.get("library_id") or "")
+    library_name = str(assets.get("library_name") or config.get("library_name") or "")
     separator = _value(config, "tags_separator", "｜")
     manual = _split_tags(_value(config, "tags_text", ""), separator)
+    builtin = [str(item).strip() for item in (_library_copy(library_name, "tags_for", []) or []) if str(item).strip()]
 
     mapping = _json_map(_value(config, "tags_per_library", {}))
     preset = mapping.get(library_id) if library_id else None
@@ -689,14 +752,45 @@ def _tags_for(config, assets):
         auto = _split_tags(genres, separator)
 
     order = {
-        "manual": (manual, per_library, auto),
-        "library": (per_library, manual, auto),
-        "auto": (auto, per_library, manual),
-    }.get(_choice(config, "tags_source", ("manual", "library", "auto"), "auto"), (manual, per_library, auto))
+        "manual": (manual, per_library, builtin, auto),
+        "library": (per_library, manual, builtin, auto),
+        "auto": (auto, per_library, manual, builtin),
+        "builtin": (builtin, per_library, manual, auto),
+    }.get(_choice(config, "tags_source", ("builtin", "auto", "manual", "library"), "builtin"),
+          (builtin, per_library, manual, auto))
     for candidate in order:
         if candidate:
             return candidate
     return []
+
+
+# ---------------------------------------------------------------- 引文
+
+
+def _quote_for(config, assets):
+    """右下角引文：手填 > 按库预设（JSON）> 内置分类文案 > 空（不画）。返回 (正文, 出处)。"""
+    library_id = str(assets.get("library_id") or config.get("library_id") or "")
+    library_name = str(assets.get("library_name") or config.get("library_name") or "")
+    text = str(_value(config, "quote_text", "") or "").strip()
+    source = str(_value(config, "quote_source", "") or "").strip()
+    if text:
+        return text, source
+
+    mapping = _json_map(_value(config, "quote_per_library", {}))
+    preset = mapping.get(library_id) if library_id else None
+    if isinstance(preset, (list, tuple)) and preset:
+        body = str(preset[0] or "").strip()
+        tail = str(preset[1] or "").strip() if len(preset) > 1 else ""
+        return body, tail or source
+    if isinstance(preset, dict):
+        return str(preset.get("text") or "").strip(), str(preset.get("source") or "").strip() or source
+    if preset:
+        return str(preset).strip(), source
+
+    builtin = _library_copy(library_name, "quote_for", ("", ""))
+    if isinstance(builtin, (list, tuple)) and builtin and builtin[0]:
+        return str(builtin[0]), str(builtin[1] if len(builtin) > 1 else "") or source
+    return "", source
 
 
 # ---------------------------------------------------------------- 渲染
@@ -715,6 +809,7 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     book = _FontBook(ctx)
     frame = _build_scene(ctx, bg, config, assets)
     title = str(_value(config, "title", "") or assets.get("library_name") or "").strip()
+    library_name = str(assets.get("library_name") or config.get("library_name") or title or "").strip()
 
     # ---- 渐变遮罩（特效与装饰）：与「极简」同一套参数，方向可正可反，颜色可选
     if _flag(config, "mask_enabled", True):
@@ -752,8 +847,13 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
     # ---- 书法水印：整段标题竖排，字号按字数自动收缩，可整块关闭。
     # 默认锚点 85%，会落在标题右侧的可见区里，所以先画它、再画文字，
     # 让它当背景纹理而不是压在标题上（否则字叠字像重影）。
-    if _flag(config, "watermark_enabled", True):
-        mark_text = str(_value(config, "watermark_text", "") or title).strip()
+    if _flag(config, "watermark_enabled", False):
+        # 水印文字：手填 > 内置分类短语（如「浪奔浪流 恩怨如潮」）> 整段标题
+        mark_text = str(
+            _value(config, "watermark_text", "")
+            or _library_copy(library_name, "watermark_for", "")
+            or title
+        ).strip()
         chars = [char for char in mark_text if not char.isspace()]
         mark_font_name = _value(config, "font_watermark", DEFAULT_FONT_BRUSH)
         # 字体缺失就整块跳过，别把中文画成一排方框（tofu）。
@@ -845,8 +945,13 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
             box = (glow_x, glow_y, glow_x + layer.width, glow_y + layer.height)
             frame.paste(ImageChops.screen(frame.crop(box), layer), box)
 
-    # ---- 副标题（全大写 + 宽字距）
-    subtitle = str(_value(config, "subtitle", "") or assets.get("library_en") or "").strip().upper()
+    # ---- 副标题（全大写 + 宽字距；留空 = 内置英文名 / 库名）
+    subtitle = str(
+        _value(config, "subtitle", "")
+        or assets.get("library_en")
+        or _library_copy(library_name, "english_name_for", "")
+        or library_name
+    ).strip().upper()
     subtitle_align = _choice(config, "subtitle_align", tuple(_INHERIT_ALIGN_OPTIONS), "inherit")
     if subtitle_align == "inherit":
         subtitle_align = title_align
@@ -872,7 +977,9 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
         slogan_align = title_align
     slogan_font_name = _value(config, "font_slogan", DEFAULT_FONT_TEXT)
     slogan_color = _rgb(_value(config, "slogan_color", "#EFE3CD"), (239, 227, 205)) + (255,)
-    slogan_parts = [part for part in re.split(r"[\s｜|]+", str(_value(config, "slogan_cn", "") or "")) if part]
+    # 标语留空 = 用内置分类文案（library_names.LIBRARY_COPY），这样一套预设就能覆盖所有库。
+    slogan_cn_text = str(_value(config, "slogan_cn", "") or _library_copy(library_name, "slogan_cn_for", ""))
+    slogan_parts = [part for part in re.split(r"[\s｜|]+", slogan_cn_text) if part]
     slogan_size = int(title_size * _clamp(_value(config, "slogan_size_ratio", 0.215), 0.05, 0.6, 0.215))
     slogan_font = book.get(slogan_font_name, slogan_size)
     slogan_spacing = _clamp(_value(config, "slogan_spacing", 0.85), 0, 3, 0.85)
@@ -893,8 +1000,8 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
             draw.text((x, slogan_y), part, font=slogan_font, fill=slogan_color)
             x += slogan_font.getlength(part) + (slogan_gap if index < len(slogan_parts) - 1 else 0)
 
-    # ---- 英文标语
-    slogan_en = str(_value(config, "slogan_en", "") or "").strip().upper()
+    # ---- 英文标语（留空 = 用内置分类文案）
+    slogan_en = str(_value(config, "slogan_en", "") or _library_copy(library_name, "slogan_en_for", "")).strip().upper()
     if slogan_en and slogan_enabled:
         en_ratio = _clamp(_value(config, "slogan_en_size_ratio", 0.46), 0.1, 1.2, 0.46)
         en_tracking_ratio = _clamp(_value(config, "slogan_en_tracking", 0.30), 0, 1, 0.30)
@@ -946,6 +1053,30 @@ def render(ctx, bg, config, assets, fonts=None, step=None):
             if index < len(tags) - 1:
                 _draw_tracked(draw, separator, tag_x + tag_size * 0.75, tag_y, tag_font, separator_color, tag_tracking, "left")
                 tag_x += _tracked_width(separator, tag_font, tag_tracking) + tag_size * 1.65
+
+    # ---- 右下角引文：独立开关，默认关；正文与出处拼成一行，超宽自动缩字号
+    if _flag(config, "quote_enabled", False):
+        quote_text, quote_source = _quote_for(config, assets)
+        if quote_text:
+            line = quote_text if not quote_source else f"{quote_text}——{quote_source}"
+            quote_font_name = _value(config, "font_quote", DEFAULT_FONT_TEXT)
+            quote_base = px(_clamp(_value(config, "quote_size", 22), 8, 60, 22))
+            quote_tracking_ratio = _clamp(_value(config, "quote_tracking", 0.12), 0, 1, 0.12)
+            quote_max = width * _clamp(_value(config, "quote_max_width", 42), 10, 100, 42) / 100.0
+            quote_size = book.fit(quote_font_name, line, quote_base, quote_max, quote_tracking_ratio)
+            quote_font = book.get(quote_font_name, quote_size)
+            quote_align = _choice(config, "quote_align", tuple(_ALIGN_OPTIONS), "right")
+            quote_anchor = width * _clamp(_value(config, "quote_x", 95), 0, 100, 95) / 100.0
+            quote_y = int(height * _clamp(_value(config, "quote_y", 92), 0, 100, 92) / 100.0)
+            quote_alpha = int(255 * _clamp(_value(config, "quote_opacity", 78), 0, 100, 78) / 100.0)
+            quote_color = _rgb(_value(config, "quote_color", "#B9A98F"), (185, 169, 143)) + (quote_alpha,)
+            # 直接画在 RGBA 上会丢 alpha，先画到透明图层再合成。
+            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            _draw_tracked(
+                ImageDraw.Draw(layer), line, quote_anchor, quote_y, quote_font, quote_color,
+                int(quote_size * quote_tracking_ratio), quote_align,
+            )
+            frame = Image.alpha_composite(frame, layer)
 
     # ---- 圆角 + 双层描边（最后画，保证边框压在文字上沿）
     radius = px(_clamp(_value(config, "frame_radius", 80), 0, 160, 80), minimum=0)

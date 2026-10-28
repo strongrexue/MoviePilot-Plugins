@@ -154,7 +154,7 @@ def test_prepare_config_fills_subtitle_from_dictionary(monkeypatch):
     monkeypatch.setattr(api_controller, "_library_name", lambda ref, library_id: "华语电影")
     config = api_controller._prepare_config(_PreviewRequest(), object())
     assert config["title"] == "华语电影"
-    assert config["subtitle"] == "Chinese Movies"
+    assert config["subtitle"] == "CHINESE FILMS"
 
 
 def test_prepare_config_keeps_manual_subtitle(monkeypatch):

@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-D9depUc9.js';
+import { F as FRONTEND_VERSION } from './version-BhQLLZub.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3} = await importShared('vue');
 
@@ -236,13 +236,12 @@ const CONTENT_KEYS = ['title', 'subtitle'];
 /** 常见媒体库名的中英对照（副标题默认取英文名）。
  *
  * 命中则用英文，未命中回退库名本身；键统一小写以兼容「4K电影 / 4k电影」这类写法。
- * 用户在副标题里手填的英文名优先于本词典（见 `libraryEnNames`）。 */
+ * 用户在副标题里手填的英文名优先于本词典（见 `libraryEnNames`）。
+ * 后端 `service/library_names.py` 里有一份同样内容的副本，两边要一起改。 */
 const LIBRARY_EN_NAMES = {
   '电影': 'Movies',
   '电影库': 'Movies',
   '欧美电影': 'Western Movies',
-  '华语电影': 'Chinese Movies',
-  '日韩电影': 'Asian Movies',
   '4k电影': '4K Movies',
   '电视剧': 'TV Shows',
   '剧集': 'TV Shows',
@@ -250,16 +249,30 @@ const LIBRARY_EN_NAMES = {
   '动漫': 'Anime',
   '动画': 'Anime',
   '番剧': 'Anime',
-  '综艺': 'Variety Shows',
-  '纪录片': 'Documentaries',
-  '儿童': 'Kids',
-  '少儿': 'Kids',
   '亲子': 'Kids',
   '音乐': 'Music',
   'mv': 'Music Videos',
   '体育': 'Sports',
   '教育': 'Education',
   '有声书': 'Audiobooks',
+  // 分类横幅的分类文案词典（与后端 LIBRARY_COPY 的 en 字段保持一致）
+  '儿童': 'KIDS',
+  '少儿': 'KIDS',
+  '国漫': 'CHINESE ANIMATION',
+  '国产剧': 'CHINESE SERIES',
+  '港台剧': 'HONG KONG & TAIWAN SERIES',
+  '日韩剧': 'JAPANESE & KOREAN SERIES',
+  '欧美剧': 'WESTERN SERIES',
+  '日番': 'JAPANESE ANIMATION',
+  '欧美漫': 'WESTERN COMICS',
+  '综艺': 'VARIETY SHOW',
+  '纪录片': 'DOCUMENTARIES',
+  '动画电影': 'ANIMATED MOVIES',
+  '华语电影': 'CHINESE FILMS',
+  '日韩电影': 'JAPANESE & KOREAN FILMS',
+  '外语电影': 'FOREIGN FILMS',
+  '纪录影片': 'DOCUMENTARY FILMS',
+  '演唱会': 'CONCERTS',
 };
 
 /** 按库名查英文名；未命中返回空串。 */
@@ -305,6 +318,8 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   const templates = ref$2([]);
   const previewImage = ref$2('');
   const previewInfo = ref$2({ count: 0, title: '' });
+  // 预览图对应的请求快照（JSON 字符串）：参数没变就复用这张图，避免随机素材被重抽。
+  const previewKey = ref$2('');
   const message = ref$2('');
   const messageOk = ref$2(true);
 
@@ -528,11 +543,15 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     if (previewing.value) return
     previewing.value = true;
     try {
+      const body = requestBody();
       const data = unwrap(
-        await postPluginApi(api(), pluginId(), 'preview', requestBody(), { timeoutMs: RENDER_TIMEOUT_MS }),
+        await postPluginApi(api(), pluginId(), 'preview', body, { timeoutMs: RENDER_TIMEOUT_MS }),
       ) || {};
       previewImage.value = String(data.image || '');
       previewInfo.value = { count: Number(data.count || 0), title: String(data.title || '') };
+      // 记下这张预览对应的请求：随机模式下素材是每次现抽的，
+      // 应用时若参数没变就必须复用这张图，否则会重新抽到另一套素材。
+      previewKey.value = JSON.stringify(body);
       report('预览已生成');
     } catch (error) {
       report(error?.message || '预览生成失败', false);
@@ -541,16 +560,25 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 应用：不带 image_data → 后端现场渲染后上传。 */
+  /** 应用：优先复用「参数没变」的那张预览图，避免随机素材被重新抽取。
+   *  参数改过或还没生成预览时，才让后端现场渲染。 */
   async function applyCover() {
     if (applying.value) return
     applying.value = true;
     try {
+      const body = requestBody();
+      const reusable = previewImage.value && previewKey.value === JSON.stringify(body);
       const data = unwrap(
-        await postPluginApi(api(), pluginId(), 'apply', requestBody(), { timeoutMs: RENDER_TIMEOUT_MS }),
+        await postPluginApi(
+          api(),
+          pluginId(),
+          'apply',
+          reusable ? { ...body, image_data: previewImage.value } : body,
+          { timeoutMs: RENDER_TIMEOUT_MS },
+        ),
       ) || {};
       if (data.uploaded) saveScheme();
-      report(data.uploaded ? '封面已应用' : '应用未生效', !!data.uploaded);
+      report(data.uploaded ? (reusable ? '预览图已设为封面' : '封面已应用') : '应用未生效', !!data.uploaded);
     } catch (error) {
       report(error?.message || '应用失败', false);
     } finally {

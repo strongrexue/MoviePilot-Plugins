@@ -66,7 +66,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.14.8"
+    plugin_version = "1.14.9"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -889,6 +889,7 @@ class SubscribeCenter(_PluginBase):
         （缺集纯属推测，最需要核对），同类里「最老的缺集」优先。
         """
         from .core import autotoggle
+        from .core import calendar as calendar_core
 
         candidates: List[Any] = []
         for row in rows:
@@ -1167,8 +1168,6 @@ class SubscribeCenter(_PluginBase):
         :param reason: ``cron`` / ``manual`` —— 只用于记录，不影响判定
         """
         import time
-
-        from .core import autotoggle
 
         cfg = self._auto_toggle_config()
         started_at = local_now_text(self._tz())
@@ -2335,10 +2334,9 @@ class SubscribeCenter(_PluginBase):
         单独抽出来（不在 ``blacklist_audit`` 里内联查询）是为了单测能直接
         替换成假数据，不必给 ``app.db`` 打桩。
         """
-        from sqlalchemy import select
-
         from app.db import async_session_scope
         from app.db.models.subscribe import Subscribe
+        from sqlalchemy import select
 
         async with async_session_scope() as session:
             result = await session.execute(select(Subscribe))
@@ -2442,8 +2440,6 @@ class SubscribeCenter(_PluginBase):
 
         「查不了」与「没命中」严格分开 —— 见 :meth:`_audit_one` 的 ``skipped``。
         """
-        from .core import blacklist as blacklist_core
-
         rules = self.blacklist_rules()
         result: Dict[str, Any] = {
             "active": bool(rules.active),
@@ -3241,12 +3237,13 @@ class SubscribeCenter(_PluginBase):
     ) -> str:
         """查订阅当前状态（``R`` / ``P`` / ``S`` / ``N``），查不到返回空串。"""
         try:
-            from .core.host import media_source_enum
             from app.sdk.queries import (
                 QueryPageRequest,
                 SubscriptionFilter,
                 async_list_subscriptions,
             )
+
+            from .core.host import media_source_enum
 
             source_enum = media_source_enum(media_source)
             if source_enum is None:

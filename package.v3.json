@@ -86,7 +86,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.14.8",
+        "version": "1.14.9",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -94,6 +94,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.14.9": "修豆瓣「想看人数」解析：剧集即将播出用「想看人数：N」文案，原来只认「想看：」，导致该路线的想看门槛完全失效；顺手修掉媒体库核对里未导入的 calendar_core（无季号剧集必崩）与若干游离导入",
             "v1.14.8": "电影没有来源日期时按 TMDB 发行日兜底判定；电影窗口新增发行后宽限期（默认 7 天）",
             "v1.14.7": "修：宿主订阅复查失败时绕过流水去重，导致订过的作品被重复自动订阅（真机事故：数据库 worker 忙时批量重订）",
             "v1.14.6": "流水决策文案：「流水已记录」改为「流水已记录（不再自动订）」，便于真机自查去重是否生效",

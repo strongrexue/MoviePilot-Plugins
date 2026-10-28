@@ -49,8 +49,15 @@ USER_AGENT = "SubscribeCenter/0.7.0 (MoviePilot plugin; +https://github.com/stro
 #: 上映日期：``上映日期：2026-10-23(中国大陆)``
 _RELEASE_DATE = re.compile(r"上映日期[：:]\s*(\d{4}-\d{2}-\d{2})")
 
-#: 想看人数：``想看：27357``
-_WANT_COUNT = re.compile(r"想看[：:]\s*([\d,]+)")
+#: 想看人数，**两种文案都要认**：
+#:
+#: - 电影即将上映：``想看：27357``
+#: - 剧集即将播出：``想看人数：21035``（中间多「人数」两字）
+#:
+#: 真机实测（2026-10-28，RSSHub 自建实例）：只认前一种时
+#: ``/douban/tv/coming`` 10 条里 0 条解析到想看数，导致剧集那条路线的
+#: 「想看人数门槛」形同虚设（缺失即放行）。
+_WANT_COUNT = re.compile(r"想看(?:人数)?[：:]\s*([\d,]+)")
 
 #: 豆瓣条目 id：``https://movie.douban.com/subject/37322586/``
 _SUBJECT_ID = re.compile(r"subject/(\d+)")

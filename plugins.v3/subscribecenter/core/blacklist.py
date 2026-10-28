@@ -21,8 +21,8 @@
 本模块是纯函数：不碰网络、不碰宿主，可离线单测。
 """
 import re
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Pattern, Sequence, Set, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Pattern, Set, Tuple
 
 from .constants import MEDIA_TYPE_TV
 

@@ -139,6 +139,42 @@ def test_popularity_must_stay_none():
     assert items[1].raw["want"] == 1234
 
 
+#: 剧集即将播出（``/douban/tv/coming``）实测文案写的是「想看人数：」，
+#: 比电影那条多两个字；只认「想看：」会让该路线的想看门槛完全失效。
+TV_COMING_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>豆瓣剧集-即将播出</title>
+  <item>
+    <title>哈利·波特与魔法石</title>
+    <description>想看人数：21035，孤儿哈利·波特在11岁生日那天收到入学通知书。</description>
+    <link>https://movie.douban.com/subject/36000010/</link>
+  </item>
+  <item>
+    <title>银翼杀手2099</title>
+    <description>想看人数：1,970，故事发生在2099年的洛杉矶。</description>
+    <link>https://movie.douban.com/subject/36000011/</link>
+  </item>
+</channel></rss>"""
+
+
+def test_tv_coming_want_count_with_renshu_suffix():
+    """「想看人数：21035」也要解出想看数。
+
+    真机实测（2026-10-28，自建 RSSHub）：只认「想看：」时
+    ``/douban/tv/coming`` 10 条里 0 条解析到想看数，导致「想看人数门槛」
+    对剧集路线完全失效（缺失即放行，冷门剧集一路绿灯）。
+    """
+    items = {
+        item.title: item
+        for item in DoubanRssSource.parse(TV_COMING_FEED, "http://nas:1200/douban/tv/coming")
+    }
+    assert items["哈利·波特与魔法石"].raw["want"] == 21035
+    # 千分位逗号同样要处理
+    assert items["银翼杀手2099"].raw["want"] == 1970
+    # 剧集路线仍按剧集归类
+    assert items["哈利·波特与魔法石"].media_type == C.MEDIA_TYPE_TV
+
+
 def test_items_without_date_are_marked_date_unknown():
     """没有上映日期的条目**保留但标记** date_unknown。
 

@@ -1329,6 +1329,32 @@ def test_probe_skips_best_version_and_movies(plugin):
     assert stats["candidates"] == 1
 
 
+def test_probe_tv_row_without_season_uses_movie_key(plugin):
+    """剧集行 ``season<=0`` 时，索引键要按 ``calendar.MOVIE_KEY``（``"movie"``）。
+
+    回归：这一分支以前引用了**没有导入**的 ``calendar_core``，
+    一旦遇到没有季号的剧集就 ``NameError``，把整轮媒体库核对直接打断
+    （ruff F821 抓到的就是它）。这里锁住「不抛异常且能挑出候选」。
+    """
+    rows = [_lib_row(id=1, season=0)]
+    index = {("900", "movie"): _eps(("2026-10-19", 1))}
+    asked = []
+
+    async def fake_probe(row):
+        asked.append(row.id)
+        return set()
+
+    plugin._probe_one = fake_probe
+    _, stats = asyncio.run(
+        plugin._probe_missing_episodes(
+            rows, index, TODAY, budget_seconds=10, interval=0, known={}
+        )
+    )
+
+    assert asked == [1], "无季号剧集也要能被核对"
+    assert stats["candidates"] == 1
+
+
 def test_probe_ignores_lack_episode_fallback(plugin):
     """``lack_episode<=0`` + ``note`` 空：``episode_numbers`` 会兜底成「整季已入库」，
     但那恰恰是「需要核对」的形态 —— 探针不能被这个兜底挡住。"""

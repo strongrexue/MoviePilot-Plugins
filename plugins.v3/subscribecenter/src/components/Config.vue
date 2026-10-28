@@ -128,7 +128,7 @@ const versionMismatch = computed(() => {
 })
 
 /** 已实现的数据源（其余源在当前版本会在日志里明确跳过）。 */
-const IMPLEMENTED = ['tmdb', 'anilist', 'douban_rss', 'hot_media']
+const IMPLEMENTED = ['tmdb', 'anilist', 'douban_rss', 'hot_media', 'qq_video', 'bilibili']
 
 /** 豆瓣 RSS 地址：后端存字符串数组，界面用多行文本编辑。 */
 const doubanSourcesText = computed({
@@ -179,6 +179,7 @@ const sectionNav = computed(() => [
   { key: 'anilist', label: 'AniList', icon: 'mdi-animation-outline' },
   { key: 'douban', label: '豆瓣榜单', icon: 'mdi-movie-filter-outline' },
   { key: 'hot_media', label: '热门媒体', icon: 'mdi-fire' },
+  { key: 'platform', label: '平台首播', icon: 'mdi-television-play' },
   { key: 'blacklist', label: '排除规则', icon: 'mdi-shield-off-outline' },
   { key: 'schedule', label: '写入与调度', icon: 'mdi-calendar-clock' },
   { key: 'autotoggle', label: '自动启停', icon: 'mdi-toggle-switch-outline' },
@@ -1394,6 +1395,94 @@ onMounted(() => {
 
 
         <!-- 写入与调度 -->
+
+        <template v-if="activeSection === 'platform'">
+          <div class="sc-card">
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">启用腾讯视频「即将上线」</div>
+                <div class="sc-row-hint">电视剧 / 电影 / 综艺的定档与待播（私有接口，只有排在前面的几条带上线时间）</div>
+              </div>
+              <VSwitch v-model="form.enable_qq_video" density="compact" hide-details color="primary" />
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-television-play" size="16" /> 腾讯视频
+            </div>
+            <VRow dense>
+              <VCol cols="12" sm="4">
+                <VTextField
+                  v-model.number="form.qq_video_max_items"
+                  label="每个频道最多取 N 条"
+                  type="number"
+                  min="1"
+                  max="60"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">
+              三个频道（电视剧 36 条 / 电影 36 条 / 综艺 12 条，实测）共用一个接口。
+              <b>只有排在前面的少数几条带「上线时间」</b>，其余是已上架但没定档的待播片：
+              带日期的走时间窗口；不带日期的靠「TMDB 是否还有未播集」判定，所以剧集能进、电影会被跳过。
+              预约人数会当「关注度」参与筛选。
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">启用 B 站番剧时间表</div>
+                <div class="sc-row-hint">公开接口；定位是 <b>AniList 的备份</b>（限流 / 停服时顶上）</div>
+              </div>
+              <VSwitch v-model="form.enable_bilibili" density="compact" hide-details color="primary" />
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <div class="sc-card-title">
+              <VIcon icon="mdi-animation-play-outline" size="16" /> B 站番剧
+            </div>
+            <VRow dense>
+              <VCol cols="12" sm="4">
+                <VTextField
+                  v-model.number="form.bilibili_future_days"
+                  label="看多少天（上限 7）"
+                  type="number"
+                  min="1"
+                  max="7"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="4">
+                <VTextField
+                  v-model.number="form.bilibili_max_items"
+                  label="最多取 N 条"
+                  type="number"
+                  min="1"
+                  max="60"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+            </VRow>
+            <div class="sc-hint">
+              B 站的时间表只有番剧（真人剧返回空数组），且只覆盖近 7 天有更新的番，
+              所以一年也就几十条——它的价值不在「多」，而在 AniList 掛了时还有一份国内视角的档期。
+            </div>
+          </div>
+        </template>
+
         <template v-if="activeSection === 'hot_media'">
         <div class="sc-card">
           <div class="sc-card-title">

@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.15.0"
+PLUGIN_VERSION = "1.16.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -142,6 +142,10 @@ SOURCE_DOUBAN_RSS = "douban_rss"
 
 #: 热门媒体：MoviePilot 官方热门订阅统计（需开启订阅数据共享）
 SOURCE_HOT_MEDIA = "hot_media"
+#: 腾讯视频「即将上线」（自建抓包，私有接口）
+SOURCE_QQ_VIDEO = "qq_video"
+#: 哔哩哔哩番剧时间表（公开接口，作为 AniList 的备份）
+SOURCE_BILIBILI = "bilibili"
 SOURCE_SIMKL = "simkl"
 SOURCE_JUSTWATCH = "justwatch"
 
@@ -155,11 +159,20 @@ ALL_SOURCES = (
     SOURCE_ANILIST,
     SOURCE_DOUBAN_RSS,
     SOURCE_HOT_MEDIA,
+    SOURCE_QQ_VIDEO,
+    SOURCE_BILIBILI,
 )
 
 #: 已实现的数据源（其余源在配置页可开，但运行时会记录「未实现」并跳过）
 IMPLEMENTED_SOURCES = frozenset(
-    {SOURCE_TMDB, SOURCE_ANILIST, SOURCE_DOUBAN_RSS, SOURCE_HOT_MEDIA}
+    {
+        SOURCE_TMDB,
+        SOURCE_ANILIST,
+        SOURCE_DOUBAN_RSS,
+        SOURCE_HOT_MEDIA,
+        SOURCE_QQ_VIDEO,
+        SOURCE_BILIBILI,
+    }
 )
 
 
@@ -298,6 +311,19 @@ def default_config() -> Dict[str, Any]:
         "enable_anilist": True,
         "enable_bangumi": False,
         "enable_douban_rss": False,
+        # ---------------- 平台首播（腾讯视频 / B 站番剧）
+        #: 腾讯视频「即将上线」——电视刷/电影/综艺三个频道。
+        #: **默认关**：这是私有接口，随时可能改参数；想用再开。
+        "enable_qq_video": False,
+        #: 抓哪几个频道：tv / movie / variety
+        "qq_video_channels": ["tv", "movie", "variety"],
+        #: 每个频道最多取多少条
+        "qq_video_max_items": 40,
+        #: B 站番剧时间表（AniList 的备份）——默认关，同上
+        "enable_bilibili": False,
+        #: 时间表窗口（天）。接口上限 7 天，写再大也只给 7 天。
+        "bilibili_future_days": 7,
+        "bilibili_max_items": 30,
         # ---------------- 发现窗口与阈值
         "tmdb_future_days": DEFAULT_FUTURE_DAYS,
         "bangumi_future_days": DEFAULT_FUTURE_DAYS,

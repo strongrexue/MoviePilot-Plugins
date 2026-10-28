@@ -66,7 +66,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.15.0"
+    plugin_version = "1.16.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -2619,6 +2619,20 @@ class SubscribeCenter(_PluginBase):
             sources.append(DoubanRssSource())
         except Exception as err:  # noqa: BLE001 - 单源构造失败不阻塞其他源
             logger.warning(f"[SubscribeCenter] 豆瓣 RSS 源不可用：{err}")
+
+        try:
+            from .sources.qqvideo import QqVideoSource
+
+            sources.append(QqVideoSource())
+        except Exception as err:  # noqa: BLE001 - 单源构造失败不阻塞其他源
+            logger.warning(f"[SubscribeCenter] 腾讯视频源不可用：{err}")
+
+        try:
+            from .sources.bilibili import BilibiliSource
+
+            sources.append(BilibiliSource())
+        except Exception as err:  # noqa: BLE001 - 单源构造失败不阻塞其他源
+            logger.warning(f"[SubscribeCenter] B 站番剧源不可用：{err}")
         return sources
 
     def _enabled_sources(self) -> List[str]:
@@ -2627,6 +2641,8 @@ class SubscribeCenter(_PluginBase):
             C.SOURCE_TMDB: "enable_tmdb",
             C.SOURCE_ANILIST: "enable_anilist",
             C.SOURCE_DOUBAN_RSS: "enable_douban_rss",
+            C.SOURCE_QQ_VIDEO: "enable_qq_video",
+            C.SOURCE_BILIBILI: "enable_bilibili",
         }
         enabled: List[str] = []
         for source, key in mapping.items():
@@ -2806,6 +2822,8 @@ class SubscribeCenter(_PluginBase):
                 (C.SOURCE_ANILIST, "enable_anilist"),
                 (C.SOURCE_DOUBAN_RSS, "enable_douban_rss"),
                 (C.SOURCE_HOT_MEDIA, "enable_hot_media"),
+                (C.SOURCE_QQ_VIDEO, "enable_qq_video"),
+                (C.SOURCE_BILIBILI, "enable_bilibili"),
             )
         ]
         return api_schemas.PluginStatus(

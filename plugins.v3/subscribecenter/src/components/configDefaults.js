@@ -13,6 +13,15 @@ export const configDefaults = {
   enable_anilist: true,
   enable_bangumi: false,
   enable_douban_rss: false,
+  // ---------------- 平台首播（腾讯视频 / B 站番剧）
+  //: 腾讯视频「即将上线」——电视剧/电影/综艺三个频道（私有接口，默认关）
+  enable_qq_video: false,
+  qq_video_channels: ['tv', 'movie', 'variety'],
+  qq_video_max_items: 40,
+  //: B 站番剧时间表（AniList 的备份，默认关）
+  enable_bilibili: false,
+  bilibili_future_days: 7,
+  bilibili_max_items: 30,
   // ---------------- 发现窗口与阈值
   tmdb_future_days: 3,
   bangumi_future_days: 3,

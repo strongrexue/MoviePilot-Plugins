@@ -1188,7 +1188,7 @@ onMounted(() => {
             <div class="sc-hint mt-2">
             <b>电影上映类</b>（<code>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br />
             <b>剧集类</b>（<code>/douban/tv/coming</code>、<code>/douban/list/tv_*</code>、
-            <code>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br />
+            <code>/douban/list/show_domestic</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br />
             <b>电影榜单类</b>没有日期，会被跳过。<code>ustop250</code> 与
             <code>/douban/movie/new</code> 在新版 RSSHub 已 404。
             </div>

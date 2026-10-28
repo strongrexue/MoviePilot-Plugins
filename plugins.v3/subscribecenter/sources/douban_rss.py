@@ -228,31 +228,32 @@ class DoubanRssSource:
 
 # --------------------------------------------------------------------- 工具
 
-#: 内置榜单名（按 URL 末段推导，用户可覆盖）
+#: 内置榜单名 —— **一律取 RSSHub 实测的频道标题**，与阅读器里看到的一致，
+#: 方便一眼对上是哪条路线。用户可覆盖。
 _LIST_NAMES = {
     # —— 即将上映（带精确日期）——
-    "movie_coming": "电影即将上映",
-    "tv_coming": "剧集即将播出",
+    "movie_coming": "豆瓣电影-即将上映",
+    "tv_coming": "豆瓣剧集-即将播出",
     # —— 榜单类（无日期，靠 TMDB 未播集判断）——
-    "tv_real_time_hotest": "近期热门剧集",
-    "tv_domestic": "近期热门国产剧",
-    "tv_variety": "近期热门综艺",
-    "tv_animation": "近期热门动画",
-    "movie_real_time_hotest": "近期热门电影",
-    "tv_chinese_best_weekly": "华语口碑剧集",
-    "tv_global_best_weekly": "全球口碑剧集",
-    "movie_weekly_best": "电影口碑榜",
+    "tv_domestic": "豆瓣 - 近期热门国产剧",
+    "show_domestic": "豆瓣 - 近期热门国内综艺",
+    "tv_variety": "豆瓣 - 近期热门国内综艺",
+    "tv_animation": "豆瓣 - 近期热门动画",
+    "movie_real_time_hotest": "豆瓣 - 实时热门电影",
+    "movie_hot": "豆瓣 - 新片榜",
+    "movie_hot_gaia": "豆瓣 - 豆瓣热门",
+    "movie_weekly_best": "豆瓣 - 一周口碑电影榜",
     "movie_top250": "豆瓣电影 Top250",
     "movie_showing": "正在上映",
     # —— 按语种/产地的剧集榜单 ——
-    "tv_japanese": "日剧",
-    "tv_korean": "韩剧",
-    "tv_american": "美剧",
+    "tv_japanese": "豆瓣 - 近期热门日剧",
+    "tv_korean": "豆瓣 - 近期热门韩剧",
+    "tv_american": "豆瓣 - 近期热门美剧",
     "tv_british": "英剧",
     "tv_hongkong": "港剧",
     "tv_taiwan": "台剧",
     "tv_thai": "泰剧",
-    "tv_documentary": "纪录片",
+    "tv_documentary": "豆瓣 - 近期热门纪录片",
     "tv_show": "综艺",
 }
 

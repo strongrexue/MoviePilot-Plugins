@@ -36,7 +36,7 @@
 |---|---|
 | 院线新片档期 | 豆瓣 `movie_coming`（带精确上映日期） |
 | 美剧 | 豆瓣 `tv_american`（开播日期由 resolver 查 TMDB 补） |
-| 国产剧 | 豆瓣 `tv_domestic` / `tv_real_time_hotest` / 口碑周榜 |
+| 国产剧 | 豆瓣 `tv_domestic` / 新片榜 / 口碑周榜 |
 | 番剧 / 国创 | AniList |
 
 关掉后仅失去三点，都不是必需：
@@ -70,20 +70,24 @@
 
 | 路线 | 出厂 | 建议 | 理由 |
 |---|---|---|---|
-| `/douban/movie/coming` 电影即将上映 | **开** | **保持开** | 电影档期唯一来源，唯一带精确日期的路线 |
-| `/douban/tv/coming` 剧集即将播出 | **开** | **现在先留着，平台源上线后关** | **它没有日期**（`douban_rss.py:161-162`），价值会被平台源完全覆盖 |
-| `/douban/list/tv_real_time_hotest` 近期热门剧集 | 开 | 开 | 在播热门 |
-| `/douban/list/tv_domestic` 近期热门国产剧 | 开 | 开 | 国产剧主力 |
-| `/douban/list/tv_variety` 近期热门综艺 | 开 | **可关** | 综艺在 MP 里没有集数概念，订了也只是空转 |
-| `/douban/list/tv_animation` 近期热门动画 | 开 | **可关** | 与 AniList 重复，且番剧用 AniList 更准 |
-| `/douban/recommended/tv` 豆瓣推荐剧集 | 开 | 开 | 编辑推荐，人工策展质量高 |
-| `/douban/list/movie_real_time_hotest` 热门电影 | 关 | **开**（你要电影） | 已上映热门，配合 7 天宽限能捞到刚上数字版的 |
-| `/douban/list/tv_chinese_best_weekly` 华语口碑剧集 | 关 | 开 | 与热门剧集重合较高，但口碑维度不同 |
-| `/douban/list/tv_global_best_weekly` 全球口碑剧集 | 关 | 开 | 覆盖非五大的外语剧 |
-| `/douban/list/movie_weekly_best` 电影口碑榜 | 关 | 开 | 高分电影，值得洗版 |
-| `/douban/list/tv_japanese` 日剧 | 关 | 看你 | 五大平台不覆盖日剧，只能靠它 |
-| `/douban/list/tv_korean` 韩剧 | 关 | 看你 | 同上 |
-| `/douban/list/tv_american` 美剧 | 关 | **开**（替代 TMDB 源的关键） | 关掉 TMDB 源后美剧只靠它 |
+| `/douban/movie/coming` 豆瓣电影-即将上映 | **开** | **保持开** | 电影档期唯一来源，唯一带精确日期的路线 |
+| `/douban/tv/coming` 豆瓣剧集-即将播出 | **开** | **现在先留着，平台源上线后关** | **它没有日期**（`douban_rss.py:161-162`），价值会被平台源完全覆盖 |
+| `/douban/list/tv_domestic` 豆瓣 - 近期热门国产剧 | 开 | 开 | 国产剧主力 |
+| `/douban/list/show_domestic` 豆瓣 - 近期热门国内综艺 | 开 | **可关** | 综艺在 MP 里没有集数概念，订了也只是空转 |
+| `/douban/list/tv_animation` 豆瓣 - 近期热门动画 | 开 | **可关** | 与 AniList 重复，且番剧用 AniList 更准 |
+| `/douban/list/movie_real_time_hotest` 豆瓣 - 实时热门电影 | 开 | 开 | 已上映热门，配合 7 天宽限能捞到刚上数字版的 |
+| `/douban/list/movie_hot` 豆瓣 - 新片榜 | 开 | 开 | 最近上映的新片（30 条），比「豆瓣热门」更贴订阅目的 |
+| `/douban/list/movie_weekly_best` 豆瓣 - 一周口碑电影榜 | 关 | 开 | 高分电影，值得洗版 |
+| `/douban/list/tv_japanese` 豆瓣 - 近期热门日剧 | 关 | 看你 | 五大平台不覆盖日剧，只能靠它 |
+| `/douban/list/tv_korean` 豆瓣 - 近期热门韩剧 | 关 | 看你 | 同上 |
+| `/douban/list/tv_american` 豆瓣 - 近期热门美剧 | 关 | **开**（替代 TMDB 源的关键） | 关掉 TMDB 源后美剧只靠它 |
+| `/douban/list/tv_documentary` 豆瓣 - 近期热门纪录片 | 关 | 慎开 | 多为完结片，订了立刻「没有新集」 |
+
+> **1.15.0 起出厂榜单已按实测换血**：删掉 4 条零独有路线（`tv_real_time_hotest`、
+> `recommended/tv`、`tv_chinese_best_weekly`、`tv_global_best_weekly`），综艺榜从
+> 已 503 的 `tv_variety` 换成 `show_domestic`，新增 `movie_hot`（新片榜）。
+> 升级时会自动迁移：同名路线上的开关/条数/窗口/想看门槛原样搬过来，
+> 被删的路线的设置丢弃，你自己加的额外 RSS 保留。
 
 ### 3.2 每个榜单取几条
 
@@ -91,7 +95,7 @@
 
 依据：`constants.py:384` 的实测注释——`/douban/list/tv_hot` 单条路线就有 **241 条**，不限量会把额度吃光。
 
-**重合提醒**：`tv_real_time_hotest` / `tv_domestic` / `tv_chinese_best_weekly` 三个的国产剧重合度很高，源内去重会合并，但**每条仍要花一次 TMDB 解析请求**。只留两个也够。
+**重合提醒**：`tv_domestic` 与 `show_domestic`（综艺）基本不重合；原先那三条国产剧热门榜（`tv_real_time_hotest` / `tv_domestic` / `tv_chinese_best_weekly`）在 1.15.0 里删掉了两条零独有的，现在只剩 `tv_domestic`，不必再纠结取舍。
 
 ---
 
@@ -119,8 +123,8 @@
 ### 阶段一：现在就能做（不含平台源）
 
 1. 关 TMDB 源：`enable_tmdb = false`
-2. 开 `movie_real_time_hotest` / `tv_chinese_best_weekly` / `tv_global_best_weekly` / `movie_weekly_best` / `tv_american`
-3. 视需要关 `tv_variety` / `tv_animation`（与 AniList、综艺无集数两个理由）
+2. 开 `movie_real_time_hotest` / `movie_hot`（出厂已开）/ `movie_weekly_best` / `tv_american`
+3. 视需要关 `show_domestic` / `tv_animation` / `tv_documentary`（综艺无集数、与 AniList 重复、纪录片多已完结）
 4. `douban_max_items_per_feed = 20`、`douban_min_want = 300`
 5. AniList 确认：`enable_anilist = true` + `anilist_include_donghua = true`
 6. **保留** `tv_coming`（平台源还没上线，先别关）
@@ -203,8 +207,8 @@
 **那 4 条零独有的路线，关掉一条内容都不会少**，只省下每条一次的 TMDB 解析。
 
 另有两条内置默认不可用/不适配：
-- `/douban/list/tv_variety`（内置默认的「近期热门综艺」）**当前 503**，你换成 `show_domestic` 是对的；
-- `/douban/list/movie_hot`（新片榜，30 条）可作为 `movie/coming` 的补充，值得试。
+- `/douban/list/tv_variety`（老的「近期热门综艺」）**已 503**，1.15.0 起出厂直接用 `show_domestic`；
+- `/douban/list/movie_hot`（豆瓣 - 新片榜，30 条）已作为出厂榜单（1.15.0），是 `movie/coming` 的好补充。
 
 ### 9.2 建议配置
 

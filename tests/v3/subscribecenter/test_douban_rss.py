@@ -397,8 +397,8 @@ def test_list_name_derived_from_url():
     """自定义 URL 也应推导出可读名字，界面上才看得懂是哪条榜单。"""
     from subscribecenter.sources.douban_rss import list_name_of
 
-    assert list_name_of("http://h:1200/douban/movie/coming") == "电影即将上映"
-    assert list_name_of("http://h:1200/douban/list/tv_domestic") == "近期热门国产剧"
+    assert list_name_of("http://h:1200/douban/movie/coming") == "豆瓣电影-即将上映"
+    assert list_name_of("http://h:1200/douban/list/tv_domestic") == "豆瓣 - 近期热门国产剧"
     assert list_name_of("http://h:1200/douban/whatever") == "whatever"
 
 
@@ -415,7 +415,63 @@ def test_migration_converts_url_list_to_entries():
         "http://h:1200/douban/list/tv_hot",
     ]
     assert all(e["enabled"] for e in migrated)
-    assert migrated[0]["name"] == "电影即将上映"
+    assert migrated[0]["name"] == "豆瓣电影-即将上映"
+
+
+def test_preset_lists_use_measured_titles():
+    """内置榜单名必须等于 RSSHub 实测频道标题，且不含零独有路线。"""
+    from subscribecenter.core.constants import DEFAULT_DOUBAN_LISTS
+
+    by_url = {e["url"]: e["name"] for e in DEFAULT_DOUBAN_LISTS}
+    assert by_url["/douban/list/tv_domestic"] == "豆瓣 - 近期热门国产剧"
+    assert by_url["/douban/list/show_domestic"] == "豆瓣 - 近期热门国内综艺"
+    assert by_url["/douban/list/movie_hot"] == "豆瓣 - 新片榜"
+    assert by_url["/douban/list/movie_weekly_best"] == "豆瓣 - 一周口碑电影榜"
+    # 零独有 + 已 503 的路线都不该再出现
+    for gone in (
+        "/douban/list/tv_real_time_hotest",
+        "/douban/recommended/tv",
+        "/douban/list/tv_chinese_best_weekly",
+        "/douban/list/tv_global_best_weekly",
+        "/douban/list/tv_variety",
+    ):
+        assert gone not in by_url
+
+
+def test_reflow_keeps_user_settings_and_custom_lists():
+    """v12 -> v13：同名路线的开关/参数带过来，改名映射生效，自定义条目保留。"""
+    from subscribecenter.core.constants import _reflow_douban_lists
+
+    stored = [
+        {"name": "近期热门综艺", "url": "/douban/list/tv_variety", "enabled": False,
+         "max_items": 7, "future_days": 9, "min_want": 1200},
+        {"name": "近期热门国产剧", "url": "/douban/list/tv_domestic", "enabled": False,
+         "max_items": 5, "future_days": 3, "min_want": 300},
+        {"name": "冷门老路线", "url": "/douban/list/tv_real_time_hotest", "enabled": True,
+         "max_items": 0, "future_days": 3, "min_want": 0},
+        {"name": "我自己的 RSS", "url": "http://nas/custom.xml", "enabled": True,
+         "max_items": 3, "future_days": 1, "min_want": 0},
+    ]
+    result = _reflow_douban_lists(stored)
+    by_url = {e["url"]: e for e in result}
+
+    # 综艺榜换了路线，但用户设的「关掉 + 7 条 + 9 天 + 想看 1200」原样搬过去
+    show = by_url["/douban/list/show_domestic"]
+    assert show["enabled"] is False and show["max_items"] == 7
+    assert show["future_days"] == 9 and show["min_want"] == 1200
+    assert "/douban/list/tv_variety" not in by_url
+
+    # 同名路线保留用户选择
+    domestic = by_url["/douban/list/tv_domestic"]
+    assert domestic["enabled"] is False and domestic["max_items"] == 5
+
+    # 零独有的老路线被丢掉
+    assert "/douban/list/tv_real_time_hotest" not in by_url
+
+    # 用户自己加的路线不丢，且排在预设之后
+    assert by_url["http://nas/custom.xml"]["max_items"] == 3
+    assert result[-1]["url"] == "http://nas/custom.xml"
+
 
 
 # ------------------------------------------- RSSHub 域名总控（1.2.0）

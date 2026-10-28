@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-BO3_L-7v.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-XmN-jgr-.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -1670,7 +1670,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[98] || (_cache[98] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-ae412ae5><b data-v-ae412ae5>电影上映类</b>（<code data-v-ae412ae5>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-ae412ae5><b data-v-ae412ae5>剧集类</b>（<code data-v-ae412ae5>/douban/tv/coming</code>、<code data-v-ae412ae5>/douban/list/tv_*</code>、 <code data-v-ae412ae5>/douban/recommended/tv</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-ae412ae5><b data-v-ae412ae5>电影榜单类</b>没有日期，会被跳过。<code data-v-ae412ae5>ustop250</code> 与 <code data-v-ae412ae5>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[98] || (_cache[98] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-5935e5cf><b data-v-5935e5cf>电影上映类</b>（<code data-v-5935e5cf>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-5935e5cf><b data-v-5935e5cf>剧集类</b>（<code data-v-5935e5cf>/douban/tv/coming</code>、<code data-v-5935e5cf>/douban/list/tv_*</code>、 <code data-v-5935e5cf>/douban/list/show_domestic</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-5935e5cf><b data-v-5935e5cf>电影榜单类</b>没有日期，会被跳过。<code data-v-5935e5cf>ustop250</code> 与 <code data-v-5935e5cf>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2356,7 +2356,7 @@ return (_ctx, _cache) => {
                     color: "primary"
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[126] || (_cache[126] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-ae412ae5><b data-v-ae412ae5>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-ae412ae5>BL</code> 不会命中 <code data-v-ae412ae5>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-ae412ae5>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-ae412ae5>regex:</code> 用正则；行首加 <code data-v-ae412ae5>case:</code> 区分大小写；空行与 <code data-v-ae412ae5>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-ae412ae5><b data-v-ae412ae5>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-ae412ae5>试一下</div>", 3)),
+                _cache[126] || (_cache[126] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-5935e5cf><b data-v-5935e5cf>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-5935e5cf>BL</code> 不会命中 <code data-v-5935e5cf>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-5935e5cf>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-5935e5cf>regex:</code> 用正则；行首加 <code data-v-5935e5cf>case:</code> 区分大小写；空行与 <code data-v-5935e5cf>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-5935e5cf><b data-v-5935e5cf>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-5935e5cf>试一下</div>", 3)),
                 _createVNode(_component_VRow, { dense: "" }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -3320,6 +3320,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae412ae5"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5935e5cf"]]);
 
 export { Config as default };

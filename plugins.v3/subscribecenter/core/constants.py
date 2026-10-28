@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.14.9"
+PLUGIN_VERSION = "1.15.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -172,9 +172,16 @@ IMPLEMENTED_SOURCES = frozenset(
 #: 每条独立可控：开关 / 每榜条数 / 窗口天数 / 最低想看人数 —— 用 dict 而不是
 #: 裸 URL 列表，是因为「即将上映」带精确日期（窗口可放宽到 30 天）、
 #: 而榜单类没有日期（靠 TMDB 未播集判断），两者理想参数本来就不同。
+#: 名称一律取 **RSSHub 实测的频道标题**，界面上和你在阅读器里看到的一字不差，
+#: 方便一眼对上是哪条路线。
+#:
+#: v13 起去掉了 4 条「零独有」路线（``tv_real_time_hotest`` /
+#: ``recommended/tv`` / ``tv_chinese_best_weekly`` / ``tv_global_best_weekly``）：
+#: 实测它们的条目 100% 被其它榜覆盖（10/10、20/20、10/10、10/10），留着只是
+#: 白跑一遍 RSS 和 TMDB。综艺榜由已 503 的 ``tv_variety`` 换成 ``show_domestic``。
 DEFAULT_DOUBAN_LISTS = [
     {
-        "name": "电影即将上映",
+        "name": "豆瓣电影-即将上映",
         "url": "/douban/movie/coming",
         "enabled": True,
         "max_items": 0,
@@ -182,7 +189,7 @@ DEFAULT_DOUBAN_LISTS = [
         "min_want": 0,
     },
     {
-        "name": "剧集即将播出",
+        "name": "豆瓣剧集-即将播出",
         "url": "/douban/tv/coming",
         "enabled": True,
         "max_items": 0,
@@ -190,15 +197,7 @@ DEFAULT_DOUBAN_LISTS = [
         "min_want": 0,
     },
     {
-        "name": "近期热门剧集",
-        "url": "/douban/list/tv_real_time_hotest",
-        "enabled": True,
-        "max_items": 0,
-        "future_days": 3,
-        "min_want": 0,
-    },
-    {
-        "name": "近期热门国产剧",
+        "name": "豆瓣 - 近期热门国产剧",
         "url": "/douban/list/tv_domestic",
         "enabled": True,
         "max_items": 0,
@@ -206,15 +205,15 @@ DEFAULT_DOUBAN_LISTS = [
         "min_want": 0,
     },
     {
-        "name": "近期热门综艺",
-        "url": "/douban/list/tv_variety",
+        "name": "豆瓣 - 近期热门国内综艺",
+        "url": "/douban/list/show_domestic",
         "enabled": True,
         "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
     {
-        "name": "近期热门动画",
+        "name": "豆瓣 - 近期热门动画",
         "url": "/douban/list/tv_animation",
         "enabled": True,
         "max_items": 0,
@@ -222,39 +221,23 @@ DEFAULT_DOUBAN_LISTS = [
         "min_want": 0,
     },
     {
-        "name": "豆瓣推荐剧集",
-        "url": "/douban/recommended/tv",
+        "name": "豆瓣 - 实时热门电影",
+        "url": "/douban/list/movie_real_time_hotest",
         "enabled": True,
         "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
     {
-        "name": "近期热门电影",
-        "url": "/douban/list/movie_real_time_hotest",
-        "enabled": False,
+        "name": "豆瓣 - 新片榜",
+        "url": "/douban/list/movie_hot",
+        "enabled": True,
         "max_items": 0,
         "future_days": 3,
         "min_want": 0,
     },
     {
-        "name": "华语口碑剧集",
-        "url": "/douban/list/tv_chinese_best_weekly",
-        "enabled": False,
-        "max_items": 0,
-        "future_days": 3,
-        "min_want": 0,
-    },
-    {
-        "name": "全球口碑剧集",
-        "url": "/douban/list/tv_global_best_weekly",
-        "enabled": False,
-        "max_items": 0,
-        "future_days": 3,
-        "min_want": 0,
-    },
-    {
-        "name": "电影口碑榜",
+        "name": "豆瓣 - 一周口碑电影榜",
         "url": "/douban/list/movie_weekly_best",
         "enabled": False,
         "max_items": 0,
@@ -262,7 +245,7 @@ DEFAULT_DOUBAN_LISTS = [
         "min_want": 0,
     },
     {
-        "name": "日剧",
+        "name": "豆瓣 - 近期热门日剧",
         "url": "/douban/list/tv_japanese",
         "enabled": False,
         "max_items": 0,
@@ -270,7 +253,7 @@ DEFAULT_DOUBAN_LISTS = [
         "min_want": 0,
     },
     {
-        "name": "韩剧",
+        "name": "豆瓣 - 近期热门韩剧",
         "url": "/douban/list/tv_korean",
         "enabled": False,
         "max_items": 0,
@@ -278,8 +261,16 @@ DEFAULT_DOUBAN_LISTS = [
         "min_want": 0,
     },
     {
-        "name": "美剧",
+        "name": "豆瓣 - 近期热门美剧",
         "url": "/douban/list/tv_american",
+        "enabled": False,
+        "max_items": 0,
+        "future_days": 3,
+        "min_want": 0,
+    },
+    {
+        "name": "豆瓣 - 近期热门纪录片",
+        "url": "/douban/list/tv_documentary",
         "enabled": False,
         "max_items": 0,
         "future_days": 3,
@@ -288,7 +279,7 @@ DEFAULT_DOUBAN_LISTS = [
 ]
 
 
-CONFIG_VERSION = 12
+CONFIG_VERSION = 13
 
 
 def default_config() -> Dict[str, Any]:
@@ -547,7 +538,29 @@ def config_migrations() -> Dict[int, Dict[str, Any]]:
         # 迁移只做格式转换，不改用户的选择（老的 URL 全部保留、默认启用），
         # 名字从 URL 末段推导；已是 dict 列表则原样保留。
         5: {"douban_rss_sources": "migrate_lists"},
+        # v12 -> v13：内置榜单换血（见 DEFAULT_DOUBAN_LISTS 注释）。
+        # 用 reflow：按新预设重建列表，但**同名路线的用户设置全部带过来**
+        # （开关/条数/窗口/想看门槛），用户自己加的额外榜单也原样保留；
+        # 只丢那些实测零独有的路线、以及把 tv_variety 的设置搬到 show_domestic。
+        13: {"douban_rss_sources": "reflow_lists"},
     }
+
+
+#: v12 -> v13 的榜单路线改名：老路线的设置要搬到新路线上，而不是凭空重置。
+_LIST_ROUTE_RENAMES = {
+    "/douban/list/tv_variety": "/douban/list/show_domestic",
+}
+
+#: v13 起退役的内置路线：实测零独有（条目全被别的榜覆盖）或已 503，
+#: 迁移时直接从存量里丢掉，避免老用户继续白跑 RSS + TMDB。
+#: 注意只丢「曾经是内置」的路线 —— 用户自己加的路线一律保留。
+RETIRED_DOUBAN_ROUTES = frozenset({
+    "/douban/list/tv_real_time_hotest",
+    "/douban/recommended/tv",
+    "/douban/list/tv_chinese_best_weekly",
+    "/douban/list/tv_global_best_weekly",
+    "/douban/list/tv_variety",
+})
 
 
 def _migrate_douban_lists(value: Any) -> List[Dict[str, Any]]:
@@ -572,6 +585,45 @@ def _migrate_douban_lists(value: Any) -> List[Dict[str, Any]]:
         if not url:
             continue
         result.append(normalize_list_entry({"url": url, "name": list_name_of(url)}))
+    return result
+
+
+def _reflow_douban_lists(value: Any) -> List[Dict[str, Any]]:
+    """按新的内置预设重建榜单列表，但保留用户自己的选择。
+
+    与 :func:`_migrate_douban_lists` 的区别：那个只做「格式」转换，用户点了什么
+    就是什么；这个做「集合」换血 —— 预设删掉的路线不再出现，新预设补上，
+    而**同名路线（含改名映射）的用户设置原样搬过来**，用户自己加的额外路线
+    也追加在末尾，不会被吞掉。
+    """
+    existing = {}
+    renamed = {}
+    for entry in _migrate_douban_lists(value):
+        url = str(entry.get("url") or "").rstrip("/")
+        if not url:
+            continue
+        existing[url] = entry
+        target = _LIST_ROUTE_RENAMES.get(url)
+        if target:
+            renamed[target] = entry
+
+    result: List[Dict[str, Any]] = []
+    consumed = set()
+    for preset in DEFAULT_DOUBAN_LISTS:
+        entry = copy.deepcopy(preset)
+        url = entry["url"].rstrip("/")
+        old = existing.get(url) or renamed.get(url)
+        if old is not None:
+            for key in ("enabled", "max_items", "future_days", "min_want"):
+                if key in old:
+                    entry[key] = old[key]
+            consumed.add(str(old.get("url") or "").rstrip("/"))
+        result.append(entry)
+
+    for url, entry in existing.items():
+        if url in consumed or url in RETIRED_DOUBAN_ROUTES:
+            continue
+        result.append(entry)
     return result
 
 
@@ -600,6 +652,13 @@ def migrate_config(config: Dict[str, Any]) -> tuple:
                 if config.get(key) != converted:
                     config[key] = converted
                     changes.append(f"{key}: -> {len(converted)} 条榜单")
+                continue
+            if value == "reflow_lists":
+                # 特殊迁移：内置榜单换血，保留同名路线上的用户设置
+                converted = _reflow_douban_lists(config.get(key))
+                if config.get(key) != converted:
+                    config[key] = converted
+                    changes.append(f"{key}: 榜单预设更新为 {len(converted)} 条")
                 continue
             if config.get(key) != value:
                 config[key] = value

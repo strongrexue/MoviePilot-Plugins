@@ -35,6 +35,13 @@ def get_api(plugin) -> List[Dict[str, Any]]:
             ["POST"],
             "从发现流水手动补订阅（重新订阅 / 加入订阅）",
         ),
+        ("/presets", plugin.api_presets, ["GET"], "可用的场景预设（追番/国产剧/院线新片）"),
+        (
+            "/presets/apply",
+            plugin.api_preset_apply,
+            ["POST"],
+            "套用一个场景预设（reset = 恢复出厂）",
+        ),
         ("/calendar", plugin.api_calendar, ["GET"], "日历：整月视图"),
         ("/calendar/day", plugin.api_calendar_day, ["GET"], "日历：单日视图（默认今天）"),
         ("/auto_toggle", plugin.api_auto_toggle, ["GET"], "预览按播出日自动启停的判定"),
@@ -165,17 +172,52 @@ async def api_history(
         raise HTTPException(status_code=500, detail="查询流水失败") from err
 
 
-async def api_history_clear(plugin) -> Any:
-    """清空发现流水。
+async def api_history_clear(plugin, request: api_schemas.HistoryClearRequest = None) -> Any:
+    """清空发现流水（可按来源/判决/关键词只清一部分）。
 
-    清空之后「流水记录过就不再自动重订」这条规则会一起失效 —— 之前订过、
+    清掉之后「流水记录过就不再自动重订」对**被清掉的那部分**失效 —— 之前订过、
     后来被用户删掉的订阅，下一轮发现会重新订回来。这是刻意设计的解锁方式。
     """
     try:
-        return schemas.Response(success=True, data=plugin.clear_history())
+        payload = _payload(request, api_schemas.HistoryClearRequest)
+        return schemas.Response(
+            success=True,
+            data=plugin.clear_history(
+                source=payload.source,
+                decision=payload.decision,
+                keyword=payload.keyword,
+                key=payload.key,
+                older_than_days=payload.older_than_days,
+            ),
+        )
     except Exception as err:  # noqa: BLE001
         logger.error(f"[SubscribeCenter] 清空流水失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="清空流水失败") from err
+
+
+async def api_presets(plugin) -> Any:
+    """返回可用的场景预设。"""
+    try:
+        items = [
+            api_schemas.PresetInfo(**item) for item in plugin.preset_list()
+        ]
+        return schemas.Response(success=True, data=api_schemas.PresetList(items=items))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取预设失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取预设失败") from err
+
+
+async def api_preset_apply(plugin, request: api_schemas.PresetRequest) -> Any:
+    """套用一个场景预设。"""
+    try:
+        payload = _payload(request, api_schemas.PresetRequest)
+        data = plugin.apply_preset(name=payload.name)
+        return schemas.Response(success=True, data=api_schemas.PresetResult(**data))
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 套用预设失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="套用预设失败") from err
 
 
 async def api_history_subscribe(plugin, request: api_schemas.HistorySubscribeRequest) -> Any:
@@ -284,6 +326,8 @@ async def api_mapping_fix(plugin, request: api_schemas.MappingFixRequest) -> Any
 __all__ = [
     "api_history",
     "api_history_clear",
+    "api_preset_apply",
+    "api_presets",
     "api_history_subscribe",
     "api_blacklist_audit",
     "api_blacklist_audit_result",

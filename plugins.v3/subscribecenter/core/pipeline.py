@@ -9,6 +9,7 @@
 全部可离线单测（开发文档 §14.1）；``run_pipeline()`` 只负责把它们串起来。
 """
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import (
@@ -31,9 +32,12 @@ from .blacklist import (
     rules_from_config,
 )
 from .constants import (
+    DECISION_ADDED,
     DECISION_PENDING_REVIEW,
     DECISION_SKIPPED_BLACKLIST,
+    DECISION_SKIPPED_DRY_RUN,
     DECISION_SKIPPED_DUPLICATE,
+    DECISION_SKIPPED_FIRST_RUN,
     DECISION_SKIPPED_NO_DATE,
     DECISION_SKIPPED_NOT_FUTURE,
     DECISION_SKIPPED_OUT_OF_WINDOW,
@@ -102,11 +106,58 @@ class RunSummary:
     movie_release_filled: int = 0
     started_at: str = ""
     finished_at: str = ""
+    #: 各阶段耗时（秒）：``fetch`` / ``resolve`` / ``filter`` / ``write`` / ``total``
+    timings: Dict[str, float] = field(default_factory=dict)
 
     @property
     def failed_sources(self) -> List[str]:
         """失败的源标识列表。"""
         return [s.source for s in self.sources if s.error]
+
+    def _outcomes(self) -> List[WriteOutcome]:
+        """预过滤 + 写入阶段的全部判决（按源统计用）。"""
+        result: List[WriteOutcome] = list(self.prefiltered)
+        if self.report:
+            result.extend(self.report.outcomes)
+        return result
+
+    def source_breakdown(self) -> List[Dict[str, Any]]:
+        """各源「发现 → 采纳/跳过/待确认」明细，按发现条数降序。
+
+        为什么要这个：通知里只报总数时，用户无法判断「哪个源在出活」——
+        真机上豆瓣全榜开着、腾讯也在跑，只看到「新增 3 条」，不知道是谁贡献的。
+        """
+        rows: Dict[str, Dict[str, Any]] = {}
+        for result in self.sources:
+            rows[result.source] = {
+                "source": result.source,
+                "fetched": len(result.items),
+                "added": 0,
+                "skipped": 0,
+                "pending": 0,
+                "error": result.error,
+            }
+        for outcome in self._outcomes():
+            source = str(getattr(outcome.item, "source", "") or "")
+            if not source:
+                continue
+            row = rows.setdefault(
+                source,
+                {"source": source, "fetched": 0, "added": 0, "skipped": 0, "pending": 0, "error": ""},
+            )
+            decision = outcome.decision
+            if decision in (DECISION_ADDED, DECISION_SKIPPED_DRY_RUN, DECISION_SKIPPED_FIRST_RUN):
+                row["added"] += 1
+            elif decision == DECISION_PENDING_REVIEW:
+                row["pending"] += 1
+            else:
+                row["skipped"] += 1
+        ordered = sorted(
+            rows.values(),
+            key=lambda row: (row["fetched"], row["added"]),
+            reverse=True,
+        )
+        return [row for row in ordered if row["fetched"] or row["added"] or row["skipped"] or row["pending"] or row["error"]]
 
     @property
     def fetched_count(self) -> int:
@@ -133,6 +184,14 @@ class RunSummary:
                 for s in self.sources
             ],
             "failed_sources": self.failed_sources,
+            #: 失败源的**原因**（``{源: "HTTP 403"}``）：只报名字用户只能去翻日志
+            "source_errors": {
+                s.source: s.error for s in self.sources if s.error
+            },
+            #: 各源「发现 → 采纳」明细（前端「运行详情」与通知共用）
+            "source_breakdown": self.source_breakdown(),
+            #: 阶段耗时，便于判断慢在拉取还是解析
+            "timings": dict(self.timings),
             # 注意顺序：report 的键（total/added/skipped/pending_review）覆盖上面的派生值。
             # 但 writer 的 skipped 只统计 writer 自己产生的跳过，**不含**预过滤阶段被
             # 拦下的条目 —— 那部分必须在这里补，否则会出现「拉取 100 / 跳过 0」的假象
@@ -725,9 +784,12 @@ async def run_pipeline(
     """
     summary = RunSummary(started_at=local_now_text(tz_name), dry_run=dry_run)
     now = today(tz_name)
+    clock = time.perf_counter()
 
     # ---- 1. 并发拉取
     summary.sources = await fetch_all(sources, config, enabled=enabled)
+    summary.timings["fetch"] = round(time.perf_counter() - clock, 2)
+    clock = time.perf_counter()
 
     raw: List[DiscoveredItem] = []
     for result in summary.sources:
@@ -790,6 +852,8 @@ async def run_pipeline(
         concurrency=min(4, width),
     )
     summary.movie_release_filled = filled
+    summary.timings["resolve"] = round(time.perf_counter() - clock, 2)
+    clock = time.perf_counter()
 
     # ---- 4. 过滤（跨源去重 / 评分 / 窗口）
     summary.selected, summary.prefiltered = select_items(
@@ -820,6 +884,8 @@ async def run_pipeline(
             summary.prefiltered = summary.prefiltered + keyword_blocked
 
     # ---- 5. 写入（dry_run 或首次运行时只判定）
+    summary.timings["filter"] = round(time.perf_counter() - clock, 2)
+    clock = time.perf_counter()
     effective_dry_run = bool(dry_run)
     summary.dry_run = effective_dry_run
     summary.report = await writer.write(
@@ -828,6 +894,8 @@ async def run_pipeline(
         already_written_today=already_written_today,
         tz_name=tz_name,
     )
+    summary.timings["write"] = round(time.perf_counter() - clock, 2)
+    summary.timings["total"] = round(sum(summary.timings.values()), 2)
     summary.finished_at = local_now_text(tz_name)
     return summary
 

@@ -347,19 +347,60 @@ async function loadHistory() {
  * 订阅会在下一轮重新被发现。所以必须二次确认，且把后果写清。
  */
 async function clearHistory() {
-  if (!window.confirm(
-    '清空发现流水？\n\n' +
-    '清空后，之前订阅过（后来被你删掉）的作品会重新被自动订阅。',
-  )) return
+  const scoped = Boolean(sourceFilter.value || filter.value || keyword.value)
+  const target = scoped ? currentFilterText() : "全部流水"
+  if (
+    !window.confirm(
+      `清空${target}？\n\n` +
+        "清空后，之前订阅过（后来被你删掉）的作品会重新被自动订阅。",
+    )
+  )
+    return
   clearing.value = true
   try {
-    const result = unwrap(await postPluginApi(props.api, props.pluginId, 'history/clear', {}))
-    setTip(`已清空 ${result?.removed ?? 0} 条流水`)
+    const body = {}
+    if (sourceFilter.value) body.source = sourceFilter.value
+    if (filter.value) body.decision = filter.value
+    if (keyword.value) body.keyword = keyword.value
+    const result = unwrap(await postPluginApi(props.api, props.pluginId, "history/clear", body))
+    setTip(`已清空 ${result?.removed ?? 0} 条流水（剩 ${result?.remaining ?? 0} 条）`)
     history.value.page = 1
     await loadHistory()
     await loadStatus()
   } catch (error) {
-    setTip(error?.message || '清空流水失败', false)
+    setTip(error?.message || "清空流水失败", false)
+  } finally {
+    clearing.value = false
+  }
+}
+
+/** 当前筛选条件的人话描述（确认弹窗要说清「清的是哪一部分」）。 */
+function currentFilterText() {
+  const parts = []
+  if (sourceFilter.value) parts.push(`来源「${sourceLabel(sourceFilter.value)}」`)
+  if (filter.value) parts.push(`状态「${decisionLabel(filter.value)}」`)
+  if (keyword.value) parts.push(`搜索「${keyword.value}」`)
+  return parts.join(" + ") || "全部流水"
+}
+
+/** 删掉单条流水（比如一条错映射的噪音）。 */
+async function deleteHistoryItem(item) {
+  const name = item?.title || "这条流水"
+  if (!window.confirm(`删除「${name}」这条流水？\n\n之后再发现到它时，会重新尝试订阅。`)) return
+  clearing.value = true
+  try {
+    const result = unwrap(
+      await postPluginApi(props.api, props.pluginId, "history/clear", { key: item.key }),
+    )
+    if (!result?.removed) {
+      setTip("这条流水已经不在了，刷新看看", false)
+    } else {
+      setTip(`已删除「${name}」`)
+    }
+    await loadHistory()
+    await loadStatus()
+  } catch (error) {
+    setTip(error?.message || "删除失败", false)
   } finally {
     clearing.value = false
   }
@@ -656,6 +697,19 @@ function markPosterFailed(event) {
 /** 上次运行的详细数字（通知里只报新增，细节放这里看）。 */
 const lastSummary = computed(() => status.value?.last_summary || null)
 
+/** 上次运行的「各源贡献」：哪个源在出活（发现→采纳）。 */
+const runBreakdown = computed(() => lastSummary.value?.source_breakdown || [])
+/** 上次运行的分阶段耗时。 */
+const runTimings = computed(() => lastSummary.value?.timings || {})
+
+/** 源报错压成一句（原生错误串常常整段 URL，撑破一行）。 */
+function shortError(text) {
+  const line = String(text || "").split("\n")[0].trim()
+  const dash = line.indexOf(": ")
+  const body = dash > 0 && !line.slice(0, dash).includes(" ") ? line.slice(dash + 2) : line
+  return body.length > 44 ? `${body.slice(0, 43)}…` : body
+}
+
 /** 顶部统计卡：状态一览。 */
 const statCards = computed(() => {
   const s = status.value || {}
@@ -802,6 +856,30 @@ onUnmounted(() => {
           最近 {{ s.last_count }} 条 · {{ s.last_run || '从未运行' }}
         </div>
         <div v-if="s.last_error" class="sc-error">失败：{{ s.last_error }}</div>
+      </div>
+    </div>
+
+    <!-- 上次运行明细：各源贡献 + 阶段耗时（通知里只报新增，细节在这里） -->
+    <div v-if="runBreakdown.length" class="sc-card sc-run-card">
+      <div class="sc-card-head">
+        <span class="sc-card-title">上次运行明细</span>
+        <span v-if="runTimings.total != null" class="sc-dim">
+          共 {{ runTimings.total }}s（拉取 {{ runTimings.fetch ?? 0 }}s · 解析
+          {{ runTimings.resolve ?? 0 }}s · 过滤 {{ runTimings.filter ?? 0 }}s · 写入
+          {{ runTimings.write ?? 0 }}s）
+        </span>
+      </div>
+      <div class="sc-run-rows">
+        <div v-for="row in runBreakdown" :key="row.source" class="sc-run-row">
+          <span class="sc-run-name">{{ sourceLabel(row.source) }}</span>
+          <span class="sc-run-num">发现 {{ row.fetched }}</span>
+          <span class="sc-run-num sc-run-added">采纳 {{ row.added }}</span>
+          <span class="sc-run-num">跳过 {{ row.skipped }}</span>
+          <span v-if="row.pending" class="sc-run-num">待确认 {{ row.pending }}</span>
+          <span v-if="row.error" class="sc-run-err" :title="row.error">
+            失败：{{ shortError(row.error) }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -1102,7 +1180,7 @@ onUnmounted(() => {
           :disabled="clearing || loading || !history.total"
           @click="clearHistory"
         >
-          清空流水
+          {{ sourceFilter || filter || keyword ? '清空筛选结果' : '清空全部流水' }}
         </VBtn>
       </div>
 
@@ -1169,6 +1247,15 @@ onUnmounted(() => {
               >
                 修正映射
               </VBtn>
+              <VBtn
+                size="x-small"
+                variant="text"
+                color="error"
+                icon="mdi-delete-outline"
+                title="删除这条流水"
+                :disabled="clearing"
+                @click="deleteHistoryItem(item)"
+              />
             </div>
           </div>
         </div>
@@ -1350,6 +1437,47 @@ onUnmounted(() => {
   margin-top: 2px;
   font-size: 11px;
   opacity: 0.6;
+}
+
+/* 上次运行明细：每源一行，数字右对齐好比较 */
+.sc-run-card {
+  margin-top: 10px;
+}
+.sc-run-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.sc-run-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: rgba(var(--v-border-color), 0.06);
+}
+.sc-run-name {
+  min-width: 86px;
+  font-weight: 600;
+}
+.sc-run-num {
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.sc-run-added {
+  color: rgb(var(--v-theme-success));
+  opacity: 1;
+}
+.sc-run-err {
+  color: rgb(var(--v-theme-error));
+  font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 卡片 */

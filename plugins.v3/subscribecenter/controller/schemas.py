@@ -171,6 +171,50 @@ class HistoryClearResult(BaseModel):
     remaining: int = Field(default=0, description="清空后剩余的记录条数")
 
 
+class HistoryClearRequest(BaseModel):
+    """清理流水（全部留空 = 整表清空）。
+
+    为什么要按来源/判决分开清：整表清空会把「订过」的记忆一起清掉，用户
+    只是想删掉「待确认」里那堆噪音时，不该连已订阅的证据也丢。
+    """
+
+    source: str = Field(default="", description="只清这个来源")
+    decision: str = Field(default="", description="只清这种判决")
+    keyword: str = Field(default="", description="只清标题/原因命中的记录")
+    key: str = Field(default="", description="只清这一条（流水行键）")
+    older_than_days: int = Field(default=0, description="只清 N 天前的记录（0 = 不限）")
+
+
+class PresetInfo(BaseModel):
+    """一个场景预设（前端按钮）。"""
+
+    key: str = Field(default="", description="标识：anime / domestic / movie")
+    title: str = Field(default="", description="按钮文案")
+    desc: str = Field(default="", description="一句话说明")
+
+
+class PresetList(BaseModel):
+    """预设清单。"""
+
+    items: List[PresetInfo] = Field(default_factory=list, description="可用预设")
+
+
+class PresetRequest(BaseModel):
+    """套用预设。"""
+
+    name: str = Field(..., description="预设标识（reset = 恢复出厂）")
+
+
+class PresetResult(BaseModel):
+    """套用预设的结果。"""
+
+    success: bool = Field(default=False, description="是否成功")
+    name: str = Field(default="", description="预设标识")
+    title: str = Field(default="", description="预设中文名")
+    changed: int = Field(default=0, description="实际改动的配置项数")
+    config: Dict[str, Any] = Field(default_factory=dict, description="套用后的整份配置")
+
+
 class SystemShareState(BaseModel):
     """订阅数据共享开关状态。"""
 
@@ -546,6 +590,8 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/history": HistoryPage,
     "/history/clear": HistoryClearResult,
     "/history/subscribe": HistorySubscribeResult,
+    "/presets": PresetList,
+    "/presets/apply": PresetResult,
     "/calendar": CalendarMonth,
     "/calendar/day": CalendarView,
     "/auto_toggle": AutoToggleView,
@@ -591,7 +637,12 @@ __all__ = [
     "CalendarMonth",
     "CalendarView",
     "HistoryPage",
+    "HistoryClearRequest",
     "HistoryClearResult",
+    "PresetInfo",
+    "PresetList",
+    "PresetRequest",
+    "PresetResult",
     "CardTheme",
     "CardThemeRequest",
     "CardThemeResult",

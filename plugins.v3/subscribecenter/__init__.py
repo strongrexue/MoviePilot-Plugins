@@ -47,13 +47,19 @@ DATA_KEY_AUTO_TOGGLE = "auto_toggle"
 #: 「我订过」的键集合（``来源:ID:季``），只增不减，清空流水时才清。
 #:
 #: 为什么不直接查流水：流水是**给眼睛看的**，一条作品只留最新状态（``_collapse_history``
-#: 会把「已订阅」替换成后来的「流水已记录」），又会被 ``MAX_HISTORY`` 截断。
+#: 会把「已订阅」替换成后来的「流水已记录」），又会被按天清理掉（``HISTORY_KEEP_DAYS``）。
 #: 把去重证据放在流水里，等于让「订过」的记忆取决于最近几次运行 —— 真机表现就是
 #: 「流水里明明记过，删掉订阅后又被自动订回来」（1.14.5 修的就是这个）。
 DATA_KEY_RECORDED = "recorded_keys"
 
-#: 内存中保留的流水条数上限（落盘时会截断）
-MAX_HISTORY = 500
+#: 流水**按天**保留：只留最近 N 天的记录（1.17.0 起不再用固定条数截断）。
+#:
+#: 固定 500 条的问题：豆瓣全榜一天 300+ 条，两三天就把一周前的新增挤掉，
+#: 「上周订过什么」在界面上就查不到了；反过来频率低的用户又留着几个月前的脏数据。
+HISTORY_KEEP_DAYS = 30
+#: 硬上限：即使按天保留，也不能让单次异常（比如一天跑几十轮）把数据撑爆。
+#: 按每条记录约 300 字节算，3000 条约 0.9MB。
+HISTORY_HARD_LIMIT = 3000
 
 
 class SubscribeCenter(_PluginBase):
@@ -66,7 +72,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.16.1"
+    plugin_version = "1.17.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -1696,9 +1702,23 @@ class SubscribeCenter(_PluginBase):
         """读取发现任务的进度 / 结果。"""
         return await api_controller.api_run_once_result(self)
 
-    async def api_history_clear(self) -> Any:
-        """清空发现流水（清掉之后之前订过的作品才会被重新发现）。"""
-        return await api_controller.api_history_clear(self)
+    async def api_history_clear(
+        self, request: Optional[api_schemas.HistoryClearRequest] = None
+    ) -> Any:
+        """清空发现流水（可按来源/判决/关键词只清一部分）。
+
+        注解必须是**具体的 pydantic 模型**：写成 ``Any`` 时 FastAPI 会把整个
+        body 当 query 参数，前端拿到 422「请求参数不正确」（1.7.1 真机）。
+        """
+        return await api_controller.api_history_clear(self, request)
+
+    async def api_presets(self) -> Any:
+        """返回可用的场景预设清单。"""
+        return await api_controller.api_presets(self)
+
+    async def api_preset_apply(self, request: api_schemas.PresetRequest) -> Any:
+        """套用一个场景预设（``reset`` = 恢复出厂默认）。"""
+        return await api_controller.api_preset_apply(self, request)
 
     async def api_history_subscribe(
         self, request: api_schemas.HistorySubscribeRequest
@@ -2728,6 +2748,27 @@ class SubscribeCenter(_PluginBase):
             + ("（dry-run，未写入）" if summary.dry_run else "")
             + ("（触达每日上限）" if data.get("limit_hit") else "")
         )
+        # 各源贡献：总数字看不出「哪个源在出活」，豆瓣全榜一天 300+ 条、
+        # 腾讯 84 条，混在一起时用户无从判断该关哪个。
+        breakdown = data.get("source_breakdown") or []
+        if breakdown:
+            logger.info(
+                "[来源明细] "
+                + "；".join(
+                    f"{C.source_label(row['source'])} 发现 {row['fetched']} / 采纳 "
+                    f"{row['added']} / 跳过 {row['skipped']}"
+                    + (f" / 待确认 {row['pending']}" if row.get("pending") else "")
+                    + (f" / 出错 {_short_error(row.get('error'))}" if row.get("error") else "")
+                    for row in breakdown
+                )
+            )
+        timings = data.get("timings") or {}
+        if timings:
+            logger.info(
+                f"[耗时] 合计 {timings.get('total', 0)}s（拉取 {timings.get('fetch', 0)}s / "
+                f"解析 {timings.get('resolve', 0)}s / 过滤 {timings.get('filter', 0)}s / "
+                f"写入 {timings.get('write', 0)}s）"
+            )
         # 把本次新增的标题也打出来：只看数字无法判断「订得对不对」，
         # 而这个问题在真机上已经踩过两次（订了 29 部冷门片）。
         titles = self._added_titles(summary)
@@ -2781,10 +2822,37 @@ class SubscribeCenter(_PluginBase):
             # 真跑只报一行结论
             lines = [f"新增：{data.get('added', 0)} 条"]
 
+        # 各源贡献：只报总数时用户无法判断「哪个源在出活」——豆瓣全榜与腾讯
+        # 同时开着，只看到「新增 3 条」根本不知道是谁贡献的。
+        breakdown = data.get("source_breakdown") or []
+        contributors = [row for row in breakdown if int(row.get("added") or 0) > 0]
+        if contributors:
+            parts = [
+                f"{C.source_label(row['source'])} {int(row['added'])}"
+                for row in contributors
+            ]
+            lines.append("来源：" + " / ".join(parts))
+
         if data.get("failed_sources"):
-            lines.append(f"失败源：{', '.join(data['failed_sources'])}")
+            errors = data.get("source_errors") or {}
+            detail = [
+                f"{C.source_label(source)}（{_short_error(errors.get(source)) or '原因见日志'}）"
+                for source in data["failed_sources"]
+            ]
+            lines.append("失败：" + "；".join(detail))
         if data.get("limit_hit"):
             lines.append("已触达每日写入上限")
+        timings = data.get("timings") or {}
+        if timings.get("total"):
+            lines.append(
+                "耗时：{total}s（拉取 {fetch}s / 解析 {resolve}s / 过滤 {filter}s / 写入 {write}s）".format(
+                    total=timings.get("total", 0),
+                    fetch=timings.get("fetch", 0),
+                    resolve=timings.get("resolve", 0),
+                    filter=timings.get("filter", 0),
+                    write=timings.get("write", 0),
+                )
+            )
         try:
             self.post_message(
                 title="胖虎订阅中心",
@@ -2966,27 +3034,13 @@ class SubscribeCenter(_PluginBase):
         if source:
             records = [r for r in records if r.get("source") == source]
         if keyword:
-            needle = str(keyword).strip().casefold()
-            records = [
-                r
-                for r in records
-                if needle in str(r.get("title") or "").casefold()
-                or needle in str(r.get("reason") or "").casefold()
-            ]
+            records = [r for r in records if _history_matches(r, keyword=keyword)]
         # 决策 tab 的计数：在 source / keyword 过滤**之后**、decision 过滤**之前**
         # 统计 —— 这样「选 AniList 后，待确认显示的是 AniList 的条数」，
         # 而不是三个源的合计（真机反馈的就是这个）。
         counts = _decision_counts(records)
         if decision:
             records = [r for r in records if r.get("decision") == decision]
-        if keyword:
-            needle = str(keyword).strip().casefold()
-            records = [
-                r
-                for r in records
-                if needle in str(r.get("title") or "").casefold()
-                or needle in str(r.get("reason") or "").casefold()
-            ]
         page = max(1, int(page or 1))
         count = max(1, min(200, int(count or 20)))
         start = (page - 1) * count
@@ -3011,6 +3065,43 @@ class SubscribeCenter(_PluginBase):
         """人工修正一条映射。"""
         ok = self._cache.fix(key, media_source, media_id)
         return {"success": ok, "key": key}
+
+    # ------------------------------------------------------------------ 场景预设
+
+    def preset_list(self) -> List[Dict[str, str]]:
+        """可用的场景预设（前端按钮直接渲染这份）。"""
+        from .core.presets import describe
+
+        return describe()
+
+    def apply_preset(self, *, name: str) -> Dict[str, Any]:
+        """套用一个场景预设（``reset`` = 恢复出厂）。
+
+        只改**和场景强相关**的配置项，RSSHub 域名 / cron / 通知 / 自动启停等
+        用户自己配过的内容原样保留 —— 预设是「帮我选好追什么」，不是整份覆盖。
+        写库后顺手重建调度：窗口/阈值变了，下一轮就该按新参数跑。
+        """
+        from .core.presets import apply as apply_preset_config
+        from .core.presets import title_of
+
+        updated = apply_preset_config(dict(self._config), name)
+        # 走 save_config 而不是 update_config：前者是合并写入，不会丢掉
+        # 预设没提到的键（宿主 update_config 是整份覆盖）。
+        patch = {key: value for key, value in updated.items() if self._config.get(key) != value}
+        self.save_config(**patch)
+        # 不重建调度：预设不动 cron，只改发现参数，下一轮自然按新配置跑。
+        # 重建会连带跑一遍「空转检测」，可能把刚开的源又关掉。
+        logger.info(
+            "[SubscribeCenter] 已套用预设「%s」，改动 %s 项：%s"
+            % (title_of(name), len(patch), ", ".join(sorted(patch)))
+        )
+        return {
+            "success": True,
+            "name": name,
+            "title": title_of(name),
+            "changed": len(patch),
+            "config": dict(self._config),
+        }
 
     # ------------------------------------------------------------------ 持久化
 
@@ -3097,25 +3188,77 @@ class SubscribeCenter(_PluginBase):
         if changed:
             self.save_data(DATA_KEY_RECORDED, sorted(current))
 
-    def clear_history(self) -> api_schemas.HistoryClearResult:
-        """清空发现流水。
+    def clear_history(
+        self,
+        *,
+        source: str = "",
+        decision: str = "",
+        keyword: str = "",
+        key: str = "",
+        older_than_days: int = 0,
+    ) -> api_schemas.HistoryClearResult:
+        """清空发现流水（也可以只清一部分）。
 
-        这是「不再自动重订」的**唯一解锁方式**：流水里的记录删了，下一轮发现
-        才会把之前订过的作品重新当成新发现。顺手也把「已处理」的运行时状态
-        清掉，否则页面上的计数与实际记录对不上。
+        :param source: 只清这个来源（``tmdb`` / ``anilist`` / ``douban_rss`` …）
+        :param decision: 只清这种判决（``added`` / ``pending_review`` …）
+        :param keyword: 只清标题/原因命中的记录
+        :param key: 只清这一条（流水行的「删掉」按钮，取 :func:`_record_key`）
+        :param older_than_days: 只清 N 天前的记录（``0`` = 不限）
+
+        全部留空等价于「整表清空」。
+
+        被清掉的记录**同时**从持久去重表里移除：去重表才是「流水记过就别再订」
+        的实际依据 —— 只清显示用的流水会变成「界面上空了，但依然订不上」。
         """
-        removed = len(self._history())
-        self.save_data(DATA_KEY_HISTORY, [])
-        # 去重表必须一起清：它是「流水记过就别再订」的实际依据，
-        # 只清显示用的流水会变成「界面上空了，但依然订不上」。
-        self.save_data(DATA_KEY_RECORDED, [])
-        state = self._state()
-        if "last_run" in state:
-            # last_run 只是摘要，里面的 added 计数已经没有对应的记录了
-            state.pop("last_run", None)
-            self._save_state(state)
-        logger.info("[SubscribeCenter] 发现流水已清空（%s 条）" % removed)
-        return api_schemas.HistoryClearResult(removed=removed, remaining=0)
+        records = self._history()
+        targets: List[Dict[str, Any]] = records
+        if key:
+            targets = [record for record in records if _record_key(record) == key]
+        elif source or decision or keyword or older_than_days > 0:
+            targets = [
+                record
+                for record in records
+                if _history_matches(
+                    record,
+                    source=source,
+                    decision=decision,
+                    keyword=keyword,
+                    older_than_days=older_than_days,
+                    today_text=today(self._tz()).isoformat(),
+                )
+            ]
+        removed = len(targets)
+        if not removed:
+            return api_schemas.HistoryClearResult(removed=0, remaining=len(records))
+
+        doomed = {id(record) for record in targets}
+        remaining = [record for record in records if id(record) not in doomed]
+        self.save_data(DATA_KEY_HISTORY, remaining)
+
+        from .core.writer import recorded_key
+
+        dropped: Set[str] = set()
+        for record in targets:
+            media_source = record.get("media_source")
+            media_id = record.get("media_id")
+            if media_source and media_id:
+                dropped.add(recorded_key(media_source, media_id, record.get("season")))
+        if dropped:
+            stored = self.get_data(DATA_KEY_RECORDED)
+            if isinstance(stored, (list, tuple, set)):
+                kept = [str(item) for item in stored if item and str(item) not in dropped]
+                self.save_data(DATA_KEY_RECORDED, kept)
+
+        if not remaining:
+            # 整表清了才动 last_run：部分清理时它仍对应真实跑过的这一轮
+            state = self._state()
+            if "last_run" in state:
+                state.pop("last_run", None)
+                self._save_state(state)
+        logger.info(
+            "[SubscribeCenter] 发现流水已清理 %s 条（剩余 %s 条）" % (removed, len(remaining))
+        )
+        return api_schemas.HistoryClearResult(removed=removed, remaining=len(remaining))
 
     async def subscribe_from_history(self, *, key: str) -> api_schemas.HistorySubscribeResult:
         """把一条发现流水手动补成订阅（「重新订阅 / 加入订阅」按钮）。
@@ -3342,8 +3485,7 @@ class SubscribeCenter(_PluginBase):
         # 逐条合并依赖写入顺序，不可靠（真机：待确认与已订阅两条并存）。
         # 这里在**全部写完之后**统一收敛一次，保证同一作品只留一条。
         records = _collapse_history(records)
-        if len(records) > MAX_HISTORY:
-            records = records[-MAX_HISTORY:]
+        records = _prune_history(records, today_text=today(self._tz()).isoformat())
         self.save_data(DATA_KEY_HISTORY, records)
         # 顺手把「订过」记进去重表：流水会被合并/截断，去重证据不能跟着丢。
         self._remember_recorded(outcomes)
@@ -3518,6 +3660,113 @@ def _source_counts(records: List[Dict[str, Any]]) -> Dict[str, int]:
             continue
         counts[source] = counts.get(source, 0) + 1
     return counts
+
+
+def _short_error(text: Any, limit: int = 60) -> str:
+    """把异常文本压成一句人能读的原因（通知里只放一句）。
+
+    源抛出来的往往是 ``HTTPStatusError: Server error '503 Service Unavailable'
+    for url 'https://rsshub...'``，全文塞进通知会占满一屏，只取第一行前 N 个字。
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    first = raw.splitlines()[0].strip()
+    # 去掉常见的异常类名前缀（``ValueError: xxx`` → ``xxx``）
+    if ": " in first and " " not in first.split(": ", 1)[0].strip():
+        first = first.split(": ", 1)[1].strip()
+    return first if len(first) <= limit else first[: limit - 1] + "…"
+
+
+def _history_matches(
+    record: Dict[str, Any],
+    *,
+    source: str = "",
+    decision: str = "",
+    keyword: str = "",
+    older_than_days: int = 0,
+    today_text: str = "",
+) -> bool:
+    """一条流水是否命中筛选条件（分页与「分 tab 清理」共用同一套判断）。
+
+    共用是为了避免「界面筛出 30 条，点清空却删了别的」—— 筛选口径必须
+    与清理口径完全一致。
+    """
+    if source and str(record.get("source") or "") != source:
+        return False
+    if decision and str(record.get("decision") or "") != decision:
+        return False
+    if keyword:
+        needle = str(keyword).strip().casefold()
+        if (
+            needle not in str(record.get("title") or "").casefold()
+            and needle not in str(record.get("reason") or "").casefold()
+        ):
+            return False
+    if older_than_days > 0:
+        from datetime import date, timedelta
+
+        text = str(record.get("run_at") or record.get("discovered_at") or "")[:10]
+        if not text:
+            return False
+        try:
+            cutoff = (
+                date.fromisoformat(today_text[:10] or date.today().isoformat())
+                - timedelta(days=int(older_than_days))
+            ).isoformat()
+        except ValueError:
+            return False
+        if text >= cutoff:
+            return False
+    return True
+
+
+def _record_date(record: Dict[str, Any]) -> str:
+    """流水记录的日期（``YYYY-MM-DD``），取不到就返回空串。"""
+    for key in ("run_at", "discovered_at"):
+        text = str(record.get(key) or "")
+        if len(text) >= 10:
+            return text[:10]
+    return ""
+
+
+def _prune_history(
+    records: List[Dict[str, Any]],
+    *,
+    keep_days: int = HISTORY_KEEP_DAYS,
+    hard_limit: int = HISTORY_HARD_LIMIT,
+    today_text: str = "",
+) -> List[Dict[str, Any]]:
+    """按天清理流水，再套一个硬上限。
+
+    :param keep_days: 保留最近几天（``<=0`` 表示不按天清理，只受 ``hard_limit`` 约束）
+    :param hard_limit: 硬上限条数（``<=0`` 表示不限）
+    :param today_text: 今天（``YYYY-MM-DD``），留空则取系统当前日期
+
+    为什么不再用「固定 500 条」：豆瓣全榜一天 300+ 条，两三天就把一周前的记录
+    挤掉了，用户回头查「上周订过什么」就查不到；而跑得少的用户又会一直留着
+    几个月前的记录。按天保留才是用户能理解的口径。
+    """
+    if not records:
+        return []
+    rows = list(records)
+    if keep_days > 0:
+        from datetime import date, timedelta
+
+        if today_text:
+            base = today_text[:10]
+        else:
+            base = date.today().isoformat()
+        try:
+            cutoff = (date.fromisoformat(base) - timedelta(days=max(0, keep_days))).isoformat()
+        except ValueError:
+            cutoff = ""
+        if cutoff:
+            # 没有日期的老记录一律保留：宁可多留，也不能凭「读不出日期」就把证据删了
+            rows = [row for row in rows if not _record_date(row) or _record_date(row) >= cutoff]
+    if hard_limit > 0 and len(rows) > hard_limit:
+        rows = rows[-hard_limit:]
+    return rows
 
 
 def _record_key(record: Dict[str, Any]) -> str:

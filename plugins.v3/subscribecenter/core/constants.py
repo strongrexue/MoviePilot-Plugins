@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.16.1"
+PLUGIN_VERSION = "1.17.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -162,6 +162,22 @@ ALL_SOURCES = (
     SOURCE_QQ_VIDEO,
     SOURCE_BILIBILI,
 )
+
+#: 数据源中文名（通知正文 / 日志用；前端另有一份更短的 tab 用名）。
+SOURCE_LABELS = {
+    SOURCE_TMDB: "TMDB",
+    SOURCE_ANILIST: "AniList",
+    SOURCE_DOUBAN_RSS: "豆瓣榜单",
+    SOURCE_HOT_MEDIA: "热门媒体",
+    SOURCE_QQ_VIDEO: "腾讯视频",
+    SOURCE_BILIBILI: "B 站番剧",
+    SOURCE_BANGUMI: "Bangumi",
+}
+
+
+def source_label(source: Any) -> str:
+    """数据源显示名（未知源原样返回，绝不让界面出现空标签）。"""
+    return SOURCE_LABELS.get(str(source or ""), str(source or ""))
 
 #: 已实现的数据源（其余源在配置页可开，但运行时会记录「未实现」并跳过）
 IMPLEMENTED_SOURCES = frozenset(

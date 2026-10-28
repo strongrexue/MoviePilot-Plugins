@@ -15,7 +15,7 @@
  * - 首屏「总览」用数据卡呈现关键状态，不必滚到底就看清；
  * - 每个开关一行（标题/说明在左、开关在右），避免一长串灰色文字堆叠。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUpdated, ref, watch } from 'vue'
 import { FRONTEND_VERSION } from './version'
 import { defaultConfig } from './configDefaults'
 import {
@@ -43,6 +43,13 @@ const doubanTab = ref('basic')
 /** 豆瓣榜单里展开的那一条（-1 = 全部收起）。 */
 const openList = ref(-1)
 const activeSection = ref('overview')
+/** 配置项搜索（分区太多，找一项要翻半天）。 */
+const searchText = ref('')
+/** 根元素：搜索时按 DOM 逐行显隐，比把 66 个字段重排成数据表更可靠。 */
+const rootEl = ref(null)
+/** 场景预设（后端 core/presets.py 提供，前端只负责点）。 */
+const presets = ref([])
+const presetBusy = ref('')
 /** 自动启停的预览/执行结果（null = 还没跑过）。 */
 const autoToggle = ref(null)
 const autoToggleBusy = ref('')
@@ -385,6 +392,79 @@ async function loadConfig() {
   } finally {
     loading.value = false
   }
+}
+
+/** 拉预设清单（后端描述文案，前端不重复维护）。 */
+async function loadPresets() {
+  try {
+    const payload = unwrap(await getPluginApi(props.api, props.pluginId, 'presets'))
+    presets.value = payload?.items || []
+  } catch (error) {
+    console.warn('[SubscribeCenter] 预设清单读取失败：', error?.message || error)
+  }
+}
+
+/** 套用一个场景预设：后端改配置，前端重新读一遍表单。 */
+async function applyPreset(name) {
+  if (presetBusy.value) return
+  const label = name === 'reset' ? '恢复默认' : (presets.value.find((p) => p.key === name)?.title || name)
+  if (!window.confirm(`套用「${label}」？\n\n只会改动和追剧范围相关的项，RSSHub 域名、定时、通知不会被改。`)) return
+  presetBusy.value = name
+  try {
+    const result = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'presets/apply', { name }),
+    )
+    if (result?.config) form.value = mergeConfig(result.config)
+    else await loadConfig()
+    setTip(`已套用「${result?.title || label}」，改动 ${result?.changed ?? 0} 项（记得保存）`)
+  } catch (error) {
+    setTip(error?.message || '套用预设失败', false)
+  } finally {
+    presetBusy.value = ''
+  }
+}
+
+/** 按搜索词显隐配置行：命中不了的行直接隐藏，分区里空了就整块收起。 */
+async function applySearchFilter() {
+  await nextTick()
+  const root = rootEl.value
+  if (!root) return
+  const query = searchText.value.trim().toLowerCase()
+  const blocks = root.querySelectorAll('.sc-row, .sc-field, .sc-db-item, .sc-oj-item')
+  blocks.forEach((node) => {
+    if (!query) {
+      node.classList.remove('sc-filtered')
+      return
+    }
+    const hit = String(node.textContent || '').toLowerCase().includes(query)
+    node.classList.toggle('sc-filtered', !hit)
+  })
+  root.querySelectorAll('.sc-card').forEach((card) => {
+    if (!query) {
+      card.classList.remove('sc-filtered')
+      return
+    }
+    const rows = card.querySelectorAll('.sc-row, .sc-field, .sc-db-item, .sc-oj-item')
+    const visible = Array.from(rows).some((row) => !row.classList.contains('sc-filtered'))
+    card.classList.toggle('sc-filtered', rows.length > 0 && !visible)
+  })
+}
+
+watch(searchText, () => applySearchFilter())
+watch(activeSection, () => applySearchFilter())
+onUpdated(() => {
+  if (searchText.value.trim()) applySearchFilter()
+})
+
+/** 榜单顺序就是优先级（靠前的先花每日额度），所以要能上下移。 */
+function moveDoubanList(index, delta) {
+  const list = form.value.douban_rss_sources
+  if (!Array.isArray(list)) return
+  const target = index + delta
+  if (target < 0 || target >= list.length) return
+  const [row] = list.splice(index, 1)
+  list.splice(target, 0, row)
+  openList.value = target
 }
 
 async function loadStatus() {
@@ -786,6 +866,7 @@ async function sweepAudit(action) {
 }
 
 onMounted(() => {
+  loadPresets()
   loadShare()
   loadConfig()
   loadStatus()
@@ -794,7 +875,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="sc-root">
+  <div ref="rootEl" class="sc-root">
     <VAlert
       v-if="tip.show"
       :type="tip.ok ? 'success' : 'error'"
@@ -832,6 +913,47 @@ onMounted(() => {
         hide-details
         class="sc-header-switch"
       />
+    </div>
+
+    <!-- 一键场景 + 配置项搜索：66 个配置项、9 个分区，找东西比翻页更痛 -->
+    <div class="sc-cfg-toolbar">
+      <div class="sc-cfg-presets">
+        <span class="sc-cfg-presets-label">一键配置</span>
+        <VBtn
+          v-for="preset in presets"
+          :key="preset.key"
+          size="small"
+          variant="tonal"
+          :loading="presetBusy === preset.key"
+          :disabled="Boolean(presetBusy)"
+          :title="preset.desc"
+          @click="applyPreset(preset.key)"
+        >
+          {{ preset.title }}
+        </VBtn>
+        <VBtn
+          size="small"
+          variant="text"
+          :loading="presetBusy === 'reset'"
+          :disabled="Boolean(presetBusy)"
+          @click="applyPreset('reset')"
+        >
+          恢复默认
+        </VBtn>
+        <span class="sc-hint sc-cfg-presets-hint">
+          只改「追什么」，RSSHub 域名 / 定时 / 通知不动
+        </span>
+      </div>
+      <div class="sc-cfg-search">
+        <VIcon icon="mdi-magnify" size="16" class="sc-dim" />
+        <input
+          v-model="searchText"
+          class="sc-cfg-search-input"
+          type="text"
+          placeholder="搜配置项（窗口 / 想看 / cron…）"
+        />
+        <VBtn v-if="searchText" size="x-small" variant="text" icon="mdi-close" @click="searchText = ''" />
+      </div>
     </div>
 
     <div class="sc-body">
@@ -1114,6 +1236,22 @@ onMounted(() => {
                 <span class="sc-db-name">{{ entry.name || '未命名榜单' }}</span>
                 <span v-if="!entry.enabled" class="sc-db-tag">未启用</span>
                 <span class="sc-db-spacer" />
+                <VBtn
+                  size="x-small"
+                  variant="text"
+                  icon="mdi-arrow-up"
+                  title="上移（靠前的优先花每日额度）"
+                  :disabled="index === 0"
+                  @click.stop="moveDoubanList(index, -1)"
+                />
+                <VBtn
+                  size="x-small"
+                  variant="text"
+                  icon="mdi-arrow-down"
+                  title="下移"
+                  :disabled="index === doubanLists.length - 1"
+                  @click.stop="moveDoubanList(index, 1)"
+                />
                 <span class="sc-db-sum">
                   数量 {{ entry.max_items || '全局' }} · 窗口 {{ entry.future_days || '全局' }} 天
                   · 想看 {{ entry.min_want || '不限' }}
@@ -2478,6 +2616,52 @@ onMounted(() => {
 }
 
 /* 主体布局 */
+/* 工具栏：一键场景 + 配置项搜索（66 项配置靠翻分区找太费劲） */
+.sc-cfg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 2px 8px;
+}
+.sc-cfg-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sc-cfg-presets-label {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.sc-cfg-presets-hint {
+  font-size: 11px;
+}
+.sc-cfg-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid rgba(var(--v-border-color), 0.2);
+  border-radius: 999px;
+  min-width: 210px;
+}
+.sc-cfg-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  padding: 4px 0;
+}
+/* 搜索未命中的行/卡片 */
+.sc-filtered {
+  display: none !important;
+}
+
 /* 主体：不设固定高度（宿主容器高度不可控，固定高度会让滚动条落到可视区外），
    改为右侧内容给 max-height，超出才内部滚动；左侧导航跟随滚动。 */
 .sc-body {

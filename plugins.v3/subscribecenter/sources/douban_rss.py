@@ -26,7 +26,7 @@
 """
 import html
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from xml.etree import ElementTree
 
 from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV, SOURCE_DOUBAN_RSS
@@ -175,6 +175,8 @@ class DoubanRssSource:
         """
         media_type = _media_type_of(url)
         feed_title = _channel_title(text)
+        # 列表类路线没有 <category>：按路线补题材提示（见 _ROUTE_GENRE_HINTS）
+        genre_hint = _genre_hint_of(url)
 
         try:
             root = ElementTree.fromstring(text)
@@ -189,7 +191,11 @@ class DoubanRssSource:
                 continue
             description = html.unescape(node.findtext("description") or "")
             link = (node.findtext("link") or "").strip()
-            category = (node.findtext("category") or "").strip()
+            # 榜单类没有 <category>，题材在 description 的那一行里（见
+            # _category_from_description）；两条路都取不到时再退回路线提示。
+            category = (node.findtext("category") or "").strip() or _category_from_description(
+                description
+            )
 
             subject_id = _extract(_SUBJECT_ID, link) or _extract(_SUBJECT_ID, description)
             release = parse_date(_extract(_RELEASE_DATE, description), tz_name)
@@ -215,7 +221,7 @@ class DoubanRssSource:
                     raw={
                         "douban_id": subject_id,
                         "want": int(want.replace(",", "")) if want else None,
-                        "genre": category,
+                        "genre": " ".join(part for part in (category, genre_hint) if part),
                         "feed": feed_title,
                         "url": url,
                     },
@@ -432,6 +438,56 @@ def _media_type_of(url: str) -> str:
     if "/tv" in lowered or "tv_" in lowered or "/show_" in lowered:
         return MEDIA_TYPE_TV
     return MEDIA_TYPE_MOVIE
+
+
+#: 榜单路线 -> 题材提示。
+#:
+#: 为什么需要它：``/douban/list/*`` 的 RSS **没有 ``<category>`` 字段**
+#: （实测综艺榜 26 条全是空的），条目只剩标题。而「综艺」这个信息其实写在
+#: **频道**上 —— 用户勾了「排除题材：综艺 / 排除类型：真人秀」，却一条都
+#: 拦不住，因为这些字幕根本没有进入条目的任何字段。
+#: 这里按路线补一个题材串，等价于「把频道性质下放到每一条」：
+#: 既让题材词匹配得到，也让 ``item_genre_ids`` 反查出 10764 / 99。
+_ROUTE_GENRE_HINTS: Tuple[Tuple[str, str], ...] = (
+    ("show_domestic", "综艺"),
+    ("tv_variety", "综艺"),
+    ("tv_show", "综艺"),
+    ("tv_documentary", "纪录"),
+)
+
+
+def _genre_hint_of(url: str) -> str:
+    """按榜单路线给出题材提示（列表类路线没有 ``<category>``）。"""
+    lowered = str(url or "").lower()
+    for key, hint in _ROUTE_GENRE_HINTS:
+        if key in lowered:
+            return hint
+    return ""
+
+
+#: 榜单 description 里那行的结构：``2026 / 中国大陆 / 真人秀 / 沈腾 白敬亭``
+_DESC_YEAR = re.compile(r"^\s*(\d{4})\s*$")
+
+
+def _category_from_description(description: str) -> str:
+    """从 description 里抠出题材串（榜单类路线唯一可靠的题材来源）。
+
+    真机实测 ``/douban/list/show_domestic`` 的条目：**没有 ``<category>``**，
+    但 description 里写着::
+
+        2026 / 中国大陆 / 真人秀 / 张泉灵 李维嘉
+
+    第 3 段就是题材。少了它，「排除题材：真人秀」和「排除类型：真人秀(10764)」
+    两条规则都会静默失效 —— 用户明明勾了，综艺照样被订进来。
+    """
+    if not description:
+        return ""
+    plain = _TAG.sub("\n", str(description))
+    for line in plain.splitlines():
+        parts = [part.strip() for part in line.split("/")]
+        if len(parts) >= 3 and _DESC_YEAR.match(parts[0] or ""):
+            return parts[2]
+    return ""
 
 
 def _channel_title(text: str) -> str:

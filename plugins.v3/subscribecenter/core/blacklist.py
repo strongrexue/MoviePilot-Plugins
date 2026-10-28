@@ -21,7 +21,7 @@
 本模块是纯函数：不碰网络、不碰宿主，可离线单测。
 """
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, List, Optional, Pattern, Set, Tuple
 
 from .constants import MEDIA_TYPE_TV
@@ -215,6 +215,16 @@ class BlacklistRules:
     def genres_for(self) -> Dict[bool, Tuple[int, ...]]:
         """``{是否剧集: 类型 id 元组}``，便于按媒体类型取。"""
         return {False: self.movie_genres, True: self.tv_genres}
+
+
+def genre_rules(rules: BlacklistRules) -> BlacklistRules:
+    """只保留「排除类型」的规则副本。
+
+    用途：身份解析完成后的**第二遍类型复核**（``core.pipeline`` 第 3.5 步）。
+    第一遍在解析前跑（省请求），那时豆瓣榜单这类来源还没有 TMDB 类型；解析后
+    候选里已经带回 ``genre_ids``，再按类型判一次才拦得住综艺/脱口秀。
+    """
+    return replace(rules, words=(), match_title=False, tmdb_keywords=False)
 
 
 def _as_id_list(value: Any) -> Tuple[int, ...]:
@@ -526,6 +536,7 @@ __all__ = [
     "check_parts",
     "compile_line",
     "genre_label",
+    "genre_rules",
     "item_genre_ids",
     "item_tag_texts",
     "match_words",

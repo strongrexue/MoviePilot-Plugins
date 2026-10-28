@@ -23,7 +23,13 @@ from typing import (
     Tuple,
 )
 
-from .blacklist import BlacklistRules, check_item, check_keywords, rules_from_config
+from .blacklist import (
+    BlacklistRules,
+    check_item,
+    check_keywords,
+    genre_rules,
+    rules_from_config,
+)
 from .constants import (
     DECISION_PENDING_REVIEW,
     DECISION_SKIPPED_BLACKLIST,
@@ -355,6 +361,37 @@ def filter_blacklist(
     rejected: List[WriteOutcome] = []
     for item in items:
         reason = check_item(rules, item)
+        if reason:
+            rejected.append(
+                WriteOutcome(item=item, decision=DECISION_SKIPPED_BLACKLIST, reason=reason)
+            )
+            continue
+        kept.append(item)
+    return kept, rejected
+
+
+def filter_blacklist_genres(
+    items: Sequence[DiscoveredItem],
+    rules: BlacklistRules,
+) -> Tuple[List[DiscoveredItem], List[WriteOutcome]]:
+    """黑名单第 1.5 层：身份解析完成后，按 TMDB 类型再拦一次（同步、零请求）。
+
+    为什么需要单独一层：第一层（:func:`filter_blacklist`）跑在解析前，那时只有
+    来源自带的题材串。豆瓣榜单这类来源连 ``<category>`` 都没有
+    （``/douban/list/show_domestic`` 实测 26 条全空），用户勾了
+    「排除类型：真人秀(10764) / 脱口秀(10767)」也拦不住 —— 直到解析出 TMDB
+    身份，候选里带回 ``genre_ids``（由 ``IdentityResolver._stash_genres``
+    顺手记下，**零额外请求**），才判得出来。
+
+    只判「排除类型」：题材词第一层已经判过，这里重复只会多跑一遍正则。
+    """
+    only = genre_rules(rules)
+    if not (only.movie_genres or only.tv_genres):
+        return list(items), []
+    kept: List[DiscoveredItem] = []
+    rejected: List[WriteOutcome] = []
+    for item in items:
+        reason = check_item(only, item)
         if reason:
             rejected.append(
                 WriteOutcome(item=item, decision=DECISION_SKIPPED_BLACKLIST, reason=reason)
@@ -732,6 +769,16 @@ async def run_pipeline(
 
     await asyncio.gather(*(_resolve_one(item) for item in raw))
 
+    # ---- 3.2 黑名单第二遍：解析后按 TMDB 类型复核
+    #
+    # 第一遍（2.5）跑在解析前，那时没有 TMDB 类型；豆瓣榜单连 <category> 都没有，
+    # 所以「排除类型：真人秀/脱口秀」只能在拿到候选的 genre_ids 之后才拦得住。
+    # 这一步是纯本地判断，零额外请求。
+    if rules.active:
+        raw, genre_blocked = filter_blacklist_genres(raw, rules)
+        if genre_blocked:
+            blocked = blocked + genre_blocked
+
     # ---- 3.5 电影发行日兜底（只补「来源没给日期」的电影）
     #
     # 放在身份解析之后：只有解析出 TMDB 身份的条目才查得到发行日；
@@ -796,6 +843,7 @@ __all__ = [
     "fetch_all",
     "fill_movie_release_dates",
     "filter_blacklist",
+    "filter_blacklist_genres",
     "filter_blacklist_keywords",
     "filter_by_rating",
     "filter_by_window",

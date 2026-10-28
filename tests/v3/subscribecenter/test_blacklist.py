@@ -25,12 +25,17 @@ from core.blacklist import (  # noqa: E402
     check_keywords,
     check_parts,
     compile_line,
+    genre_rules,
     item_genre_ids,
     match_words,
     rules_from_config,
 )
 from core.model import DiscoveredItem, ResolvedIdentity  # noqa: E402
-from core.pipeline import filter_blacklist, filter_blacklist_keywords  # noqa: E402
+from core.pipeline import (  # noqa: E402
+    filter_blacklist,
+    filter_blacklist_genres,
+    filter_blacklist_keywords,
+)
 
 TODAY = date.today()
 
@@ -202,6 +207,48 @@ def test_item_genre_ids_tolerates_junk():
     """脏数据（字符串 id、None、空串）不能让收集函数抛异常。"""
     ids = item_genre_ids(item(raw={"genre_ids": ["27", None, "", "abc", 35]}))
     assert ids == {27, 35}
+
+
+def test_genre_rules_keep_only_genre_signal():
+    """解析后复核用的规则副本：只剩「排除类型」，题材词不重复跑。"""
+    compiled = genre_rules(rules(blacklist_genre_tv=[10764], blacklist_words="综艺"))
+    assert compiled.tv_genres == (10764,)
+    assert compiled.words == ()
+    assert compiled.match_title is False
+
+
+def test_filter_blacklist_genres_blocks_after_resolve():
+    """解析完成后的类型复核：豆瓣综艺榜条目拿到 TMDB 10764 后被拦下。
+
+    回归：用户勾了「排除类型：真人秀」，综艺榜却照样订进来 —— 因为第一遍
+    黑名单跑在身份解析之前，`/douban/list/*` 又没有 `<category>`，
+    那时根本没有任何类型信息。
+    """
+    compiled = rules(blacklist_genre_tv=[10764])
+    variety = item(
+        media_type=C.MEDIA_TYPE_TV,
+        title="现在就出发 第四季",
+        resolved=ResolvedIdentity(media_source="themoviedb", media_id="231620"),
+        raw={"genre_ids": [10764]},
+    )
+    drama = item(
+        media_type=C.MEDIA_TYPE_TV,
+        title="太平年",
+        resolved=ResolvedIdentity(media_source="themoviedb", media_id="1"),
+        raw={"genre_ids": [18]},
+    )
+    kept, rejected = filter_blacklist_genres([variety, drama], compiled)
+    assert [entry.title for entry in kept] == ["太平年"]
+    assert len(rejected) == 1
+    assert "真人秀" in rejected[0].reason
+    assert rejected[0].decision == C.DECISION_SKIPPED_BLACKLIST
+
+
+def test_filter_blacklist_genres_noop_without_genre_rules():
+    """没勾任何排除类型时整层跳过（零成本）。"""
+    kept, rejected = filter_blacklist_genres([item(raw={"genre_ids": [10764]})], rules())
+    assert len(kept) == 1
+    assert rejected == []
 
 
 def test_match_switches_can_be_turned_off():

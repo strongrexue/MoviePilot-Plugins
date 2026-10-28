@@ -783,6 +783,7 @@ class IdentityResolver:
             )
             if hit:
                 candidate, reason = hit
+                self._stash_genres(item, candidate)
                 identity = ResolvedIdentity(
                     media_source=HOST_SOURCE_TMDB,
                     media_id=str(candidate["tmdb_id"]),
@@ -802,6 +803,7 @@ class IdentityResolver:
             by_season = await self._disambiguate_by_season(candidates, item)
             if by_season:
                 candidate, season_no = by_season
+                self._stash_genres(item, candidate)
                 identity = ResolvedIdentity(
                     media_source=HOST_SOURCE_TMDB,
                     media_id=str(candidate["tmdb_id"]),
@@ -976,6 +978,7 @@ class IdentityResolver:
                     continue
                 hit = (relaxed, "search:relaxed_unique_year")
             candidate, reason = hit
+            self._stash_genres(item, candidate)
             identity = ResolvedIdentity(
                 media_source=HOST_SOURCE_TMDB,
                 media_id=str(candidate["tmdb_id"]),
@@ -1176,6 +1179,29 @@ class IdentityResolver:
             poster = candidate.get("poster_path")
             if tmdb_id and poster:
                 self._poster_index[str(tmdb_id)] = str(poster)
+
+    @staticmethod
+    def _stash_genres(item: DiscoveredItem, candidate: Any) -> None:
+        """把候选自带的 TMDB ``genre_ids`` 存进条目。
+
+        为什么需要：黑名单第一遍跑在**身份解析之前**（省请求），那时豆瓣榜单
+        这类来源只有标题 —— ``/douban/list/*`` 的 RSS 连 ``<category>`` 都没有，
+        所以「排除类型：真人秀/脱口秀」一条都拦不住。而 TMDB 搜索响应本来就
+        带着 ``genre_ids``，顺手留下来，解析完再过一遍类型即可拦住，
+        **不额外发任何请求**。
+        """
+        if not isinstance(candidate, dict):
+            return
+        ids: List[int] = []
+        for value in candidate.get("genre_ids") or ():
+            try:
+                genre_id = int(str(value).strip())
+            except (TypeError, ValueError):
+                continue
+            if genre_id > 0:
+                ids.append(genre_id)
+        if ids:
+            item.raw.setdefault("genre_ids", ids)
 
     async def _attach_poster(self, item: DiscoveredItem) -> None:
         """回填海报路径（流水页显示封面用）。

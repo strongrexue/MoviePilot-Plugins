@@ -277,6 +277,64 @@ def test_show_route_is_tv():
     assert items[0].media_type == C.MEDIA_TYPE_TV
 
 
+#: 综艺榜真实结构（/douban/list/show_domestic 实测）：**没有 `<category>`**，
+#: 题材写在 description 的那一行里。少了它，黑名单的「真人秀」规则全部失效。
+SHOW_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>豆瓣 - 近期热门国内综艺</title>
+  <item>
+    <title>现在就出发 第四季</title>
+    <description>&lt;p&gt;2026 / 中国大陆 / 真人秀 / 沈腾 白敬亭&lt;/p&gt;</description>
+    <link/>
+    <guid isPermaLink="false">现在就出发 第四季</guid>
+  </item>
+  <item>
+    <title>披荆斩棘2026</title>
+    <description>&lt;p&gt;2026 / 中国大陆 / 真人秀 / 苏有朋&lt;/p&gt;</description>
+    <link/>
+  </item>
+</channel></rss>"""
+
+
+def test_show_list_genre_comes_from_description():
+    """综艺榜条目要从 description 抠出「真人秀」—— 这是黑名单唯一能用的信号。
+
+    回归：用户勾了「排除题材：综艺/真人秀」+「排除类型：真人秀/脱口秀」，
+    综艺榜照样订进来，因为 ``<category>`` 是空的、description 却没读。
+    """
+    items = {item.title: item for item in DoubanRssSource.parse(SHOW_FEED, "http://nas/douban/list/show_domestic")}
+    genre = items["现在就出发 第四季"].raw["genre"]
+    assert "真人秀" in genre
+    # 同时补上路线提示，题材词「综艺」也能命中
+    assert "综艺" in genre
+    assert items["现在就出发 第四季"].raw["feed"] == "豆瓣 - 近期热门国内综艺"
+
+
+def test_show_list_genre_maps_to_tmdb_id():
+    """「真人秀」要能反查出 TMDB 10764，否则「排除类型」还是拦不住。"""
+    from core.blacklist import item_genre_ids
+
+    items = DoubanRssSource.parse(SHOW_FEED, "http://nas/douban/list/show_domestic")
+    assert 10764 in item_genre_ids(items[0])
+
+
+def test_show_list_items_are_blocked_by_blacklist():
+    """端到端：默认规则（排除真人秀题材）必须拦住综艺榜条目。"""
+    from core.blacklist import check_item, rules_from_config
+
+    rules = rules_from_config(
+        {
+            "blacklist_enabled": True,
+            "blacklist_presets": ["variety"],
+            "blacklist_genre_tv": [10764],
+        }
+    )
+    items = DoubanRssSource.parse(SHOW_FEED, "http://nas/douban/list/show_domestic")
+    reason = check_item(rules, items[0])
+    assert reason, "综艺榜条目必须被黑名单拦下"
+    assert "真人秀" in reason or "综艺" in reason
+
+
 def test_per_feed_limit_is_applied():
     """每个榜单只取前 N 条（榜单按名次排列，取前 N 即最热的）。
 

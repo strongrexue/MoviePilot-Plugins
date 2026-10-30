@@ -913,6 +913,11 @@ def _build_metainfo(title: str, year: Optional[str], media_type: str) -> Any:
 class HostSubscribeBackend:
     """用宿主官方接口实现 :class:`~..core.writer.SubscribeBackend`。"""
 
+    def __init__(self) -> None:
+        #: 宿主「插件数据查询服务」没配置时，官方查询接口会**每次都抛异常**。
+        #: 一旦发现不可用就记住，后续直接走 ORM，免得每条候选都抛一次、刷一屏日志。
+        self._query_service_broken = False
+
     async def add(
         self,
         title: str,
@@ -973,13 +978,23 @@ class HostSubscribeBackend:
         source_enum = media_source_enum(media_source)
         if source_enum is None:
             return False
-        page = await async_list_subscriptions(
-            SubscriptionFilter(
-                media_source=source_enum, media_id=str(media_id), season=season
-            ),
-            QueryPageRequest(page=1, count=QUERY_PAGE_SIZE),
-        )
-        return bool(getattr(page, "total", 0))
+        if not self._query_service_broken:
+            try:
+                page = await async_list_subscriptions(
+                    SubscriptionFilter(
+                        media_source=source_enum,
+                        media_id=str(media_id),
+                        season=season,
+                    ),
+                    QueryPageRequest(page=1, count=QUERY_PAGE_SIZE),
+                )
+                return bool(getattr(page, "total", 0))
+            except Exception as err:  # noqa: BLE001 - 查询服务未配置时退回 ORM
+                self._query_service_broken = True
+                logger.warning(
+                    f"[SubscribeCenter] 宿主订阅查询服务不可用，改用数据库直查：{err}"
+                )
+        return await _orm_exists("subscribe", media_source, media_id, season)
 
     async def history_exists(
         self, media_source: str, media_id: str, season: Optional[int] = None
@@ -1001,13 +1016,56 @@ class HostSubscribeBackend:
         source_enum = media_source_enum(media_source)
         if source_enum is None:
             return False
-        page = await async_list_subscription_history(
-            SubscriptionHistoryFilter(
-                media_source=source_enum, media_id=str(media_id), season=season
-            ),
-            QueryPageRequest(page=1, count=QUERY_PAGE_SIZE),
+        if not self._query_service_broken:
+            try:
+                page = await async_list_subscription_history(
+                    SubscriptionHistoryFilter(
+                        media_source=source_enum,
+                        media_id=str(media_id),
+                        season=season,
+                    ),
+                    QueryPageRequest(page=1, count=QUERY_PAGE_SIZE),
+                )
+                return bool(getattr(page, "total", 0))
+            except Exception as err:  # noqa: BLE001 - 查询服务未配置时退回 ORM
+                self._query_service_broken = True
+                logger.warning(
+                    f"[SubscribeCenter] 宿主订阅历史查询服务不可用，改用数据库直查：{err}"
+                )
+        return await _orm_exists("history", media_source, media_id, season)
+
+
+async def _orm_exists(
+    table: str,
+    media_source: str,
+    media_id: str,
+    season: Optional[int] = None,
+) -> bool:
+    """直接查库兜底：宿主「插件数据查询服务」没配置时用。
+
+    真机教训（1.17.2）：``app.sdk.queries`` 的这两个查询函数在未配置
+    「插件数据查询服务」的实例上会抛 ``RuntimeError: 插件数据查询服务尚未配置``，
+    而写入前的复查是 fail-open —— 于是「已完成过」的检查形同不存在，同一部剧
+    被反复加回来（《新手上路》6 次、《怪物：丽兹·波顿的故事》2 次）。
+    这里退回 ORM，判据与查询服务一致：``media_source`` + ``media_id`` + 季号。
+    """
+    from app.db import async_session_scope
+    from sqlalchemy import select
+
+    if table == "history":
+        from app.db.models.subscribehistory import SubscribeHistory as model
+    else:
+        from app.db.models.subscribe import Subscribe as model
+
+    async with async_session_scope() as session:
+        statement = select(model.id).where(
+            model.media_source == str(media_source),
+            model.media_id == str(media_id),
         )
-        return bool(getattr(page, "total", 0))
+        if season is not None:
+            statement = statement.where(model.season == int(season))
+        found = (await session.execute(statement.limit(1))).scalars().first()
+        return found is not None
 
 
 # --------------------------------------------------------------------- 组装

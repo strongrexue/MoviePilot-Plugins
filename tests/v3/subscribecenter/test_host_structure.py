@@ -152,3 +152,72 @@ def test_async_poster_path_is_instance_method():
     attr = inspect.getattr_static(HostTmdbResolver, "async_poster_path")
     assert not isinstance(attr, staticmethod), "async_poster_path 不应是 staticmethod"
     assert "self" in inspect.signature(attr).parameters
+
+
+# --------------------------------------------------- 查询服务缺失时退回 ORM（1.17.2）
+
+@pytest.mark.asyncio
+async def test_exists_falls_back_to_orm_when_query_service_missing(monkeypatch):
+    """「插件数据查询服务」没配置时，官方查询接口每次都会抛 RuntimeError。
+
+    真机后果：写入前的复查是 fail-open，于是「已完成过」的判断形同不存在，
+    同一部剧被反复加回来（《新手上路》6 次）。这里锁住退路：抛异常就直查库，
+    并且只抛一次（之后记住不可用，不再每条例目都试一遍）。
+    """
+    import app.sdk.queries as queries
+
+    import subscribecenter.core.host as host_mod
+
+    tried = []
+
+    async def boom(*args, **kwargs):
+        tried.append(args)
+        raise RuntimeError("插件数据查询服务尚未配置")
+
+    seen = []
+
+    async def fake_orm(table, media_source, media_id, season=None):
+        seen.append((table, media_source, media_id, season))
+        return True
+
+    monkeypatch.setattr(queries, "async_list_subscriptions", boom)
+    monkeypatch.setattr(queries, "async_list_subscription_history", boom)
+    monkeypatch.setattr(host_mod, "_orm_exists", fake_orm)
+
+    backend = HostSubscribeBackend()
+    assert await backend.subscription_exists("themoviedb", "298546", 1) is True
+    assert seen == [("subscribe", "themoviedb", "298546", 1)]
+    assert backend._query_service_broken is True
+    assert len(tried) == 1
+
+    # 之后一律走 ORM，不再碰官方接口
+    assert await backend.history_exists("themoviedb", "299939", 1) is True
+    assert seen[-1] == ("history", "themoviedb", "299939", 1)
+    assert len(tried) == 1, "记住不可用后不应再调用官方接口"
+
+
+@pytest.mark.asyncio
+async def test_exists_uses_query_service_when_available(monkeypatch):
+    """服务正常时不走 ORM 退路（避免多打一次库）。"""
+    import app.sdk.queries as queries
+
+    import subscribecenter.core.host as host_mod
+
+    class Page:
+        total = 2
+
+    async def ok(*args, **kwargs):
+        return Page()
+
+    async def fake_orm(*args, **kwargs):  # pragma: no cover - 不该被调用
+        raise AssertionError("服务正常时不应退回 ORM")
+
+    monkeypatch.setattr(queries, "async_list_subscriptions", ok)
+    monkeypatch.setattr(queries, "async_list_subscription_history", ok)
+    monkeypatch.setattr(host_mod, "_orm_exists", fake_orm)
+
+    backend = HostSubscribeBackend()
+    assert await backend.subscription_exists("themoviedb", "1", 1) is True
+    assert await backend.history_exists("themoviedb", "1", 1) is True
+    assert backend._query_service_broken is False
+

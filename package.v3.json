@@ -3,7 +3,7 @@
         "name": "胖虎媒体中心",
         "description": "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。",
         "labels": "工具,媒体",
-        "version": "1.13.26",
+        "version": "1.13.27",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.27": "修复 TG 频繁掉线/会话被 Telegram 作废（AuthKey 烧密钥）的根因：① 与稳定实现 media_automator 对比确认——此前 init_plugin 每次保存配置都 stop_service 销毁并重建运行时、_keep_alive 每 ≤30s 主动 disconnect+connect，在旋转代理（v2raya 节点自动切换）下反复制造「同一会话从两个出口 IP 同时出现」触发 Telegram 安全机制作废密钥；② 改为：保存配置时若 TG 相关配置未变则复用已有运行时（不再每次重连），keep-alive 改为被动探活、不再主动掐线重连，连接失败若是 AuthKeyError/AuthKeyUnregisteredError/SecurityError/「two different IP」则给出明确指引（退出重登 + 固定代理出口 IP），不再笼统误报成超时；③ 行为回归由既有用例守护。注：彻底稳定仍需把 v2raya 改为固定出口节点或直连——本版消除的是主动、频繁重连这一主因。",
             "v1.13.26": "1. 修「前端组件 ≠ 后端」横幅硬刷新也不消失：dist 产物里烤的前端版本停在 1.13.24，与后端 1.13.25 长期不一致；本次重建 dist，并加回归测试锁住「产物里的版本必须等于 plugin_version」。\n2. 新增通用发版脚本 tools/bump_plugin_version.py 与 tools/bump_plugin_index.py，避免以后只改源码不重建产物。",
             "v1.13.25": "1. 洗版回搜单轮 100 条入队上限去掉：一轮定时就把全部订阅的匹配捞完入队，不再需要反复点「立即洗版回搜」。\n2. 新增推送节流「每批推送条数」与「批间隔（秒）」（默认 10 条 / 15 秒，取值 1~200 / 5~3600）：入队洪峰变成分批匀速推送，实时监控与普通转发任务各占一半额度，不会被洗版挤掉。\n3. 回搜通知只报真正推出去的资源：「已推送过 / 无需推送」不再发通知（这些判定照旧写命中流水，运行详情页可查）。\n4. 缓存面板：洗版开关说明改为「入队条数不限」，新增每批条数与批间隔两个输入，并补充通知口径说明。",
             "v1.13.24": "1. 订阅兜底新增「洗版回搜」开关（默认关）：开启后定时兜底跳过媒体库入库判定、遍历全部订阅回搜缓存，频道后来进了更高质量的资源也能被捞出来洗版；关掉与 1.13.23 完全一致。\n2. 洗版模式按「任意路径的命中流水」去重（监控/补扫推过的不会再推），单轮最多入队 100 条，剩余留到下一轮。\n3. 洗版模式的通知标题区分成「洗版回搜」，正文格式沿用缓存回搜。\n4. 缓存面板：订阅兜底检查卡新增开关与说明，按钮与文案随开关切换。",

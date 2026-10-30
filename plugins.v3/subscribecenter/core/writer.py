@@ -40,7 +40,7 @@ from .constants import (
     DECISION_SKIPPED_SPECIAL,
     WRITABLE_CONFIDENCE,
 )
-from .identity import HOST_SOURCE_TMDB
+from .identity import HOST_SOURCE_TMDB, extract_season_hint
 from .model import DiscoveredItem
 from .window import parse_date, today
 
@@ -381,6 +381,29 @@ class SubscriptionWriter:
                 reason="发现流水里记着这部订阅过（删掉订阅后不再自动重订，清空流水可恢复）",
             )
 
+        # ---- 同一部剧的其他季已有订阅时，别把「第 N 季」订成第 M 季
+        #
+        # 真机：库里已有《我的美食向导》S2，豆瓣又来一条「我的美食向导 第二季」，
+        # 宿主季号裁决回 season=1 → 又写了一条 S1，订阅列表里出现两条同名同海报
+        # 的条目（用户原话「同一部剧出现两条」）。标题明写了季号就以标题为准：
+        # 宿主若已订过那一季，说明这条已经处理过了。
+        hint = extract_season_hint(item.title)
+        if hint is not None and hint != item.season:
+            try:
+                if await self._backend.subscription_exists(
+                    identity.media_source, identity.media_id, hint
+                ):
+                    return WriteOutcome(
+                        item=item,
+                        decision=DECISION_SKIPPED_ALREADY_SUBSCRIBED,
+                        reason=(
+                            f"标题写的是第 {hint} 季，宿主已有该季订阅"
+                            f"（解析到第 {item.season or 1} 季，跳过以免重复）"
+                        ),
+                    )
+            except Exception:  # noqa: BLE001 - 复查失败不影响后续判定
+                pass
+
         # ---- 写入前实时复查（两层：活跃订阅 + 已完成历史）
         #
         # 去重**必须带季号**：同一部剧的不同季是不同订阅。
@@ -479,6 +502,30 @@ class SubscriptionWriter:
                 message=text,
                 reason=f"写入未成功：{text or '宿主未返回订阅 ID'}",
             )
+        # ---- 写入后复查：宿主返回了 ID 不等于真的落库
+        #
+        # 真机（2026-10-30 那一轮）：宿主 ``add()`` 返回了订阅 ID（id 顺延到
+        # 337/338），但库里查不到这两条 —— 数据库 worker 忙时事务回滚，而 API
+        # 已经把 flush 出来的 ID 返回了。原先只认「有 ID 就算成功」，流水里写
+        # 「新增 2 条」而实际一条没进，用户自然对不上账。
+        #
+        # **只在写入前复查失败时才二次确认**：那一轮 14 条 added 的 reason 全是
+        # 「复查失败但写入成功（数据库 worker 当前不可接收任务）」—— 数据库不
+        # 健康时才会出现「返回 ID 但没落库」，也正是 precheck 抛错的时刻。
+        # 正常路径不额外查一次，避免每条都多打一次库。
+        if precheck_error:
+            verified = await self._verify_written(identity, item.season)
+            if verified is False:
+                return WriteOutcome(
+                    item=item,
+                    decision=DECISION_PENDING_REVIEW,
+                    subscribe_id=sid,
+                    message=text or MESSAGE_ADDED,
+                    reason=(
+                        "宿主返回了订阅 ID，但复查不到该订阅"
+                        "（数据库繁忙时会这样），本轮按未确认处理，请到订阅页核对"
+                    ),
+                )
         return WriteOutcome(
             item=item,
             decision=DECISION_ADDED,
@@ -487,6 +534,21 @@ class SubscriptionWriter:
             message=text or MESSAGE_ADDED,
             reason=precheck_error and f"复查失败但写入成功（{precheck_error}）" or "",
         )
+
+    async def _verify_written(self, identity: Any, season: Optional[int]) -> Optional[bool]:
+        """写入后复查订阅是否真的落库。
+
+        :return: ``True`` 确实存在；``False`` 查不到（写入被回滚）；
+            ``None`` 复查本身失败，无法判断（按写入成功处理，不误报）。
+        """
+        try:
+            return bool(
+                await self._backend.subscription_exists(
+                    identity.media_source, identity.media_id, season
+                )
+            )
+        except Exception:  # noqa: BLE001 - 复查失败不代表写入失败
+            return None
 
     # ------------------------------------------------------------------ 额度
 

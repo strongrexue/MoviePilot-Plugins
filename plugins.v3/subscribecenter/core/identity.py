@@ -1203,6 +1203,27 @@ class IdentityResolver:
         if ids:
             item.raw.setdefault("genre_ids", ids)
 
+    def _stash_genres_from_host(self, item: DiscoveredItem) -> None:
+        """从宿主已抓到的 TMDB 详情里补类型 ID。
+
+        为什么需要：``_stash_genres`` 只能从**搜索响应**的 ``genre_ids`` 取，
+        而缓存命中（L2）根本没有搜索响应 —— 于是「排除类型：真人秀」对缓存
+        命中的条目完全失效（真机：哈哈哈哈哈 第7季、喜人奇妙夜照订）。
+        ``resolve_target_season`` / ``async_poster_path`` 本来就会拉一次 TMDB
+        详情，那份 JSON 里带 ``genres``，在这里顺手取回，**零额外请求**。
+        """
+        if not item.resolved or (item.raw or {}).get("genre_ids"):
+            return
+        getter = getattr(self._tmdb, "genre_ids", None)
+        if getter is None:
+            return
+        try:
+            ids = getter(str(item.resolved.media_id))
+        except Exception:  # noqa: BLE001 - 类型补不上不影响主流程
+            return
+        if ids:
+            item.raw["genre_ids"] = list(ids)
+
     async def _attach_poster(self, item: DiscoveredItem) -> None:
         """回填海报路径（流水页显示封面用）。
 
@@ -1210,7 +1231,11 @@ class IdentityResolver:
         （``resolve_target_season`` 拉详情时顺带存的，零额外请求）。
         电影走第三条：让宿主补查一次详情。
         """
-        if not item.resolved or (item.raw or {}).get("poster"):
+        if not item.resolved:
+            return
+        # 类型 ID 与海报同源（TMDB 详情），顺手补上再谈海报有没有
+        self._stash_genres_from_host(item)
+        if (item.raw or {}).get("poster"):
             return
         media_id = str(item.resolved.media_id)
         poster = self._poster_index.get(media_id)
@@ -1341,6 +1366,7 @@ __all__ = [
     "IdentityResolver",
     "MappingCache",
     "TmdbResolver",
+    "extract_season_hint",
     "match_candidate_year",
     "normalize_title",
     "resolve_from_native_ids",

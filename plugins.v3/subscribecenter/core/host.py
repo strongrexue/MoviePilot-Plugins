@@ -200,10 +200,36 @@ class HostTmdbResolver:
         #: tmdb_id -> poster_path。**零额外请求**：resolve_target_season 里
         #: 为裁决季号本来就会拉 TMDB 详情，那份 JSON 就带 poster_path。
         self._poster_index: Dict[str, str] = {}
+        #: tmdb_id -> 类型 ID 列表。同样**零额外请求**，来源是同一份 TMDB 详情。
+        #: 缓存命中的条目（L2）拿不到搜索响应里的 ``genre_ids``，只能靠这里补，
+        #: 否则「排除类型：真人秀」对缓存命中的条目完全失效。
+        self._genre_index: Dict[str, List[int]] = {}
 
     def poster_path(self, tmdb_id: str) -> Optional[str]:
         """返回已抓到的海报路径（没有则为 None，不发起请求）。"""
         return self._poster_index.get(str(tmdb_id))
+
+    def genre_ids(self, tmdb_id: str) -> Optional[List[int]]:
+        """返回已抓到的类型 ID（没有则为 None，不发起请求）。"""
+        return self._genre_index.get(str(tmdb_id))
+
+    def _remember_genres(self, tmdb_id: Any, genres: Any) -> None:
+        """记住 TMDB 详情里的类型 ID。
+
+        ``genres`` 是详情接口的 ``[{"id": 10764, "name": "真人秀"}, ...]``。
+        搜索响应给的是 ``genre_ids``（纯 ID 列表），这里两种形状都兼容。
+        """
+        ids: List[int] = []
+        for entry in genres or ():
+            value = entry.get("id") if isinstance(entry, dict) else entry
+            try:
+                genre_id = int(str(value).strip())
+            except (TypeError, ValueError):
+                continue
+            if genre_id > 0:
+                ids.append(genre_id)
+        if ids:
+            self._genre_index[str(tmdb_id)] = ids
 
     async def search(
         self,
@@ -588,6 +614,7 @@ class HostTmdbResolver:
             poster = info.get("poster_path")
             if poster:
                 self._poster_index[str(tmdb_id)] = str(poster)
+            self._remember_genres(tmdb_id, info.get("genres"))
             numbers = sorted(
                 {
                     int(season.get("season_number") or 0)
@@ -677,6 +704,7 @@ class HostTmdbResolver:
 
             mtype = MediaType.MOVIE if media_type == MEDIA_TYPE_MOVIE else MediaType.TV
             info = await TmdbApi().async_get_info(mtype=mtype, tmdbid=int(tmdb_id)) or {}
+            self._remember_genres(tmdb_id, info.get("genres"))
             poster = info.get("poster_path")
             if poster:
                 self._poster_index[str(tmdb_id)] = str(poster)

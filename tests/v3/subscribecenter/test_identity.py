@@ -19,6 +19,7 @@ from core.identity import (  # noqa: E402
     normalize_title,
     resolve_from_native_ids,
     review_candidates,
+    source_id_key,
     title_similarity,
 )
 from core.model import DiscoveredItem, ResolvedIdentity  # noqa: E402
@@ -353,3 +354,34 @@ async def test_l4_result_is_not_cached():
     resolver = IdentityResolver(tmdb, cache)
     await resolver.resolve(make_item(source_id="88", title="沙丘", year="2026", native_ids={}))
     assert cache.size == 0
+
+
+# --------------------------------------------------------------------- 类型补齐
+
+@pytest.mark.asyncio
+async def test_genre_ids_filled_from_host_after_cache_hit():
+    """缓存命中的条目也要能拿到类型 ID（否则「排除类型」对它失效）。"""
+    store = MemoryStore()
+    cache = MappingCacheStore(store)
+    cache.remember(
+        source_id_key(C.SOURCE_DOUBAN_RSS, "9"),
+        ResolvedIdentity(
+            media_source="themoviedb", media_id="112732", confidence=C.CONFIDENCE_L3
+        ),
+    )
+
+    class GenreTmdb(FakeTmdb):
+        """只提供类型索引的宿主替身。"""
+
+        def genre_ids(self, tmdb_id):
+            """按 tmdb id 返回类型 ID。"""
+            return [10764] if str(tmdb_id) == "112732" else None
+
+    resolver = IdentityResolver(GenreTmdb(), cache)
+    item = make_item(source=C.SOURCE_DOUBAN_RSS, source_id="9", title="哈哈哈哈哈 第7季")
+    item.media_type = C.MEDIA_TYPE_TV
+    await resolver.resolve(item)
+
+    assert item.resolved is not None
+    assert item.resolved.confidence == C.CONFIDENCE_L2
+    assert item.raw.get("genre_ids") == [10764]

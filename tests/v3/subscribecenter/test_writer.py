@@ -540,3 +540,78 @@ def test_recorded_key_set_reads_once_per_batch():
     writer.recorded_key_set()
     assert len(calls) == 1
     assert writer.recorded_key_set() == {"themoviedb:1:0"}
+
+
+# --------------------------------------------------------------------- 假成功与错季
+
+class SeasonAwareBackend:
+    """按季号区分「已存在」的宿主替身。"""
+
+    def __init__(self, existing_seasons=(), verify_result=True, raise_precheck=False):
+        self.existing_seasons = set(existing_seasons)
+        self.verify_result = verify_result
+        self.raise_precheck = raise_precheck
+        self._raised = False
+        self.calls = []
+
+    async def add(self, title, year, media_source, media_id, media_type,
+                  season=None, *, episode_group=None, message=False, exist_ok=False):
+        """返回一个订阅 ID，模拟宿主「看起来写成功了」。"""
+        self.calls.append(("add", season))
+        return 42, MESSAGE_ADDED
+
+    async def subscription_exists(self, media_source, media_id, season=None):
+        """写入前抛错、写入后返回预设结果（模拟数据库 worker 忙）。"""
+        self.calls.append(("exists", season))
+        if self.raise_precheck and not self._raised:
+            # 只抛第一次：写入前复查失败，写入后复查返回真实结果
+            self._raised = True
+            raise RuntimeError("数据库 worker 当前不可接收任务")
+        return season in self.existing_seasons
+
+    async def history_exists(self, media_source, media_id, season=None):
+        """没有历史记录。"""
+        return False
+
+
+@pytest.mark.asyncio
+async def test_phantom_write_is_pending_review_when_verify_misses():
+    """宿主返回了 ID 但复查不到 —— 不能算新增（真机 337/338 就是这样消失的）。"""
+    backend = SeasonAwareBackend(existing_seasons=(), raise_precheck=True)
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 0
+    outcome = report.outcomes[0]
+    assert outcome.decision == C.DECISION_PENDING_REVIEW
+    assert "复查不到" in outcome.reason
+
+
+@pytest.mark.asyncio
+async def test_verify_failure_keeps_added():
+    """复查本身抛错时按写入成功处理，不误报待确认。"""
+
+    class FlakyVerify(SeasonAwareBackend):
+        """第一次查询抛错（写入前），之后也抛错（写入后）。"""
+
+        async def subscription_exists(self, media_source, media_id, season=None):
+            raise RuntimeError("数据库 worker 当前不可接收任务")
+
+    writer = SubscriptionWriter(FlakyVerify(), daily_limit=30)
+    report = await writer.write([item()], dry_run=False)
+
+    assert report.added_count == 1
+
+
+@pytest.mark.asyncio
+async def test_title_season_hint_already_subscribed_is_skipped():
+    """标题写第 2 季、宿主已订第 2 季 -> 不再按解析出的第 1 季重订一条。"""
+    backend = SeasonAwareBackend(existing_seasons=(2,))
+    writer = SubscriptionWriter(backend, daily_limit=30)
+    entry = item(title="我的美食向导 第二季", season=1)
+    report = await writer.write([entry], dry_run=False)
+
+    assert report.added_count == 0
+    outcome = report.outcomes[0]
+    assert outcome.decision == C.DECISION_SKIPPED_ALREADY_SUBSCRIBED
+    assert "第 2 季" in outcome.reason

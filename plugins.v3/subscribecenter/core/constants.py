@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.17.1"
+PLUGIN_VERSION = "1.17.2"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -438,13 +438,10 @@ def default_config() -> Dict[str, Any]:
         #: 第 3 季），但 episode group 里 Season 3 = 12 集。带 group 订阅后
         #: 宿主只追这 12 集，不会去补前 48 集旧番。关掉则按单季整体订阅。
         "prefer_episode_group": True,
-        #: 已完成过的订阅是否允许重新订阅（忽略订阅历史）。
-        #:
-        #: 默认**开启**：宿主把订阅标成完成时会移入 subscribehistory，
-        #: 但用户可能已经从媒体库删掉文件、想重新下。
-        #: 注意：真正「已经播完」的剧会先被 finished 判定拦住
-        #: （TMDB 无未播集），所以不会每轮都重复建订阅。
-        "resubscribe_completed": True,
+        # 注：曾经有过 ``resubscribe_completed``（已完成过的订阅是否允许重订）。
+        # 1.17.2 起**移除**：真机出现「加了→宿主立刻判完成→下一轮又加」的死循环
+        # （《新手上路》6 次、《怪物：丽兹·波顿的故事》2 次）。现在写入前一律
+        # 查订阅完成历史，同一季完成过就跳过；确实想重下时，去发现流水里手动订阅。
         #: 「发现流水里记录过订阅过的，就不再自动订回来」。
         #:
         #: 默认**开启**：流水是本插件自己的账本，记着「这部我订过」。用户主动

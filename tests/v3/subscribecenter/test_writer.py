@@ -161,10 +161,7 @@ async def test_skips_when_subscription_history_exists():
     （开发文档 §7.6）。
     """
     backend = FakeBackend(exists=False, history=True)
-    # 只有显式关掉「重新订阅已完成」时，历史才用于拦截
-    writer = SubscriptionWriter(
-        backend, daily_limit=30, resubscribe_completed=False
-    )
+    writer = SubscriptionWriter(backend, daily_limit=30)
     report = await writer.write([item()], dry_run=False)
 
     assert backend.add_calls == []
@@ -393,31 +390,27 @@ def test_write_report_summary_shape():
 
 
 @pytest.mark.asyncio
-async def test_resubscribes_completed_by_default():
-    """**默认允许重新订阅已完成过的条目**。
+async def test_completed_history_always_blocks():
+    """1.17.2 起**没有开关**：完成过的一律跳过。
 
-    真机诉求：宿主把订阅标成完成会移入 subscribehistory，但用户可能已经从
-    媒体库删掉文件、想重新下。默认因此忽略历史。
-
-    安全性：真正「已经播完」的剧会先被 finished 判定拦住（TMDB 无未播集），
-    所以不会每轮都重复建订阅。
+    真机事故：``resubscribe_completed`` 默认开着 → 插件加 → 宿主 1~2 分钟判
+    「已完成订阅」并移出订阅列表 → 下一轮插件又加回来（《新手上路》6 次、
+    《怪物：丽兹·波顿的故事》2 次）。要重下请到发现流水里手动订阅。
     """
     backend = FakeBackend(exists=False, history=True)
-    writer = SubscriptionWriter(backend, daily_limit=30)  # 默认 resubscribe_completed=True
-    report = await writer.write([item()], dry_run=False)
-
-    assert report.added_count == 1, "默认应该重新订阅"
-
-
-@pytest.mark.asyncio
-async def test_history_still_blocks_when_resubscribe_disabled():
-    """关掉「重新订阅」后，历史仍然用于拦截。"""
-    backend = FakeBackend(exists=False, history=True)
-    writer = SubscriptionWriter(backend, daily_limit=30, resubscribe_completed=False)
+    writer = SubscriptionWriter(backend, daily_limit=30)
     report = await writer.write([item()], dry_run=False)
 
     assert backend.add_calls == []
     assert report.outcomes[0].decision == C.DECISION_SKIPPED_ALREADY_COMPLETED
+    assert "流水" in report.outcomes[0].reason
+
+
+def test_writer_no_longer_accepts_resubscribe_completed():
+    """开关已移除：再传这个参数要立刻报错，避免有人加回来。"""
+    backend = FakeBackend()
+    with pytest.raises(TypeError):
+        SubscriptionWriter(backend, daily_limit=30, resubscribe_completed=True)
 
 
 # ------------------------------------------------------- 流水去重（订过就别再订回来）

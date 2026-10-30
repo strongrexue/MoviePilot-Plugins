@@ -87,7 +87,6 @@ export const configDefaults = {
   douban_min_want: 0,
   resolve_concurrency: 8,
   prefer_episode_group: true,
-  resubscribe_completed: true,
   //: 发现流水里记着「订过」的就不再自动订回来（删掉订阅也拦，清空流水才解锁）
   dedupe_by_history: true,
   // ---------------- Simkl

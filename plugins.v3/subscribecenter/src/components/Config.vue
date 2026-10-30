@@ -1167,20 +1167,6 @@ onMounted(() => {
             </div>
             <div class="sc-row">
               <div class="sc-row-main">
-                <div class="sc-row-label">已完成过的订阅允许重新订阅</div>
-                <div class="sc-row-hint">
-                  从媒体库删掉文件后想重新下时需要。真正<b>已经播完</b>的剧不会因此重复订阅。
-                </div>
-              </div>
-              <VSwitch
-                v-model="form.resubscribe_completed"
-                density="compact"
-                hide-details
-                color="primary"
-              />
-            </div>
-            <div class="sc-row">
-              <div class="sc-row-main">
                 <div class="sc-row-label">用 TMDB 分组精确订阅被压成单季的番剧</div>
                 <div class="sc-row-hint">
                   如《药屋少女的呢喃》= 1 季 60 集，第 49~60 集才是第 3 季。开启后只订那 12 集，

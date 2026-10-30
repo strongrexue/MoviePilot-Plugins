@@ -213,7 +213,6 @@ class SubscriptionWriter:
         backend: SubscribeBackend,
         *,
         daily_limit: int = 30,
-        resubscribe_completed: bool = True,
         notify_each: bool = True,
         dedupe_history: bool = True,
         recorded_keys: Optional[Callable[[], Iterable[str]]] = None,
@@ -222,8 +221,6 @@ class SubscriptionWriter:
         #: 是否让宿主为每条新增订阅发原生通知（以前固定静默，只发插件汇总）
         self._notify_each = bool(notify_each)
         self._daily_limit = daily_limit
-        #: 是否允许重新订阅「已完成过」的条目（忽略 subscribehistory）
-        self._resubscribe_completed = resubscribe_completed
         #: 是否用插件自己的发现流水做去重（「订过就别再订回来」）
         self._dedupe_history = bool(dedupe_history)
         #: 流水键的提供者：每次写入前实时读，删了流水就立刻不再拦
@@ -418,17 +415,13 @@ class SubscriptionWriter:
                     decision=DECISION_SKIPPED_ALREADY_SUBSCRIBED,
                     reason="宿主已有该订阅",
                 )
-            if self._resubscribe_completed:
-                # 用户允许重新订阅：跳过历史检查。
-                # 真正「已播完」的剧会先被 finished 判定拦住，不会每轮重复。
-                pass
-            elif await self._backend.history_exists(
+            if await self._backend.history_exists(
                 identity.media_source, identity.media_id, item.season
             ):
                 return WriteOutcome(
                     item=item,
                     decision=DECISION_SKIPPED_ALREADY_COMPLETED,
-                    reason="宿主已完成过该订阅（订阅历史中存在）",
+                    reason="宿主已完成过该季订阅（要重订请到发现流水里手动订阅）",
                 )
         except Exception as err:  # noqa: BLE001 - 复查失败按 fail-open 交给 add() 幂等兜底
             return await self._do_write(item, dry_run=dry_run, precheck_error=str(err))

@@ -107,6 +107,8 @@ export const configDefaults = {
   auto_toggle_best_version_mode: 'after_finale',
   //: 是否连电影订阅一起管（按 TMDB 发行日判，默认开）
   auto_toggle_movie_enabled: true,
+  //: 只有影院上映日期时，按上映日往后推几天估算数字发行（0 = 不估算）
+  auto_toggle_movie_theatrical_offset_days: 90,
   //: 单次最多改多少条（0 = 不限）
   auto_toggle_max_changes: 0,
   //: 每次自动启停后是否发通知

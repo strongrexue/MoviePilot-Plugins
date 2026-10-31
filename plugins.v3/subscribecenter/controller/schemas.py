@@ -386,6 +386,9 @@ class AutoToggleConfig(BaseModel):
     keep_days: int = Field(default=0, description="已播未入库的保留天数")
     best_keep_days: int = Field(default=0, description="洗版订阅的保留天数")
     movie_enabled: bool = Field(default=True, description="是否连电影一起管")
+    movie_theatrical_offset_days: int = Field(
+        default=90, description="只有影院日期时按上映日往后推几天估算数字发行"
+    )
     max_changes: int = Field(default=0, description="单次改动上限（0=不限）")
     notify: bool = Field(default=False, description="是否通知")
     library_check: bool = Field(default=False, description="是否用媒体库核对已入库")

@@ -78,6 +78,7 @@ const RELEASE_KIND_LABELS = {
   premiere: '首映',
   tv: '电视首播',
   general: '上映',
+  estimated: '估算发行',
 }
 
 /** 洗版判定模式 -> 中文（与 constants.py 的 auto_toggle_best_version_mode 对应）。 */
@@ -2222,6 +2223,29 @@ onMounted(() => {
                 color="primary"
               />
             </div>
+
+            <VRow v-if="form.auto_toggle_movie_enabled" dense class="mt-1">
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_movie_theatrical_offset_days"
+                  label="只有影院日期时，往后推几天算数字发行"
+                  type="number"
+                  min="0"
+                  max="365"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  suffix="天"
+                />
+              </VCol>
+              <VCol cols="12" sm="6" class="d-flex align-center">
+                <div class="text-caption text-medium-emphasis">
+                  影院在映期间下不到片，拿上映日开窗只会白搜。TMDB 没有数字/实体
+                  发行日期时，按上映日 + 这个天数估算（默认 90）；补上真实日期后自动改用。
+                  设 0 = 不估算，直接用上映日。
+                </div>
+              </VCol>
+            </VRow>
 
             <div class="sc-row">
               <div class="sc-row-main">

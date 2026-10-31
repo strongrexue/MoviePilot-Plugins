@@ -72,7 +72,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.17.4"
+    plugin_version = "1.17.5"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -514,6 +514,16 @@ class SubscribeCenter(_PluginBase):
                 365,
             ),
             "movie_enabled": bool(self._config.get("auto_toggle_movie_enabled", True)),
+            "movie_theatrical_offset_days": min(
+                max(
+                    self._int_config(
+                        "auto_toggle_movie_theatrical_offset_days",
+                        C.DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS,
+                    ),
+                    0,
+                ),
+                365,
+            ),
             "library_check": bool(self._config.get("auto_toggle_library_check")),
             "library_probe_budget": min(
                 max(
@@ -1280,6 +1290,7 @@ class SubscribeCenter(_PluginBase):
             max_changes=cfg["max_changes"],
             release_index=release_index,
             movie_enabled=cfg["movie_enabled"],
+            movie_theatrical_offset_days=cfg["movie_theatrical_offset_days"],
             library_index=library_index,
         )
         data["config"] = cfg

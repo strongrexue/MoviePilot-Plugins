@@ -165,7 +165,6 @@ async def test_exists_falls_back_to_orm_when_query_service_missing(monkeypatch):
     并且只抛一次（之后记住不可用，不再每条例目都试一遍）。
     """
     import app.sdk.queries as queries
-
     import subscribecenter.core.host as host_mod
 
     tried = []
@@ -200,7 +199,6 @@ async def test_exists_falls_back_to_orm_when_query_service_missing(monkeypatch):
 async def test_exists_uses_query_service_when_available(monkeypatch):
     """服务正常时不走 ORM 退路（避免多打一次库）。"""
     import app.sdk.queries as queries
-
     import subscribecenter.core.host as host_mod
 
     class Page:

@@ -151,6 +151,7 @@ RELEASE_KIND_LABELS: Dict[str, str] = {
     "premiere": "首映",
     "tv": "电视首播",
     "general": "上映",
+    "estimated": "估算发行",
 }
 
 #: 电影基准日的类型优先级。
@@ -522,18 +523,34 @@ def release_records(info: Any) -> List[Tuple[str, int]]:
     return out
 
 
-def movie_basis(
-    releases: Optional[Iterable[Any]], *, best_version: bool = False
-) -> Tuple[str, str]:
-    """选出「这部电影从哪天开始值得搜」，返回 ``(日期, 类型名)``。
+#: 影院上映的 TMDB 类型码（3 = 院线，2 = 有限上映）。
+_THEATRICAL_TYPES: Tuple[int, ...] = (3, 2)
+
+
+def movie_basis_ex(
+    releases: Optional[Iterable[Any]],
+    *,
+    best_version: bool = False,
+    theatrical_offset_days: int = 0,
+) -> Tuple[str, str, bool, str]:
+    """选出「这部电影从哪天开始值得搜」，返回 ``(日期, 类型名, 是否估算, 原始日)``。
 
     同一类型可能有多个地区的日期（TMDB 的 ``release_dates.results[]`` 按
     ``iso_3166_1`` 分地区），取**最早**的那个：越早的那天起站点上就可能
     已经有种，搜早了只是多一次查询，搜晚了会整段错过。
 
+    **影院上映日不能直接当「能下载」的锚点**：院线在映期间站点上根本没有
+    可下的版本，拿上映日开窗等于白搜，而且窗口一过就判「已过期」，等真出
+    WEB-DL 时反而不搜了。所以只有影院日期时，往后推
+    ``theatrical_offset_days`` 天（默认 90，见
+    ``DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS``）当估算发行日，并把
+    ``是否估算`` 置真让界面标注；``0`` 表示不估算（旧行为，直接用上映日）。
+    TMDB 补上真实数字/实体发行日期后，锚点会自动切回真实日期。
+
     :param best_version: 洗版订阅要看实体发行（原盘/REMUX 跟 BD 走），
         普通订阅看数字发行（WEB-DL 跟数字版走）。
-    :return: 取不到任何可用日期时返回 ``("", "")``
+    :param theatrical_offset_days: 只有影院日期时的估算偏移（天，0=不估算）
+    :return: 取不到任何可用日期时返回 ``("", "", False, "")``
     """
     by_type: Dict[int, List[str]] = {}
     for item in releases or []:
@@ -545,9 +562,33 @@ def movie_basis(
     order = _MOVIE_TYPE_ORDER_BEST if best_version else _MOVIE_TYPE_ORDER
     for code in order:
         days = by_type.get(code)
-        if days:
-            return min(days), _KIND_BY_TYPE.get(code, "general")
-    return "", ""
+        if not days:
+            continue
+        raw = min(days)
+        if code not in _THEATRICAL_TYPES:
+            return raw, _KIND_BY_TYPE.get(code, "general"), False, raw
+        # 影院上映：要么直接用（不估算），要么往后推一个估算偏移
+        if theatrical_offset_days <= 0:
+            return raw, _KIND_BY_TYPE.get(code, "theatrical"), False, raw
+        estimated = (parse_date(raw) or date.today()) + timedelta(
+            days=int(theatrical_offset_days)
+        )
+        return estimated.isoformat(), "estimated", True, raw
+    return "", "", False, ""
+
+
+def movie_basis(
+    releases: Optional[Iterable[Any]], *, best_version: bool = False
+) -> Tuple[str, str]:
+    """``movie_basis_ex`` 的简版：只要 ``(日期, 类型名)``，不做影院估算。
+
+    日历与发现流程用它拿「真实发行日」，自动启停用
+    ``movie_basis_ex`` 拿带估算的窗口起点。
+    """
+    day, kind, _estimated, _raw = movie_basis_ex(
+        releases, best_version=best_version
+    )
+    return day, kind
 
 
 @dataclass(frozen=True)
@@ -703,10 +744,11 @@ def _decide_movie(
     best: bool,
     window: int,
     lookahead_days: int,
+    theatrical_offset_days: int = 0,
 ) -> Decision:
     """电影的判定：按 TMDB 发行日算窗口。
 
-    电影没有「集」，也没有「下一集播出日」，唯一的时间锚点是发行日。两条
+    电影没有「集」，也没有「下一集播出日」，唯一的时间锚点是发行日。三条
     硬规矩：
 
     - **不看「已入库」**。洗版订阅入库后宿主故意保持 ``R`` 等 ``priority=100``
@@ -714,8 +756,14 @@ def _decide_movie(
       只说明下过一个版本。拿「已入库」当停止信号会让洗版电影永远搜下去，
       反过来拿它当继续信号又会挡住非洗版电影归档。所以只按窗口判。
     - 洗版看实体发行（type=5），普通看数字发行（type=4）。
+    - **影院上映日不当锚点**：院线在映期间下不到，只有影院日期时按
+      ``theatrical_offset_days`` 估算数字发行日（0 = 旧行为，直接用上映日）。
     """
-    basis, basis_kind = movie_basis(releases, best_version=best)
+    basis, basis_kind, estimated, raw_basis = movie_basis_ex(
+        releases,
+        best_version=best,
+        theatrical_offset_days=theatrical_offset_days,
+    )
     label = RELEASE_KIND_LABELS.get(basis_kind, "上映")
     if not basis:
         return _decision(
@@ -750,6 +798,10 @@ def _decide_movie(
         detail = _describe(
             REASON_MOVIE_OVERDUE, label=label, basis=basis, days=(today - end).days
         )
+    if estimated:
+        detail += "（影院上映 {raw} + {days} 天估算）".format(
+            raw=raw_basis, days=int(theatrical_offset_days)
+        )
 
     action = ACTION_KEEP
     if target == STATE_RUN and state != STATE_RUN:
@@ -771,6 +823,7 @@ def _decide_movie(
         downloaded=1 if 1 in episode_numbers(row) else 0,
         basis=basis,
         basis_kind=basis_kind,
+        assumed=estimated,
     )
 
 
@@ -786,6 +839,7 @@ def decide(
     owned: Optional[Mapping[Any, Any]] = None,
     releases: Optional[Iterable[Any]] = None,
     movie_enabled: bool = True,
+    movie_theatrical_offset_days: int = 0,
     library_present: Optional[Iterable[Any]] = None,
 ) -> Decision:
     """对**一条**订阅给出结论。
@@ -863,6 +917,7 @@ def decide(
             best=best,
             window=window,
             lookahead_days=lookahead_days,
+            theatrical_offset_days=movie_theatrical_offset_days,
         )
 
     # ---- 4. 播出表
@@ -1000,6 +1055,7 @@ def plan(
     max_changes: int = 0,
     release_index: Optional[Mapping[str, Any]] = None,
     movie_enabled: bool = True,
+    movie_theatrical_offset_days: int = 0,
     library_index: Optional[Mapping[Any, Any]] = None,
 ) -> Dict[str, Any]:
     """对全部订阅做一次决策，返回「计划」。
@@ -1011,6 +1067,7 @@ def plan(
         —— 少暂停几条只是多搜一次，漏恢复会让该搜的订阅一整天不搜。
     :param release_index: 电影的发行记录索引 ``{media_id: [(date, type), ...]}``
     :param movie_enabled: 是否连电影订阅一起管
+    :param movie_theatrical_offset_days: 只有影院日期时按上映日往后推几天估算数字发行（0=不估算）
     :param library_index: 媒体库确认存在的集号 ``{订阅 ID: {集号, ...}}``
         （快照与实时核对的并集；键是**订阅 ID**，不是 media_id）
     :return: ``{"today", "items", "changes", "paused", "resumed", "kept",
@@ -1037,6 +1094,7 @@ def plan(
                 owned=owned,
                 releases=(release_index or {}).get(media_id),
                 movie_enabled=movie_enabled,
+                movie_theatrical_offset_days=movie_theatrical_offset_days,
                 library_present=(library_index or {}).get(_int(_get(row, "id"))),
             )
         )
@@ -1164,6 +1222,7 @@ __all__ = [
     "media_kind",
     "missing_from_no_exists",
     "movie_basis",
+    "movie_basis_ex",
     "next_owned",
     "pending_episodes",
     "plan",

@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.17.4"
+PLUGIN_VERSION = "1.17.5"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -73,6 +73,15 @@ DEFAULT_AUTO_TOGGLE_PROBE_TTL_HOURS = 12
 #: 「必须在未来」等于永远订不到刚上线的片子（真机：《空枪》数字发行当天
 #: 被「已过去」拒掉）。7 天足够覆盖出种延迟，又不至于把老片捞进来。
 DEFAULT_MOVIE_RELEASE_GRACE = 7
+
+#: 只有影院上映日期时，估算「数字版什么时候出」的偏移（天）。
+#:
+#: 影院在映期间站点上没有任何可下版本，拿上映日开窗等于白搜，而且窗口一过
+#: 就判「已过期」，等真出 WEB-DL 时反而不搜了。国产片一般上映后 2~3 个月出
+#: 数字版（《流浪地球2》约 82 天），所以默认往后推 90 天当估算发行日，界面
+#: 会标注「估算」。TMDB 补上真实数字/实体发行日期后自动改用真实日期。
+#: 设 0 = 不估算（旧行为，直接用影院上映日）。
+DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS = 90
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
@@ -502,6 +511,14 @@ def default_config() -> Dict[str, Any]:
         #: WEB-DL 出种），洗版订阅看实体发行（type=5，原盘/REMUX 出种）。
         #: 想等枪版的人把它关掉即可 —— 影院期一律暂停会挡住枪版。
         "auto_toggle_movie_enabled": True,
+        #: 只有影院上映日期时，按上映日往后推几天估算数字发行（默认 90）。
+        #:
+        #: 见 `DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS`：院线在映期间下不到，直接
+        #: 用上映日开窗会白搜、还会在窗口过后把片子永久判成「已过期」。设 0
+        #: 表示不估算（旧行为）。
+        "auto_toggle_movie_theatrical_offset_days": (
+            DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS
+        ),
         #: 单次最多改多少条（0 = 不限）。防止第一次打开时一口气暂停两百条把
         #: 人吓到；超出时**先保恢复、后保暂停**（少暂停只是多搜一次，漏恢复
         #: 会让该搜的订阅一整天不搜）。

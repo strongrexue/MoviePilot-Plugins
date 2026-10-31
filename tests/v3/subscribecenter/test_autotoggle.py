@@ -452,6 +452,78 @@ def test_release_records_falls_back_to_top_level_date():
     assert autotoggle.movie_basis([]) == ("", "")
 
 
+def test_movie_basis_ex_estimates_digital_from_theatrical():
+    """只有影院日期时，往后推一个偏移当估算发行日，并标记「估算」。
+
+    真机案例：《神探之痕迹》TMDB 只有影院上映 2026-10-01，数字版还没公布。
+    院线在映期间站点上根本没有可下版本，拿上映日开窗等于白搜，窗口一过还会
+    判「已过期」，等真出 WEB-DL 时反而不搜了。
+    """
+    records = [("2026-10-01", 3)]
+    day, kind, estimated, raw = autotoggle.movie_basis_ex(
+        records, theatrical_offset_days=90
+    )
+    assert (day, kind, estimated, raw) == ("2026-12-30", "estimated", True, "2026-10-01")
+    # 不估算时保持旧行为（直接用上映日）
+    assert autotoggle.movie_basis_ex(records) == (
+        "2026-10-01",
+        "theatrical",
+        False,
+        "2026-10-01",
+    )
+    # 简版接口不做估算：日历 / 发现流程要的是真实发行日
+    assert autotoggle.movie_basis(records) == ("2026-10-01", "theatrical")
+
+
+def test_movie_basis_ex_prefers_real_digital_over_estimate():
+    """TMDB 补上真实数字发行日期后，锚点必须切回真实日期。"""
+    records = [("2026-10-01", 3), ("2026-12-05", 4)]
+    day, kind, estimated, raw = autotoggle.movie_basis_ex(
+        records, theatrical_offset_days=90
+    )
+    assert (day, kind, estimated, raw) == ("2026-12-05", "digital", False, "2026-12-05")
+    # 洗版看实体发行，也不该被影院估算顶掉
+    records = [("2026-10-01", 3), ("2027-01-05", 5)]
+    assert autotoggle.movie_basis_ex(
+        records, best_version=True, theatrical_offset_days=90
+    ) == ("2027-01-05", "physical", False, "2027-01-05")
+
+
+def test_movie_theatrical_estimate_pauses_until_estimated_date():
+    """影院在映 + 估算偏移 → 估算日之前保持暂停，而不是判「已过期」。"""
+    result = autotoggle.decide(
+        _movie_row(),
+        [],
+        TODAY,
+        releases=[("2026-10-01", 3)],
+        keep_days=30,
+        movie_theatrical_offset_days=90,
+    )
+    assert result.action == autotoggle.ACTION_PAUSE
+    assert result.reason == autotoggle.REASON_MOVIE_WAIT
+    assert result.basis == "2026-12-30"
+    assert result.basis_kind == "estimated"
+    assert result.assumed is True
+    assert "影院上映 2026-10-01 + 90 天估算" in result.detail
+
+
+def test_movie_theatrical_offset_zero_keeps_old_behaviour():
+    """偏移设 0 = 不估算，行为与 1.17.4 之前完全一致。"""
+    result = autotoggle.decide(
+        _movie_row(),
+        [],
+        TODAY,
+        releases=[("2026-10-01", 3)],
+        keep_days=30,
+        movie_theatrical_offset_days=0,
+    )
+    assert result.reason == autotoggle.REASON_MOVIE_WINDOW
+    assert result.basis == "2026-10-01"
+    assert result.basis_kind == "theatrical"
+    assert result.assumed is False
+    assert "估算" not in result.detail
+
+
 def test_plan_feeds_movie_releases():
     """``plan`` 要按 ``media_id`` 把发行记录交给电影的判定。"""
     data = autotoggle.plan(
@@ -1454,6 +1526,7 @@ def test_preview_never_probes(plugin):
         "max_changes": 0,
         "notify": False,
         "movie_enabled": False,
+        "movie_theatrical_offset_days": 90,
         "library_check": True,
         "library_probe_budget": 300,
         "library_probe_interval": 1.5,

@@ -985,6 +985,13 @@ class TestPartialTransfer:
         assert pan115_client.filter_share_files(files, None) is None
         assert pan115_client.filter_share_files([{"file_id": "d", "name": "Show", "is_dir": True}], [1]) is None
 
+    def test_episode_keys_accept_host_media_type(self):
+        from app.plugins.tgmediacenter.services import quality
+
+        assert quality.episode_keys("Show", "2026", "tv", 2, 5) == ["Show|2026|2|5|"]
+        assert quality.episode_keys("Show", "2026", "电视剧", 2, 5) == ["Show|2026|2|5|"]
+        assert quality.episode_keys("Movie", "2026", "movie") == ["Movie|2026|||"]
+
     def test_episodes_of_parses_span(self):
         from app.plugins.tgmediacenter.core import pan115_client
 

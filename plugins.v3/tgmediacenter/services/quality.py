@@ -487,6 +487,14 @@ def baseline_key(
 _MAX_EPISODE_SPAN = 60
 
 
+_SERIES_TYPES = {"电视剧", "tv", "series", "season", "episode"}
+
+
+def is_series(media_type: Any) -> bool:
+    """识别结果的剧集类型（宿主的 ``MediaType`` 是 ``tv``，中文是「电视剧」）。"""
+    return str(media_type or "").strip().lower() in _SERIES_TYPES
+
+
 def episode_keys(
     title: str,
     year: Any,
@@ -500,7 +508,7 @@ def episode_keys(
     电影/无季集信息：返回单个键。
     剧集：返回区间内每一集的键（最多 ``_MAX_EPISODE_SPAN`` 集，超出按整段处理）。
     """
-    if str(media_type or "") != "电视剧":
+    if not is_series(media_type):
         return [baseline_key(title, year)]
     first = _as_int(episode)
     last = _as_int(episode_end)

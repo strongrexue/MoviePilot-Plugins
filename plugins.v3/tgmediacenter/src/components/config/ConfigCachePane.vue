@@ -619,17 +619,26 @@
         <VCardItem>
           <VCardTitle class="text-subtitle-2">洗版规则</VCardTitle>
           <VCardSubtitle class="text-caption">
-            开启「洗版回搜」后生效：逐维比较只推真升级，同质量同分辨率同体积（±容差）不重复推。
+            七维字典序：行序＝优先级，chip 左右＝维度内优劣；只有逐维更优才推。
           </VCardSubtitle>
         </VCardItem>
         <VCardText class="cache-body">
-          <div v-if="!settings.reshuffle_enabled" class="cache-hint">
-            先在「消息缓存」里开启<strong>洗版回搜</strong>，这里的规则才会参与判定。
+          <div class="wash-switch">
+            <VSwitch
+              v-model="settings.reshuffle_enabled"
+              color="primary"
+              density="compact"
+              hide-details
+              label="启用洗版规则（洗版回搜）"
+              @update:model-value="syncSettingsToForm"
+            />
+            <span class="cache-hint">
+              关闭时规则仍可编辑保存、但不参与判定；开启后按下面的七维逐级比较，只推真升级。
+            </span>
           </div>
         <!-- 洗版规则（1.13.32）：七维字典序 + 白名单 + 体积收口，替换 1.13.27 的加权质量门禁 -->
-        <div v-if="settings.reshuffle_enabled" class="wash-rules">
+        <div class="wash-rules">
           <div class="wash-head">
-            <strong>洗版规则</strong>
             <span class="cache-hint">
               行序＝优先级（拖 ⋮⋮ 调整），chip 位置＝维度内优劣，「✓/✕」只决定该值是否保留；
               只有<strong>逐维更优</strong>才推，同质量同分辨率同体积（±容差）视为持平不推。
@@ -703,41 +712,44 @@
             </div>
           </div>
           <div class="wash-foot">
-            <span class="cache-hint">未在排列里的值</span>
-            <VSelect
-              v-model="unlistedPolicy"
-              :items="unlistedOptions"
-              item-title="title"
-              item-value="value"
-              density="compact"
-              variant="outlined"
-              hide-details
-              class="wash-unlisted"
-            />
-            <VTextField
-              v-model.number="settings.wash_rules.top_n"
-              label="同集每轮最多推几条（0=不限）"
-              type="number"
-              min="0"
-              max="50"
-              density="compact"
-              variant="outlined"
-              hide-details
-              class="wash-num"
-              @update:model-value="syncSettingsToForm"
-            />
-            <VTextField
-              v-model.number="settings.wash_rules.size_tolerance_pct"
-              label="体积容差 ±%"
-              type="number"
-              min="0"
-              max="50"
-              density="compact"
-              variant="outlined"
-              hide-details
-              class="wash-num"
-              @update:model-value="syncSettingsToForm"
-            />
+            <div class="wash-field">
+              <span class="cache-hint">未在排列里的值</span>
+              <VSelect
+                v-model="unlistedPolicy"
+                :items="unlistedOptions"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+            </div>
+            <div class="wash-field">
+              <span class="cache-hint">同集每轮最多推几条（0=不限）</span>
+              <VTextField
+                v-model.number="settings.wash_rules.top_n"
+                type="number"
+                min="0"
+                max="50"
+                density="compact"
+                variant="outlined"
+                hide-details
+                @update:model-value="syncSettingsToForm"
+              />
+            </div>
+            <div class="wash-field">
+              <span class="cache-hint">体积容差 ±%</span>
+              <VTextField
+                v-model.number="settings.wash_rules.size_tolerance_pct"
+                type="number"
+                min="0"
+                max="50"
+                density="compact"
+                variant="outlined"
+                hide-details
+                @update:model-value="syncSettingsToForm"
+              />
+            </div>
           </div>
           <div class="wash-sources">
             <span class="cache-hint">比对来源</span>
@@ -1526,6 +1538,16 @@ onUnmounted(() => {
 .cache-dialog-text { font-size: 13px; line-height: 1.7; }
 
 /* ------------------------------------------------------------ 洗版规则（1.13.32） */
+.wash-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 2px 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed rgba(var(--v-theme-on-surface), 0.08);
+}
+
 .wash-rules {
   display: flex;
   flex-direction: column;
@@ -1604,8 +1626,8 @@ onUnmounted(() => {
 }
 
 .wash-chip {
-  font-size: 11px;
-  height: 22px;
+  font-size: 12px;
+  height: 24px;
 }
 
 .wash-chip-off {
@@ -1637,19 +1659,19 @@ onUnmounted(() => {
 }
 
 .wash-foot {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 2px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(var(--v-theme-on-surface), 0.08);
 }
 
-.wash-unlisted {
-  max-width: 130px;
-}
-
-.wash-num {
-  max-width: 190px;
+.wash-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .wash-sources {

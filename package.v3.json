@@ -3,7 +3,7 @@
         "name": "胖虎媒体中心",
         "description": "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。",
         "labels": "工具,媒体",
-        "version": "1.13.32",
+        "version": "1.13.33",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.33": "洗版规则页可用性修复：\n1. 「启用洗版规则（洗版回搜）」开关直接放进洗版规则页顶部，改完随「保存配置」一起生效；关闭时规则仍可编辑保存，只是不参与判定（此前关闭状态下整页不显示规则，看着像没生效）。\n2. 规则编辑器改为常显；收口区（未在排列里的值 / 同集每轮最多推几条 / 体积容差）改成三栏网格，不再和「文件体积」那行挤在一起。\n3. chip 尺寸放大到 24px / 12px，与效果图一致。\n改动：ConfigCachePane.vue（模板 + 样式）。测试基线 575 passed。",
             "v1.13.32": "洗版规则改为七维字典序（替换 1.13.31 的加权总分）：\n1. 新模型：质量（原「片源」，锁第 1 维不可拖）→ 分辨率 → 色彩模式 → 音频规格 → 视频编码 → 扩展名 → 文件体积。每维一排 chip，左右位置即维度内优劣，「✓/✕」只决定是否保留；其余六维可拖拽调优先级。比较按行序逐维进行，打平看下一维——1080p REMUX 恒胜 2160p WEB-DL，不再依赖任何权重数字。\n2. 未列出的值默认排除（可按维切成垫底/置顶纳入），解析不出的值不参与该维比较，交给 TopN 兜底。\n3. 文件体积：由大到小排序，可设「小于 N MB / 大于 N GB」硬闸，与基线比较按体积容差（默认 ±5%）判同体积。\n4. 比对来源三选（默认全开）：已推送基线 / 媒体库已存在 / 下载历史（PT）。任一处有「同质量 + 同分辨率 + 同体积（±容差）」即判持平不推——修 1.13.31 的漏推（PT 已下过同质量同大小仍照推）。\n5. 同集每轮最多推几条（默认 1，0 = 不限）保留为兜底。\n6. 配置项合并为 cache_wash_rules（七维顺序/白名单、未列出策略、体积、容差、TopN、比对来源）；移除 cache_reshuffle_quality_gate / cache_reshuffle_top_n。\n7. 前端「消息缓存」下新增「洗版规则」子页：行可拖拽排序、chip 可点选与拖拽排序、体积与收口集中一页。\n改动：services/quality.py 整文件重写（解析七维 + filter_profile + sort_key + compare 字典序）；modules/cache.py 回搜三段（准入过滤 → TopN → 基线比对）、新增 _wash_baselines / _history_baseline / _download_history；__init__.py 加 cache_wash_rules 默认值；controller/schemas.py 同步；前端 ConfigCachePane / useConfigForm 同步；测试 TestWashRules（12 例）。测试基线 575 passed。",
             "v1.13.31": "洗版回搜不再「命中即推」，改成只推真升级（A+B 两道收口）：1. 新增质量门禁（默认开）：候选先与「该订阅已推送过的最优画质」做两层对比——第一层硬门槛（分辨率、片源都不得倒退，1080p 永远不会盖掉 2160p），第二层加权总分（分辨率 40 · 片源 25 · 编码 15 · 特效 15 · 音轨 5）必须严格更高才推；画质解析不出来的候选不参与比较，不会误杀。2. 新增「同集最多推几条」（默认 1）：同一「季 + 集区间」的候选按画质总分择优，只留最优 N 条，不同集区间各自比较，一部剧不会只推一集、整包资源也不会被单集挤掉。3. 质量基线按「订阅标题 + 年份 + 季集区间」存插件数据（上限 500 条，按最近更新时间截断），推送成功才写基线，入队失败的下一轮还能再比一次。4. 跳过原因新增「画质未升级」「非最优版本」，运行详情页可查。5. 缓存面板：洗版开关下新增「质量门禁（只推真升级）」开关与「同集最多推几条」输入。改动：新增 services/quality.py（纯正则画质阶梯 + 两层对比 + 基线键）；modules/cache.py 回搜拆成「筛候选 → 择优+门禁 → 入队」三遍，新增 _apply_reshuffle_quality / _reshuffle_baseline / _save_reshuffle_baseline；__init__.py 加 cache_reshuffle_quality_gate / cache_reshuffle_top_n 默认值；controller/schemas.py 同步；前端 ConfigCachePane / useConfigForm 同步。",
             "v1.13.30": "TG 连接稳定性（恢复 1.13.27 那套）+ 缓存推送的频道级过滤：\n1. TG 连接稳定性：保存配置时若 TG 相关配置未变则复用已有运行时（不再每次销毁重建）、keep-alive 改为被动探活（不再每 ≤30s 主动 disconnect+connect）、连接失败若是 AuthKey 作废（AuthKeyError/AuthKeyUnregisteredError/SecurityError/「two different IP」）给出明确指引而非笼统误报超时。旋转代理（v2raya 自动切节点）下不再反复制造「同一会话从两个出口 IP 同时出现」。\n2. 缓存推送的频道级过滤：缓存回搜 / 存量补扫 / 洗版回搜此前完全不经过监控规则的关键词闸（判定链只有「有链接 → 未推送过 → 媒体库缺失」），于是「关键词=电影、排除词=iso」这类频道级意图对缓存翻出来的资源一律失效——同一个频道里已订阅的电视剧会从缓存路径被推到 115。现在按缓存消息的**来源频道**取回启用的监控规则，逐条套用与实时监控同一套判定（逻辑零排除词 → 逻辑一关键词），任一规则放行即放行。作用域是频道级的：表达「这个频道只给我电影」，同一部剧若能从别的频道补档照旧会推；频道没有监控规则（只缓存不监控）时无约束。\n3. 断线自愈盲区：转发、事件处理器注册、历史缓存拉取三处改走 credentials._call_tg（遇断线自动重连并重试一次）。\n4. 命中流水可观测性：监控 HIT 行的「说明」列带上实际放行的关键词（已入推送队列 #N（命中关键词：X））。\n新增 11 项单测（tests/v3/tgmediacenter/test_cache_rule_filter.py）。",

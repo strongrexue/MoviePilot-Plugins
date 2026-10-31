@@ -548,11 +548,12 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
   每维 chip 左右即优劣，未列出值默认排除、解析不出的不参与比较；
   比对来源扩到「已推送 / 媒体库 / 下载历史（PT）」三源，同质量同分辨率同体积（±5%）判持平不推。
   详见上方「⑤ 历史消息缓存 · 洗版规则」。
+- **洗版规则页可用性**（`1.13.33`）：「启用洗版规则」开关内嵌到洗版页顶部，规则常显（关闭时仍可编辑保存）；收口区改三栏网格、chip 尺寸与效果图对齐。详见上方「⑤ 历史消息缓存 · 洗版规则」。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.32`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
+当前 `1.13.33`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
 `package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
 前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
 `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本

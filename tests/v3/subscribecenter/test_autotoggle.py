@@ -1526,3 +1526,124 @@ def test_apply_refuses_when_discovery_busy(plugin):
         assert "发现任务" in str(err)
     else:  # pragma: no cover
         raise AssertionError("发现任务在跑时应该拒绝")
+
+
+# ------------------------------------------- 1.17.4 下载记录 + 缓存保质期
+
+def test_download_history_episodes_parses_common_shapes():
+    """宿主下载记录的 ``seasons`` / ``episodes`` 是字符串，形态不止一种。"""
+    parse = autotoggle.download_history_episodes
+
+    assert parse("S01", "E06", 1) == {6}
+    assert parse("S1", "E09-E11", 1) == {9, 10, 11}
+    assert parse("S05", "E09,E10,E11", 5) == {9, 10, 11}
+    assert parse("S01,S02", "E01", 2) == {1}
+    # 季号对不上 = 这条记录与本季无关，宁可漏用也不错用
+    assert parse("S01", "E06", 5) == set()
+    # 认不出季号时按本季处理（老数据可能没写季）
+    assert parse(None, "E06", 1) == {6}
+    assert parse("S01", None, 1) == set()
+
+
+def test_missing_from_no_exists_ignores_key_name():
+    """宿主返回的键名它自己拼，我们不猜 —— 遍历取值（1.17.4 真机 70 条全空的原因）。"""
+    from types import SimpleNamespace
+
+    parse = autotoggle.missing_from_no_exists
+
+    # 键是 tmdb:900 也好、themoviedb:900 也好、随便什么，都能取到
+    for key in ("tmdb:900", "themoviedb:900", "900", "随便"):
+        payload = {key: {1: SimpleNamespace(episodes=[4, 5])}}
+        assert parse(payload, 1) == {4, 5}
+
+    # 季号是字符串也要认
+    assert parse({"x": {"1": SimpleNamespace(episodes=[7])}}, 1) == {7}
+    # 这一季什么都不缺
+    assert parse({"x": {1: SimpleNamespace(episodes=[])}}, 1) == set()
+    # 结构不认识 / 空返回 = 问不出结论
+    assert parse({}, 1) is None
+    assert parse(None, 1) is None
+    assert parse({"x": {2: SimpleNamespace(episodes=[1])}}, 1) is None
+    assert parse({"x": "不是字典"}, 1) is None
+
+
+def test_probe_cache_expires(plugin):
+    """缓存过了保质期就不该再当「已入库」证据 —— 否则缺集被永久钉死。"""
+    from datetime import datetime, timedelta
+
+    from subscribecenter.core.window import get_tz
+
+    now = datetime.now(get_tz(plugin._tz()))
+    fresh = {"at": (now - timedelta(hours=1)).isoformat()}
+    stale = {"at": (now - timedelta(hours=99)).isoformat()}
+
+    assert plugin._probe_cache_fresh(fresh) is True
+    assert plugin._probe_cache_fresh(stale) is False
+    assert plugin._probe_cache_fresh({}) is False
+    assert plugin._probe_cache_fresh({"at": "不是时间"}) is False
+
+
+def test_library_index_merges_download_history(plugin):
+    """下载记录也是「库里已经有」的证据，必须并进索引（1.17.4 的核心）。"""
+    rows = [_lib_row(id=1), _lib_row(id=2, media_id="901")]
+    index = {
+        ("900", 1): _eps(("2026-10-19", 1), ("2026-10-19", 2), ("2026-10-19", 3)),
+        ("901", 1): _eps(("2026-10-19", 1), ("2026-10-19", 2)),
+    }
+
+    async def fake_snapshot(_rows):
+        return {}
+
+    async def fake_download(_rows):
+        return {1: {1, 2}}
+
+    plugin._library_snapshot_index = fake_snapshot
+    plugin._download_history_index = fake_download
+    plugin._auto_toggle_config = lambda: {
+        "library_check": True,
+        "library_probe_budget": 0,
+        "library_probe_interval": 0,
+    }
+
+    out, stats = asyncio.run(plugin._library_present_index(rows, index, TODAY))
+
+    assert out[1] == {1, 2}
+    assert stats["download"] == 1
+
+
+def test_probe_result_persisted_even_when_empty(plugin):
+    """核对一条都没成功也要落盘，并带出失败原因。
+
+    真机事故：``library_probe.at`` 一直是 None、条数 0 —— 探针到底跑没跑、
+    为什么没结果，从数据里完全看不出来。
+    """
+    rows = [_lib_row(id=1)]
+    index = {("900", 1): _eps(("2026-10-19", 1))}
+
+    async def fake_snapshot(_rows):
+        return {}
+
+    async def fake_download(_rows):
+        return {}
+
+    async def failing_probe(_row):
+        plugin.__dict__["_probe_last_error"] = "探针剧 问媒体服务器失败：boom"
+        return None
+
+    plugin._library_snapshot_index = fake_snapshot
+    plugin._download_history_index = fake_download
+    plugin._probe_one = failing_probe
+    plugin._auto_toggle_config = lambda: {
+        "library_check": True,
+        "library_probe_budget": 300,
+        "library_probe_interval": 0,
+    }
+
+    _out, stats = asyncio.run(plugin._library_present_index(rows, index, TODAY, probe=True))
+
+    assert stats["failed"] == 1
+    assert "boom" in stats["error"]
+    saved = plugin.__dict__["_auto_toggle_library_probe"]
+    assert saved["items"] == {}
+    assert saved["at"]
+    assert saved["stats"]["failed"] == 1

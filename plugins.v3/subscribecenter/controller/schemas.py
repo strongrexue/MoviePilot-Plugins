@@ -359,10 +359,18 @@ class AutoToggleLibrary(BaseModel):
     """自动启停：媒体库核对的本轮统计。"""
 
     snapshot: int = Field(default=0, description="快照命中（零请求）的订阅数")
+    download: int = Field(
+        default=0, description="由宿主下载记录补出的已入库订阅数（零请求）"
+    )
     cached: int = Field(default=0, description="沿用上次核对结果的订阅数")
     cached_at: str = Field(default="", description="上次核对时间")
+    cached_stale: bool = Field(
+        default=False, description="上次核对结果是否已过期（过期会重新核对）"
+    )
     candidates: int = Field(default=0, description="本轮待核对的订阅数")
     probed: int = Field(default=0, description="本轮实际核对的订阅数")
+    failed: int = Field(default=0, description="本轮核对失败（问不出结论）的条数")
+    error: str = Field(default="", description="失败原因（首条）")
     deferred: int = Field(default=0, description="预算用尽、留到下一轮的条数")
     elapsed: int = Field(default=0, description="本轮核对耗时（秒）")
     budget_seconds: int = Field(default=0, description="时间预算（0=只读快照）")

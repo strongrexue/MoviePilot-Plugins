@@ -2405,10 +2405,22 @@ onMounted(() => {
                   variant="tonal"
                   color="info"
                 >
-                  库核对：快照 {{ autoToggle.library.snapshot ?? 0 }} 条 / 沿用
+                  库核对：快照 {{ autoToggle.library.snapshot ?? 0 }} 条 / 下载记录
+                  {{ autoToggle.library.download ?? 0 }} 条 / 沿用
                   {{ autoToggle.library.cached ?? 0 }} 条 / 实探
                   {{ autoToggle.library.probed ?? 0 }} 条 / 待核对
                   {{ autoToggle.library.deferred ?? 0 }} 条（{{ libraryElapsedText }}）
+                </VChip>
+                <VChip
+                  v-if="autoToggle.library && autoToggle.library.failed"
+                  size="x-small"
+                  variant="tonal"
+                  color="warning"
+                  :title="autoToggle.library.error || ''"
+                >
+                  库核对失败 {{ autoToggle.library.failed }} 条：{{
+                  autoToggle.library.error || '问不出结论'
+                  }}
                 </VChip>
               </div>
               <div class="sc-row">

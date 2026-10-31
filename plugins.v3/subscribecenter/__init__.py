@@ -72,7 +72,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.17.3"
+    plugin_version = "1.17.4"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -775,9 +775,23 @@ class SubscribeCenter(_PluginBase):
         except Exception as err:  # noqa: BLE001 - 快照取不到就只靠探针
             logger.debug(f"[SubscribeCenter] 媒体库快照读取失败：{err}")
 
+        #: 第三份免费证据：宿主下载记录。快照会滞后、``note`` 只有完成流程才写，
+        #: 于是「库里明明有、我们却判缺集」—— 该暂停的不暂停（1.17.4 真机问题）。
+        download: Dict[int, set] = {}
+        try:
+            download = await self._download_history_index(rows)
+        except Exception as err:  # noqa: BLE001 - 下载记录读不到就只少一份证据
+            logger.debug(f"[SubscribeCenter] 下载记录读取失败：{err}")
+
         index: Dict[int, set] = {sid: set(eps) for sid, eps in snapshot.items()}
+        for sid, episodes in download.items():
+            index.setdefault(sid, set()).update(episodes)
+
+        #: 上一轮核对结果只在保质期内沿用。过期就**不并**进 ``index``，这条订阅
+        #: 因此重新成为探针候选 —— 否则缓存会把缺集永远钉死（1.17.3 及以前的 bug）。
         reused: Dict[int, set] = {}
-        for key, value in (cached.get("items") or {}).items():
+        fresh = self._probe_cache_fresh(cached)
+        for key, value in (cached.get("items") or {}).items() if fresh else ():
             try:
                 sid = int(key)
             except (TypeError, ValueError):
@@ -789,9 +803,12 @@ class SubscribeCenter(_PluginBase):
 
         stats: Dict[str, Any] = {
             "snapshot": len(snapshot),
+            "download": len(download),
             "cached": len(reused),
             "cached_at": str(cached.get("at") or ""),
+            "cached_stale": bool(cached) and not fresh,
             "probed": 0,
+            "failed": 0,
             "candidates": 0,
             "budget_seconds": cfg["library_probe_budget"],
             "interval": cfg["library_probe_interval"],
@@ -828,12 +845,96 @@ class SubscribeCenter(_PluginBase):
         for sid, episodes in probed.items():
             index[sid] = set(index.get(sid) or set()) | set(episodes)
         stats.update(probe_stats)
-        #: 本轮探针结果交给调用方落盘，供下次预览沿用
+        #: 本轮核对结果交给调用方落盘，供下次预览沿用。
+        #: **空结果也要落盘**：以前只在有命中时写，于是「一条都没核对出来」在
+        #: 插件数据里看不出任何痕迹（真机 ``library_probe.at`` 一直是 None），
+        #: 排查时完全不知道探针到底跑没跑。
         self.__dict__["_auto_toggle_library_probe"] = {
             "at": local_now_text(self._tz()),
             "items": {str(sid): sorted(episodes) for sid, episodes in probed.items()},
+            "stats": dict(stats),
         }
         return index, stats
+
+    def _probe_cache_fresh(self, cached: Dict[str, Any]) -> bool:
+        """上一轮核对结果是否还在保质期内（默认 12 小时）。"""
+        from datetime import datetime, timedelta
+
+        from .core.window import get_tz
+
+        text = str((cached or {}).get("at") or "").strip()
+        if not text:
+            return False
+        try:
+            stamp = datetime.fromisoformat(text)
+        except ValueError:
+            return False
+        now = datetime.now(get_tz(self._tz()))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=now.tzinfo)
+        return now - stamp <= timedelta(hours=int(C.DEFAULT_AUTO_TOGGLE_PROBE_TTL_HOURS))
+
+    async def _download_history_index(self, rows: Any) -> Dict[int, set]:
+        """从宿主下载记录补「已入库」集号（纯 DB，零请求）。
+
+        真机教训（1.17.4）：有些集是通过别的渠道进媒体库的（手动拷贝、别的工具、
+        媒体服务器自己刮的），宿主既没有下载记录、``note`` 也是空的；而媒体库
+        快照要等同步任务才更新。三份证据里少了这一份，就会把已经在库的集判成
+        缺集 —— 该暂停的订阅一直保持「订阅中」。
+        """
+        from app.db import async_session_scope
+        from app.db.models.downloadhistory import DownloadHistory
+        from sqlalchemy import select
+
+        from .core import autotoggle
+
+        wanted: Dict[str, set] = {}
+        for row in rows:
+            if autotoggle.media_kind(row) != "tv":
+                continue
+            media_id = str(getattr(row, "media_id", "") or "")
+            season = int(getattr(row, "season", 0) or 0)
+            if not media_id.isdigit() or season <= 0:
+                continue
+            wanted.setdefault(media_id, set()).add(season)
+        if not wanted:
+            return {}
+
+        async with async_session_scope() as session:
+            items = (
+                await session.execute(
+                    select(DownloadHistory).where(
+                        DownloadHistory.media_id.in_(list(wanted))
+                    )
+                )
+            ).scalars().all()
+
+        by_season: Dict[Tuple[str, int], set] = {}
+        for item in items:
+            media_id = str(getattr(item, "media_id", "") or "")
+            seasons = wanted.get(media_id)
+            if not seasons:
+                continue
+            for season in seasons:
+                episodes = autotoggle.download_history_episodes(
+                    getattr(item, "seasons", None),
+                    getattr(item, "episodes", None),
+                    season,
+                )
+                if episodes:
+                    by_season.setdefault((media_id, season), set()).update(episodes)
+        if not by_season:
+            return {}
+
+        out: Dict[int, set] = {}
+        for row in rows:
+            media_id = str(getattr(row, "media_id", "") or "")
+            season = int(getattr(row, "season", 0) or 0)
+            episodes = by_season.get((media_id, season))
+            sid = int(getattr(row, "id", 0) or 0)
+            if episodes and sid > 0:
+                out[sid] = set(episodes)
+        return out
 
     async def _library_snapshot_index(self, rows: Any) -> Dict[int, set]:
         """从 ``MediaServerItem.seasoninfo`` 读「库里有什么」，纯 DB，零请求。"""
@@ -965,6 +1066,7 @@ class SubscribeCenter(_PluginBase):
         started = time.monotonic()
         out: Dict[int, set] = {}
         probed = 0
+        failures: List[str] = []
         for _, _, row in candidates:
             if probed:
                 await asyncio.sleep(max(0.0, float(interval)))
@@ -976,10 +1078,24 @@ class SubscribeCenter(_PluginBase):
                 sid = int(getattr(row, "id", 0) or 0)
                 if sid > 0:
                     out[sid] = present
+            else:
+                reason = str(self.__dict__.pop("_probe_last_error", "") or "")
+                if reason:
+                    failures.append(reason)
 
         stats["probed"] = probed
+        stats["failed"] = len(failures)
         stats["elapsed"] = int(time.monotonic() - started)
         stats["deferred"] = max(0, len(candidates) - probed)
+        if failures:
+            #: 以前这里只有 ``logger.debug``，真机上等于没有 —— 探针全军覆没也
+            #: 看不出来（``library_probe.at`` 一直是 None 才被发现）。汇总一条，
+            #: 带上首条原因，够定位又不刷屏。
+            stats["error"] = failures[0]
+            logger.warning(
+                f"[SubscribeCenter] 媒体库核对 {len(failures)}/{probed} 条失败，"
+                f"首条原因：{failures[0]}"
+            )
         if stats["deferred"]:
             logger.info(
                 f"[SubscribeCenter] 媒体库核对用满 {stats['elapsed']} 秒预算，"
@@ -1004,12 +1120,20 @@ class SubscribeCenter(_PluginBase):
         try:
             from app.chain.download import DownloadChain
             from app.domain.metainfo import MetaInfo
-            from app.schemas.context import MediaInfo
-            from app.schemas.media import build_media_key, resolve_media_identity
             from app.schemas.types import MediaType
         except Exception as err:  # noqa: BLE001 - 宿主结构变了就安静跳过
+            self.__dict__["_probe_last_error"] = f"导入宿主核对模块失败：{err}"
             logger.debug(f"[SubscribeCenter] 媒体库核对不可用：{err}")
             return None
+
+        #: 必须是**宿主核对内部用的那一个** ``MediaInfo``：3.1.9 起它是
+        #: ``app.domain.context.MediaInfo``，而 ``app.schemas.context.MediaInfo``
+        #: 是另一个同名类。传错类不会报错，只会让宿主 ``isinstance`` 判定失败、
+        #: 静默返回 ``(False, {})`` —— 真机 70 条核对全部拿到空结果就是这么来的。
+        try:
+            from app.domain.context import MediaInfo
+        except Exception:  # noqa: BLE001 - 老版本宿主只有 schemas 那一个
+            from app.schemas.context import MediaInfo
 
         name = str(getattr(row, "name", "") or "").strip()
         season = int(getattr(row, "season", 0) or 0)
@@ -1040,6 +1164,7 @@ class SubscribeCenter(_PluginBase):
             )
             media.seasons = {season: list(range(start, start + total))}
         except Exception as err:  # noqa: BLE001
+            self.__dict__["_probe_last_error"] = f"{name} 构造核对参数失败：{err}"
             logger.debug(f"[SubscribeCenter] 构造核对参数失败 {name}：{err}")
             return None
 
@@ -1052,34 +1177,34 @@ class SubscribeCenter(_PluginBase):
                 {season: total},
             )
         except Exception as err:  # noqa: BLE001 - 单条失败不影响其它
+            self.__dict__["_probe_last_error"] = f"{name} 问媒体服务器失败：{err}"
             logger.debug(f"[SubscribeCenter] 媒体库核对失败 {name}：{err}")
             return None
 
         full = set(range(start, start + total))
         if exists:
             return full
-        if not isinstance(no_exists, dict) or not no_exists:
-            return None
 
-        try:
-            key = build_media_key(resolve_media_identity(media)) or media_id
-        except Exception:  # noqa: BLE001
-            key = media_id
-        entry = None
-        for candidate in (key, media_id):
-            if candidate and candidate in no_exists:
-                entry = no_exists[candidate]
-                break
-        if not isinstance(entry, dict):
+        from .core import autotoggle
+
+        missing = autotoggle.missing_from_no_exists(no_exists, season)
+        if missing is None:
+            #: 宿主返回里找不到这一季 —— 以前这里静默 ``return None``，70 条核对
+            #: 全军覆没却一条日志都没有。现在记下结构形状，一眼能看出是键名变了
+            #: 还是返回为空。
+            shape = ""
+            if isinstance(no_exists, dict):
+                shape = "；".join(
+                    f"{key}={sorted(getattr(value, 'keys', lambda: [])())}"
+                    for key, value in list(no_exists.items())[:2]
+                )
+            self.__dict__["_probe_last_error"] = (
+                f"{name} 第 {season} 季核对返回里找不到缺集（{shape or '空返回'}）"
+            )
+            logger.debug(
+                f"[SubscribeCenter] 核对返回无本季 {name} S{season}：{no_exists!r}"
+            )
             return None
-        season_entry = entry.get(season) or entry.get(str(season))
-        if season_entry is None:
-            return None
-        missing = {
-            int(item)
-            for item in (getattr(season_entry, "episodes", None) or [])
-            if str(item).strip().lstrip("-").isdigit()
-        }
         return full - missing
 
     async def _auto_toggle_rows(self) -> List[Any]:
@@ -1215,7 +1340,8 @@ class SubscribeCenter(_PluginBase):
             applied, failed = await self._apply_auto_toggle(changes)
 
         probe_cache = self.__dict__.pop("_auto_toggle_library_probe", None)
-        if isinstance(probe_cache, dict) and probe_cache.get("items"):
+        if isinstance(probe_cache, dict):
+            #: 空结果也落盘：否则「一条都没核对出来」在插件数据里毫无痕迹。
             state["library_probe"] = probe_cache
         owned = autotoggle.next_owned(
             state.get("owned"),

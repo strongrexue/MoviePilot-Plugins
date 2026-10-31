@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.17.3"
+PLUGIN_VERSION = "1.17.4"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -62,6 +62,13 @@ DEFAULT_AUTO_TOGGLE_BEST_KEEP = 90
 #: 一次请求都不发。
 DEFAULT_AUTO_TOGGLE_PROBE_BUDGET = 300
 DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL = 1.5
+#: 上一轮核对结果的保质期（小时）。过期就不再当作「已入库」证据，让这条订阅
+#: 重新进入候选、下一轮再问一次媒体服务器。
+#:
+#: 为什么必须有保质期：以前缓存被无条件并进「已入库」集合，一旦某部剧被核对
+#: 过一次，它的缺集就永远被缓存覆盖，再也不会重新核对 —— 新集入库了也看不见。
+#: 真机表现：该暂停的订阅一直保持「订阅中」。
+DEFAULT_AUTO_TOGGLE_PROBE_TTL_HOURS = 12
 #: 电影「刚上映也算数」的宽限天数。数字版上线之后站点上才有资源，卡死
 #: 「必须在未来」等于永远订不到刚上线的片子（真机：《空枪》数字发行当天
 #: 被「已过去」拒掉）。7 天足够覆盖出种延迟，又不至于把老片捞进来。

@@ -34,6 +34,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -356,6 +357,91 @@ def seasoninfo_episodes(seasoninfo: Any, season: int) -> set:
     numbers = {_int(item, -1) for item in raw}
     numbers.discard(-1)
     return numbers
+
+
+def _season_numbers(value: Any) -> set:
+    """把下载记录的 ``seasons`` 字段（``"S01"`` / ``"S01,S02"`` / ``"1"``）拆成季号集合。"""
+    text = _text(value).upper().replace(" ", "")
+    numbers: set = set()
+    for part in re.split(r"[,，;；/]", text):
+        if not part:
+            continue
+        match = re.fullmatch(r"S?(\d{1,3})(?:\s*-\s*S?(\d{1,3}))?", part)
+        if not match:
+            continue
+        first = int(match.group(1))
+        last = int(match.group(2) or first)
+        if first <= last:
+            numbers.update(range(first, last + 1))
+    return numbers
+
+
+def _episode_numbers_in(value: Any) -> set:
+    """把下载记录的 ``episodes`` 字段（``"E06"`` / ``"E06-E08"`` / ``"E06,E07"``）拆成集号集合。"""
+    text = _text(value).upper().replace(" ", "")
+    numbers: set = set()
+    for part in re.split(r"[,，;；/]", text):
+        if not part:
+            continue
+        match = re.fullmatch(r"E?(\d{1,4})(?:\s*-\s*E?(\d{1,4}))?", part)
+        if not match:
+            continue
+        first = int(match.group(1))
+        last = int(match.group(2) or first)
+        if first <= last:
+            numbers.update(range(first, last + 1))
+    return numbers
+
+
+def download_history_episodes(seasons: Any, episodes: Any, season: int) -> set:
+    """一条宿主下载记录里属于 ``season`` 的集号。
+
+    为什么需要它：媒体库快照（``MediaServerItem.seasoninfo``）由宿主的同步任务
+    写，会滞后；订阅自己的 ``note`` 只有宿主的完成流程才写。两者都没有时，
+    一集明明已经在库里，我们仍会判成缺集 —— 该暂停的不暂停。
+    下载记录是第三份、免费的证据，并进「已入库」只减误报。
+
+    ``seasons`` 认不出季号时按「这条记录与本季无关」处理，宁可漏用也不错用。
+    """
+    if season <= 0:
+        return set()
+    declared = _season_numbers(seasons)
+    if declared and season not in declared:
+        return set()
+    return _episode_numbers_in(episodes)
+
+
+def missing_from_no_exists(no_exists: Any, season: int) -> Optional[set]:
+    """从宿主 ``get_no_exists_info`` 的返回里取出「本季缺哪几集」。
+
+    返回 ``None`` = **问不出结论**（返回结构不认识），调用方必须当作「没核对到」；
+    空集 = 这一季什么都不缺。
+
+    为什么不再按 key 查：宿主返回的字典键是它自己拼的媒体键（``tmdb:123`` /
+    ``themoviedb:123`` / 带季号的变体），我们猜的那一种经常对不上，于是每次都
+    「查不到这一季」—— 真机 70 条核对全部静默返回 ``None``，``library_probe``
+    条数一直是 0。这里改成**遍历取值**：一次只问一部剧一季，返回里至多一个
+    条目，键叫什么名字都无所谓。
+    """
+    if not isinstance(no_exists, Mapping) or not no_exists:
+        return None
+    for entry in no_exists.values():
+        if not isinstance(entry, Mapping):
+            continue
+        season_entry = entry.get(season)
+        if season_entry is None:
+            season_entry = entry.get(str(season))
+        if season_entry is None:
+            continue
+        raw = getattr(season_entry, "episodes", None)
+        if raw is None and isinstance(season_entry, Mapping):
+            raw = season_entry.get("episodes")
+        if raw is None:
+            continue
+        numbers = {_int(item, -1) for item in raw}
+        numbers.discard(-1)
+        return numbers
+    return None
 
 
 def pending_episodes(
@@ -1071,10 +1157,12 @@ __all__ = [
     "WRITE_ACTIONS",
     "best_version_done",
     "decide",
+    "download_history_episodes",
     "episode_numbers",
     "has_download_record",
     "is_best_version",
     "media_kind",
+    "missing_from_no_exists",
     "movie_basis",
     "next_owned",
     "pending_episodes",

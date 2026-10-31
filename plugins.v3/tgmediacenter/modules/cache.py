@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from app.sdk.logging import logger
 
+from ..core import forward as forward_engine
 from ..core import push_queue
 from ..core.history_cache import (
     MODE_ABSOLUTE,
@@ -44,6 +45,7 @@ from ..core.notify import (
     notify_mtype,
 )
 from ..services import matcher as matcher_service
+from ..services import recognizer as recognizer_service
 from ..services.matcher import MediaMatcher
 
 # 缓存回搜在命中流水里的"虚拟规则"标识（便于在流水里与监控规则区分）
@@ -734,6 +736,49 @@ class CacheModule:
                  else f"{ICON_SEARCH} 胖虎媒体中心 缓存回搜")
         self._notify(title, body)
 
+    # ------------------------------------------------------ 缓存推送的频道级过滤
+
+    def rule_filter_reason(self, chat_id: int, text: str) -> str:
+        """缓存类推送的「频道级过滤」：空串=放行，否则返回跳过原因。
+
+        为什么需要（1.13.30）：缓存回搜 / 存量补扫 / 洗版回搜此前完全不经过监控
+        规则的关键词闸——判定链只有「有链接 → 未推送过 → 媒体库缺失」就入队，推送
+        时用虚拟规则 id（``cache_search`` / ``cache_backfill``）落流水。于是
+        「关键词=电影、排除词=iso」这类**频道级意图**对缓存翻出来的资源一律失效：
+        同一个频道里已订阅的电视剧，会从缓存路径被推到 115，而用户明明只想要电影。
+
+        作用域（重要）：**只看这条缓存消息来自哪个频道**，取该频道启用的监控规则
+        逐条套用与实时监控同一套判定（逻辑零排除词 → 逻辑一关键词，走
+        ``core.forward`` 的共享 helper），任一规则放行即放行——与实时监控「多规则
+        独立判定、任一命中即推」语义一致。因此它表达的是「**这个频道**只给我
+        电影」，不是「我不要电视剧」：同一部剧若能从别的频道补档，照旧会推。
+        频道没有监控规则（只缓存不监控）时无约束，保持旧行为。
+        """
+        monitor = getattr(self._plugin, "_monitor", None)
+        if monitor is None:
+            return ""
+        try:
+            rules = monitor.rules_for_chat(int(chat_id or 0))
+        except Exception as err:  # pragma: no cover - 规则读取异常不拦推送
+            logger.debug(f"[{self._plugin_id()}] 缓存过滤读取监控规则失败（放行）：{err}")
+            return ""
+        if not rules:
+            return ""
+        haystack = recognizer_service.purify_text(text) or str(text or "")
+        last_reason = ""
+        for rule in rules:
+            excluded = forward_engine.excluded_keyword(rule, text=haystack)
+            if excluded:
+                last_reason = f"命中排除关键词「{excluded}」"
+                continue
+            keywords = [str(kw).strip() for kw in (rule.get("custom_keywords") or []) if str(kw).strip()]
+            if rule.get("match_custom_keywords") and keywords:
+                if not any(kw in haystack for kw in keywords):
+                    last_reason = "未命中监控规则关键词"
+                    continue
+            return ""
+        return last_reason or "未通过监控规则过滤"
+
     def _search_subscription(self, sub: dict, *, reshuffle: bool = False) -> dict:
         """对单个订阅在缓存里回搜并推送。
 
@@ -763,6 +808,13 @@ class CacheModule:
                 continue
             chat_id = int(item.get("chat_id") or 0)
             message_id = int(item.get("message_id") or 0)
+            # 频道级过滤（1.13.30）：缓存翻出来的资源同样要遵守来源频道监控规则的
+            # 排除词 / 关键词——否则「关键词=电影」对回搜 / 洗版这条路径完全失效。
+            filter_reason = self.rule_filter_reason(chat_id, str(item.get("text") or ""))
+            if filter_reason:
+                skipped += 1
+                _count_reason(reasons, filter_reason)
+                continue
             already = (self._hit_exists_any(chat_id, message_id) if reshuffle
                        else self._hit_exists(chat_id, message_id))
             if already:
@@ -1048,6 +1100,12 @@ class CacheModule:
         if self._hit_exists_any(chat_id, message_id):
             return "skipped"
         if not title:
+            return "skipped"
+        # 频道级过滤（1.13.30）：与回搜同款，补扫也要遵守来源频道的排除词 / 关键词。
+        filter_reason = self.rule_filter_reason(chat_id, str(item.get("text") or ""))
+        if filter_reason:
+            logger.debug(
+                f"[{self._plugin_id()}] 存量补扫跳过：{title}（{filter_reason}）")
             return "skipped"
         verdict = self._matcher.is_missing(
             title=title,

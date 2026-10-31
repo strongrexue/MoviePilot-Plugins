@@ -45,7 +45,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.29"
+    plugin_version = "1.13.30"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -104,7 +104,14 @@ class TgMediaCenter(_PluginBase):
 
     def init_plugin(self, config: Optional[dict] = None) -> None:
         """读取配置、重建模块并安排 TG 客户端延迟连接；必须允许重复调用。"""
-        self.stop_service()
+        # 捕获旧运行时与 TG 配置指纹：若本次只是改了监控/转发规则等，TG 相关配置没变，
+        # 就复用已有运行时，避免每次保存配置都掐掉重连（旋转代理下每次重连都可能换新出口
+        # IP，反复重连会烧 AuthKey）。参考实现（media_automator / nextfind）均保持单条长连接、
+        # 由常驻监督任务惰性重连，而非每次配置变更重建。
+        old_runtime = self._credentials._runtime if self._credentials else None
+        old_tg_fp = self._tg_config_fingerprint(self._config, self._credentials)
+
+        self.stop_service(keep_tg_runtime=True)
 
         merged = self.default_config()
         merged.update(config or {})
@@ -153,7 +160,12 @@ class TgMediaCenter(_PluginBase):
         # 建立连接是网络操作，交给一次性任务执行，不阻塞插件加载。
         # 只要有 API 凭证就提前连接（**不要求已登录**）：首次发码若现连 Telegram，
         # 经代理很容易超过同步接口的网关超时（表现为 502，而码其实已经发出）。
-        if self._enabled() and self._credentials.api_configured():
+        # TG 运行时：配置未变化时复用旧连接，否则按需重建（避免每次保存配置都重连）。
+        new_tg_fp = self._tg_config_fingerprint(merged, self._credentials)
+        if old_runtime is not None and old_runtime.is_running() and old_tg_fp == new_tg_fp:
+            logger.info("[TgMediaCenter] TG 配置未变化，复用已有运行时（不重建连接）")
+            self._credentials._runtime = old_runtime
+        elif self._enabled() and self._credentials.api_configured():
             self._schedule_connect()
 
     def _schedule_connect(self, delay_seconds: int = 5) -> None:
@@ -198,6 +210,35 @@ class TgMediaCenter(_PluginBase):
             credentials.ensure_runtime(connect_timeout=45)
         except Exception as err:
             logger.info(f"[TgMediaCenter] TG 客户端预连接失败（后续调用会按需重试）：{err}")
+
+    @staticmethod
+    def _proxy_key(proxy: Optional[dict]) -> str:
+        """把代理配置归一为可比较的键（代理变化时需要重建连接）。"""
+        if not proxy:
+            return "direct"
+        keys = ["proxy_type", "addr", "port", "username"]
+        return ":".join(str(proxy.get(k, "")) for k in keys)
+
+    def _tg_config_fingerprint(self, cfg: dict, cred: Any) -> tuple:
+        """TG 相关配置指纹：用于在 init_plugin 时判断是否需要重建运行时。
+
+        仅纳入真正影响已建立连接是否仍然有效的项：启用状态、API 凭证、
+        keep-alive 间隔、代理出口。监控/转发/缓存等业务配置变更不在此列，
+        从而做到「改业务规则不掐 TG 连接」。
+        """
+        proxy = None
+        try:
+            if cred is not None:
+                proxy = cred._resolve_proxy()
+        except Exception:
+            proxy = None
+        return (
+            bool(cfg.get("enabled")),
+            str(cfg.get("tg_api_id") or ""),
+            str(cfg.get("tg_api_hash") or ""),
+            int(cfg.get("tg_keep_alive_seconds") or 60),
+            self._proxy_key(proxy),
+        )
 
     def get_state(self) -> bool:
         """返回插件当前是否启用。"""
@@ -668,8 +709,14 @@ class TgMediaCenter(_PluginBase):
             return []
         return services
 
-    def stop_service(self) -> None:
-        """释放插件创建的后台资源。"""
+    def stop_service(self, keep_tg_runtime: bool = False) -> None:
+        """释放插件创建的后台资源。
+
+        :param keep_tg_runtime: 为 True 时保留 TG 运行时（不掐断连接）。用于 ``init_plugin``
+            在配置变更时复用已有连接——避免每次保存配置都销毁并重建 TG 运行时，否则在出口 IP
+            不固定的代理（如 V2rayA 节点自动切换）下，每次重连都可能落到新 IP，触发
+            「同一 AuthKey 在两处 IP 同时出现」导致密钥作废。
+        """
         # 先还原宿主入队方法：插件停用 / 重载后绝不留补丁在宿主进程里
         first_search_guard.uninstall()
         monitor, self._monitor = self._monitor, None
@@ -696,7 +743,7 @@ class TgMediaCenter(_PluginBase):
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止存量补扫失败：{err}")
         credentials, self._credentials = self._credentials, None
-        if credentials is not None:
+        if credentials is not None and not keep_tg_runtime:
             try:
                 credentials.stop()
             except Exception as err:  # pragma: no cover

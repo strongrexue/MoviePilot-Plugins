@@ -150,6 +150,13 @@ class CredentialsModule:
         )
         if not runtime.start(connect_timeout=connect_timeout):
             self._runtime = None
+            last_err = runtime.last_connect_error()
+            if last_err is not None and tg.is_authkey_error(last_err):
+                raise tg.TelegramOperationError(
+                    "Telegram 会话已作废（授权密钥被停用）：通常是同一会话在代理切换后从两个不同出口 IP "
+                    "同时出现所致。请先在 TG 凭证页「退出登录」清掉失效会话，并把代理改为出口 IP 固定的"
+                    "（如 V2rayA 关闭节点自动切换），稳定后再重新登录；否则新会话会再次被烧。"
+                )
             reason = str(getattr(runtime, "last_start_error", "") or "")
             hint = runtime.proxy_ignored_hint()
             if reason and not runtime.credentials_ready:

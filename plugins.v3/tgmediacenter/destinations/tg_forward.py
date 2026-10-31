@@ -121,9 +121,16 @@ class TgForwardDestination(Destination):
                         logger.warning(f"转发后置顶失败（转发仍算成功）：{err}")
             return how, pinned
 
-        # 转发本身很快，预算照旧压在同步接口网关超时之内（后台线程调用无此限制，
-        # 但保持一致便于同一入口在接口里直接触发时也不超时）
-        how, pinned = runtime.call(_do(), timeout=30)
+        # 走 credentials._call_tg：断线时自动重连并重试一次（断线自愈闭环）。
+        # 否则持续断开时转发只会退回 pending 重试、自身不触发重连，要等别的
+        # _call_tg 调用者撞上才恢复——1.13.27 把 keep-alive 改成被动探活后，
+        # 这个盲区比之前更突出。
+        # 转发本身很快，预算照旧压在同步接口网关超时之内。
+        credentials = getattr(self._plugin, "_credentials", None)
+        if credentials is not None and hasattr(credentials, "_call_tg"):
+            how, pinned = credentials._call_tg(runtime, _do, timeout=30)
+        else:
+            how, pinned = runtime.call(_do(), timeout=30)
         suffix = "（已置顶）" if pinned else ""
         return PushResult(
             ok=True,

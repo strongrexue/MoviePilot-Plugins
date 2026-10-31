@@ -82,6 +82,26 @@ def is_disconnected_error(err: BaseException) -> bool:
     return "while disconnected" in text or "not connected to telegram" in text
 
 
+def is_authkey_error(err: BaseException) -> bool:
+    """判断是否"授权密钥已作废"类错误。
+
+    旋转/自动切换代理（如 V2rayA 节点自动切换）下，Telethon 每次重连可能从
+    不同出口 IP 建连；若 Telegram 仍认为旧 IP 的连接存活，会判定"同一 AuthKey
+    在两处 IP 同时出现"并直接作废密钥，抛 ``AuthKeyError``/
+    ``SecurityError``，文案含 "authorization key ... two different IP"。
+    该错误**不是网络超时**，必须明确提示用户退出重登 + 固定代理出口 IP，
+    否则刚登上的新会话马上又会被烧。
+    """
+    text = str(err).lower()
+    if "two different ip" in text or "authorization key" in text:
+        return True
+    return bool(
+        _is_error(err, "AuthKeyError")
+        or _is_error(err, "AuthKeyUnregisteredError")
+        or _is_error(err, "SecurityError")
+    )
+
+
 def _connection_message() -> str:
     """连接断开时的统一提示。"""
     return "与 Telegram 的连接已断开：插件正在自动重连，请等待约 10 秒后重试"

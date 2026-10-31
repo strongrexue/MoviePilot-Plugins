@@ -86,20 +86,5 @@ def test_frontend_intentional_gaps_stay_documented():
     assert len(gaps) == 3, "豁免键数量变了，请确认仍符合注释里的原因，并同步更新本断言"
 
 
-def test_p9_config_defaults_are_conservative():
-    """P9 的三项必须默认「全关 / 保守」：升级后行为与升级前完全一致。"""
-    config = TgMediaCenter.default_config()
-    assert config["p9_forward_gate_enabled"] is False
-    assert config["p9_maturity_hours"] == 2
-    assert config["p9_check_downloader"] is True
 
 
-def test_p9_config_keys_present_both_sides():
-    """P9 三项在两处都要存在（本文件存在的理由，失败时直接点名是哪些键）。"""
-    keys = {
-        "p9_forward_gate_enabled",
-        "p9_maturity_hours",
-        "p9_check_downloader",
-    }
-    assert keys <= _backend_keys(), f"后端 default_config 缺 P9 键：{sorted(keys - _backend_keys())}"
-    assert keys <= _frontend_keys(), f"前端 configDefaults 缺 P9 键：{sorted(keys - _frontend_keys())}"

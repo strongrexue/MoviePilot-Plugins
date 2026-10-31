@@ -34,9 +34,9 @@ export const configDefaults = {
   cache_sync_mode: 'relative',
   cache_sync_days: 30,
   cache_batch_size: 200,
-  cache_subscribe_enabled: true,
+
   // 洗版回搜（1.13.24）：定时兜底跳过媒体库判定、遍历全部订阅回搜，默认关
-  cache_reshuffle_enabled: false,
+
   // 洗版规则（1.13.32）：七维白名单/顺序 + 体积与容差 + TopN + 比对来源。
   // 空对象 = 后端 normalize_rules() 的默认规则（质量锁第一维、未列值排除）
   cache_wash_rules: {},
@@ -44,10 +44,9 @@ export const configDefaults = {
   // 批间隔 M 秒匀速消费（实时任务与批量任务各占一半额度）
   cache_push_batch_size: 10,
   cache_push_batch_interval: 15,
-  cache_backfill_enabled: false,
   cache_cron: '0 */6 * * *',
-  cache_subscribe_cron: '*/30 * * * *',
-  cache_backfill_cron: '*/30 * * * *',
+
+
   // ⑥ TG 通用转发（规则结构见 /forward/rules 接口返回；id 由后端补缺，f 前缀）
   forward_enabled: false,
   forward_rules: [],
@@ -66,12 +65,12 @@ export const configDefaults = {
   //   注意：P9-1 只放出「能力探针」（反向 R0 开关 1.9.1 真机验证无收益后移除），
   //   闸门 A 的三个键先在表单里占位，保证「保存配置」整份覆盖时不会把它们清掉
   //  （P9-2 落地后再给界面控件）。
-  p9_forward_gate_enabled: false,
-  p9_maturity_hours: 2,
-  p9_check_downloader: true,
+
+
+
   // ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主的「首次全站搜索」
   //   独立开关，与 cache_subscribe_enabled（新增订阅回搜）互不依赖；默认关
-  skip_first_search_enabled: false,
+
 }
 
 // ⚠️ 新增配置项时必须同步加到这里：保存是"整份覆盖"，

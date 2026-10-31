@@ -5,7 +5,7 @@ import ConfigPan115Pane from './config/ConfigPan115Pane.vue'
 import ConfigMonitorPane from './config/ConfigMonitorPane.vue'
 import ConfigCachePane from './config/ConfigCachePane.vue'
 import ConfigForwardPane from './config/ConfigForwardPane.vue'
-import ConfigP9Pane from './config/ConfigP9Pane.vue'
+import ConfigWashPane from './config/ConfigWashPane.vue'
 import { useConfigForm } from './config/useConfigForm'
 
 const props = defineProps({
@@ -25,10 +25,10 @@ const config = useConfigForm({
 const modules = [
   { key: 'tg', title: 'TG 凭证', icon: 'mdi-send-lock-outline', desc: '登录向导、冷却与保活、对话列表' },
   { key: 'pan115', title: '115 网盘', icon: 'mdi-cloud-outline', desc: '登录态、目标目录、批量提交与通知' },
-  { key: 'monitor', title: '资源监控', icon: 'mdi-radar', desc: '监听频道、关键词与仅缺集' },
-  { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、同步与检索' },
+  { key: 'monitor', title: '订阅监控', icon: 'mdi-radar', desc: '监听频道、关键词与缺失判定' },
+  { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、回溯同步与检索' },
+  { key: 'wash', title: '洗版规则', icon: 'mdi-tune-vertical', desc: '七维字典序、体积收口与 TopN' },
   { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '关键词与扩展名匹配、置顶与内容转换' },
-  { key: 'p9', title: '重复获取治理', icon: 'mdi-shield-sync-outline', desc: '宿主能力探针与前向闸门' },
 ]
 
 const activeModule = ref(modules[0].key)
@@ -106,14 +106,14 @@ onMounted(config.loadConfig)
             :plugin-id="props.pluginId"
             :config="config"
           />
-          <ConfigForwardPane
-            v-else-if="activeModule === 'forward'"
+          <ConfigWashPane
+            v-else-if="activeModule === 'wash'"
             :api="props.api"
             :plugin-id="props.pluginId"
             :config="config"
           />
-          <ConfigP9Pane
-            v-else-if="activeModule === 'p9'"
+          <ConfigForwardPane
+            v-else-if="activeModule === 'forward'"
             :api="props.api"
             :plugin-id="props.pluginId"
             :config="config"

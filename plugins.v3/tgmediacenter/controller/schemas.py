@@ -427,39 +427,6 @@ class CacheSyncState(BaseModel):
     last_error: str = ""
 
 
-class CacheSubscribeState(BaseModel):
-    """订阅回搜运行态。"""
-
-    enabled: bool = True
-    checking: bool = False
-    event_listener: bool = False
-    event_enabled: bool = True
-    fallback_cron: str = ""
-    reshuffle: bool = False
-    last_check_at: str = ""
-    last_check_new: int = 0
-    last_check_pushed: int = 0
-    last_error: str = ""
-
-
-class CacheBackfillState(BaseModel):
-    """存量补扫运行态（含跨重启保留的最近一次摘要与增量水位）。"""
-
-    enabled: bool = False
-    running: bool = False
-    full: bool = False
-    processed: int = 0
-    pushed: int = 0
-    skipped: int = 0
-    started_at: str = ""
-    finished_at: str = ""
-    last_error: str = ""
-    last_run_at: str = ""
-    last_run_pushed: int = 0
-    last_run_skipped: int = 0
-    watermark: str = ""
-
-
 class CacheSettingsData(BaseModel):
     """缓存设置（含前端下拉选项）。"""
 
@@ -469,15 +436,10 @@ class CacheSettingsData(BaseModel):
     sync_mode: str = "relative"
     sync_days: int = 30
     batch_size: int = 200
-    subscribe_enabled: bool = True
-    reshuffle_enabled: bool = False
     wash_rules: dict = Field(default_factory=dict)
     push_batch_size: int = 10
     push_batch_interval: int = 15
-    backfill_enabled: bool = False
-    backfill_cron: str = "*/30 * * * *"
     cron: str = "0 */6 * * *"
-    subscribe_cron: str = "*/5 * * * *"
     destinations: List[OptionItem] = Field(default_factory=list)
     sync_modes: List[OptionItem] = Field(default_factory=list)
 
@@ -491,10 +453,6 @@ class CacheSettingsRequest(BaseModel):
     sync_mode: Optional[str] = None
     sync_days: Optional[int] = None
     batch_size: Optional[int] = None
-    subscribe_enabled: Optional[bool] = None
-    reshuffle_enabled: Optional[bool] = Field(
-        default=None, description="洗版回搜：定时兜底跳过媒体库判定、遍历全部订阅"
-    )
     wash_rules: Optional[dict] = Field(
         default=None, description="洗版规则：七维白名单/顺序、体积与容差、TopN、比对来源"
     )
@@ -504,10 +462,7 @@ class CacheSettingsRequest(BaseModel):
     push_batch_interval: Optional[int] = Field(
         default=None, description="推送批间隔秒数（5~3600）"
     )
-    backfill_enabled: Optional[bool] = None
-    backfill_cron: Optional[str] = Field(default=None, description="存量补扫 cron（5 段）")
     cron: Optional[str] = Field(default=None, description="增量同步 cron（5 段）")
-    subscribe_cron: Optional[str] = Field(default=None, description="订阅检查 cron（5 段）")
 
 
 class CacheMatcherStatus(BaseModel):
@@ -529,8 +484,6 @@ class CacheStatusData(BaseModel):
     total: int = 0
     channels: List[CacheChannelStat] = Field(default_factory=list)
     sync: CacheSyncState = Field(default_factory=CacheSyncState)
-    subscribe: CacheSubscribeState = Field(default_factory=CacheSubscribeState)
-    backfill: CacheBackfillState = Field(default_factory=CacheBackfillState)
     matcher: CacheMatcherStatus = Field(default_factory=CacheMatcherStatus)
     settings: CacheSettingsData = Field(default_factory=CacheSettingsData)
 
@@ -602,34 +555,6 @@ class CacheSearchData(BaseModel):
     total: int = 0
 
 
-class CacheCheckSubscriptionsData(BaseModel):
-    """订阅回搜检查结果。"""
-
-    checked: bool = False
-    baseline: bool = False
-    subscriptions: int = 0
-    new: int = 0
-    pushed: int = 0
-
-
-class CacheBackfillStartRequest(BaseModel):
-    """触发存量补扫。"""
-
-    full: bool = Field(default=False, description="True=全量（翻全部缓存历史）；False=增量（自水位起）")
-
-
-class CacheBackfillStartData(BaseModel):
-    """存量补扫触发结果。"""
-
-    started: bool = False
-    message: str = ""
-
-
-class CacheBackfillCancelData(BaseModel):
-    """停止存量补扫结果。"""
-
-    stopped: bool = False
-    message: str = ""
     message: str = ""
     details: List[Dict[str, Any]] = Field(default_factory=list)
 
@@ -743,40 +668,6 @@ class OverviewData(BaseModel):
     recent_hits: List[MonitorHit] = Field(default_factory=list)
 
 
-# ---------------------------------------------------------------------- ⑩ P9 重复获取治理
-
-
-class P9ProbeItem(BaseModel):
-    """一条宿主能力探针结论。"""
-
-    key: str = ""
-    label: str = ""
-    ok: bool = False
-    detail: str = ""
-
-
-class P9ProbeData(BaseModel):
-    """P9 数据源能力探针结果（只读）。
-
-    ``ok`` 为所有细项的交集——任一项不通过即整体不通过，用于一眼判断
-    「闸门 A 能不能开工」；细项逐条给出真实导入路径 / 字段 / 失败原因。
-    """
-
-    ok: bool = False
-    checked_at: str = ""
-    items: List[P9ProbeItem] = Field(default_factory=list)
-
-
-class P9GuardData(BaseModel):
-    """P9 治理面板聚合：宿主能力探针。
-
-    > 历史：1.9.0 曾附带「反向 R0 开关」状态（P9R0Data / /p9/r0/apply），
-    > 1.9.1 真机验证否决（首次搜索是事件驱动、暂停 job 无收益）后整体移除。
-    """
-
-    probe: P9ProbeData = Field(default_factory=P9ProbeData)
-
-
 API_RESPONSE_MODELS: Dict[str, type] = {
     "/status": TgStatusData,
     "/overview": OverviewData,
@@ -806,14 +697,9 @@ API_RESPONSE_MODELS: Dict[str, type] = {
     "/cache/cancel": CacheCancelData,
     "/cache/clear": CacheClearData,
     "/cache/search": CacheSearchData,
-    "/cache/check_subscriptions": CacheCheckSubscriptionsData,
-    "/cache/backfill/status": CacheBackfillState,
-    "/cache/backfill/start": CacheBackfillStartData,
-    "/cache/backfill/cancel": CacheBackfillCancelData,
     "/forward/rules": ForwardRulesData,
     "/forward/status": ForwardStatusData,
     "/forward/hits": MonitorHitsData,
     "/forward/hits/clear": MonitorHitsClearData,
     "/forward/test": ForwardTestData,
-    "/p9/guard": P9GuardData,
 }

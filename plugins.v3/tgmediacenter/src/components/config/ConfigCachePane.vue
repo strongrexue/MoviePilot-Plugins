@@ -1,11 +1,5 @@
 <template>
   <div class="cache-pane">
-    <VTabs v-model="localTab" density="compact" class="cache-tabs">
-      <VTab value="cache">消息缓存</VTab>
-      <VTab value="wash">洗版规则</VTab>
-    </VTabs>
-
-    <div v-show="localTab === 'cache'" class="cache-tab-panel">
     <!-- 启用开关 -->
     <VCard flat class="cache-card">
       <VCardItem>
@@ -14,7 +8,7 @@
         </template>
         <VCardTitle class="text-subtitle-2">启用消息缓存</VCardTitle>
         <VCardSubtitle class="text-caption">
-          新消息实时入库，历史按范围回溯；新增订阅回搜（含兜底）命中后推送 115。
+          新消息实时入库，历史按范围回溯；命中缺失资源后按洗版规则推送 115。
         </VCardSubtitle>
       </VCardItem>
     </VCard>
@@ -58,8 +52,8 @@
             <div class="cache-stat-value">{{ status?.sync?.running ? '进行中' : '空闲' }}</div>
           </div>
           <div class="cache-stat">
-            <div class="cache-stat-label">新增订阅回搜</div>
-            <div class="cache-stat-value">{{ status?.subscribe?.enabled ? '已开启' : '已关闭' }}</div>
+            <div class="cache-stat-label">洗版回搜</div>
+            <div class="cache-stat-value">{{ status?.settings?.wash_rules?.enabled ? '已启用' : '已关闭' }}</div>
           </div>
         </div>
         <!-- 明细小字：统计块下方一行（同步位点 / 回搜最近检查） -->
@@ -73,30 +67,15 @@
             上次同步结束 {{ fmtTime(status.sync.finished_at) }} · 新增 {{ status.sync.inserted ?? 0 }} 条
           </span>
           <span v-else>尚未执行过历史回溯同步</span>
-          <span class="cache-dot">·</span>
-          <span v-if="status?.subscribe?.last_check_at">
-            订阅检查 {{ fmtTime(status.subscribe.last_check_at) }} ·
-            新增订阅 {{ status.subscribe.last_check_new ?? 0 }} · 推送 {{ status.subscribe.last_check_pushed ?? 0 }} 条
-          </span>
-          <span v-else>订阅兜底检查尚未运行（首次运行只建立订阅基线）</span>
-          <VChip
-            size="x-small"
-            variant="tonal"
-            :color="status?.subscribe?.event_listener ? 'success' : 'warning'"
-            label
-            :title="status?.subscribe?.event_listener ? '已监听宿主新增订阅事件，新增订阅秒级回搜' : '宿主事件总线不可用，仅按定时检查（默认每 5 分钟）'"
-          >
-            {{ status?.subscribe?.event_listener ? '实时回搜已启用' : '仅定时检查' }}
-          </VChip>
         </div>
         <VAlert
-          v-if="status?.sync?.last_error || status?.subscribe?.last_error"
+          v-if="status?.sync?.last_error"
           type="warning"
           variant="tonal"
           density="compact"
           class="cache-hint"
         >
-          {{ status?.sync?.last_error || status?.subscribe?.last_error }}
+          {{ status?.sync?.last_error }}
         </VAlert>
       </VCardText>
     </VCard>
@@ -178,45 +157,7 @@
           </div>
         </div>
 
-        <!-- 订阅回搜 / 跳过原生首次全站搜索：并排两个面板（窄屏自动单列） -->
-        <div class="cache-toggles">
-          <!-- 左：新增订阅回搜（走 /cache/settings，与其它缓存开关同一保存流程） -->
-          <div class="cache-toggle-panel">
-            <div class="cache-toggle-head">
-              <span class="cache-toggle-title">新增订阅回搜</span>
-              <VSwitch
-                v-model="settings.subscribe_enabled"
-                color="primary"
-                density="compact"
-                hide-details
-                inset
-                @update:model-value="syncSettingsToForm"
-              />
-            </div>
-            <div class="cache-toggle-desc">
-              宿主新增订阅后立刻回搜缓存，命中缺失资源就推送；关掉只影响这条实时通道，下方「订阅兜底检查」照常按 cron 跑。
-            </div>
-          </div>
-
-          <!-- 右：跳过原生首次全站搜索（主配置表单字段，不走 /cache/settings，随底部「保存配置」生效） -->
-          <div class="cache-toggle-panel">
-            <div class="cache-toggle-head">
-              <span class="cache-toggle-title">跳过原生首次全站搜索</span>
-              <VSwitch
-                v-model="form.skip_first_search_enabled"
-                color="primary"
-                density="compact"
-                hide-details
-                inset
-              />
-            </div>
-            <div class="cache-toggle-desc">
-              新增订阅不再触发原生首次全站搜索，避免与左边的新增订阅回搜撞车；后续仍按订阅间隔继续搜。
-            </div>
-          </div>
-        </div>
-
-        <!-- 存量补扫开关与两个 cron 已各归其卡（缓存管理 / 订阅回搜 / 存量补扫），此处只留保存动作 -->
+        <!-- 此处只留保存动作 -->
         <div class="cache-actions">
           <VBtn
             color="primary"
@@ -376,222 +317,6 @@
       </VCardText>
     </VCard>
 
-    <!-- 订阅兜底检查 -->
-    <VCard flat class="cache-card">
-      <VCardItem>
-        <VCardTitle class="text-subtitle-2">订阅兜底检查</VCardTitle>
-      </VCardItem>
-      <VCardText class="cache-body">
-        <div class="cache-summary">
-          <div class="cache-summary-line">
-            定时对比订阅快照，把插件离线 / 事件丢失期间新增的订阅捞出来回搜推送；<strong>不依赖上面的「新增订阅回搜」开关</strong>，关掉它这里照旧按 cron 运行。
-            打开下方「洗版回搜」后，这里改成遍历全部订阅、跳过媒体库判定，专门捞更高质量的资源洗版。
-          </div>
-          <div class="cache-tags">
-            <span class="cache-tag">{{ settings.reshuffle_enabled ? '全部订阅' : '快照对比' }}</span>
-            <span class="cache-tag">按下方 cron</span>
-            <span class="cache-tag">已推送流水去重</span>
-            <span class="cache-tag">{{ settings.reshuffle_enabled ? '跳过媒体库判定' : '首次只建基线' }}</span>
-          </div>
-        </div>
-        <div class="cache-note">
-          判缺<strong>以媒体库逐集比对为准</strong>（媒体库不可用才退回订阅缺集数），库内查询按「片名+年份 → 仅片名 → 名称变体」逐层放宽；
-          无链接 / 已推送的过滤后入队，同一目标合并下发不超过 20 条链接。通知<strong>只报真正推出去的资源</strong>，
-          「已推送过 / 无需推送」只记运行详情，不再发通知。
-        </div>
-        <!-- 洗版回搜（1.13.24）：兜底口径开关，只影响本卡的定时/手动兜底 -->
-        <div class="cache-switch-row">
-          <VSwitch
-            v-model="settings.reshuffle_enabled"
-            color="primary"
-            density="compact"
-            hide-details
-            inset
-            label="洗版回搜（跳过媒体库判定）"
-            class="cache-switch-inline"
-            @update:model-value="syncSettingsToForm"
-          />
-          <span class="cache-hint">
-            开：本卡每次运行都遍历<strong>全部订阅</strong>、<strong>不探测媒体库入库状态</strong>，
-            频道后来进了更高质量的资源也会被捞出来洗版（只按推送流水去重，入队条数不限，
-            推送速度由下面的「每批条数 / 批间隔」控制）。
-            关：与之前一致，只处理快照新增订阅并逐条判缺。
-          </span>
-        </div>
-        <!-- 推送节流（1.13.25）：洗版回搜不再限制入队条数，改由推送 worker 分批推送 -->
-        <div class="cache-actions">
-          <VTextField
-            v-model.number="settings.push_batch_size"
-            label="每批推送条数"
-            type="number"
-            min="1"
-            max="200"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="cache-num-input"
-            @update:model-value="syncSettingsToForm"
-          />
-          <VTextField
-            v-model.number="settings.push_batch_interval"
-            label="批间隔（秒）"
-            type="number"
-            min="5"
-            max="3600"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="cache-num-input"
-            @update:model-value="syncSettingsToForm"
-          />
-          <span class="cache-hint">
-            推送 worker 每 <strong>{{ settings.push_batch_interval ?? 15 }}</strong> 秒取
-            <strong>{{ settings.push_batch_size ?? 10 }}</strong> 条下发；
-            实时监控 / 普通转发任务与洗版批量任务各占一半额度，不会被洗版挤掉。
-          </span>
-        </div>
-        <div class="cache-actions">
-          <span class="cache-hint">缺失判断：</span>
-          <VChip size="small" variant="tonal" :color="status?.matcher?.mediaserver_available ? 'success' : 'default'" label>
-            媒体服务器{{ status?.matcher?.mediaserver ? `（${status.matcher.mediaserver}）` : '未配置' }}
-          </VChip>
-          <VChip size="small" variant="tonal" :color="status?.matcher?.queries_available ? 'info' : 'default'" label>
-            订阅 {{ status?.matcher?.subscriptions ?? 0 }}
-          </VChip>
-          <span class="cache-hint">徽章随状态每 10 秒自动刷新</span>
-        </div>
-        <div class="cache-actions">
-          <VBtn
-            variant="tonal"
-            prepend-icon="mdi-cloud-search-outline"
-            :loading="busy === 'check'"
-            :disabled="!status?.enabled"
-            @click="checkSubscriptions"
-          >
-            {{ settings.reshuffle_enabled ? '立即洗版回搜' : '立即检查新增订阅' }}
-          </VBtn>
-          <!-- 订阅兜底检查定时：与按钮同一行右侧（垂直居中，窄屏换行堆叠） -->
-          <VTextField
-            v-model="settings.subscribe_cron"
-            label="订阅兜底检查定时（cron）"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="cache-cron-input"
-            @update:model-value="syncSettingsToForm"
-          />
-          <span v-if="checkResult" class="cache-hint">{{ checkResult }}</span>
-        </div>
-        <div class="cache-hint">
-          <template v-if="settings.reshuffle_enabled">
-            「立即洗版回搜」= 立刻按洗版口径跑一次（遍历全部订阅、跳过媒体库判定），
-            适合频道刚进了一批好资源时手动捞一遍；入队条数不限，会按上面的
-            「每批条数 / 批间隔」分批慢慢推完，队列里的任务不会丢。
-          </template>
-          <template v-else>
-            「立即检查」= 手动跑一次快照对比，用于升级后补跑、排查漏推送；
-            日常新增订阅走上面的实时事件路径，不需要手动点。
-          </template>
-        </div>
-        <div v-if="checkDetails.length" class="cache-details">
-          <div v-for="(item, index) in checkDetails" :key="index" class="cache-detail">
-            {{ item.name }}：候选 {{ item.candidates ?? 0 }} 条 · 推送 {{ item.pushed ?? 0 }} 条
-            <template v-if="item.skipped"> · 跳过 {{ item.skipped }} 条</template>
-            <template v-if="item.error"> · 失败：{{ item.error }}</template>
-          </div>
-        </div>
-      </VCardText>
-    </VCard>
-
-    <!-- 存量补扫 -->
-    <VCard flat class="cache-card">
-      <VCardItem>
-        <VCardTitle class="text-subtitle-2">存量补扫</VCardTitle>
-      </VCardItem>
-      <VCardText class="cache-body">
-        <div class="cache-summary">
-          <div class="cache-summary-line">
-            定时反扫缓存补缺集：捞出<strong>水位之后新入库</strong>的消息逐条判缺失并推送，与监控共用推送流水判重。
-          </div>
-          <div class="cache-tags">
-            <span class="cache-tag">水位之后增量</span>
-            <span class="cache-tag">与监控同款判缺</span>
-            <span class="cache-tag">已推送流水去重</span>
-            <span class="cache-tag">首次只建基线</span>
-          </div>
-        </div>
-        <div class="cache-note">
-          先过前向闸门（PT 在途不抢）；只在真的推了时发一条汇总通知，没推不打扰。想补历史缺口用「全量补扫一次」（后台分批，可随时停止）。
-        </div>
-        <div class="cache-actions">
-          <VChip size="small" variant="tonal" :color="status?.backfill?.enabled ? 'success' : 'default'" label>
-            {{ status?.backfill?.enabled ? '定时已开启' : '定时未开启' }}
-          </VChip>
-          <VChip size="small" variant="tonal" :color="status?.backfill?.running ? 'info' : 'default'" label>
-            {{ status?.backfill?.running ? (status.backfill.full ? '全量扫描中' : '增量扫描中') : '空闲' }}
-          </VChip>
-          <VChip v-if="status?.backfill?.watermark" size="small" variant="tonal" label>
-            水位 {{ status.backfill.watermark }}
-          </VChip>
-        </div>
-        <div v-if="status?.backfill?.running" class="cache-actions">
-          <span class="cache-hint">
-            已扫 {{ status.backfill.processed ?? 0 }} 条 · 推送 {{ status.backfill.pushed ?? 0 }} 条 ·
-            跳过 {{ status.backfill.skipped ?? 0 }} 条（30 秒自动刷新）
-          </span>
-          <VBtn
-            variant="tonal"
-            prepend-icon="mdi-stop-circle-outline"
-            :loading="busy === 'backfillCancel'"
-            @click="cancelBackfill"
-          >
-            停止补扫
-          </VBtn>
-        </div>
-        <!-- 存量补扫开关 + 两个触发按钮 + 存量补扫 cron 同一行：开关在最左（gap 8px），cron 在按钮右侧 -->
-        <div class="cache-backfill-actions">
-          <VBtn
-            variant="tonal"
-            prepend-icon="mdi-refresh-circle"
-            :loading="busy === 'backfill'"
-            :disabled="!status?.enabled || Boolean(status?.backfill?.running)"
-            @click="startBackfill(false)"
-          >
-            立即增量补扫
-          </VBtn>
-          <VBtn
-            variant="tonal"
-            prepend-icon="mdi-database-search-outline"
-            :loading="busy === 'backfill'"
-            :disabled="!status?.enabled || Boolean(status?.backfill?.running)"
-            @click="startBackfill(true)"
-          >
-            全量补扫一次
-          </VBtn>
-          <VSwitch
-            v-model="settings.backfill_enabled"
-            label="存量补扫"
-            color="primary"
-            density="compact"
-            hide-details
-            inset
-            class="cache-switch-inline"
-            @update:model-value="syncSettingsToForm"
-          />
-          <VTextField
-            v-model="settings.backfill_cron"
-            label="存量补扫定时（cron）"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="cache-cron-input"
-            @update:model-value="syncSettingsToForm"
-          />
-        </div>
-        <div v-if="backfillSummary" class="cache-hint">{{ backfillSummary }}</div>
-      </VCardText>
-    </VCard>
-
     <div class="cache-hint">
       存储占用：缓存的是净化后的消息全文与识别字段（片名 / 年份 / 季集 / 链接），单条约 1~2 KB；
       单频道万级消息约几十 MB，由 MoviePilot 的插件数据库承载，不会影响宿主业务数据。
@@ -614,162 +339,6 @@
     </VDialog>
   </div>
 
-    <div v-show="localTab === 'wash'" class="cache-tab-panel">
-      <VCard flat class="cache-card">
-        <VCardItem>
-          <VCardTitle class="text-subtitle-2">洗版规则</VCardTitle>
-          <VCardSubtitle class="text-caption">
-            七维字典序：行序＝优先级，chip 左右＝维度内优劣；只有逐维更优才推。
-          </VCardSubtitle>
-        </VCardItem>
-        <VCardText class="cache-body">
-          <div class="wash-switch">
-            <VSwitch
-              v-model="settings.reshuffle_enabled"
-              color="primary"
-              density="compact"
-              hide-details
-              label="启用洗版规则（洗版回搜）"
-              @update:model-value="syncSettingsToForm"
-            />
-            <span class="cache-hint">
-              关闭时规则仍可编辑保存、但不参与判定；开启后按下面的七维逐级比较，只推真升级。
-            </span>
-          </div>
-        <!-- 洗版规则（1.13.32）：七维字典序 + 白名单 + 体积收口，替换 1.13.27 的加权质量门禁 -->
-        <div class="wash-rules">
-          <div class="wash-head">
-            <span class="cache-hint">
-              行序＝优先级（拖 ⋮⋮ 调整），chip 位置＝维度内优劣，「✓/✕」只决定该值是否保留；
-              只有<strong>逐维更优</strong>才推，同质量同分辨率同体积（±容差）视为持平不推。
-            </span>
-          </div>
-          <div
-            v-for="(dim, index) in settings.wash_rules.order"
-            :key="dim"
-            class="wash-row"
-            :class="{ 'wash-row-locked': dim === 'quality' }"
-            :draggable="dim !== 'quality'"
-            @dragstart="onRowDragStart(index)"
-            @dragover.prevent
-            @drop="onRowDrop(index)"
-            @dragend="dragRow = -1"
-          >
-            <span class="wash-grip" :class="{ 'wash-grip-off': dim === 'quality' }">⋮⋮</span>
-            <span class="wash-index">{{ index + 1 }}</span>
-            <span class="wash-dim">{{ dimLabels[dim] }}</span>
-            <span v-if="dim === 'quality'" class="wash-lock">锁定</span>
-            <div v-if="dim === 'size'" class="wash-chips">
-              <VChip
-                size="small"
-                :color="settings.wash_rules.size.prefer === 'desc' ? 'primary' : undefined"
-                :variant="settings.wash_rules.size.prefer === 'desc' ? 'flat' : 'outlined'"
-                class="wash-chip"
-                @click="toggleSizePrefer"
-              >
-                由大到小
-              </VChip>
-              <VChip size="small" variant="outlined" class="wash-chip wash-chip-input">
-                小于
-                <input
-                  v-model.number="settings.wash_rules.size.min_mb"
-                  type="number"
-                  min="0"
-                  class="wash-input"
-                  @change="syncSettingsToForm"
-                />
-                MB
-              </VChip>
-              <VChip size="small" variant="outlined" class="wash-chip wash-chip-input">
-                大于
-                <input
-                  v-model.number="settings.wash_rules.size.max_gb"
-                  type="number"
-                  min="0"
-                  class="wash-input"
-                  @change="syncSettingsToForm"
-                />
-                GB
-              </VChip>
-            </div>
-            <div v-else class="wash-chips">
-              <VChip
-                v-for="(item, chipIndex) in settings.wash_rules.values[dim]"
-                :key="item.v"
-                size="small"
-                :color="item.on ? 'primary' : undefined"
-                :variant="item.on ? 'flat' : 'outlined'"
-                class="wash-chip"
-                :class="{ 'wash-chip-off': !item.on }"
-                draggable="true"
-                @dragstart.stop="onChipDragStart(dim, chipIndex)"
-                @dragover.prevent.stop
-                @drop.stop="onChipDrop(dim, chipIndex)"
-                @click="toggleChip(dim, item)"
-              >
-                {{ valueLabel(item.v) }}
-              </VChip>
-            </div>
-          </div>
-          <div class="wash-foot">
-            <div class="wash-field">
-              <span class="cache-hint">未在排列里的值</span>
-              <VSelect
-                v-model="unlistedPolicy"
-                :items="unlistedOptions"
-                item-title="title"
-                item-value="value"
-                density="compact"
-                variant="outlined"
-                hide-details
-              />
-            </div>
-            <div class="wash-field">
-              <span class="cache-hint">同集每轮最多推几条（0=不限）</span>
-              <VTextField
-                v-model.number="settings.wash_rules.top_n"
-                type="number"
-                min="0"
-                max="50"
-                density="compact"
-                variant="outlined"
-                hide-details
-                @update:model-value="syncSettingsToForm"
-              />
-            </div>
-            <div class="wash-field">
-              <span class="cache-hint">体积容差 ±%</span>
-              <VTextField
-                v-model.number="settings.wash_rules.size_tolerance_pct"
-                type="number"
-                min="0"
-                max="50"
-                density="compact"
-                variant="outlined"
-                hide-details
-                @update:model-value="syncSettingsToForm"
-              />
-            </div>
-          </div>
-          <div class="wash-sources">
-            <span class="cache-hint">比对来源</span>
-            <VCheckbox
-              v-for="item in sourceOptions"
-              :key="item.value"
-              :model-value="(settings.wash_rules.compare_sources || []).includes(item.value)"
-              density="compact"
-              hide-details
-              :label="item.title"
-              class="wash-source"
-              @update:model-value="toggleSource(item.value, $event)"
-            />
-          </div>
-        </div>
-
-        </VCardText>
-      </VCard>
-    </div>
-  </div>
 </template>
 
 <script setup>
@@ -811,172 +380,6 @@ const FIXED_DESTINATION = 'pan115'
 // ---------------------------------------------------------------- 洗版规则模型
 // 与后端 services/quality.py 的默认规则保持一致；后端会返回归一化结果，
 // 这里只负责「首次打开 / 后端缺字段」时的兜底结构，保证 UI 可编辑。
-const WASH_ORDER = ['quality', 'resolution', 'effect', 'audio', 'codec', 'ext', 'size']
-const WASH_DEFAULTS = {
-  quality: [['remux', 1], ['bluray', 1], ['webdl', 1], ['webrip', 1], ['hdtv', 0], ['cam', 0], ['ts', 0]],
-  resolution: [['2160p', 1], ['1080p', 1], ['720p', 1]],
-  effect: [['dv_hdr', 1], ['dv', 1], ['hdr10p', 1], ['hdr10', 1], ['hdr', 1], ['sdr', 1]],
-  audio: [['atmos', 1], ['truehd', 1], ['dtshd', 1], ['dtsx', 1], ['dts', 1], ['eac3', 1], ['ac3', 1], ['flac', 1], ['aac', 1]],
-  codec: [['av1', 1], ['hevc', 1], ['h264', 1], ['vp9', 1], ['other', 1]],
-  ext: [['mkv', 1], ['mp4', 1], ['ts', 1], ['iso', 1], ['rmvb', 1], ['avi', 1], ['mov', 0], ['mpeg', 0], ['mpg', 0], ['wmv', 0], ['other', 0]],
-}
-const dimLabels = {
-  quality: '质量', resolution: '分辨率', effect: '色彩模式',
-  audio: '音频规格', codec: '视频编码', ext: '扩展名', size: '文件体积',
-}
-const valueLabels = {
-  remux: 'REMUX', bluray: 'BluRay', webdl: 'WEB-DL', webrip: 'WEBRip', hdtv: 'HDTV', cam: 'CAM', ts: 'TS',
-  '2160p': '4K / 2160p', '1080p': '1080p', '720p': '720p 及以下',
-  dv_hdr: 'DV & HDR', dv: 'DV', hdr10p: 'HDR10+', hdr10: 'HDR10', hdr: 'HDR', sdr: 'SDR',
-  atmos: 'Atmos', truehd: 'TrueHD', dtshd: 'DTS-HD MA', dtsx: 'DTS-X', dts: 'DTS',
-  eac3: 'EAC3', ac3: 'AC3', flac: 'FLAC', aac: 'AAC',
-  av1: 'AV1', hevc: 'HEVC (H.265)', h264: 'H.264', vp9: 'VP9',
-  mkv: 'MKV', mp4: 'MP4', iso: 'ISO', rmvb: 'RMVB', avi: 'AVI', mov: 'MOV',
-  mpeg: 'MPEG', mpg: 'MPG', wmv: 'WMV', other: '其他',
-}
-const unlistedOptions = [
-  { value: 'deny', title: '默认排除' },
-  { value: 'bottom', title: '垫底纳入' },
-  { value: 'top', title: '置顶纳入' },
-]
-const sourceOptions = [
-  { value: 'pushed', title: '已推送基线' },
-  { value: 'library', title: '媒体库已存在' },
-  { value: 'history', title: '下载历史（PT）' },
-]
-
-function normalizeWashRules(raw) {
-  const source = raw && typeof raw === 'object' ? raw : {}
-  const values = {}
-  Object.keys(WASH_DEFAULTS).forEach((dim) => {
-    values[dim] = WASH_DEFAULTS[dim].map(([v, on]) => ({ v, on: Boolean(on) }))
-  })
-  const incoming = source.values && typeof source.values === 'object' ? source.values : {}
-  Object.keys(incoming).forEach((dim) => {
-    if (!values[dim] || !Array.isArray(incoming[dim]) || !incoming[dim].length) return
-    const merged = []
-    const seen = new Set()
-    incoming[dim].forEach((item) => {
-      const value = typeof item === 'string' ? item : (item && item.v)
-      if (!value || seen.has(value)) return
-      seen.add(value)
-      merged.push({ v: value, on: typeof item === 'object' && item ? item.on !== false : true })
-    })
-    values[dim].forEach((item) => { if (!seen.has(item.v)) merged.push(item) })
-    values[dim] = merged
-  })
-  const rawOrder = Array.isArray(source.order) ? source.order : []
-  const order = ['quality']
-  rawOrder.forEach((dim) => {
-    if (WASH_ORDER.includes(dim) && dim !== 'quality' && !order.includes(dim)) order.push(dim)
-  })
-  WASH_ORDER.forEach((dim) => { if (!order.includes(dim)) order.push(dim) })
-  const unlisted = {}
-  const rawUnlisted = source.unlisted && typeof source.unlisted === 'object' ? source.unlisted : {}
-  WASH_ORDER.forEach((dim) => {
-    if (dim === 'size') return
-    const policy = rawUnlisted[dim]
-    unlisted[dim] = ['deny', 'bottom', 'top'].includes(policy) ? policy : 'deny'
-  })
-  const rawSize = source.size && typeof source.size === 'object' ? source.size : {}
-  return {
-    order,
-    values,
-    unlisted,
-    size: {
-      min_mb: Number(rawSize.min_mb) || 0,
-      max_gb: Number(rawSize.max_gb) || 0,
-      prefer: rawSize.prefer === 'asc' ? 'asc' : 'desc',
-    },
-    top_n: source.top_n === undefined ? 1 : Math.max(0, Math.min(50, Number(source.top_n) || 0)),
-    size_tolerance_pct: source.size_tolerance_pct === undefined
-      ? 5 : Math.max(0, Math.min(50, Number(source.size_tolerance_pct) || 0)),
-    compare_sources: Array.isArray(source.compare_sources) && source.compare_sources.length
-      ? source.compare_sources.filter((item) => ['pushed', 'library', 'history'].includes(item))
-      : ['pushed', 'library', 'history'],
-  }
-}
-
-const localTab = ref('cache')
-const dragRow = ref(-1)
-const dragChip = ref(null)
-
-function valueLabel(value) {
-  return valueLabels[value] || value
-}
-
-function onRowDragStart(index) {
-  if (settings.value.wash_rules.order[index] === 'quality') return
-  dragRow.value = index
-}
-
-function onRowDrop(index) {
-  const from = dragRow.value
-  dragRow.value = -1
-  if (from < 0 || from === index) return
-  const list = settings.value.wash_rules.order.slice()
-  if (list[from] === 'quality' || list[index] === 'quality') return
-  const [moved] = list.splice(from, 1)
-  list.splice(index, 0, moved)
-  settings.value.wash_rules.order = list
-  syncSettingsToForm()
-}
-
-function onChipDragStart(dim, index) {
-  if (dim === 'size') return
-  dragChip.value = { dim, index }
-}
-
-function onChipDrop(dim, index) {
-  const from = dragChip.value
-  dragChip.value = null
-  if (!from || from.dim !== dim || from.index === index) return
-  const list = settings.value.wash_rules.values[dim]
-  if (!list) return
-  const [moved] = list.splice(from.index, 1)
-  list.splice(index, 0, moved)
-  syncSettingsToForm()
-}
-
-function toggleChip(dim, item) {
-  item.on = !item.on
-  syncSettingsToForm()
-}
-
-function toggleSizePrefer() {
-  const size = settings.value.wash_rules.size
-  size.prefer = size.prefer === 'desc' ? 'asc' : 'desc'
-  syncSettingsToForm()
-}
-
-function toggleSource(value, on) {
-  const list = (settings.value.wash_rules.compare_sources || []).slice()
-  const index = list.indexOf(value)
-  if (on && index < 0) list.push(value)
-  if (!on && index >= 0) list.splice(index, 1)
-  if (!list.length) list.push('pushed')
-  settings.value.wash_rules.compare_sources = list
-  syncSettingsToForm()
-}
-
-const unlistedPolicy = computed({
-  get() {
-    const map = settings.value.wash_rules.unlisted || {}
-    const keys = Object.keys(map)
-    if (!keys.length) return 'deny'
-    const first = map[keys[0]]
-    return keys.every((key) => map[key] === first) ? first : 'deny'
-  },
-  set(value) {
-    const map = {}
-    settings.value.wash_rules.order.forEach((dim) => {
-      if (dim !== 'size') map[dim] = value
-    })
-    settings.value.wash_rules.unlisted = map
-    syncSettingsToForm()
-  },
-})
-
 const settings = ref({
   chat_ids: [],
   sync_mode: 'relative',
@@ -984,15 +387,7 @@ const settings = ref({
   start_date: '',
   end_date: '',
   batch_size: 200,
-  subscribe_enabled: true,
-  reshuffle_enabled: false,
-  wash_rules: normalizeWashRules({}),
-  push_batch_size: 10,
-  push_batch_interval: 15,
-  backfill_enabled: false,
-  backfill_cron: '*/30 * * * *',
   cron: '0 */6 * * *',
-  subscribe_cron: '*/5 * * * *',
 })
 const syncModes = ref([
   { value: 'all', title: '所有消息（全量）' },
@@ -1005,8 +400,6 @@ const searchItems = ref([])
 const searchDone = ref(false)
 
 const clearDialog = ref(false)
-const checkResult = ref('')
-const checkDetails = ref([])
 
 let refreshTimer = null
 
@@ -1024,15 +417,7 @@ function syncSettingsToForm() {
   form.value.cache_sync_mode = settings.value.sync_mode
   form.value.cache_sync_days = Number(settings.value.sync_days) || 30
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200
-  form.value.cache_subscribe_enabled = Boolean(settings.value.subscribe_enabled)
-  form.value.cache_reshuffle_enabled = Boolean(settings.value.reshuffle_enabled)
-  form.value.cache_wash_rules = settings.value.wash_rules
-  form.value.cache_push_batch_size = Number(settings.value.push_batch_size) || 10
-  form.value.cache_push_batch_interval = Number(settings.value.push_batch_interval) || 15
-  form.value.cache_backfill_enabled = Boolean(settings.value.backfill_enabled)
-  form.value.cache_backfill_cron = settings.value.backfill_cron
   form.value.cache_cron = settings.value.cron
-  form.value.cache_subscribe_cron = settings.value.subscribe_cron
 }
 
 function applySettings(data) {
@@ -1044,15 +429,7 @@ function applySettings(data) {
     start_date: '',
     end_date: '',
     batch_size: Number(source.batch_size) || 200,
-    subscribe_enabled: source.subscribe_enabled !== false,
-    reshuffle_enabled: Boolean(source.reshuffle_enabled),
-    wash_rules: normalizeWashRules(source.wash_rules),
-    push_batch_size: Number(source.push_batch_size) || 10,
-    push_batch_interval: Number(source.push_batch_interval) || 15,
-    backfill_enabled: Boolean(source.backfill_enabled),
-    backfill_cron: source.backfill_cron || '*/30 * * * *',
     cron: source.cron || '0 */6 * * *',
-    subscribe_cron: source.subscribe_cron || '*/5 * * * *',
   }
   if (Array.isArray(source.sync_modes) && source.sync_modes.length) syncModes.value = source.sync_modes
   syncSettingsToForm()
@@ -1111,15 +488,7 @@ async function saveSettings() {
       sync_mode: settings.value.sync_mode,
       sync_days: Number(settings.value.sync_days) || 30,
       batch_size: Number(settings.value.batch_size) || 200,
-      subscribe_enabled: Boolean(settings.value.subscribe_enabled),
-      reshuffle_enabled: Boolean(settings.value.reshuffle_enabled),
-      wash_rules: settings.value.wash_rules,
-      push_batch_size: Number(settings.value.push_batch_size) || 10,
-      push_batch_interval: Number(settings.value.push_batch_interval) || 15,
-      backfill_enabled: Boolean(settings.value.backfill_enabled),
-      backfill_cron: String(settings.value.backfill_cron || '').trim() || '*/30 * * * *',
       cron: String(settings.value.cron || '').trim() || '0 */6 * * *',
-      subscribe_cron: String(settings.value.subscribe_cron || '').trim() || '*/5 * * * *',
     }
     applySettings(unwrap(await putPluginApi(
       props.api, props.pluginId, 'cache/settings', payload, { timeoutMs: 30000 },
@@ -1211,70 +580,6 @@ async function doSearch() {
     busy.value = ''
   }
 }
-
-async function checkSubscriptions() {
-  if (busy.value) return
-  busy.value = 'check'
-  checkDetails.value = []
-  setMessage('正在检查新增订阅并回搜缓存…')
-  try {
-    const data = unwrap(await postPluginApi(
-      props.api, props.pluginId, 'cache/check_subscriptions', {}, { timeoutMs: 60000 },
-    ))
-    checkResult.value = data?.message || ''
-    checkDetails.value = data?.details || []
-    setMessage(data?.message || '订阅检查完成', data?.checked !== false)
-    await loadStatus()
-  } catch (err) {
-    setMessage(err?.message || '订阅检查失败', false)
-  } finally {
-    busy.value = ''
-  }
-}
-
-// ------------------------------------------------------------------ 存量补扫
-
-async function startBackfill(full) {
-  if (busy.value) return
-  busy.value = 'backfill'
-  setMessage(full ? '正在启动全量补扫…' : '正在启动增量补扫…')
-  try {
-    const data = unwrap(await postPluginApi(
-      props.api, props.pluginId, 'cache/backfill/start', { full: Boolean(full) },
-      { timeoutMs: 30000 },
-    ))
-    setMessage(data?.message || (data?.started ? '补扫已启动' : '补扫未启动'), Boolean(data?.started))
-    await loadStatus()
-  } catch (err) {
-    setMessage(err?.message || '启动补扫失败', false)
-  } finally {
-    busy.value = ''
-  }
-}
-
-async function cancelBackfill() {
-  if (busy.value) return
-  busy.value = 'backfillCancel'
-  try {
-    const data = unwrap(await postPluginApi(
-      props.api, props.pluginId, 'cache/backfill/cancel', {}, { timeoutMs: 15000 },
-    ))
-    setMessage(data?.message || '已请求停止补扫', Boolean(data?.stopped))
-    await loadStatus()
-  } catch (err) {
-    setMessage(err?.message || '停止补扫失败', false)
-  } finally {
-    busy.value = ''
-  }
-}
-
-const backfillSummary = computed(() => {
-  const bf = status.value?.backfill
-  if (!bf) return ''
-  if (bf.running) return ''
-  if (!bf.last_run_at) return '尚未运行过（开启定时后按 cron 自动增量；首次运行只建立水位基线）'
-  return `上次运行 ${bf.last_run_at}：推送 ${bf.last_run_pushed ?? 0} 条，跳过 ${bf.last_run_skipped ?? 0} 条`
-})
 
 // ------------------------------------------------------------------ 展示辅助
 
@@ -1427,50 +732,8 @@ onUnmounted(() => {
   gap: 8px;
 }
 /* 订阅回搜 / 跳过首次搜索：并排两列面板，窄屏一列 */
-.cache-toggles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
 @media (max-width: 600px) {
   .cache-toggles { grid-template-columns: 1fr; }
-}
-.cache-toggle-panel {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  border-radius: 8px;
-  padding: 8px 10px;
-  min-width: 0;
-}
-.cache-toggle-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.cache-toggle-title { font-size: 12px; font-weight: 600; }
-.cache-toggle-desc {
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-}
-/* 存量补扫按钮行：开关（最左）+ 两个触发按钮 + cron 输入同一行、垂直居中；窄屏自动换行堆叠 */
-.cache-backfill-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-/* 开关本身不加外边距，与左侧贴齐，间距由父级 gap 统一控制 */
-.cache-switch-inline { flex: 0 0 auto; }
-/* 单个开关 + 行内说明（洗版回搜）：开关不收缩，说明文字换行填满剩余宽度 */
-.cache-switch-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  min-width: 0;
 }
 .cache-switch-row .cache-hint { flex: 1 1 260px; min-width: 0; }
 /* 按钮行里的 cron 输入：约 200px 宽、垂直居中；窄屏换行时独占一行而不是被压扁 */

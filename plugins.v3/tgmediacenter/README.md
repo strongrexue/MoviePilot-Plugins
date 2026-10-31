@@ -452,7 +452,7 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
 - **telethon** 不全局打桩，而是由用例声明 `telethon_available` fixture（它同时修正 `runtime.TELETHON_AVAILABLE`），
   涉及凭证就绪、`_register_handler` 注册形状的断言因此不再随机器变化。
 
-结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境结果一致（1.13.32 在宿主 venv 实测 **575 passed**）。
+结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境结果一致（1.13.34 在宿主 venv 实测 **483 passed**）。
 在宿主 venv（`D:\projects\MoviePilot\.venv`，另两个插件的依赖也齐）里还可以直接
 `python -m pytest tests\v3` 一次跑完三个插件——本目录有 `__init__.py`
 （另两个插件没有），用来消除与 `tests/v3/embycovercenter/test_plugin.py` 的同名冲突。
@@ -548,12 +548,20 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
   每维 chip 左右即优劣，未列出值默认排除、解析不出的不参与比较；
   比对来源扩到「已推送 / 媒体库 / 下载历史（PT）」三源，同质量同分辨率同体积（±5%）判持平不推。
   详见上方「⑤ 历史消息缓存 · 洗版规则」。
+- **六大板块 + 洗版规则独立板块**（`1.13.34`）：设置页左侧固定六项——TG 凭证 / 115 网盘 /
+  订阅监控（原「资源监控」）/ 消息缓存 / 洗版规则 / 通用转发，「重复获取治理」整块下线；
+  洗版规则升为一级板块并新增「判定示例」表。消息缓存删掉「订阅兜底检查」「存量补扫」两张卡与
+  「新增订阅回搜」「跳过原生首次全站搜索」两个开关，推送节流（每批条数 / 批间隔）迁到
+  「TG 凭证 · 推送节流」；订阅监控运行状态加一枚「订阅 N」chip。洗版唯一触发路径改为实时回搜：
+  频道新消息入库 → 按订阅回搜缓存 → 七维比较 → 更优才推 115（2 秒防抖合并连续消息）。
+  后端同步清退 `first_search_guard` / `pt_guard` / `p9_gate` 三个模块与 P9 判定，
+  以及订阅兜底、存量补扫的 cron / API / 配置项 / 数据模型。
 - **洗版规则页可用性**（`1.13.33`）：「启用洗版规则」开关内嵌到洗版页顶部，规则常显（关闭时仍可编辑保存）；收口区改三栏网格、chip 尺寸与效果图对齐。详见上方「⑤ 历史消息缓存 · 洗版规则」。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.33`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
+当前 `1.13.34`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
 `package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
 前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
 `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本

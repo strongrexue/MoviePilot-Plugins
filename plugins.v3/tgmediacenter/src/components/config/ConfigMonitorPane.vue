@@ -61,6 +61,10 @@
         </div>
         <!-- 唯一的一行小字：消息监听注册态（原第三个徽章）+ 启动时间 + 风控/冷却 -->
         <div class="mon-stat-foot">
+          <!-- 订阅数（1.13.34）：原「订阅兜底检查」卡里的缺失判断徽章收进这一行 -->
+          <VChip size="x-small" variant="tonal" color="info" label class="mon-sub-chip">
+            订阅 {{ status?.matcher?.subscriptions ?? 0 }}
+          </VChip>
           <span :class="status?.pipeline?.handler_registered ? '' : 'mon-foot-warn'">
             消息监听{{ status?.pipeline?.handler_registered ? '已注册' : '未注册' }}
           </span>

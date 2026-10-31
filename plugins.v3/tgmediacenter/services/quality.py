@@ -219,6 +219,7 @@ def normalize_rules(raw: Any) -> Dict[str, Any]:
         sources = list(DEFAULT_SOURCES)
 
     return {
+        "enabled": bool(data.get("enabled", False)),
         "order": order,
         "values": values,
         "unlisted": unlisted,

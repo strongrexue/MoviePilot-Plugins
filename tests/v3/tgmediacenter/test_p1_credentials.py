@@ -271,19 +271,12 @@ def test_api_routes_contract():
         "/cache/cancel",
         "/cache/clear",
         "/cache/search",
-        "/cache/check_subscriptions",
-        # 存量补扫（1.12.0）
-        "/cache/backfill/status",
-        "/cache/backfill/start",
-        "/cache/backfill/cancel",
         # P6 通用转发（rules 同时注册 GET 与 PUT）
         "/forward/rules",
         "/forward/status",
         "/forward/hits",
         "/forward/hits/clear",
         "/forward/test",
-        # P9 重复获取治理（P9-1：能力探针 + 反向开关重贴）
-        "/p9/guard",
     }
     for route in routes:
         assert route["auth"] == "bear"

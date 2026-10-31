@@ -566,6 +566,49 @@ onUnmounted(() => {
       </VCardText>
     </VCard>
 
+    <!-- 推送节流（1.13.34 从消息缓存迁来）：全局推送 worker 的批量参数 -->
+    <VCard flat class="tg-card">
+      <VCardItem>
+        <VCardTitle class="text-subtitle-2">推送节流</VCardTitle>
+        <VCardSubtitle class="text-caption">
+          全部 115 转存与通知都走同一个推送 worker；这里控制它每轮领多少条、两轮隔多久。
+        </VCardSubtitle>
+      </VCardItem>
+      <VCardText>
+        <VRow dense>
+          <VCol cols="12" md="6">
+            <VTextField
+              :model-value="config.form.cache_push_batch_size"
+              label="每批推送条数（1~200）"
+              type="number"
+              min="1"
+              max="200"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="(value) => (config.form.cache_push_batch_size = Number(value) || 10)"
+            />
+          </VCol>
+          <VCol cols="12" md="6">
+            <VTextField
+              :model-value="config.form.cache_push_batch_interval"
+              label="批间隔（5~3600 秒）"
+              type="number"
+              min="5"
+              max="3600"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="(value) => (config.form.cache_push_batch_interval = Number(value) || 15)"
+            />
+          </VCol>
+        </VRow>
+      </VCardText>
+      <VCardText class="tg-hint">
+        实时监控与转发任务保底一半额度，不会被批量任务饿死；条数调大 = 更快但更容易触发 115 风控。
+      </VCardText>
+    </VCard>
+
     <!-- 对话列表：只读下拉框，展开后在菜单内滑动查看 / 搜索，不再整块铺开 -->
     <div class="tg-dialogs">
       <VAutocomplete

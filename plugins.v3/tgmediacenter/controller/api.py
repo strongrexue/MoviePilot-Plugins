@@ -21,7 +21,6 @@ from ..core.pan115_login import Pan115QrError
 from ..core.telegram import TelegramOperationError
 from ..core.notify import notify_mtype
 from ..model.hit_log import KIND_MONITOR
-from ..services import pt_guard
 from . import schemas as api_schemas
 
 
@@ -63,17 +62,12 @@ def get_api(plugin) -> List[Dict[str, Any]]:
         ("/cache/cancel", plugin.api_cache_cancel, ["POST"], "停止正在进行的缓存同步"),
         ("/cache/clear", plugin.api_cache_clear, ["POST"], "清空指定频道的缓存"),
         ("/cache/search", plugin.api_cache_search, ["POST"], "检索缓存消息"),
-        ("/cache/check_subscriptions", plugin.api_cache_check_subscriptions, ["POST"], "立即检查新增订阅并回搜缓存"),
-        ("/cache/backfill/status", plugin.api_cache_backfill_status, ["GET"], "存量补扫运行态"),
-        ("/cache/backfill/start", plugin.api_cache_backfill_start, ["POST"], "触发存量补扫（全量/增量）"),
-        ("/cache/backfill/cancel", plugin.api_cache_backfill_cancel, ["POST"], "停止存量补扫"),
         ("/forward/rules", plugin.api_forward_rules, ["GET"], "获取 TG 通用转发规则"),
         ("/forward/rules", plugin.api_forward_rules_save, ["PUT", "POST"], "保存 TG 通用转发规则"),
         ("/forward/status", plugin.api_forward_status, ["GET"], "获取转发运行状态"),
         ("/forward/hits", plugin.api_forward_hits, ["GET"], "查询转发命中流水"),
         ("/forward/hits/clear", plugin.api_forward_hits_clear, ["POST"], "清理转发命中流水（清空或按筛选删除）"),
         ("/forward/test", plugin.api_forward_test, ["POST"], "用一段文本测试转发规则"),
-        ("/p9/guard", plugin.api_p9_guard, ["GET"], "P9 宿主能力探针"),
     ]
     return [
         {
@@ -536,40 +530,6 @@ def api_cache_search(plugin, request: api_schemas.CacheSearchRequest):
     return _envelope(data, message=f"找到 {len(items)} 条缓存记录")
 
 
-def api_cache_check_subscriptions(plugin):
-    """立即执行一次订阅检查（与定时任务同一逻辑，便于手动验证）。"""
-    module = _cache(plugin)
-    data = _invoke(lambda: module.check_subscriptions(trigger="手动"))
-    return _envelope(api_schemas.CacheCheckSubscriptionsData.model_validate(data), message=data.get("message", ""))
-
-
-def api_cache_backfill_status(plugin):
-    """存量补扫运行态（进度、水位、最近一次结果）。"""
-    module = _cache(plugin)
-    data = _invoke(lambda: module.backfill_state())
-    return _envelope(api_schemas.CacheBackfillState.model_validate(data))
-
-
-def api_cache_backfill_start(plugin, request: api_schemas.CacheBackfillStartRequest):
-    """触发存量补扫（full=True 全量翻历史，False 增量自水位起）。"""
-    module = _cache(plugin)
-    data = _invoke(lambda: module.start_backfill(full=bool(request.full)))
-    return _envelope(
-        api_schemas.CacheBackfillStartData.model_validate(data),
-        message=data.get("message", ""),
-    )
-
-
-def api_cache_backfill_cancel(plugin):
-    """请求停止存量补扫（当前批次结束后退出）。"""
-    module = _cache(plugin)
-    data = _invoke(lambda: module.cancel_backfill())
-    return _envelope(
-        api_schemas.CacheBackfillCancelData.model_validate(data),
-        message=data.get("message", ""),
-    )
-
-
 # ---------------------------------------------------------------------- ⑥ TG 通用转发
 
 
@@ -644,15 +604,3 @@ def api_forward_test(plugin, request: api_schemas.ForwardTestRequest):
     return _envelope(api_schemas.ForwardTestData.model_validate(data), message="测试完成（未落库、未推送）")
 
 
-# ---------------------------------------------------------------------- ⑩ P9 重复获取治理
-
-
-def api_p9_guard(plugin):
-    """P9 数据源探针（只读、无副作用）。
-
-    探针存在的意义：闸门 A 要用 ``list_download_history`` 与 ``DownloaderHelper``
-    这两组宿主能力，而它们在本插件里**此前一处都没用过**——先问清楚"到底能不能
-    导入、真实落在哪个模块"，再动手写闸门，避免判定链靠猜。
-    """
-    probe = _invoke(pt_guard.probe)
-    return _envelope(api_schemas.P9GuardData.model_validate({"probe": probe}))

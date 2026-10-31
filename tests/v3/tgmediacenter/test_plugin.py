@@ -16,7 +16,7 @@ PLUGIN_DIR = REPO_ROOT / "plugins.v3" / "tgmediacenter"
 def test_plugin_metadata():
     """插件元数据应与 package.v3.json 保持一致。"""
     assert TgMediaCenter.plugin_name == "胖虎媒体中心"
-    assert TgMediaCenter.plugin_version == "1.13.33"
+    assert TgMediaCenter.plugin_version == "1.13.34"
     assert TgMediaCenter.plugin_config_prefix == "tgmediacenter_"
 
 
@@ -82,8 +82,11 @@ def test_default_config_shape():
     # 1.13.18：发现页入口并入「启用」开关，配置里不再有独立键
     assert "discovery_page_enabled" not in config
     # 1.13.8：跳过宿主首搜是独立开关，默认关，且与「订阅回搜」开关互不依赖
-    assert config["skip_first_search_enabled"] is False
-    assert config["cache_subscribe_enabled"] is True
+    # 1.13.34：跳过首搜 / 订阅兜底已随功能下线，默认配置里不再有这些键
+    assert "skip_first_search_enabled" not in config
+    assert "cache_subscribe_enabled" not in config
+    assert "cache_backfill_enabled" not in config
+    assert config["cache_wash_rules"] == {}
 
 
 def _bare_plugin(config):

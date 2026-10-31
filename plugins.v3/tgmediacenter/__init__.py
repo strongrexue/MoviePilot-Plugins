@@ -9,9 +9,6 @@ P7 打磨已完成（运行详情与仪表盘、通知接入、限流退避收�
   ⑥ TG 通用转发（关键词/扩展名匹配、内容转换、置顶，与监控共用事件流水线与全局冷却）；
   ⑦ 运行详情页与仪表盘（/overview 聚合）+ 插件级共享冷却门（读写共用 FloodWait 退避）；
   ⑧ 消息交互（监听宿主用户消息事件，私聊发链接即转存 115 并回执：新转存 / 已转存过 / 失败原因）；
-  ⑩ P9 重复获取治理（P9-1：宿主能力探针 + 反向开关「暂停新增订阅搜索」，默认关）。
-  ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主「首次全站搜索」，独立开关默认关
-     （在宿主入队前拦截；与「订阅回搜」开关互不依赖，见 modules/first_search_guard.py）。
 """
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,7 +21,6 @@ from .controller import schemas as api_schemas
 from .core.cooldown import CooldownGate
 from .model import get_models
 from .model.migration import ensure_schema
-from .modules import first_search_guard
 from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
 from .modules.forward import ForwardModule
@@ -45,7 +41,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.33"
+    plugin_version = "1.13.34"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -125,11 +121,6 @@ class TgMediaCenter(_PluginBase):
         self._pan115 = Pan115Module(self)
         # 缓存模块先建：监控流水线的「关心会话」是「监控 ∪ 转发 ∪ 缓存」，事件入口要用到它
         self._cache = CacheModule(self)
-        # ⑪ 跳过宿主「新增订阅首次全站搜索」（独立开关，默认关）：
-        # 只能在入队前拦截，详见 modules/first_search_guard.py 里的三条实测证据
-        first_search_guard.install(self)
-        # 监听宿主「新增订阅」事件：新增订阅后秒级触发缓存回搜（定时检查仍作兜底）
-        self._install_subscribe_listener()
         # ⑧ 监听宿主「用户消息」事件：私聊发 115 / 磁力 / ed2k 链接即转存并回执
         self._interactive = InteractiveModule(self)
         self._install_user_message_listener()
@@ -283,28 +274,19 @@ class TgMediaCenter(_PluginBase):
             "cache_sync_mode": "relative",
             "cache_sync_days": 30,
             "cache_batch_size": 200,
-            "cache_subscribe_enabled": True,
-            # 洗版回搜（1.13.24）：开 = 定时兜底跳过媒体库判定、遍历全部订阅回搜，
-            # 频道后来进了更高质量的资源也能被捞出来洗版；关 = 与 1.13.23 完全一致
-            "cache_reshuffle_enabled": False,
             # 洗版规则（1.13.32）：七维白名单 + 逐维字典序 + TopN + 比对来源。
             # 结构由 services/quality.normalize_rules() 归一；空 dict = 用默认规则
             # （质量锁定第一，其余按 分辨率 > 色彩 > 音频 > 编码 > 扩展名 > 体积）。
             "cache_wash_rules": {},
-            # 推送节流（1.13.25）：洗版回搜不再限制单轮入队条数，改由推送 worker
-            # 分批匀速消费——每批 cache_push_batch_size 条、批间隔
-            # cache_push_batch_interval 秒。一次定时能把全部订阅陆续推完，不必反复
-            # 手点「立即洗版回搜」。
+            # 推送节流（1.13.25）：推送 worker 分批匀速消费——每批
+            # cache_push_batch_size 条、批间隔 cache_push_batch_interval 秒。
             "cache_push_batch_size": 10,
             "cache_push_batch_interval": 15,
-            "cache_backfill_enabled": False,
             # ⑥ TG 通用转发
             "forward_enabled": False,
             "forward_rules": [],
             # 定时任务
             "cache_cron": "0 */6 * * *",
-            "cache_subscribe_cron": "*/30 * * * *",
-            "cache_backfill_cron": "*/30 * * * *",
             # 通知
             "notify_on_hit": True,
             "notify_on_error": True,
@@ -318,18 +300,6 @@ class TgMediaCenter(_PluginBase):
             "interactive_dedup": True,
             # ⑨ 发现页入口（1.8.0；1.13.18 起并入「启用」开关）：
             # 插件启用即在 MP 左侧「发现」分区注册整页入口，停用即自动移除，不再单独配置
-            # ⑩ P9 重复获取治理（1.9.0；反向 R0 开关 1.9.1 真机验证无收益后移除——
-            # 暂停 new_subscribe_search 后新增订阅照旧被搜索，首次搜索是事件驱动）
-            # 前向闸门 A：缺失确认之后再加一层「PT 路是否在管」判定；默认关 = 完全维持现状
-            "p9_forward_gate_enabled": False,
-            # 成熟期 T（小时）：PT 完全没记录时，等多久才让 TG 补（RSS 间隔 20min 下 2h 已足够）
-            "p9_maturity_hours": 2,
-            # 下载器活跃性细化：用下载历史里的 hash 查种子，区分「在途」与「死种」
-            "p9_check_downloader": True,
-            # ⑪ 反向闸门 R1（1.13.8）：新增订阅时跳过宿主的「首次全站搜索」。
-            # 与「订阅回搜」开关（cache_subscribe_enabled）**互不依赖**，独立开关便于单独验证；
-            # 默认关 = 升级后行为与 1.13.7 完全一致（详见 modules/first_search_guard.py）
-            "skip_first_search_enabled": False,
             # 一次性执行
             "onlyonce": False,
         }
@@ -491,22 +461,6 @@ class TgMediaCenter(_PluginBase):
         """检索缓存消息。"""
         return api_controller.api_cache_search(self, request)
 
-    def api_cache_check_subscriptions(self):
-        """立即检查新增订阅并回搜缓存。"""
-        return api_controller.api_cache_check_subscriptions(self)
-
-    def api_cache_backfill_status(self):
-        """存量补扫运行态。"""
-        return api_controller.api_cache_backfill_status(self)
-
-    def api_cache_backfill_start(self, request: api_schemas.CacheBackfillStartRequest):
-        """触发存量补扫（全量/增量）。"""
-        return api_controller.api_cache_backfill_start(self, request)
-
-    def api_cache_backfill_cancel(self):
-        """停止存量补扫。"""
-        return api_controller.api_cache_backfill_cancel(self)
-
     # ------------------------------------------------------------------ ⑥ TG 通用转发
 
     def api_forward_rules(self):
@@ -535,38 +489,13 @@ class TgMediaCenter(_PluginBase):
         """用一段文本测试转发规则。"""
         return api_controller.api_forward_test(self, request)
 
-    # ------------------------------------------------------------------ ⑩ P9 重复获取治理
-
-    def api_p9_guard(self):
-        """宿主能力探针（只读）。"""
-        return api_controller.api_p9_guard(self)
 
     # ------------------------------------------------------------------ 宿主事件
-
-    def on_subscribe_added(self, event) -> None:
-        """宿主「新增订阅」广播事件：交给缓存模块做防抖精准回搜。
-
-        处理器**必须定义在插件主类上**：宿主事件分发只通过插件实例解析器
-        （``plugin_id = owner_class.__name__``）绑定运行实例；定义在普通类
-        （如 CacheModule）上的绑定方法会被判定「未绑定显式 resolver」静默跳过，
-        这也是 1.4.3 事件没生效的原因。
-
-        :note: 这里**只做回搜**。「跳过宿主首次全站搜索」是独立开关、独立实现
-            （``first_search_guard``，在入队前拦截），与本方法无关——事件是本方法
-            唯一的职责，避免再次把两件事耦合在一起。
-        """
-        cache = getattr(self, "_cache", None)
-        if cache is None:
-            return
-        try:
-            cache.on_subscribe_event(event)
-        except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
-            logger.warning(f"[TgMediaCenter] 处理订阅事件失败：{err}")
 
     def on_user_message(self, event) -> None:
         """宿主「收到用户外来消息」广播事件：消息里有链接就转存 115 并回执。
 
-        与 ``on_subscribe_added`` 同理，处理器**必须定义在插件主类上**，否则宿主
+        处理器**必须定义在插件主类上**，否则宿主
         事件分发会静默跳过（详见该方法注释）。
         """
         interactive = getattr(self, "_interactive", None)
@@ -611,42 +540,6 @@ class TgMediaCenter(_PluginBase):
             except Exception as err:  # pragma: no cover
                 logger.debug(f"[TgMediaCenter] 移除用户消息监听失败：{err}")
 
-    def _install_subscribe_listener(self) -> bool:
-        """注册宿主新增订阅事件监听（旧宿主无事件总线时静默降级为仅定时）。"""
-        try:
-            from app.schemas.types import EventType
-            from app.sdk.events import eventmanager
-        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
-            logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，订阅回搜仅按定时执行：{err}")
-            return False
-        try:
-            eventmanager.add_event_listener(EventType.SubscribeAdded, self.on_subscribe_added)
-        except Exception as err:  # pragma: no cover
-            logger.warning(f"[TgMediaCenter] 注册订阅事件监听失败：{err}")
-            return False
-        self._subscribe_eventmanager = eventmanager
-        self._subscribe_event_type = EventType.SubscribeAdded
-        cache = getattr(self, "_cache", None)
-        if cache is not None:
-            cache.mark_event_listener(True)
-        return True
-
-    def _uninstall_subscribe_listener(self) -> None:
-        """移除宿主订阅事件监听并取消待执行的防抖回搜。"""
-        manager = getattr(self, "_subscribe_eventmanager", None)
-        event_type = getattr(self, "_subscribe_event_type", None)
-        self._subscribe_eventmanager = None
-        self._subscribe_event_type = None
-        if manager is not None and event_type is not None:
-            try:
-                manager.remove_event_listener(event_type, self.on_subscribe_added)
-            except Exception as err:  # pragma: no cover
-                logger.debug(f"[TgMediaCenter] 移除订阅事件监听失败：{err}")
-        cache = getattr(self, "_cache", None)
-        if cache is not None:
-            cache.cancel_event_timer()
-            cache.mark_event_listener(False)
-
     # ------------------------------------------------------------------ 其它扩展点
 
     def get_database_models(self) -> Optional[List[type]]:
@@ -661,12 +554,8 @@ class TgMediaCenter(_PluginBase):
         """返回插件定时服务定义。
 
         监控流水线自带 worker 线程（聚合窗口 + 推送队列扫描），不需要宿主定时任务；
-        这里注册两个缓存相关周期任务：
-        - 缓存增量同步（``cache_cron``，默认每 6 小时）：按位点补齐断线窗口漏掉的消息；
-        - 订阅回搜兜底检查（``cache_subscribe_cron``，默认每 30 分钟）：对比订阅快照，
-          新增订阅自动回搜缓存并推送。实时路径是宿主「新增订阅」事件
-          （``on_subscribe_added``），定时检查只兜底——插件离线期间新增的订阅事件
-          不会补发，且事件总线不可用时要还能发现新增。
+        这里只注册缓存增量同步（``cache_cron``，默认每 6 小时）：按位点补齐断线窗口
+        漏掉的消息。
 
         :note: ``trigger`` 必须是 ``CronTrigger`` 对象；本方法整体兜底，
             任何异常都只记录日志并降级为空列表（注册异常会拖垮 TG 自愈）。
@@ -691,23 +580,6 @@ class TgMediaCenter(_PluginBase):
                     "name": "胖虎媒体中心 缓存增量同步",
                     "id": "tgmediacenter_cache_sync",
                 })
-            # 订阅兜底与「新增订阅回搜」开关互不依赖：开关只管事件路径，
-            # 兜底定时（对比快照）始终按 cron 生效，插件离线期间的漏网订阅靠它发现。
-            cron = cache.subscribe_cron()
-            services.append({
-                "func": cache.run_subscription_job,
-                "trigger": CronTrigger.from_crontab(cron),
-                "name": "胖虎媒体中心 订阅兜底检查",
-                "id": "tgmediacenter_cache_subscribe",
-            })
-            if cache.backfill_enabled():
-                cron = cache.backfill_cron()
-                services.append({
-                    "func": cache.run_backfill_job,
-                    "trigger": CronTrigger.from_crontab(cron),
-                    "name": "胖虎媒体中心 存量补扫",
-                    "id": "tgmediacenter_cache_backfill",
-                })
         except Exception as err:  # pragma: no cover - 定时任务注册失败不影响插件加载
             logger.warning(f"[TgMediaCenter] 注册缓存定时任务失败：{err}")
             return []
@@ -721,8 +593,6 @@ class TgMediaCenter(_PluginBase):
             不固定的代理（如 V2rayA 节点自动切换）下，每次重连都可能落到新 IP，触发
             「同一 AuthKey 在两处 IP 同时出现」导致密钥作废。
         """
-        # 先还原宿主入队方法：插件停用 / 重载后绝不留补丁在宿主进程里
-        first_search_guard.uninstall()
         monitor, self._monitor = self._monitor, None
         if monitor is not None:
             try:
@@ -731,8 +601,7 @@ class TgMediaCenter(_PluginBase):
                 logger.warning(f"[TgMediaCenter] 停止资源监控流水线失败：{err}")
         # 转发模块无自有线程（复用监控流水线），仅清引用，必须在流水线停止之后
         self._forward = None
-        # 先摘事件监听（其中会取消防抖回搜），再释放缓存模块
-        self._uninstall_subscribe_listener()
+        # 先摘事件监听，再释放缓存模块
         self._uninstall_user_message_listener()
         self._interactive = None
         cache = getattr(self, "_cache", None)
@@ -742,10 +611,6 @@ class TgMediaCenter(_PluginBase):
                 cache.cancel_sync()
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止缓存同步失败：{err}")
-            try:
-                cache.cancel_backfill()
-            except Exception as err:  # pragma: no cover
-                logger.warning(f"[TgMediaCenter] 停止存量补扫失败：{err}")
         credentials, self._credentials = self._credentials, None
         if credentials is not None and not keep_tg_runtime:
             try:

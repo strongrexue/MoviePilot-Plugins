@@ -53,35 +53,15 @@ from ..services.matcher import MediaMatcher
 # 缓存回搜在命中流水里的"虚拟规则"标识（便于在流水里与监控规则区分）
 CACHE_SEARCH_RULE_ID = "cache_search"
 CACHE_SEARCH_RULE_NAME = "缓存回搜"
-# 存量补扫在命中流水里的"虚拟规则"标识
-CACHE_BACKFILL_RULE_ID = "cache_backfill"
-CACHE_BACKFILL_RULE_NAME = "存量补扫"
-# 存量补扫：增量水位 / 运行摘要 的插件数据键
-_BACKFILL_WATERMARK_KEY = "cache_backfill_watermark"
-_BACKFILL_STATE_KEY = "cache_backfill_state"
-# 存量补扫单批扫描条数
-_BACKFILL_BATCH = 100
-# 上次订阅快照的插件数据键。
-# v2：1.4.1 的推送因 push_task.chat_id 超出 int32 全部入队失败，但快照已把
-# 那批订阅记为「已处理」；换键作废旧快照，修复后首次检查会全量重搜——
-# 已成功推送过的被命中流水拦住，入队失败的那批（无流水记录）得以补推。
-_SUB_SNAPSHOT_KEY = "cache_sub_snapshot_v2"
-_SUB_STATE_KEY = "cache_sub_state"
-# 洗版质量基线（1.13.27）：按「订阅标题 + 年份 + 季集区间」记住已推送过的最优画质，
-# 后续洗版回搜只有严格优于它的候选才算升级。存插件数据，重启不丢。
-_RESHUFFLE_BASELINE_KEY = "cache_reshuffle_baseline"
+# 洗版基线（1.13.32）：按「订阅标题 + 年份 + 季集区间」记住已推送过的最好画质，
+# 后续候选只有逐维比较严格更优才算升级。存插件数据，重启不丢。
+_WASH_BASELINE_KEY = "cache_wash_baseline"
 # 基线条目上限：超过按最近更新时间截断，防止长期运行无限膨胀
-_RESHUFFLE_BASELINE_LIMIT = 500
-# 洗版回搜（1.13.24）每轮入队条数不再设上限（1.13.25）：一轮定时就能把全部订阅
-# 捞完，不必反复点「立即洗版回搜」。推送节奏改由推送 worker 的「每批条数 / 批间隔」
-# 控制（见 core/pipeline.py 的 push_batch_size / push_batch_interval），队列不会
-# 被瞬间灌满；重复入队仍由命中流水挡住。
+_WASH_BASELINE_LIMIT = 500
+# 推送节奏由推送 worker 的「每批条数 / 批间隔」控制（见 core/pipeline.py 的
+# push_batch_size / push_batch_interval），队列不会被瞬间灌满；重复入队由命中流水挡住。
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
-DEFAULT_SUBSCRIBE_CRON = "*/30 * * * *"
-DEFAULT_BACKFILL_CRON = "*/30 * * * *"
-# 订阅事件防抖秒数：批量添加订阅时合并为一次回搜
-_EVENT_DEBOUNCE_SECONDS = 5.0
 
 
 class CacheModule:
@@ -92,12 +72,6 @@ class CacheModule:
         self._history = HistoryCacheService(plugin)
         self._matcher = MediaMatcher()
         self._lock = threading.Lock()
-        # 订阅事件防抖（事件处理器挂在插件主类上，见 TgMediaCenter.on_subscribe_added）
-        self._evt_lock = threading.Lock()
-        self._evt_timer: Optional[threading.Timer] = None
-        self._listener_installed = False
-        self._pending_events: List[dict] = []
-        self._event_runs = 0
         self._state: Dict[str, Any] = {
             "last_check_at": "",
             "last_check_new": 0,
@@ -105,177 +79,6 @@ class CacheModule:
             "last_error": "",
             "checking": False,
         }
-        # 存量补扫（反扫缓存，见 _backfill_* 方法）：后台线程 + 可停止
-        self._backfill_thread: Optional[threading.Thread] = None
-        self._backfill_cancel = threading.Event()
-        self._backfill_state: Dict[str, Any] = {
-            "running": False,
-            "full": False,
-            "processed": 0,
-            "pushed": 0,
-            "skipped": 0,
-            "started_at": "",
-            "finished_at": "",
-            "last_error": "",
-        }
-        self._p9_gate: Optional[Any] = None  # 懒加载前向闸门（P9）
-
-    # ------------------------------------------------------ 订阅事件（实时回搜）
-
-    def mark_event_listener(self, installed: bool) -> None:
-        """登记事件监听状态（注册动作在插件主类，宿主只解析插件实例方法）。"""
-        self._listener_installed = bool(installed)
-        if installed:
-            logger.info(
-                f"[{self._plugin_id()}] 已监听宿主新增订阅事件：新增订阅后 "
-                f"{_EVENT_DEBOUNCE_SECONDS:.0f} 秒内回搜缓存"
-            )
-
-    @property
-    def event_listener_installed(self) -> bool:
-        return self._listener_installed
-
-    @property
-    def event_runs(self) -> int:
-        """事件触发的回搜已执行次数（可观测性 / 测试用）。"""
-        with self._lock:
-            return int(self._event_runs)
-
-    def on_subscribe_event(self, event: Any = None) -> None:
-        """宿主新增订阅事件入口：收集订阅 ID 并防抖触发回搜。
-
-        与定时检查的「快照对比」不同，事件路径**按订阅精准回搜**——
-        删除后重新添加的订阅（快照里已存在）同样会回搜，重复推送由
-        命中流水拦掉，因入队失败而没写流水的则是补推。
-        """
-        if not (self.enabled() and self.subscribe_enabled()):
-            return
-        payload = _event_payload(event)
-        sid = _as_int(payload.get("subscribe_id"))
-        info = payload.get("mediainfo")
-        info = info if isinstance(info, dict) else {}
-        if not sid and not info:
-            logger.debug(f"[{self._plugin_id()}] 订阅事件缺少 subscribe_id 与 mediainfo，忽略")
-            return
-        with self._lock:
-            self._pending_events.append({"id": sid, "info": info})
-        logger.info(
-            f"[{self._plugin_id()}] 收到新增订阅事件"
-            f"（subscribe_id={sid if sid else '未提供'}），{_EVENT_DEBOUNCE_SECONDS:.0f} 秒后回搜缓存"
-        )
-        self._schedule_event_check()
-
-    def _schedule_event_check(self) -> None:
-        """重置防抖定时器：批量添加订阅合并为一次回搜。"""
-        with self._evt_lock:
-            self._cancel_event_timer(locked=True)
-            timer = threading.Timer(_EVENT_DEBOUNCE_SECONDS, self._run_pending_search)
-            timer.daemon = True
-            self._evt_timer = timer
-            timer.start()
-
-    def _cancel_event_timer(self, locked: bool = False) -> None:
-        if not locked:
-            with self._evt_lock:
-                self._cancel_event_timer(locked=True)
-                return
-        timer = self._evt_timer
-        self._evt_timer = None
-        if timer is not None:
-            timer.cancel()
-
-    def cancel_event_timer(self) -> None:
-        """取消待执行的防抖回搜（插件停止时调用）。"""
-        self._cancel_event_timer()
-
-    def _run_pending_search(self) -> None:
-        """防抖到点：对事件带来的订阅逐个回搜。"""
-        try:
-            with self._lock:
-                if self._state.get("checking"):
-                    # 定时检查/手动检查正在进行：稍后重试（pending 不丢）
-                    self._schedule_event_check()
-                    return
-                self._state["checking"] = True
-                events = list(self._pending_events)
-                self._pending_events.clear()
-            try:
-                self._search_event_subscriptions(events)
-            finally:
-                with self._lock:
-                    self._state["checking"] = False
-        except Exception as err:  # pragma: no cover
-            logger.warning(f"[{self._plugin_id()}] 订阅事件回搜失败：{err}")
-
-    def _search_event_subscriptions(self, events: List[dict]) -> dict:
-        """按事件里的订阅 ID / 媒体信息回搜缓存并推送。"""
-        with self._lock:
-            self._event_runs += 1
-        targets: List[tuple] = []
-        items: List[Any] = []
-        if any(item.get("id") for item in events):
-            try:
-                items = list(matcher_service.iter_subscriptions())
-            except Exception as err:
-                logger.warning(f"[{self._plugin_id()}] 订阅事件回搜：读取宿主订阅失败：{err}")
-                items = []
-        by_id: Dict[int, Any] = {}
-        for item in items:
-            value = _as_int(getattr(item, "id", None))
-            if value:
-                by_id[value] = item
-
-        for event in events:
-            sid = _as_int(event.get("id"))
-            info = event.get("info") if isinstance(event.get("info"), dict) else {}
-            entry: dict = {}
-            key = ""
-            if sid:
-                snapshot_item = by_id.get(sid)
-                if snapshot_item is not None:
-                    key, entry = _snapshot_entry(snapshot_item)
-                elif info:
-                    # 订阅查询里还看不到（事务/缓存窗口）时用事件里的媒体信息兜底
-                    logger.info(
-                        f"[{self._plugin_id()}] 订阅事件回搜：订阅 {sid} 不在订阅列表中，"
-                        f"改用事件媒体信息回搜"
-                    )
-            if not entry and info:
-                key, entry = _entry_from_mediainfo(info)
-            if not entry:
-                logger.info(f"[{self._plugin_id()}] 订阅事件回搜：订阅 {sid or '未知'} 无可用信息，跳过")
-                continue
-            targets.append((key, entry))
-
-        if not targets:
-            self._remember_check(new=0, pushed=0, error="")
-            return {"checked": True, "new": 0, "pushed": 0, "message": "订阅事件无可回搜目标"}
-
-        # 快照并入：事件已处理的订阅不该在下次定时检查里再被当作「新增」。
-        # 无基线时先建立完整基线，否则并入后会把其余存量订阅误判为新增。
-        previous = self._plugin.get_data(_SUB_SNAPSHOT_KEY)
-        if not isinstance(previous, dict) or not previous:
-            self._check_subscriptions_locked(trigger="订阅事件（建基线）")
-            previous = self._plugin.get_data(_SUB_SNAPSHOT_KEY)
-        merged = dict(previous) if isinstance(previous, dict) else {}
-        for key, entry in targets:
-            merged[key] = entry
-        self._plugin.save_data(_SUB_SNAPSHOT_KEY, merged)
-
-        logger.info(f"[{self._plugin_id()}] 订阅事件回搜：{len(targets)} 个订阅")
-        pushed_total = 0
-        details: List[dict] = []
-        for key, sub in targets:
-            try:
-                result = self._search_subscription(sub)
-            except Exception as err:  # 单个订阅失败不影响其余
-                logger.warning(f"[{self._plugin_id()}] 订阅「{sub.get('name')}」缓存回搜失败：{err}")
-                result = {"name": sub.get("name"), "candidates": 0, "pushed": 0, "error": str(err)}
-            pushed_total += int(result.get("pushed") or 0)
-            details.append(result)
-        self._remember_check(new=len(targets), pushed=pushed_total, error="")
-        self._notify_search_result(len(targets), details)
-        return {"checked": True, "new": len(targets), "pushed": pushed_total, "details": details}
 
     # ------------------------------------------------------------------ 配置
 
@@ -316,29 +119,13 @@ class CacheModule:
         except (TypeError, ValueError):
             return False
 
-    def subscribe_enabled(self) -> bool:
-        return bool(self._cfg("cache_subscribe_enabled", True))
-
-    def reshuffle_enabled(self) -> bool:
-        """洗版回搜开关（默认关）。
-
-        开：定时兜底**跳过媒体库判定**，回搜**全部订阅**的缓存匹配，只要这条消息
-        没被任何路径推送过就入队——频道后来进了更高质量的资源也能洗版。
-        关：与 1.13.23 及以前完全一致（只处理快照 diff 出的新增订阅，且逐条判缺）。
-        """
-        return bool(self._cfg("cache_reshuffle_enabled"))
-
     def wash_rules(self) -> dict:
         """洗版规则（1.13.32）：七维白名单 + 逐维字典序 + TopN + 比对来源。
 
-        `cache_reshuffle_enabled` 仍是「洗版回搜」的总开关；规则本身只管
-        「哪条候选算升级」，质量门禁的语义已并入这里（开洗版即启用规则）。
+        ``cache_wash_rules.enabled`` 是唯一总开关（质量门禁语义并入这里）：
+        关闭 = 回搜命中即推送，不做任何洗版比较。
         """
         return quality_service.normalize_rules(self._cfg("cache_wash_rules"))
-
-    def backfill_cron(self) -> str:
-        """存量补扫 cron（独立配置，默认与订阅兜底同频 30 分钟）。"""
-        return _normalize_cron(self._cfg("cache_backfill_cron"), DEFAULT_BACKFILL_CRON)
 
     def notify_enabled(self) -> bool:
         """回搜结果通知开关（115 面板「通知」卡片里的第三个开关，默认开）。"""
@@ -370,10 +157,6 @@ class CacheModule:
         """增量同步 cron（非法值回默认，避免弄坏宿主定时注册）。"""
         return _normalize_cron(self._cfg("cache_cron"), DEFAULT_SYNC_CRON)
 
-    def subscribe_cron(self) -> str:
-        """订阅检查 cron。"""
-        return _normalize_cron(self._cfg("cache_subscribe_cron"), DEFAULT_SUBSCRIBE_CRON)
-
     def settings(self) -> dict:
         """缓存设置（供前端面板回显）。"""
         return {
@@ -383,15 +166,10 @@ class CacheModule:
             "sync_mode": self.sync_mode(),
             "sync_days": self.sync_days(),
             "batch_size": self.batch_size(),
-            "subscribe_enabled": self.subscribe_enabled(),
-            "reshuffle_enabled": self.reshuffle_enabled(),
             "wash_rules": self.wash_rules(),
             "push_batch_size": self.push_batch_size(),
             "push_batch_interval": self.push_batch_interval(),
-            "backfill_enabled": self.backfill_enabled(),
-            "backfill_cron": self.backfill_cron(),
             "cron": self.cron(),
-            "subscribe_cron": self.subscribe_cron(),
             "destinations": [
                 {"value": str(item.get("value")), "title": str(item.get("title"))}
                 for item in _destination_options()
@@ -427,10 +205,6 @@ class CacheModule:
                 patch["cache_batch_size"] = min(500, max(20, int(data.get("batch_size") or 200)))
             except (TypeError, ValueError):
                 patch["cache_batch_size"] = 200
-        if "subscribe_enabled" in data:
-            patch["cache_subscribe_enabled"] = bool(data.get("subscribe_enabled"))
-        if "reshuffle_enabled" in data:
-            patch["cache_reshuffle_enabled"] = bool(data.get("reshuffle_enabled"))
         if "wash_rules" in data:
             patch["cache_wash_rules"] = quality_service.normalize_rules(data.get("wash_rules"))
         if "push_batch_size" in data:
@@ -438,15 +212,8 @@ class CacheModule:
         if "push_batch_interval" in data:
             patch["cache_push_batch_interval"] = self._coerce_batch_interval(
                 data.get("push_batch_interval"))
-        if "backfill_enabled" in data:
-            patch["cache_backfill_enabled"] = bool(data.get("backfill_enabled"))
-        if "backfill_cron" in data:
-            patch["cache_backfill_cron"] = _normalize_cron(
-                data.get("backfill_cron"), DEFAULT_BACKFILL_CRON)
         if "cron" in data:
             patch["cache_cron"] = _normalize_cron(data.get("cron"), DEFAULT_SYNC_CRON)
-        if "subscribe_cron" in data:
-            patch["cache_subscribe_cron"] = _normalize_cron(data.get("subscribe_cron"), DEFAULT_SUBSCRIBE_CRON)
         if patch:
             self._plugin.save_config(**patch)
         return self.settings()
@@ -476,16 +243,6 @@ class CacheModule:
             return min(3600, max(5, int(raw)))
         except (TypeError, ValueError):
             return 15
-
-    @staticmethod
-    def _coerce_top_n(raw: Any) -> int:
-        """同一季集区间每轮最多推几条：收敛到 0~50；0 表示不限。"""
-        if raw is None or raw == "":
-            return 1
-        try:
-            return min(50, max(0, int(raw)))
-        except (TypeError, ValueError):
-            return 1
 
     def push_batch_size(self) -> int:
         """推送每批条数（1.13.25 新增，推送 worker 读取，默认 10）。
@@ -568,141 +325,7 @@ class CacheModule:
         except Exception as err:  # pragma: no cover - 通知失败不影响主流程
             logger.debug(f"发送缓存回搜通知失败：{err}")
 
-    def check_subscriptions(self, *, trigger: str = "定时") -> dict:
-        """对比订阅快照，对新增订阅执行缓存回搜并推送。
-
-        与「新增订阅回搜」开关无关：那条开关只控制宿主 ``subscribe.added``
-        事件的实时回搜；这里的定时/手动兜底靠快照 diff 发现漏网订阅
-        （插件离线期间新增、事件总线不可用），因此始终可用。
-
-        开了「洗版回搜」（``cache_reshuffle_enabled``）后换一套口径：不再只看
-        快照 diff 的新增订阅，而是**遍历全部订阅**、**跳过媒体库判定**，只按
-        推送流水去重——频道后来进了更高质量的资源也能被捞出来洗版（1.13.24）。
-        """
-        if not self.enabled():
-            return {"checked": False, "message": "未启用消息缓存"}
-        if not matcher_service.QUERIES_AVAILABLE:
-            return {"checked": False, "message": "宿主订阅查询不可用"}
-        with self._lock:
-            if self._state.get("checking"):
-                return {"checked": False, "message": "已有订阅检查在进行中"}
-            self._state["checking"] = True
-        try:
-            return self._check_subscriptions_locked(trigger=trigger)
-        finally:
-            with self._lock:
-                self._state["checking"] = False
-
-    def _check_subscriptions_locked(self, *, trigger: str) -> dict:
-        try:
-            # 翻页读全量：无参调用只返回第一页 50 条，基线会漏掉其余订阅（1.4.0 实测踩坑）
-            items = list(matcher_service.iter_subscriptions())
-        except Exception as err:
-            self._remember_check(new=0, pushed=0, error=f"读取订阅失败：{err}")
-            logger.warning(f"[{self._plugin_id()}] 读取宿主订阅失败：{err}")
-            return {"checked": False, "message": f"读取订阅失败：{err}"}
-
-        snapshot = {key: value for key, value in (_snapshot_entry(item) for item in items) if key}
-        previous = self._plugin.get_data(_SUB_SNAPSHOT_KEY) or {}
-        if not isinstance(previous, dict):
-            previous = {}
-
-        if self.reshuffle_enabled():
-            return self._reshuffle_locked(snapshot, previous, trigger=trigger)
-
-        if not previous:
-            # 首次运行：只建立基线，避免把存量订阅一次性全部回搜推送
-            self._plugin.save_data(_SUB_SNAPSHOT_KEY, snapshot)
-            self._remember_check(new=0, pushed=0, error="")
-            logger.info(
-                f"[{self._plugin_id()}] 订阅回搜：已建立基线（{len(snapshot)} 个订阅），"
-                f"后续新增订阅将自动回搜缓存"
-            )
-            return {"checked": True, "baseline": True, "subscriptions": len(snapshot),
-                    "new": 0, "pushed": 0, "message": f"已建立订阅基线（{len(snapshot)} 个）"}
-
-        new_keys = [key for key in snapshot if key not in previous]
-        # 先落快照：即使回搜中途出错，也不会在下轮把同一订阅重复当作"新增"
-        self._plugin.save_data(_SUB_SNAPSHOT_KEY, snapshot)
-        if not new_keys:
-            self._remember_check(new=0, pushed=0, error="")
-            return {"checked": True, "new": 0, "pushed": 0, "message": "没有新增订阅"}
-
-        logger.info(f"[{self._plugin_id()}] 订阅回搜（{trigger}）：发现 {len(new_keys)} 个新增订阅")
-        pushed_total = 0
-        details: List[dict] = []
-        for key in new_keys:
-            sub = snapshot[key]
-            try:
-                result = self._search_subscription(sub)
-            except Exception as err:  # 单个订阅失败不影响其余
-                logger.warning(f"[{self._plugin_id()}] 订阅「{sub.get('name')}」缓存回搜失败：{err}")
-                result = {"name": sub.get("name"), "candidates": 0, "pushed": 0, "error": str(err)}
-            pushed_total += int(result.get("pushed") or 0)
-            details.append(result)
-
-        self._remember_check(new=len(new_keys), pushed=pushed_total, error="")
-        self._notify_search_result(len(new_keys), details)
-        return {
-            "checked": True,
-            "new": len(new_keys),
-            "pushed": pushed_total,
-            "details": details,
-            "message": f"新增订阅 {len(new_keys)} 个，推送 {pushed_total} 条",
-        }
-
-    def _reshuffle_locked(self, snapshot: Dict[str, dict], previous: Dict[str, dict],
-                          *, trigger: str) -> dict:
-        """洗版回搜：遍历全部订阅、跳过媒体库判定，只按推送流水去重。
-
-        与常规兜底的差别（1.13.24 用户需求）：
-        - **范围**：常规只处理快照 diff 出来的新增订阅；这里每轮都过全部订阅，
-          因为「更高质量的资源」是在订阅之后才进频道的，老订阅同样需要再捞一次。
-        - **判定**：常规逐条 ``is_missing``（媒体库有没有、缺不缺集）；这里**跳过**
-          媒体库判定——洗版的目的就是不管库里有什么，只要频道有、还没推过就推。
-        - **去重**：常规按 ``cache_search`` 虚拟规则去重；这里按**任何路径**的命中
-          流水去重（``_hit_exists_any``），否则监控/补扫推过的会被再推一遍。
-        - **节奏**：本轮不再限制入队条数（1.13.25）——一轮定时就把全部订阅捞完，
-          推送速度交给推送 worker 的「每批条数 / 批间隔」（``cache_push_batch_size``
-          / ``cache_push_batch_interval``），队列不会被瞬间灌满。
-        """
-        # 快照照旧维护：洗版开关关掉后仍要能按常规口径继续跑
-        self._plugin.save_data(_SUB_SNAPSHOT_KEY, snapshot)
-        if not snapshot:
-            self._remember_check(new=0, pushed=0, error="")
-            return {"checked": True, "reshuffle": True, "new": 0, "pushed": 0,
-                    "message": "没有订阅可回搜"}
-
-        logger.info(
-            f"[{self._plugin_id()}] 洗版回搜（{trigger}）：遍历 {len(snapshot)} 个订阅，"
-            f"跳过媒体库判定，不限入队条数"
-        )
-        pushed_total = 0
-        details: List[dict] = []
-        for key in snapshot:
-            sub = snapshot[key]
-            try:
-                result = self._search_subscription(sub, reshuffle=True)
-            except Exception as err:  # 单个订阅失败不影响其余
-                logger.warning(f"[{self._plugin_id()}] 订阅「{sub.get('name')}」洗版回搜失败：{err}")
-                result = {"name": sub.get("name"), "candidates": 0, "pushed": 0, "error": str(err)}
-            pushed_total += int(result.get("pushed") or 0)
-            details.append(result)
-
-        self._remember_check(new=len(snapshot), pushed=pushed_total, error="")
-        self._notify_search_result(len(snapshot), details, reshuffle=True)
-        return {
-            "checked": True,
-            "reshuffle": True,
-            "subscriptions": len(snapshot),
-            "new": len(snapshot),
-            "pushed": pushed_total,
-            "details": details,
-            "message": f"洗版回搜 {len(snapshot)} 个订阅，推送 {pushed_total} 条",
-        }
-
-    def _notify_search_result(self, new_count: int, details: List[dict], *,
-                              reshuffle: bool = False) -> None:
+    def _notify_search_result(self, new_count: int, details: List[dict]) -> None:
         """回搜结果通知。
 
         1.13.25 起口径收窄（用户要求）：**只有真正推出去东西才发**。一条都没推
@@ -760,8 +383,7 @@ class CacheModule:
         # 截断时由「…其余 N 条」兜底表达。极端情况（计数>0 但无可展示块）
         # 给一句兜底正文，避免发空通知。
         body = "\n".join(lines) or "本次回搜没有可展示的结果"
-        title = (f"{ICON_SEARCH} 胖虎媒体中心 洗版回搜" if reshuffle
-                 else f"{ICON_SEARCH} 胖虎媒体中心 缓存回搜")
+        title = f"{ICON_SEARCH} 胖虎媒体中心 缓存回搜"
         self._notify(title, body)
 
     # ------------------------------------------------------ 缓存推送的频道级过滤
@@ -769,9 +391,9 @@ class CacheModule:
     def rule_filter_reason(self, chat_id: int, text: str) -> str:
         """缓存类推送的「频道级过滤」：空串=放行，否则返回跳过原因。
 
-        为什么需要（1.13.30）：缓存回搜 / 存量补扫 / 洗版回搜此前完全不经过监控
-        规则的关键词闸——判定链只有「有链接 → 未推送过 → 媒体库缺失」就入队，推送
-        时用虚拟规则 id（``cache_search`` / ``cache_backfill``）落流水。于是
+        为什么需要（1.13.30）：缓存回搜此前完全不经过监控规则的关键词闸——判定链
+        只有「有链接 → 未推送过 → 媒体库缺失」就入队，推送时用虚拟规则 id
+        （``cache_search``）落流水。于是
         「关键词=电影、排除词=iso」这类**频道级意图**对缓存翻出来的资源一律失效：
         同一个频道里已订阅的电视剧，会从缓存路径被推到 115，而用户明明只想要电影。
 
@@ -807,12 +429,11 @@ class CacheModule:
             return ""
         return last_reason or "未通过监控规则过滤"
 
-    def _search_subscription(self, sub: dict, *, reshuffle: bool = False) -> dict:
+    def _search_subscription(self, sub: dict) -> dict:
         """对单个订阅在缓存里回搜并推送。
 
-        ``reshuffle=True``（洗版回搜，1.13.24）：跳过媒体库缺失判定、按**任何路径**
-        的命中流水去重。1.13.25 起不再有单轮条数上限——一轮定时把全部订阅(
-        每个最多 200 条候选)都捞进队列，推送节奏交给推送 worker 的批处理。
+        1.13.34 起这是洗版规则唯一的判定路径：频道来了新消息 → 入库 → 按订阅
+        回搜缓存 → 洗版规则逐维比较（``cache_wash_rules`` 开启时）→ 更优才入队。
         """
         title = str(sub.get("name") or "").strip()
         if not title:
@@ -846,29 +467,20 @@ class CacheModule:
                 skipped += 1
                 _count_reason(reasons, filter_reason)
                 continue
-            already = (self._hit_exists_any(chat_id, message_id) if reshuffle
-                       else self._hit_exists(chat_id, message_id))
+            already = self._hit_exists(chat_id, message_id)
             if already:
                 skipped += 1
                 _count_reason(reasons, "已推送过")
                 continue
-            if reshuffle:
-                verdict = {
-                    "missing": True,
-                    "reason": "洗版回搜：不判媒体库",
-                    "source": "reshuffle",
-                    "detail": "",
-                }
-            else:
-                verdict = self._matcher.is_missing(
-                    title=str(item.get("title") or title),
-                    year=str(item.get("year") or sub.get("year") or ""),
-                    media_type=str(item.get("media_type") or ""),
-                    season=item.get("season"),
-                    episode=item.get("episode"),
-                    episode_end=item.get("episode_end"),
-                    require_subscription=True,
-                )
+            verdict = self._matcher.is_missing(
+                title=str(item.get("title") or title),
+                year=str(item.get("year") or sub.get("year") or ""),
+                media_type=str(item.get("media_type") or ""),
+                season=item.get("season"),
+                episode=item.get("episode"),
+                episode_end=item.get("episode_end"),
+                require_subscription=True,
+            )
             if verdict.get("missing") is True and verdict.get("reason") == "媒体库中不存在":
                 media_note = media_note or str(verdict.get("note") or "")
             if verdict.get("missing") is not True:
@@ -889,10 +501,11 @@ class CacheModule:
                 "verdict": verdict,
             })
 
-        # 第二遍（仅洗版回搜，1.13.27）：先按季集区间取最优 TopN，再过质量门禁
+        # 第二遍（1.13.34）：洗版规则开着才做「准入过滤 → TopN → 逐维比较」
         baseline_updates: Dict[str, dict] = {}
-        if reshuffle:
-            eligible, gate_skipped = self._apply_reshuffle_quality(
+        rules = self.wash_rules()
+        if rules.get("enabled"):
+            eligible, gate_skipped = self._apply_wash_rules(
                 eligible, sub, title, reasons
             )
             skipped += gate_skipped
@@ -937,7 +550,7 @@ class CacheModule:
                 skipped += 1
                 _count_reason(reasons, "入队失败")
         if baseline_updates:
-            self._save_reshuffle_baseline(baseline_updates)
+            self._save_wash_baseline(baseline_updates)
         reason_text = _reason_text(reasons)
         channels = sorted({int(item.get("chat_id") or 0) for item in candidates if item.get("chat_id")})
         # 候选识别年份里最多的一种：订阅没写年份时通知块名兜底用（1.7.5）
@@ -966,9 +579,9 @@ class CacheModule:
             "channels": channels,
         }
 
-    def _apply_reshuffle_quality(self, records: List[dict], sub: dict, title: str,
-                                 reasons: Dict[str, int]) -> "tuple[List[dict], int]":
-        """洗版回搜的三道收口（1.13.32，规则见 ``cache_wash_rules``）。
+    def _apply_wash_rules(self, records: List[dict], sub: dict, title: str,
+                          reasons: Dict[str, int]) -> "tuple[List[dict], int]":
+        """洗版的三道收口（1.13.32，规则见 ``cache_wash_rules``）。
 
         1. **准入过滤**：逐维白名单——取值为 ✕ 的淘汰，未列出值按该维
            ``unlisted`` 策略（默认排除），体积小于/大于阈值的淘汰。
@@ -994,7 +607,7 @@ class CacheModule:
                 skipped += 1
                 _count_reason(reasons, why)
                 logger.debug(
-                    f"[{self._plugin_id()}] 洗版回搜淘汰："
+                    f"[{self._plugin_id()}] 洗版淘汰："
                     f"{record['item'].get('title') or title}"
                     f"（msg={record['message_id']}）{why}"
                 )
@@ -1028,7 +641,7 @@ class CacheModule:
                 for record in dropped:
                     _count_reason(reasons, "非最优版本")
                     logger.debug(
-                        f"[{self._plugin_id()}] 洗版回搜跳过（非最优）："
+                        f"[{self._plugin_id()}] 洗版跳过（非最优）："
                         f"{record['item'].get('title') or title}"
                         f"（msg={record['message_id']}，"
                         f"{quality_service.describe(record['profile'])}）"
@@ -1055,7 +668,7 @@ class CacheModule:
                 skipped += 1
                 _count_reason(reasons, "画质未升级")
                 logger.debug(
-                    f"[{self._plugin_id()}] 洗版回搜跳过（画质未升级）："
+                    f"[{self._plugin_id()}] 洗版跳过（画质未升级）："
                     f"{item.get('title') or title}（msg={record['message_id']}）"
                     f"{quality_service.describe(profile)}｜{why}"
                 )
@@ -1072,7 +685,7 @@ class CacheModule:
         sources = set(rules.get("compare_sources") or ())
         baselines: Dict[str, dict] = {}
         if "pushed" in sources:
-            baselines.update(self._reshuffle_baseline())
+            baselines.update(self._wash_baseline())
         if "history" in sources:
             for key, profile in self._history_baseline(title, sub).items():
                 baselines.setdefault(key, profile)
@@ -1120,324 +733,44 @@ class CacheModule:
             from ..services import forward_gate as gate
         except Exception:
             return []
-        query = getattr(gate, "list_download_history", None)
+        query = getattr(gate, "list_history_records", None)
         if not getattr(gate, "HISTORY_QUERIES_AVAILABLE", False) or query is None:
             return []
-        page_size = int(getattr(gate, "_HISTORY_PAGE_SIZE", 50) or 50)
-        max_pages = int(getattr(gate, "_HISTORY_MAX_PAGES", 4) or 4)
-        collected: List[dict] = []
-        for page_num in range(1, max_pages + 1):
-            try:
-                try:
-                    page = query({"title": title}, {"page": page_num, "count": page_size})
-                except TypeError:
-                    page = query({"title": title})
-            except Exception as err:
-                logger.warning(
-                    f"[tgmediacenter] 下载历史查询失败，洗版仅用已推送基线：{err}"
-                )
-                return collected
-            items = list(getattr(page, "items", None) or [])
-            for item in items:
-                collected.append(_history_fields(item))
-            if len(items) < page_size:
-                break
-        return collected
+        try:
+            records = query({"title": title})
+        except Exception as err:
+            logger.warning(
+                f"[tgmediacenter] 下载历史查询失败，洗版仅用已推送基线：{err}"
+            )
+            return []
+        return [_history_fields(item) for item in list(records or [])]
 
-    def _reshuffle_baseline(self) -> Dict[str, dict]:
+    def _wash_baseline(self) -> Dict[str, dict]:
         """读取洗版质量基线（订阅 + 季集区间 → 最优画质画像）。"""
-        stored = self._plugin.get_data(_RESHUFFLE_BASELINE_KEY) or {}
+        stored = self._plugin.get_data(_WASH_BASELINE_KEY) or {}
         items = stored.get("items") if isinstance(stored, dict) else None
         if not isinstance(items, dict):
             return {}
         return {str(key): dict(value) for key, value in items.items() if isinstance(value, dict)}
 
-    def _save_reshuffle_baseline(self, updates: Dict[str, dict]) -> None:
+    def _save_wash_baseline(self, updates: Dict[str, dict]) -> None:
         """把本轮推送成功的画质合并进基线并落盘（按最近时间截断）。"""
         if not updates:
             return
-        items = dict(self._reshuffle_baseline())
+        items = dict(self._wash_baseline())
         now = datetime.now().isoformat(timespec="seconds")
         for key, profile in updates.items():
             if not profile or not profile.get("known"):
                 continue
             items[str(key)] = {**dict(profile), "ts": now}
-        if len(items) > _RESHUFFLE_BASELINE_LIMIT:
+        if len(items) > _WASH_BASELINE_LIMIT:
             ordered = sorted(
                 items.items(),
                 key=lambda kv: str(kv[1].get("ts") or ""),
                 reverse=True,
             )
-            items = dict(ordered[:_RESHUFFLE_BASELINE_LIMIT])
-        self._plugin.save_data(_RESHUFFLE_BASELINE_KEY, {"items": items, "version": 1})
-
-    def _remember_check(self, *, new: int, pushed: int, error: str) -> None:
-        state = {
-            "last_check_at": datetime.now().isoformat(timespec="seconds"),
-            "last_check_new": int(new),
-            "last_check_pushed": int(pushed),
-            "last_error": str(error or ""),
-        }
-        self._plugin.save_data(_SUB_STATE_KEY, state)
-        with self._lock:
-            self._state.update(state)
-
-    def subscribe_state(self) -> dict:
-        """订阅回搜运行态（读插件数据，跨重启保留）。
-
-        ``enabled`` 指「新增订阅回搜」那条事件开关；``fallback_cron`` 是独立的
-        兜底定时（不看事件开关），前端据此展示两条互不依赖的通道。
-        ``reshuffle`` 是 1.13.24 的洗版回搜开关（兜底的口径开关）。
-        """
-        stored = self._plugin.get_data(_SUB_STATE_KEY) or {}
-        if not isinstance(stored, dict):
-            stored = {}
-        with self._lock:
-            return {
-                "enabled": self.subscribe_enabled(),
-                "event_enabled": self.subscribe_enabled(),
-                "fallback_cron": self.subscribe_cron(),
-                "reshuffle": self.reshuffle_enabled(),
-                "checking": bool(self._state.get("checking")),
-                "event_listener": self._listener_installed,
-                "last_check_at": str(stored.get("last_check_at") or ""),
-                "last_check_new": int(stored.get("last_check_new") or 0),
-                "last_check_pushed": int(stored.get("last_check_pushed") or 0),
-                "last_error": str(stored.get("last_error") or ""),
-            }
-
-    # ------------------------------------------------------------------ 存量补扫
-
-    def backfill_enabled(self) -> bool:
-        """存量补扫开关（默认关，独立于订阅回搜）。"""
-        return bool(self._cfg("cache_backfill_enabled"))
-
-    def _backfill_gate(self):
-        """懒加载前向闸门（P9）：补扫候选入队前判「PT 路是否在管」。
-
-        与监控流水线用同一份判定链与配置（config_getter 读插件 _config），
-        但独立实例——补扫与监控处理的媒体身份不同，结论缓存各自维护即可；
-        锚点表 ``tgmc_p9_gate`` 是同一张，读写天然共享。
-        """
-        if self._p9_gate is None:
-            from ..services import forward_gate as p9
-            self._p9_gate = p9.ForwardGate(
-                matcher=self._matcher,
-                store=p9.GateStore(plugin_id=self._plugin_id(), db_getter=self._db),
-                config_getter=lambda: getattr(self._plugin, "_config", None) or {},
-            )
-        return self._p9_gate
-
-    def backfill_state(self) -> dict:
-        """存量补扫运行态（含跨重启保留的最近一次摘要与增量水位）。"""
-        with self._lock:
-            state = dict(self._backfill_state)
-        stored = self._plugin.get_data(_BACKFILL_STATE_KEY) or {}
-        if isinstance(stored, dict):
-            state["last_run_at"] = str(stored.get("last_run_at") or "")
-            state["last_run_pushed"] = int(stored.get("last_run_pushed") or 0)
-            state["last_run_skipped"] = int(stored.get("last_run_skipped") or 0)
-        watermark = self._backfill_watermark()
-        state["watermark"] = watermark.isoformat(timespec="seconds") if watermark else ""
-        state["enabled"] = self.backfill_enabled()
-        return state
-
-    def _backfill_watermark(self) -> Optional[datetime]:
-        stored = self._plugin.get_data(_BACKFILL_WATERMARK_KEY)
-        if not stored:
-            return None
-        try:
-            return datetime.fromisoformat(str(stored))
-        except (TypeError, ValueError):
-            return None
-
-    def _set_backfill_watermark(self, value: datetime) -> None:
-        self._plugin.save_data(_BACKFILL_WATERMARK_KEY, value.isoformat(timespec="seconds"))
-
-    def start_backfill(self, *, full: bool = False) -> dict:
-        """触发存量补扫（后台线程）；``full=True`` 全量、否则增量。"""
-        if not self.enabled():
-            return {"started": False, "message": "未启用消息缓存"}
-        if not self.chat_ids():
-            return {"started": False, "message": "未选择要缓存的频道"}
-        with self._lock:
-            if self._backfill_state.get("running"):
-                return {"started": False, "message": "存量补扫已在运行中"}
-            self._backfill_cancel.clear()
-            self._backfill_state.update({
-                "running": True,
-                "full": bool(full),
-                "processed": 0,
-                "pushed": 0,
-                "skipped": 0,
-                "started_at": datetime.now().isoformat(timespec="seconds"),
-                "finished_at": "",
-                "last_error": "",
-            })
-            thread = threading.Thread(
-                target=self._backfill_worker, args=(bool(full),), daemon=True)
-            self._backfill_thread = thread
-        thread.start()
-        label = "全量" if full else "增量"
-        logger.info(f"[{self._plugin_id()}] 存量补扫已启动（{label}）")
-        return {"started": True, "message": f"已启动存量补扫（{label}）"}
-
-    def cancel_backfill(self) -> dict:
-        """请求停止存量补扫（后台线程在当前批次结束后退出）。"""
-        running = bool(self._backfill_state.get("running"))
-        self._backfill_cancel.set()
-        if not running:
-            return {"stopped": False, "message": "当前没有正在进行的存量补扫"}
-        return {"stopped": True, "message": "已请求停止存量补扫（当前批次结束后退出）"}
-
-    def run_backfill_job(self) -> None:
-        """定时增量补扫（复用 ``cache_subscribe_cron`` 触发）。"""
-        if not (self.enabled() and self.backfill_enabled() and self.chat_ids()):
-            return
-        if self._backfill_state.get("running"):
-            return
-        result = self.start_backfill(full=False)
-        if not result.get("started"):
-            logger.debug(f"[{self._plugin_id()}] 存量补扫未启动：{result.get('message')}")
-
-    def _backfill_worker(self, full: bool) -> None:
-        chat_ids = self.chat_ids()
-        watermark = self._backfill_watermark()
-        if not full and watermark is None:
-            # 首次增量：只建基线（水位=now），不翻历史——存量 2 万+ 条全判一遍
-            # 代价大且多为已完结入库的老资源，想要历史缺口走「全量补扫」手动触发。
-            self._set_backfill_watermark(datetime.now())
-            self._finish_backfill(pushed=0, skipped=0)
-            return
-        after_created = None if full else watermark
-        after_id = 0
-        pushed = skipped = processed = 0
-        max_created = watermark
-        error = ""
-        try:
-            while not self._backfill_cancel.is_set():
-                items = self._history.scan_messages(
-                    chat_ids, after_created=after_created, after_id=after_id,
-                    limit=_BACKFILL_BATCH,
-                )
-                if not items:
-                    break
-                for item in items:
-                    if self._backfill_cancel.is_set():
-                        break
-                    processed += 1
-                    if self._backfill_one(item) == "pushed":
-                        pushed += 1
-                    else:
-                        skipped += 1
-                    after_id = int(item.get("id") or 0)
-                    created = item.get("created_at")
-                    if created:
-                        try:
-                            ts = datetime.fromisoformat(created)
-                        except (TypeError, ValueError):
-                            ts = None
-                        if ts is not None and (max_created is None or ts > max_created):
-                            max_created = ts
-                with self._lock:
-                    self._backfill_state.update(
-                        processed=processed, pushed=pushed, skipped=skipped)
-        except Exception as err:  # pragma: no cover - 兜底，保证线程体不崩
-            error = str(err)
-            logger.warning(f"[{self._plugin_id()}] 存量补扫出错：{err}")
-        finally:
-            if max_created is not None:
-                self._set_backfill_watermark(max_created)
-            self._finish_backfill(pushed=pushed, skipped=skipped, error=error)
-
-    def _backfill_one(self, item: dict) -> str:
-        """单条缓存消息的补扫判定链：链接 → 判重 → 缺失 → P9 闸门 → 入队。
-
-        与监控流水线同款顺序（``is_missing`` 之后接前向闸门），只是来源为缓存
-        而非实时消息。返回 ``"pushed"`` / ``"skipped"``（具体跳过原因进 DEBUG 日志）。
-        """
-        chat_id = int(item.get("chat_id") or 0)
-        message_id = int(item.get("message_id") or 0)
-        links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
-        title = str(item.get("title") or "").strip()
-        if not links:
-            return "skipped"
-        if self._hit_exists_any(chat_id, message_id):
-            return "skipped"
-        if not title:
-            return "skipped"
-        # 频道级过滤（1.13.30）：与回搜同款，补扫也要遵守来源频道的排除词 / 关键词。
-        filter_reason = self.rule_filter_reason(chat_id, str(item.get("text") or ""))
-        if filter_reason:
-            logger.debug(
-                f"[{self._plugin_id()}] 存量补扫跳过：{title}（{filter_reason}）")
-            return "skipped"
-        verdict = self._matcher.is_missing(
-            title=title,
-            year=str(item.get("year") or ""),
-            media_type=str(item.get("media_type") or ""),
-            season=item.get("season"),
-            episode=item.get("episode"),
-            episode_end=item.get("episode_end"),
-            require_subscription=True,
-        )
-        if verdict.get("missing") is not True:
-            logger.debug(
-                f"[{self._plugin_id()}] 存量补扫跳过：{title}（{_skip_label(verdict)}）")
-            return "skipped"
-        meta = {
-            "title": title,
-            "year": str(item.get("year") or ""),
-            "media_type": str(item.get("media_type") or ""),
-            "season": item.get("season"),
-            "episode": item.get("episode"),
-        }
-        gate_result = self._backfill_gate().check(meta, missing=True)
-        if gate_result is not None and not gate_result.passed:
-            logger.debug(
-                f"[{self._plugin_id()}] 存量补扫跳过：{title}（{gate_result.reason}）")
-            return "skipped"
-        task_id = push_queue.enqueue_push(
-            self._db(),
-            self._plugin_id(),
-            rule_id=CACHE_BACKFILL_RULE_ID,
-            chat_id=chat_id,
-            message_id=message_id,
-            destination=self.destination(),
-            target_id="",
-            links=links,
-            text=str(item.get("text") or ""),
-            title=title,
-        )
-        if not task_id:
-            return "skipped"
-        self._record_backfill_hit(item, verdict, task_id)
-        return "pushed"
-
-    def _finish_backfill(self, *, pushed: int, skipped: int, error: str = "") -> None:
-        with self._lock:
-            self._backfill_state.update(
-                running=False, pushed=pushed, skipped=skipped,
-                finished_at=datetime.now().isoformat(timespec="seconds"),
-                last_error=str(error or ""),
-            )
-        self._plugin.save_data(_BACKFILL_STATE_KEY, {
-            "last_run_at": datetime.now().isoformat(timespec="seconds"),
-            "last_run_pushed": int(pushed),
-            "last_run_skipped": int(skipped),
-            "last_error": str(error or ""),
-        })
-        logger.info(
-            f"[{self._plugin_id()}] 存量补扫完成：推送 {pushed} 条，跳过 {skipped} 条"
-            + (f"（出错：{error}）" if error else "")
-        )
-        # 补扫是常态后台，只在真的推了时发一条汇总，没推就静默（不回搜通知的
-        # 「没推也说原因」口径，避免每轮定时都冒通知）
-        if pushed:
-            text = f"存量补扫完成：推送 {pushed} 条"
-            if skipped:
-                text += f"，跳过 {skipped} 条"
-            self._notify(f"{ICON_SEARCH} 胖虎媒体中心 存量补扫", text)
+            items = dict(ordered[:_WASH_BASELINE_LIMIT])
+        self._plugin.save_data(_WASH_BASELINE_KEY, {"items": items, "version": 1})
 
     # ------------------------------------------------------------------ 命中流水
 
@@ -1471,64 +804,6 @@ class CacheModule:
         except Exception as err:  # pragma: no cover
             logger.debug(f"查询缓存回搜流水失败：{err}")
             return False
-
-    def _hit_exists_any(self, chat_id: int, message_id: int) -> bool:
-        """该缓存消息是否已被**任何路径**推送过（不限虚拟规则）。
-
-        存量补扫的判重口径：监控命中 / 订阅回搜 / 交互转存回执……只要这条
-        消息有过一次「命中推送」流水，补扫就不再推——它判的是"资源已经
-        被送进过推送队列"，而不是"是否由补扫本人推过"。
-        """
-        db = self._db()
-        if db is None:
-            return False
-        try:
-            from sqlalchemy import select
-
-            with db.session() as session:
-                row = session.execute(
-                    select(TgHitLog.id).where(
-                        TgHitLog.plugin_id == self._plugin_id(),
-                        TgHitLog.chat_id == int(chat_id),
-                        TgHitLog.message_id == int(message_id),
-                        TgHitLog.decision == DECISION_HIT,
-                    )
-                ).first()
-                return row is not None
-        except Exception as err:  # pragma: no cover
-            logger.debug(f"查询命中流水失败：{err}")
-            return False
-
-    def _record_backfill_hit(self, item: dict, verdict: dict, task_id: int) -> None:
-        """写一条存量补扫的命中流水（虚拟规则 cache_backfill，与回搜区分）。"""
-        logger.info(
-            f"[{self._plugin_id()}] 存量补扫命中：「{item.get('title')}」"
-            f"（chat={item.get('chat_id')}, msg={item.get('message_id')}）已入推送队列 #{task_id}"
-        )
-        db = self._db()
-        if db is None:
-            return
-        try:
-            with db.session() as session:
-                session.add(TgHitLog(
-                    plugin_id=self._plugin_id(),
-                    rule_id=CACHE_BACKFILL_RULE_ID,
-                    rule_name=CACHE_BACKFILL_RULE_NAME,
-                    chat_id=int(item.get("chat_id") or 0),
-                    message_id=int(item.get("message_id") or 0),
-                    title=str(item.get("title") or "")[:250],
-                    year=str(item.get("year") or "")[:16],
-                    season=item.get("season"),
-                    episode=item.get("episode"),
-                    media_type=str(item.get("media_type") or "")[:16],
-                    decision=DECISION_HIT,
-                    destination=self.destination()[:32],
-                    target_id="",
-                    detail=f"存量补扫：{verdict.get('reason') or ''}；已入推送队列 #{task_id}"[:500],
-                ))
-                session.commit()
-        except Exception as err:  # pragma: no cover - 冲突说明已处理过
-            logger.debug(f"写存量补扫流水失败：{err}")
 
     def _record_hit(self, item: dict, subscription: str, verdict: dict, task_id: int) -> None:
         """写一条缓存回搜的命中流水（与监控流水同表，用虚拟规则区分）。"""
@@ -1583,8 +858,6 @@ class CacheModule:
             "total": self._history.total_count(),
             "channels": channels,
             "sync": self._history.progress(),
-            "subscribe": self.subscribe_state(),
-            "backfill": self.backfill_state(),
             "matcher": {
                 "queries_available": bool(matcher_status.get("queries_available")),
                 "mediaserver_available": bool(matcher_status.get("mediaserver_available")),
@@ -1613,6 +886,96 @@ class CacheModule:
 
     # ------------------------------------------------------------------ 定时任务入口
 
+    # -------------------------------------------------- 洗版回搜（1.13.34 唯一入口）
+
+    def _list_subscription_targets(self) -> List[dict]:
+        """把宿主订阅压成 ``[{name, year, media_id}]``（读不到就返回空列表）。"""
+        targets: List[dict] = []
+        try:
+            iterator = matcher_service.iter_subscriptions()
+        except Exception as err:  # pragma: no cover - 宿主查询异常
+            logger.debug(f"[{self._plugin_id()}] 读取订阅失败：{err}")
+            return targets
+        for item in iterator or []:
+            try:
+                name = str(getattr(item, "name", "") or "").strip()
+            except Exception:  # pragma: no cover - 宿主对象异常
+                continue
+            if not name:
+                continue
+            targets.append({
+                "name": name,
+                "year": str(getattr(item, "year", "") or ""),
+                "media_id": str(getattr(item, "tmdb_id", "") or getattr(item, "media_id", "") or ""),
+            })
+        return targets
+
+    def run_subscription_search(self) -> dict:
+        """遍历订阅逐条回搜缓存，命中更优资源才入队。
+
+        1.13.34 起这是洗版规则唯一的判定路径：频道来了新消息 → 入库 →
+        对每个订阅回搜本地缓存 → 洗版规则逐维比较 → 更优才推 115。
+        """
+        empty = {"checked": False, "pushed": 0, "details": [], "subscriptions": 0}
+        if not self.enabled() or not self.chat_ids():
+            return empty
+        targets = self._list_subscription_targets()
+        if not targets:
+            return empty
+        details: List[dict] = []
+        pushed = 0
+        for sub in targets:
+            try:
+                detail = self._search_subscription(sub)
+            except Exception as err:  # pragma: no cover - 单订阅异常不拖垮整轮
+                logger.warning(f"[{self._plugin_id()}] 洗版回搜「{sub.get('name')}」失败：{err}")
+                continue
+            details.append(detail)
+            pushed += int(detail.get("pushed") or 0)
+        if pushed:
+            self._notify_search_result(pushed, details)
+        return {
+            "checked": True,
+            "pushed": pushed,
+            "details": details,
+            "subscriptions": len(targets),
+        }
+
+    def request_wash_search(self, delay: float = 2.0) -> None:
+        """新消息入库后请求一次洗版回搜（``delay`` 秒防抖，合并连续消息）。"""
+        if not self.wash_rules().get("enabled"):
+            return
+        lock = getattr(self, "_wash_request_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._wash_request_lock = lock  # type: ignore[attr-defined]
+        with lock:
+            timer = getattr(self, "_wash_request_timer", None)
+            if timer is not None and timer.is_alive():
+                return
+            timer = threading.Timer(max(0.0, float(delay)), self._run_wash_search_quietly)
+            timer.daemon = True
+            self._wash_request_timer = timer  # type: ignore[attr-defined]
+            timer.start()
+
+    def _run_wash_search_quietly(self) -> None:
+        try:
+            result = self.run_subscription_search()
+            if result.get("pushed"):
+                logger.info(
+                    f"[{self._plugin_id()}] 洗版回搜推送 {result['pushed']} 条"
+                    f"（订阅 {result['subscriptions']} 个）"
+                )
+        except Exception as err:  # pragma: no cover - 后台线程兜底
+            logger.warning(f"[{self._plugin_id()}] 洗版回搜异常：{err}")
+
+    def cancel_wash_search(self) -> None:
+        """停用/卸载时取消挂起的洗版回搜。"""
+        timer = getattr(self, "_wash_request_timer", None)
+        if timer is not None and timer.is_alive():
+            timer.cancel()
+        self._wash_request_timer = None  # type: ignore[attr-defined]
+
     def run_scheduled_sync(self) -> None:
         """定时增量同步（cache_cron 触发）。"""
         if not self.enabled() or not self.chat_ids():
@@ -1625,21 +988,6 @@ class CacheModule:
             logger.info(f"[{self._plugin_id()}] 缓存定时同步已启动：{result.get('message')}")
         else:
             logger.info(f"[{self._plugin_id()}] 缓存定时同步未启动：{result.get('message')}")
-
-    def run_subscription_job(self) -> None:
-        """定时订阅兜底检查（cache_subscribe_cron 触发）。
-
-        不看「新增订阅回搜」开关：那条开关只管宿主事件的实时路径，
-        兜底负责补上插件离线 / 事件丢失期间新增的订阅。
-
-        开了「洗版回搜」后同一个定时换口径跑：遍历全部订阅、跳过媒体库判定，
-        按推送流水去重（见 ``_reshuffle_locked``）。
-        """
-        if not self.enabled() or not matcher_service.QUERIES_AVAILABLE:
-            return
-        result = self.check_subscriptions(trigger="定时兜底")
-        if result.get("pushed"):
-            logger.info(f"[{self._plugin_id()}] 订阅兜底：{result.get('message')}")
 
 
 def _normalize_cron(raw: Any, fallback: str) -> str:
@@ -1654,78 +1002,9 @@ def _normalize_cron(raw: Any, fallback: str) -> str:
     return text
 
 
-def _snapshot_entry(item: Any) -> "tuple[str, dict]":
-    """把一条订阅快照归一为 (快照键, 订阅信息)。"""
-    return _entry_from_fields(
-        name=getattr(item, "name", ""),
-        year=getattr(item, "year", ""),
-        season=getattr(item, "season", None),
-        media_source=getattr(item, "media_source", ""),
-        media_id=getattr(item, "media_id", ""),
-        lack_episode=getattr(item, "lack_episode", None),
-    )
 
 
-def _entry_from_mediainfo(info: dict) -> "tuple[str, dict]":
-    """把宿主事件 payload 里的 mediainfo 归一为 (快照键, 订阅信息)。
 
-    事件里订阅 ID 可能查不到（刚删除 / 事务未提交），此时用 mediainfo 兜底：
-    host ``MediaInfo.to_dict()`` 的标题字段是 ``title``（订阅名同源）。
-    """
-    return _entry_from_fields(
-        name=info.get("title") or info.get("name") or "",
-        year=info.get("year") or "",
-        season=info.get("season"),
-        media_source=info.get("media_source") or "",
-        media_id=info.get("media_id") or "",
-    )
-
-
-def _entry_from_fields(
-    *,
-    name: Any,
-    year: Any,
-    season: Any,
-    media_source: Any,
-    media_id: Any,
-    lack_episode: Any = None,
-) -> "tuple[str, dict]":
-    """订阅字段 → (快照键, 订阅信息)；键优先媒体来源+ID，回退片名+年份+季。"""
-    name = str(name or "").strip()
-    year = str(year or "")
-    media_source = str(media_source or "")
-    media_id = str(media_id or "")
-    season_text = season if season is not None else ""
-    if media_source or media_id:
-        key = f"{media_source}|{media_id}|{season_text}"
-    elif name:
-        key = f"name|{name}|{year}|{season_text}"
-    else:
-        return "", {}
-    return key, {
-        "name": name,
-        "year": year,
-        "season": season,
-        "media_source": media_source,
-        "media_id": media_id,
-        "lack_episode": lack_episode,
-    }
-
-
-def _event_payload(event: Any) -> dict:
-    """从宿主事件对象里取出 dict payload（兼容 event_data / data 两种属性）。"""
-    for attr in ("event_data", "data"):
-        value = getattr(event, attr, None)
-        if isinstance(value, dict):
-            return value
-    return {}
-
-
-def _as_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _count_reason(bucket: Dict[str, int], label: str) -> None:

@@ -71,7 +71,6 @@ from ..model.hit_log import (
     KIND_MONITOR,
     TgHitLog,
 )
-from ..services import forward_gate as p9_gate_service
 from ..services import recognizer as recognizer_service
 
 # 单频道批量消息条数上限：超过即无视聚合窗口立即处理（防大频道刷爆缓冲）
@@ -217,15 +216,6 @@ class MessagePipeline:
         self._last_push_cycle = 0.0
         # P7：通知（成功汇总 / 故障），按轮次聚合后在 _push_cycle 末尾统一发出
         self._notifier = Notifier(plugin)
-        # P9 前向闸门 A（默认关）：TG 推送前判断 PT 路是否在管，见 services/forward_gate.py
-        self._p9_gate = p9_gate_service.ForwardGate(
-            matcher=self._matcher,
-            store=p9_gate_service.GateStore(
-                plugin_id=self._plugin_id(),
-                db_getter=self._db,
-            ),
-            config_getter=lambda: getattr(self._plugin, "_config", None) or {},
-        )
         self._cycle: Dict[str, Any] = self._empty_cycle()
         self._started_at = ""
         self._last_error = ""
@@ -591,6 +581,12 @@ class MessagePipeline:
                                      cleaned=cleaned, meta=meta, links=links)
             if inserted:
                 self._stats["cache_written"] = self._stats.get("cache_written", 0) + 1
+                # 1.13.34：新消息入库后请求一次洗版回搜（洗版规则开启时才动作，
+                # 模块内部按 2 秒防抖合并连续消息）。
+                try:
+                    module.request_wash_search()
+                except Exception as err:  # pragma: no cover - 触发失败不影响入库
+                    logger.debug(f"请求洗版回搜失败：{err}")
         except Exception as err:  # pragma: no cover - 缓存写入失败不影响监控
             logger.debug(f"写入消息缓存失败（chat={chat_id}, msg={message_id}）：{err}")
 
@@ -659,17 +655,6 @@ class MessagePipeline:
             if verdict.get("missing") is None or not verdict.get("missing"):
                 decision, reason = _decision_for_skip(verdict)
                 self._record(rule, chat_id, message_id, meta, decision, reason, destination, links)
-                if verdict.get("missing") is False:
-                    # 媒体库确认已有：清除 P9 的缺失计时锚点（规格 §7）
-                    self._p9_gate.clear_anchor(meta)
-                return
-            # P9 前向闸门 A（规格 §3）：仅在确认缺失后加强——PT 路在管则拦下。
-            # 顺序不可换：media_exists 是最硬的终点真相，A 只在"确认缺"之后才有意义。
-            gate_result = self._p9_gate.check(meta, missing=True)
-            if gate_result is not None and not gate_result.passed:
-                self._record(rule, chat_id, message_id, meta,
-                             gate_result.decision or DECISION_SKIPPED_PT_ACTIVE,
-                             gate_result.reason, destination, links)
                 return
         elif rule.get("match_subscribed_only", True):
             # 独立订阅门禁（1.13.23）：关掉「仅缺失时推送」是"想推全部资源"，
@@ -1627,15 +1612,6 @@ class MessagePipeline:
                 if verdict.get("missing") is None or not verdict.get("missing"):
                     decision, reason = _decision_for_skip(verdict)
                     trace.update(decision=decision, reason=reason)
-                    traces.append(trace)
-                    continue
-                # P9 前向闸门 A：与真实处理同款判定（规则测试结果必须与实际一致）。
-                # 只读预览：touch/clear 会真实写库，但与"真跑一遍"语义一致，可接受；
-                # 结论与真实处理共用 60s 缓存，同一身份反复测试不会反复打宿主。
-                gate_result = self._p9_gate.check(meta, missing=True)
-                if gate_result is not None and not gate_result.passed:
-                    trace.update(decision=gate_result.decision or DECISION_SKIPPED_PT_ACTIVE,
-                                 reason=gate_result.reason)
                     traces.append(trace)
                     continue
             elif rule.get("match_subscribed_only", True):

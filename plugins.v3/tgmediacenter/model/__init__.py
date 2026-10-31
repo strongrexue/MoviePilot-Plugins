@@ -9,11 +9,10 @@ from typing import List
 
 from .hit_log import TgHitLog
 from .message_cache import TgMessageCache
-from .p9_gate import TgP9Gate
 from .push_task import TgPushTask
 
 # 汇总模型列表：主类 get_database_models() 直接返回
-MODELS: List[type] = [TgHitLog, TgMessageCache, TgPushTask, TgP9Gate]
+MODELS: List[type] = [TgHitLog, TgMessageCache, TgPushTask]
 
 
 def get_models() -> List[type]:

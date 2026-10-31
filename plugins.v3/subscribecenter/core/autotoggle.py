@@ -34,7 +34,6 @@
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -89,6 +88,8 @@ REASON_UPCOMING = "upcoming"
 REASON_ALL_DONE = "all_done"
 #: 缺集已超过 keep 窗口（PT 迟迟没有资源）
 REASON_MISSING_OVERDUE = "missing_overdue"
+#: 开了实探但这一轮还没核对到它 → 不知道库里有几集，先保持搜索
+REASON_LIBRARY_UNKNOWN = "library_unknown"
 #: 洗版订阅：已入库但还没洗到顶（priority < 100），在洗版窗口内继续等
 REASON_BEST_PENDING = "best_pending"
 #: 洗版订阅：超过洗版窗口仍未洗到顶，先暂停（别永远搜）
@@ -125,6 +126,7 @@ REASON_LABELS: Dict[str, str] = {
     REASON_UPCOMING: "临近播出",
     REASON_ALL_DONE: "已播剧集全部入库",
     REASON_MISSING_OVERDUE: "缺集超过保留窗口",
+    REASON_LIBRARY_UNKNOWN: "媒体库还没核对到",
     REASON_BEST_PENDING: "洗版中，等更好的版本",
     REASON_BEST_OVERDUE: "洗版超过保留窗口",
     REASON_PREMIERE: "首集尚未播出",
@@ -336,81 +338,6 @@ def has_download_record(row: Any) -> bool:
     return False
 
 
-def seasoninfo_episodes(seasoninfo: Any, season: int) -> set:
-    """从媒体库快照里取出某一季的已入库集号。
-
-    宿主同步任务把 ``MediaServerItem.seasoninfo`` 写成 ``{季号: [集号, ...]}``，
-    经过 JSON 落库后键会变成字符串（``{"1": [1, 2]}``），两种形态都要认。
-
-    取不到时返回空集 —— 空集表示「快照没说」，不是「库里没有」。
-    """
-    if not isinstance(seasoninfo, Mapping) or not seasoninfo:
-        return set()
-    raw = None
-    for key in (season, str(season)):
-        if key in seasoninfo:
-            raw = seasoninfo[key]
-            break
-    if raw is None:
-        return set()
-    if not isinstance(raw, (list, tuple, set)):
-        return set()
-    numbers = {_int(item, -1) for item in raw}
-    numbers.discard(-1)
-    return numbers
-
-
-def _season_numbers(value: Any) -> set:
-    """把下载记录的 ``seasons`` 字段（``"S01"`` / ``"S01,S02"`` / ``"1"``）拆成季号集合。"""
-    text = _text(value).upper().replace(" ", "")
-    numbers: set = set()
-    for part in re.split(r"[,，;；/]", text):
-        if not part:
-            continue
-        match = re.fullmatch(r"S?(\d{1,3})(?:\s*-\s*S?(\d{1,3}))?", part)
-        if not match:
-            continue
-        first = int(match.group(1))
-        last = int(match.group(2) or first)
-        if first <= last:
-            numbers.update(range(first, last + 1))
-    return numbers
-
-
-def _episode_numbers_in(value: Any) -> set:
-    """把下载记录的 ``episodes`` 字段（``"E06"`` / ``"E06-E08"`` / ``"E06,E07"``）拆成集号集合。"""
-    text = _text(value).upper().replace(" ", "")
-    numbers: set = set()
-    for part in re.split(r"[,，;；/]", text):
-        if not part:
-            continue
-        match = re.fullmatch(r"E?(\d{1,4})(?:\s*-\s*E?(\d{1,4}))?", part)
-        if not match:
-            continue
-        first = int(match.group(1))
-        last = int(match.group(2) or first)
-        if first <= last:
-            numbers.update(range(first, last + 1))
-    return numbers
-
-
-def download_history_episodes(seasons: Any, episodes: Any, season: int) -> set:
-    """一条宿主下载记录里属于 ``season`` 的集号。
-
-    为什么需要它：媒体库快照（``MediaServerItem.seasoninfo``）由宿主的同步任务
-    写，会滞后；订阅自己的 ``note`` 只有宿主的完成流程才写。两者都没有时，
-    一集明明已经在库里，我们仍会判成缺集 —— 该暂停的不暂停。
-    下载记录是第三份、免费的证据，并进「已入库」只减误报。
-
-    ``seasons`` 认不出季号时按「这条记录与本季无关」处理，宁可漏用也不错用。
-    """
-    if season <= 0:
-        return set()
-    declared = _season_numbers(seasons)
-    if declared and season not in declared:
-        return set()
-    return _episode_numbers_in(episodes)
-
 
 def missing_from_no_exists(no_exists: Any, season: int) -> Optional[set]:
     """从宿主 ``get_no_exists_info`` 的返回里取出「本季缺哪几集」。
@@ -451,20 +378,27 @@ def pending_episodes(
     today: date,
     *,
     start_episode: Optional[int] = None,
+    confirmed: Optional[Iterable[Any]] = None,
 ) -> List[Tuple[str, int]]:
-    """已播但订阅记录里没有的集（``[(air_date, number), ...]``，按集号升序）。
+    """已播但「还没确认入库」的集（``[(air_date, number), ...]``，按集号升序）。
 
-    这个函数不参与最终判定，只用来**挑探针候选**：没有下载记录的订阅，缺集
-    本身就是推测，最该拿去媒体库核对一次。
+    这个函数不参与最终判定，只用来**挑实探候选**。
+
+    :param confirmed: 实探已经确认库里有哪几集。传了就只认它 —— 订阅记录里的
+        「下过」不等于入库（下载完没导入、坏种、被清理都算没入库）。
     """
     air = [pair for pair in (_episode_pair(item) for item in (episodes or [])) if pair]
     today_text = today.isoformat()
-    downloaded = episode_numbers(row)
-    if not has_download_record(row):
-        # 一条入库记录都没有时，``episode_numbers`` 里 ``lack_episode`` 那个
-        # 兜底会把整季算成「已入库」—— 而「没有记录」正是缺集可能全是假警报
-        # 的情形，探针必须去看。所以这里只认记录，不认兜底。
-        downloaded = set()
+    if confirmed is not None:
+        downloaded = {_int(item, -1) for item in confirmed}
+        downloaded.discard(-1)
+    else:
+        downloaded = episode_numbers(row)
+        if not has_download_record(row):
+            # 一条入库记录都没有时，``episode_numbers`` 里 ``lack_episode`` 那个
+            # 兜底会把整季算成「已入库」—— 而「没有记录」正是缺集可能全是假警报
+            # 的情形，探针必须去看。所以这里只认记录，不认兜底。
+            downloaded = set()
     start = _int(_get(row, "start_episode"), 1) if start_episode is None else start_episode
     return sorted(
         [
@@ -625,7 +559,7 @@ class Decision:
     #: 空），只能按播出表倒推。媒体库入库 / 手动下载 / 订阅重建都属于这种形态，
     #: 这时「缺 180 集」很可能是假警报，界面要标出来。
     assumed: bool = False
-    #: 其中有多少集是媒体库（快照或实时核对）确认为已入库的
+    #: 其中有多少集是媒体库实探确认为已入库的
     library_confirmed: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -705,6 +639,8 @@ def _describe(reason: str, **values: Any) -> str:
         return "已播 {aired} 集全部入库".format(**values)
     if reason == REASON_MISSING_OVERDUE:
         return "第 {ep} 集 {air} 未入库（超 {keep} 天窗口）".format(**values)
+    if reason == REASON_LIBRARY_UNKNOWN:
+        return "媒体库还没核对到这一部，本轮不动（下一轮实探）".format(**values)
     if reason == REASON_BEST_PENDING:
         return "第 {ep} 集 {air} 已入库但未洗到顶（{days} 天，窗口 {keep} 天）".format(**values)
     if reason == REASON_BEST_OVERDUE:
@@ -841,6 +777,7 @@ def decide(
     movie_enabled: bool = True,
     movie_theatrical_offset_days: int = 0,
     library_present: Optional[Iterable[Any]] = None,
+    library_check: bool = False,
 ) -> Decision:
     """对**一条**订阅给出结论。
 
@@ -856,8 +793,11 @@ def decide(
         ``None`` 表示空表（预览时也传真实表，判定才一致）
     :param releases: 电影的发行记录 ``[(date, type), ...]``（见 ``movie_basis``）
     :param movie_enabled: 是否连电影订阅一起管
-    :param library_present: 媒体库确认存在的集号（快照 + 实时核对的结果）；
-        ``None`` 表示没做核对，只按订阅记录算
+    :param library_present: 媒体库**实探**确认存在的集号（``None`` = 这一轮没
+        核对到它）
+    :param library_check: 是否开了媒体库实探。开了以后「已入库」只认实探结果：
+        ``Subscribe.note`` 与宿主下载记录都只是「下过」，下载完没导入、坏种、
+        被清理都不算入库（1.17.6 真机：第 4 集刚下完就被判「已播全部入库」）。
     """
     owned = owned or {}
     subscribe_id = _int(_get(row, "id"))
@@ -934,20 +874,43 @@ def decide(
     #: 洗版窗口只在洗版模式下生效，播出期仍用缺集窗口
     if wash and best_keep_days and best_keep_days > 0:
         window = max(0, best_keep_days)
-    downloaded = best_version_done(row) if wash else episode_numbers(row)
+    #: 实探确认「库里真的有」的集号。``None`` = 这一轮还没核对到这一部。
+    confirmed: Optional[set] = None
+    if library_present is not None:
+        confirmed = {_int(item, -1) for item in library_present}
+        confirmed.discard(-1)
     assumed = False
     library_confirmed = 0
-    if not wash:
-        # 媒体库确认存在的集并进「已入库」。这是**并集**，只会减少误报缺集，
-        # 不会把该搜的订阅停掉 —— 核对数据可能过期，但过期的最坏结果只是多搜。
-        record = has_download_record(row)
-        if library_present is not None:
-            present = {_int(item, -1) for item in library_present}
-            present.discard(-1)
-            library_confirmed = len(present - set(downloaded))
-            downloaded = set(downloaded) | present
-            record = True
-        assumed = not record
+    if wash:
+        # 洗版问的是「洗到顶没有」，跟库里有几集无关，仍看宿主记的优先级
+        downloaded = best_version_done(row)
+    elif library_check:
+        # 实探口径：**只有媒体服务器说库里有**才算已入库。订阅记录（note）
+        # 与宿主下载记录都只是「下过」—— 下载完没导入、坏种、被清理都不算。
+        # 真机 1.17.6：第 4 集 17:34 刚下完，note=[4]，库里只有 1~3 集，却因为
+        # 把下载记录并进「已入库」被判成「已播 4 集全部入库」直接暂停。
+        if confirmed is None:
+            # 还没核对到 → 不知道缺不缺。**什么都不动**：既不暂停（万一只差一集
+            # 没导入），也不恢复（万一真的已经播完该停）。等下一轮实探再判。
+            return _decision(
+                row,
+                state=state,
+                target=state,
+                action=ACTION_KEEP,
+                reason=REASON_LIBRARY_UNKNOWN,
+                detail=_describe(REASON_LIBRARY_UNKNOWN),
+                owned=is_owned,
+                assumed=True,
+                next_air=next(
+                    (day for day, _ in air if day > today_text), ""
+                ),
+            )
+        downloaded = set(confirmed)
+        library_confirmed = len(set(confirmed) - episode_numbers(row))
+    else:
+        # 没开实探：只能按订阅记录算，缺集是推测（界面上会标出来）
+        downloaded = episode_numbers(row)
+        assumed = not has_download_record(row)
     start_episode = _int(_get(row, "start_episode"), 1)
 
     aired = [(day, number) for day, number in air if day <= today_text]
@@ -1022,7 +985,10 @@ def decide(
     if assumed:
         # 没有入库记录时，「缺集」是从播出表倒推出来的，必须说清楚，
         # 否则用户会以为插件知道库里到底有什么。
-        detail = f"{detail}（订阅没有入库记录，缺集按播出表推测）"
+        if library_check:
+            detail = f"{detail}（媒体库还没实探到这一部，缺集按播出表算）"
+        else:
+            detail = f"{detail}（订阅没有入库记录，缺集按播出表推测）"
 
     return _decision(
         row,
@@ -1057,6 +1023,7 @@ def plan(
     movie_enabled: bool = True,
     movie_theatrical_offset_days: int = 0,
     library_index: Optional[Mapping[Any, Any]] = None,
+    library_check: bool = False,
 ) -> Dict[str, Any]:
     """对全部订阅做一次决策，返回「计划」。
 
@@ -1068,8 +1035,9 @@ def plan(
     :param release_index: 电影的发行记录索引 ``{media_id: [(date, type), ...]}``
     :param movie_enabled: 是否连电影订阅一起管
     :param movie_theatrical_offset_days: 只有影院日期时按上映日往后推几天估算数字发行（0=不估算）
-    :param library_index: 媒体库确认存在的集号 ``{订阅 ID: {集号, ...}}``
-        （快照与实时核对的并集；键是**订阅 ID**，不是 media_id）
+    :param library_index: 媒体库**实探**确认存在的集号 ``{订阅 ID: {集号, ...}}``
+        （只来自实探；键是**订阅 ID**，不是 media_id）
+    :param library_check: 是否开了媒体库实探；开了就只认实探结果当「已入库」
     :return: ``{"today", "items", "changes", "paused", "resumed", "kept",
         "skipped", "reasons", "truncated"}``
     """
@@ -1096,6 +1064,7 @@ def plan(
                 movie_enabled=movie_enabled,
                 movie_theatrical_offset_days=movie_theatrical_offset_days,
                 library_present=(library_index or {}).get(_int(_get(row, "id"))),
+                library_check=library_check,
             )
         )
 
@@ -1215,7 +1184,6 @@ __all__ = [
     "WRITE_ACTIONS",
     "best_version_done",
     "decide",
-    "download_history_episodes",
     "episode_numbers",
     "has_download_record",
     "is_best_version",
@@ -1227,5 +1195,4 @@ __all__ = [
     "pending_episodes",
     "plan",
     "release_records",
-    "seasoninfo_episodes",
 ]

@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.17.5"
+PLUGIN_VERSION = "1.17.6"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -57,10 +57,10 @@ DEFAULT_AUTO_TOGGLE_BEST_KEEP = 90
 #: NAS 打挂（1.13.6 之前的真实事故）。所以这里改成「串行 + 间隔 + 时间预算」：
 #: 预算用完就停，剩下的留到下一轮，宁可分几天轮完也不打崩媒体服务器。
 #:
-#: 300 秒 / 1.5 秒 ≈ 一轮最多核 120 条左右；稳态下需要核对的通常只有几十条，
-#: 走不满预算。预算设 0 = 只读媒体库快照（``MediaServerItem.seasoninfo``），
-#: 一次请求都不发。
-DEFAULT_AUTO_TOGGLE_PROBE_BUDGET = 300
+#: 实测（Emby 局域网）每条约 1.7 秒：1.5 秒间隔 + 0.2 秒请求，200 条约 340 秒。
+#: 默认 600 秒 = 一轮能把 200 条全核完，还留一倍余量；稳态下要核的通常只有
+#: 几十条，走不满。预算设 0 = 不实探（只沿用上一轮结果）。
+DEFAULT_AUTO_TOGGLE_PROBE_BUDGET = 600
 DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL = 1.5
 #: 上一轮核对结果的保质期（小时）。过期就不再当作「已入库」证据，让这条订阅
 #: 重新进入候选、下一轮再问一次媒体服务器。
@@ -525,14 +525,14 @@ def default_config() -> Dict[str, Any]:
         "auto_toggle_max_changes": 0,
         #: 每次自动启停后是否发通知（消息里带暂停/恢复条数）。
         "auto_toggle_notify": False,
-        #: 用媒体库核对「已入库」。``Subscribe.note`` 只由宿主的完成流程写入，
+        #: 用媒体库实探核对「已入库」。``Subscribe.note`` 只由宿主的完成流程写入，
         #: 媒体库导入 / 手动下载 / 订阅重建都不会有它 —— 那时「缺 1..180 集」
         #: 只是按播出表推测出来的假警报，并不是插件真的知道库里没有。
         #:
-        #: 打开后：先读宿主同步好的媒体库快照（零请求），再在下面的时间预算内
-        #: 逐条向媒体服务器核对，结果与订阅记录取**并集**（只会减少误报缺集）。
+        #: 打开后：在下面的时间预算内逐条向媒体服务器核对，**只有实探结果算入库**；
+        #: 订阅记录与宿主下载记录都不算（下过不等于导入）。核对不到的订阅本轮不动。
         "auto_toggle_library_check": False,
-        #: 每轮媒体库核对的时间预算（秒，0 = 只读快照不发请求）。
+        #: 每轮媒体库实探的时间预算（秒，0 = 不实探，只沿用上一轮结果）。
         "auto_toggle_library_probe_budget_seconds": DEFAULT_AUTO_TOGGLE_PROBE_BUDGET,
         #: 逐条核对之间的间隔（秒）。越小越快，也越容易把媒体服务器压住。
         "auto_toggle_library_probe_interval": DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL,

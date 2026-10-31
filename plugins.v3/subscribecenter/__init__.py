@@ -72,7 +72,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.17.5"
+    plugin_version = "1.17.6"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -760,45 +760,37 @@ class SubscribeCenter(_PluginBase):
         probe: bool = False,
         cached: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[int, set], Dict[str, Any]]:
-        """媒体库已入库集号索引 ``{订阅 ID: {集号}}``，以及一份统计。
+        """媒体库实探确认的集号索引 ``{订阅 ID: {集号}}``，以及一份统计。
 
-        三级数据源，**都只减误报、不会误暂停**（``decide`` 里是并集）：
+        **只有实探算数**。用户 2026-10-31 明确要求：媒体库不同步，快照是第一次
+        同步时的老数据，拿它当「入库」证据等于瞎猜；``note`` 与宿主下载记录也只
+        说明「下过」，下载完没导入、坏种、被清理，库里都查不到。
 
-        1. **媒体库快照**（免费）：宿主同步任务把每部剧的 ``{季: [集号]}`` 记在
-           ``MediaServerItem.seasoninfo``，一次 SQL 拿到全部，零媒体服务器请求。
-        2. **上次核对结果**（免费）：上一轮探针的结论存在插件数据里，预览直接沿用 ——
-           否则「预览」自己也要发几百个请求，网页早被网关掐断了。
-        3. **实时探针**（慢）：仅 ``probe=True``（后台执行 / 定时任务）时才发。
-           快照没覆盖的、且真有已播未入库的集的订阅，按时间预算逐条问宿主
-           ``DownloadChain().get_no_exists_info``（每条要发两次媒体服务器请求，
-           全量并发正是上一版把 NAS 打挂的原因）。
+        所以证据只有两份，都是媒体服务器亲口说的：
+
+        1. **上次实探结果**（免费）：上一轮的结论存在插件数据里，预览直接沿用 ——
+           否则「预览」自己也要发几百个请求，网页早被网关掐断了。过期（默认
+           12 小时）就不再当证据，这条订阅重新成为候选。
+        2. **实时实探**（慢）：仅 ``probe=True``（后台执行 / 定时任务）时才发。
+           按时间预算逐条问宿主 ``DownloadChain().get_no_exists_info``（每条要发
+           两次媒体服务器请求，全量并发正是上一版把 NAS 打挂的原因）。
+
+        没被实探到的订阅在 ``decide`` 里会返回「媒体库还没核对到」并保持搜索，
+        绝不会因为「不知道」就暂停。
 
         .. important::
            探针**绝不能**放在 HTTP 请求里：200 条串行核对要好几分钟，网关会
-           直接 502。预览永远只读，慢的那部分留给后台。
+            直接 502。预览永远只读，慢的那部分留给后台。
         """
         cached = cached if isinstance(cached, dict) else {}
         cfg = self._auto_toggle_config()
-        snapshot: Dict[int, set] = {}
-        try:
-            snapshot = await self._library_snapshot_index(rows)
-        except Exception as err:  # noqa: BLE001 - 快照取不到就只靠探针
-            logger.debug(f"[SubscribeCenter] 媒体库快照读取失败：{err}")
 
-        #: 第三份免费证据：宿主下载记录。快照会滞后、``note`` 只有完成流程才写，
-        #: 于是「库里明明有、我们却判缺集」—— 该暂停的不暂停（1.17.4 真机问题）。
-        download: Dict[int, set] = {}
-        try:
-            download = await self._download_history_index(rows)
-        except Exception as err:  # noqa: BLE001 - 下载记录读不到就只少一份证据
-            logger.debug(f"[SubscribeCenter] 下载记录读取失败：{err}")
+        index: Dict[int, set] = {}
 
-        index: Dict[int, set] = {sid: set(eps) for sid, eps in snapshot.items()}
-        for sid, episodes in download.items():
-            index.setdefault(sid, set()).update(episodes)
-
-        #: 上一轮核对结果只在保质期内沿用。过期就**不并**进 ``index``，这条订阅
-        #: 因此重新成为探针候选 —— 否则缓存会把缺集永远钉死（1.17.3 及以前的 bug）。
+        #: 上一轮实探结果只在保质期内沿用。过期就**不并**进 ``index``，这条订阅
+        #: 因此重新成为候选 —— 否则缓存会把缺集永远钉死（1.17.3 及以前的 bug）。
+        #: **空集也要沿用**：核对了、库里确实一集都没有，与「还没核对」是两回事 ——
+        #: 前者该按缺集判定（可能已过期该暂停），后者只能先保持搜索。
         reused: Dict[int, set] = {}
         fresh = self._probe_cache_fresh(cached)
         for key, value in (cached.get("items") or {}).items() if fresh else ():
@@ -806,14 +798,13 @@ class SubscribeCenter(_PluginBase):
                 sid = int(key)
             except (TypeError, ValueError):
                 continue
+            if sid <= 0:
+                continue
             episodes = {int(item) for item in (value or []) if int(item) > 0}
-            if episodes:
-                reused[sid] = episodes
-                index.setdefault(sid, set()).update(episodes)
+            reused[sid] = episodes
+            index[sid] = set(episodes)
 
         stats: Dict[str, Any] = {
-            "snapshot": len(snapshot),
-            "download": len(download),
             "cached": len(reused),
             "cached_at": str(cached.get("at") or ""),
             "cached_stale": bool(cached) and not fresh,
@@ -884,123 +875,17 @@ class SubscribeCenter(_PluginBase):
             stamp = stamp.replace(tzinfo=now.tzinfo)
         return now - stamp <= timedelta(hours=int(C.DEFAULT_AUTO_TOGGLE_PROBE_TTL_HOURS))
 
-    async def _download_history_index(self, rows: Any) -> Dict[int, set]:
-        """从宿主下载记录补「已入库」集号（纯 DB，零请求）。
-
-        真机教训（1.17.4）：有些集是通过别的渠道进媒体库的（手动拷贝、别的工具、
-        媒体服务器自己刮的），宿主既没有下载记录、``note`` 也是空的；而媒体库
-        快照要等同步任务才更新。三份证据里少了这一份，就会把已经在库的集判成
-        缺集 —— 该暂停的订阅一直保持「订阅中」。
-        """
-        from app.db import async_session_scope
-        from app.db.models.downloadhistory import DownloadHistory
-        from sqlalchemy import select
-
-        from .core import autotoggle
-
-        wanted: Dict[str, set] = {}
-        for row in rows:
-            if autotoggle.media_kind(row) != "tv":
-                continue
-            media_id = str(getattr(row, "media_id", "") or "")
-            season = int(getattr(row, "season", 0) or 0)
-            if not media_id.isdigit() or season <= 0:
-                continue
-            wanted.setdefault(media_id, set()).add(season)
-        if not wanted:
-            return {}
-
-        async with async_session_scope() as session:
-            items = (
-                await session.execute(
-                    select(DownloadHistory).where(
-                        DownloadHistory.media_id.in_(list(wanted))
-                    )
-                )
-            ).scalars().all()
-
-        by_season: Dict[Tuple[str, int], set] = {}
-        for item in items:
-            media_id = str(getattr(item, "media_id", "") or "")
-            seasons = wanted.get(media_id)
-            if not seasons:
-                continue
-            for season in seasons:
-                episodes = autotoggle.download_history_episodes(
-                    getattr(item, "seasons", None),
-                    getattr(item, "episodes", None),
-                    season,
-                )
-                if episodes:
-                    by_season.setdefault((media_id, season), set()).update(episodes)
-        if not by_season:
-            return {}
-
-        out: Dict[int, set] = {}
-        for row in rows:
-            media_id = str(getattr(row, "media_id", "") or "")
-            season = int(getattr(row, "season", 0) or 0)
-            episodes = by_season.get((media_id, season))
-            sid = int(getattr(row, "id", 0) or 0)
-            if episodes and sid > 0:
-                out[sid] = set(episodes)
-        return out
-
-    async def _library_snapshot_index(self, rows: Any) -> Dict[int, set]:
-        """从 ``MediaServerItem.seasoninfo`` 读「库里有什么」，纯 DB，零请求。"""
-        from app.db import async_session_scope
-        from app.db.models.mediaserver import MediaServerItem
-        from sqlalchemy import select
-
-        from .core import autotoggle
-
-        wanted: Dict[str, List[Any]] = {}
-        for row in rows:
-            if autotoggle.media_kind(row) != "tv":
-                continue
-            media_id = str(getattr(row, "media_id", "") or "")
-            if not media_id.isdigit():
-                continue
-            wanted.setdefault(media_id, []).append(row)
-        if not wanted:
-            return {}
-
-        async with async_session_scope() as session:
-            items = (
-                await session.execute(
-                    select(MediaServerItem).where(
-                        MediaServerItem.media_id.in_(list(wanted))
-                    )
-                )
-            ).scalars().all()
-
-        index: Dict[int, set] = {}
-        for item in items:
-            media_id = str(getattr(item, "media_id", "") or "")
-            source = str(getattr(item, "media_source", "") or "")
-            for row in wanted.get(media_id, []):
-                row_source = str(getattr(row, "media_source", "") or "")
-                if source and row_source and source != row_source:
-                    continue
-                season = int(getattr(row, "season", 0) or 0)
-                episodes = autotoggle.seasoninfo_episodes(
-                    getattr(item, "seasoninfo", None), season
-                )
-                if not episodes:
-                    continue
-                sid = int(getattr(row, "id", 0) or 0)
-                if sid > 0:
-                    index.setdefault(sid, set()).update(episodes)
-        return index
-
     def _probe_candidates(
         self, rows: Any, episode_index: Any, today_date: Any, *, known: Dict[int, set]
     ) -> List[Any]:
-        """挑出「值得问媒体库」的订阅，返回排好序的 ``(优先级, 最老缺集, row)``。
+        """挑出「值得实探」的订阅，返回排好序的 ``(优先级, 最老缺集, row)``。
 
-        只挑确有已播未入库的集的 TV 订阅：没有缺集的问了也白问，洗版订阅问的是
-        「洗到顶没有」与库里有没有这一集无关。排序把**没有下载记录的排在前面**
-        （缺集纯属推测，最需要核对），同类里「最老的缺集」优先。
+        口径：**已播的集里，实探还没确认库里有**的那些。订阅记录（``note``）与
+        下载记录不算数 —— 下过不等于入库。没有这种集的问了也白问；洗版订阅问的
+        是「洗到顶没有」，跟库里有没有这一集无关。
+
+        排序把**没有下载记录的排在前面**（缺集纯属推测，最需要核对），同类里
+        「最老的缺集」优先。预算不够时先核这些。
         """
         from .core import autotoggle
         from .core import calendar as calendar_core
@@ -1021,18 +906,17 @@ class SubscribeCenter(_PluginBase):
             )
             if episodes is None:
                 episodes = episode_index.get((media_id, season))
-            pending = autotoggle.pending_episodes(row, episodes, today_date)
-            if not pending:
-                continue
             sid = int(getattr(row, "id", 0) or 0)
             covered = known.get(sid) or set()
-            unknown = [pair for pair in pending if pair[1] not in covered]
-            if not unknown:
+            pending = autotoggle.pending_episodes(
+                row, episodes, today_date, confirmed=covered
+            )
+            if not pending:
                 continue
             candidates.append(
                 (
                     0 if not autotoggle.has_download_record(row) else 1,
-                    min(pair[0] for pair in unknown),
+                    min(pair[0] for pair in pending),
                     row,
                 )
             )
@@ -1266,7 +1150,7 @@ class SubscribeCenter(_PluginBase):
         )
         state = self._auto_toggle_state()
         owned = state.get("owned")
-        # 媒体库核对：快照 + 上次核对结果永远免费；实时探针只在 probe=True 时发
+        # 媒体库核对：上一轮实探结果免费沿用；实时探针只在 probe=True 时发
         library_index: Dict[int, set] = {}
         library_stats: Dict[str, Any] = {}
         if cfg["library_check"]:
@@ -1292,6 +1176,7 @@ class SubscribeCenter(_PluginBase):
             movie_enabled=cfg["movie_enabled"],
             movie_theatrical_offset_days=cfg["movie_theatrical_offset_days"],
             library_index=library_index,
+            library_check=cfg["library_check"],
         )
         data["config"] = cfg
         data["library"] = library_stats

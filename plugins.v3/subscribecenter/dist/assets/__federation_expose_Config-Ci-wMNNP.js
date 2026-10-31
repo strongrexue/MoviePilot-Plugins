@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-N-L8Lgmg.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-Cwpg_BGB.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -118,8 +118,8 @@ const configDefaults = {
   auto_toggle_notify: false,
   //: 用媒体库核对真正入库了多少集（默认关：要连媒体服务器，有开销）
   auto_toggle_library_check: false,
-  //: 每轮最多花多少秒核对（0 = 只读媒体库快照，一个请求都不发）
-  auto_toggle_library_probe_budget_seconds: 300,
+  //: 每轮实探最多花多少秒（0 = 不实探，只沿用上一轮结果）
+  auto_toggle_library_probe_budget_seconds: 600,
   //: 每条之间等几秒（串行，别把 NAS 打满）
   auto_toggle_library_probe_interval: 1.5,
   // ---------------- 调度与通知
@@ -464,12 +464,12 @@ const autoToggleItems = computed(() => {
   return items.filter((row) => row.action === 'pause' || row.action === 'resume')
 });
 
-/** 库核对的耗时/预算说明（预算为 0 时说明只读了快照）。 */
+/** 库实探的耗时/预算说明（预算为 0 时说明本轮不实探）。 */
 const libraryElapsedText = computed(() => {
   const lib = autoToggle.value?.library;
   if (!lib) return ''
   const budget = Number(lib.budget_seconds ?? 0);
-  if (!budget) return '只读快照，零请求'
+  if (!budget) return '未实探，沿用上次结果'
   const elapsed = Number(lib.elapsed ?? 0);
   return `${elapsed.toFixed(1)}s / 预算 ${budget}s`
 });
@@ -1833,7 +1833,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[108] || (_cache[108] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-25babbac><b data-v-25babbac>电影上映类</b>（<code data-v-25babbac>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-25babbac><b data-v-25babbac>剧集类</b>（<code data-v-25babbac>/douban/tv/coming</code>、<code data-v-25babbac>/douban/list/tv_*</code>、 <code data-v-25babbac>/douban/list/show_domestic</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-25babbac><b data-v-25babbac>电影榜单类</b>没有日期，会被跳过。<code data-v-25babbac>ustop250</code> 与 <code data-v-25babbac>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[108] || (_cache[108] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-ae87658d><b data-v-ae87658d>电影上映类</b>（<code data-v-ae87658d>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-ae87658d><b data-v-ae87658d>剧集类</b>（<code data-v-ae87658d>/douban/tv/coming</code>、<code data-v-ae87658d>/douban/list/tv_*</code>、 <code data-v-ae87658d>/douban/list/show_domestic</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-ae87658d><b data-v-ae87658d>电影榜单类</b>没有日期，会被跳过。<code data-v-ae87658d>ustop250</code> 与 <code data-v-ae87658d>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2656,7 +2656,7 @@ return (_ctx, _cache) => {
                     color: "primary"
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[142] || (_cache[142] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-25babbac><b data-v-25babbac>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-25babbac>BL</code> 不会命中 <code data-v-25babbac>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-25babbac>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-25babbac>regex:</code> 用正则；行首加 <code data-v-25babbac>case:</code> 区分大小写；空行与 <code data-v-25babbac>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-25babbac><b data-v-25babbac>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-25babbac>试一下</div>", 3)),
+                _cache[142] || (_cache[142] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-ae87658d><b data-v-ae87658d>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-ae87658d>BL</code> 不会命中 <code data-v-ae87658d>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-ae87658d>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-ae87658d>regex:</code> 用正则；行首加 <code data-v-ae87658d>case:</code> 区分大小写；空行与 <code data-v-ae87658d>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-ae87658d><b data-v-ae87658d>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-ae87658d>试一下</div>", 3)),
                 _createVNode(_component_VRow, { dense: "" }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -3132,8 +3132,8 @@ return (_ctx, _cache) => {
                 : _createCommentVNode("", true),
               _createElementVNode("div", _hoisted_97, [
                 _cache[157] || (_cache[157] = _createElementVNode("div", { class: "sc-row-main" }, [
-                  _createElementVNode("div", { class: "sc-row-label" }, "用媒体库核对已入库"),
-                  _createElementVNode("div", { class: "sc-row-hint" }, " 订阅的「已下载」只记宿主自己下过的集；从别处导入的库内剧集它不知道。 打开后先读媒体库快照（零请求），再在预算内逐条问媒体服务器，逐条之间有间隔。 ")
+                  _createElementVNode("div", { class: "sc-row-label" }, "用媒体库实探核对已入库"),
+                  _createElementVNode("div", { class: "sc-row-hint" }, " 只看媒体服务器实际有什么：订阅记录的「已下载」和宿主下载记录都不算入库 （下完没导入、坏种、被清理都可能）。核对不到的订阅本轮不动，等下一轮。 ")
                 ], -1)),
                 _createVNode(_component_VSwitch, {
                   modelValue: form.value.auto_toggle_library_check,
@@ -3159,7 +3159,7 @@ return (_ctx, _cache) => {
                             modelValue: form.value.auto_toggle_library_probe_budget_seconds,
                             "onUpdate:modelValue": _cache[73] || (_cache[73] = $event => ((form.value.auto_toggle_library_probe_budget_seconds) = $event)),
                             modelModifiers: { number: true },
-                            label: "每轮最多核对多少秒（0 = 只读快照）",
+                            label: "每轮最多核对多少秒（0 = 不实探）",
                             type: "number",
                             min: "0",
                             max: "3600",
@@ -3167,7 +3167,7 @@ return (_ctx, _cache) => {
                             "hide-details": "",
                             variant: "outlined",
                             class: "mb-2",
-                            hint: "到点就停，剩下的下次继续（它们的缺集按订阅记录算）",
+                            hint: "到点就停，剩下的下次继续（没核对到的本轮不动）",
                             "persistent-hint": ""
                           }, null, 8, ["modelValue"])
                         ]),
@@ -3191,7 +3191,7 @@ return (_ctx, _cache) => {
                             "hide-details": "",
                             variant: "outlined",
                             class: "mb-2",
-                            hint: "串行 + 间隔，避免把媒体服务器打满",
+                            hint: "串行 + 间隔，避免把媒体服务器打满；1.5 秒约 1.7 秒/条",
                             "persistent-hint": ""
                           }, null, 8, ["modelValue"])
                         ]),
@@ -3450,7 +3450,7 @@ return (_ctx, _cache) => {
                             color: "info"
                           }, {
                             default: _withCtx(() => [
-                              _createTextVNode(" 库核对：快照 " + _toDisplayString(autoToggle.value.library.snapshot ?? 0) + " 条 / 下载记录 " + _toDisplayString(autoToggle.value.library.download ?? 0) + " 条 / 沿用 " + _toDisplayString(autoToggle.value.library.cached ?? 0) + " 条 / 实探 " + _toDisplayString(autoToggle.value.library.probed ?? 0) + " 条 / 待核对 " + _toDisplayString(autoToggle.value.library.deferred ?? 0) + " 条（" + _toDisplayString(libraryElapsedText.value) + "） ", 1)
+                              _createTextVNode(" 库核对：沿用 " + _toDisplayString(autoToggle.value.library.cached ?? 0) + " 条 / 实探 " + _toDisplayString(autoToggle.value.library.probed ?? 0) + " 条 / 待核对 " + _toDisplayString(autoToggle.value.library.deferred ?? 0) + " 条（" + _toDisplayString(libraryElapsedText.value) + "） ", 1)
                             ]),
                             _: 1
                           }))
@@ -3676,6 +3676,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-25babbac"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae87658d"]]);
 
 export { Config as default };

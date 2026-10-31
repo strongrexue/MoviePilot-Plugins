@@ -95,12 +95,12 @@ const autoToggleItems = computed(() => {
   return items.filter((row) => row.action === 'pause' || row.action === 'resume')
 })
 
-/** 库核对的耗时/预算说明（预算为 0 时说明只读了快照）。 */
+/** 库实探的耗时/预算说明（预算为 0 时说明本轮不实探）。 */
 const libraryElapsedText = computed(() => {
   const lib = autoToggle.value?.library
   if (!lib) return ''
   const budget = Number(lib.budget_seconds ?? 0)
-  if (!budget) return '只读快照，零请求'
+  if (!budget) return '未实探，沿用上次结果'
   const elapsed = Number(lib.elapsed ?? 0)
   return `${elapsed.toFixed(1)}s / 预算 ${budget}s`
 })
@@ -2249,10 +2249,10 @@ onMounted(() => {
 
             <div class="sc-row">
               <div class="sc-row-main">
-                <div class="sc-row-label">用媒体库核对已入库</div>
+                <div class="sc-row-label">用媒体库实探核对已入库</div>
                 <div class="sc-row-hint">
-                  订阅的「已下载」只记宿主自己下过的集；从别处导入的库内剧集它不知道。
-                  打开后先读媒体库快照（零请求），再在预算内逐条问媒体服务器，逐条之间有间隔。
+                  只看媒体服务器实际有什么：订阅记录的「已下载」和宿主下载记录都不算入库
+                  （下完没导入、坏种、被清理都可能）。核对不到的订阅本轮不动，等下一轮。
                 </div>
               </div>
               <VSwitch
@@ -2267,7 +2267,7 @@ onMounted(() => {
               <VCol cols="12" sm="6">
                 <VTextField
                   v-model.number="form.auto_toggle_library_probe_budget_seconds"
-                  label="每轮最多核对多少秒（0 = 只读快照）"
+                  label="每轮最多核对多少秒（0 = 不实探）"
                   type="number"
                   min="0"
                   max="3600"
@@ -2275,7 +2275,7 @@ onMounted(() => {
                   hide-details
                   variant="outlined"
                   class="mb-2"
-                  hint="到点就停，剩下的下次继续（它们的缺集按订阅记录算）"
+                  hint="到点就停，剩下的下次继续（没核对到的本轮不动）"
                   persistent-hint
                 />
               </VCol>
@@ -2291,7 +2291,7 @@ onMounted(() => {
                   hide-details
                   variant="outlined"
                   class="mb-2"
-                  hint="串行 + 间隔，避免把媒体服务器打满"
+                  hint="串行 + 间隔，避免把媒体服务器打满；1.5 秒约 1.7 秒/条"
                   persistent-hint
                 />
               </VCol>
@@ -2429,9 +2429,7 @@ onMounted(() => {
                   variant="tonal"
                   color="info"
                 >
-                  库核对：快照 {{ autoToggle.library.snapshot ?? 0 }} 条 / 下载记录
-                  {{ autoToggle.library.download ?? 0 }} 条 / 沿用
-                  {{ autoToggle.library.cached ?? 0 }} 条 / 实探
+                  库核对：沿用 {{ autoToggle.library.cached ?? 0 }} 条 / 实探
                   {{ autoToggle.library.probed ?? 0 }} 条 / 待核对
                   {{ autoToggle.library.deferred ?? 0 }} 条（{{ libraryElapsedText }}）
                 </VChip>

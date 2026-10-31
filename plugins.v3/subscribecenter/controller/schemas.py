@@ -356,16 +356,16 @@ class AutoToggleItem(BaseModel):
 
 
 class AutoToggleLibrary(BaseModel):
-    """自动启停：媒体库核对的本轮统计。"""
+    """自动启停：媒体库实探的本轮统计。
 
-    snapshot: int = Field(default=0, description="快照命中（零请求）的订阅数")
-    download: int = Field(
-        default=0, description="由宿主下载记录补出的已入库订阅数（零请求）"
-    )
-    cached: int = Field(default=0, description="沿用上次核对结果的订阅数")
-    cached_at: str = Field(default="", description="上次核对时间")
+    「入库」只认媒体服务器实探（用户 2026-10-31 定稿：媒体库不同步，快照是第一次
+    同步时的老数据；``note`` 与宿主下载记录只说明「下过」，坏种/没导入都不算）。
+    """
+
+    cached: int = Field(default=0, description="沿用上次实探结果的订阅数")
+    cached_at: str = Field(default="", description="上次实探时间")
     cached_stale: bool = Field(
-        default=False, description="上次核对结果是否已过期（过期会重新核对）"
+        default=False, description="上次实探结果是否已过期（过期会重新核对）"
     )
     candidates: int = Field(default=0, description="本轮待核对的订阅数")
     probed: int = Field(default=0, description="本轮实际核对的订阅数")
@@ -373,7 +373,7 @@ class AutoToggleLibrary(BaseModel):
     error: str = Field(default="", description="失败原因（首条）")
     deferred: int = Field(default=0, description="预算用尽、留到下一轮的条数")
     elapsed: int = Field(default=0, description="本轮核对耗时（秒）")
-    budget_seconds: int = Field(default=0, description="时间预算（0=只读快照）")
+    budget_seconds: int = Field(default=0, description="时间预算（0=不实探）")
     interval: float = Field(default=0.0, description="逐条间隔（秒）")
 
 

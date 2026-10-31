@@ -115,8 +115,8 @@ export const configDefaults = {
   auto_toggle_notify: false,
   //: 用媒体库核对真正入库了多少集（默认关：要连媒体服务器，有开销）
   auto_toggle_library_check: false,
-  //: 每轮最多花多少秒核对（0 = 只读媒体库快照，一个请求都不发）
-  auto_toggle_library_probe_budget_seconds: 300,
+  //: 每轮实探最多花多少秒（0 = 不实探，只沿用上一轮结果）
+  auto_toggle_library_probe_budget_seconds: 600,
   //: 每条之间等几秒（串行，别把 NAS 打满）
   auto_toggle_library_probe_interval: 1.5,
   // ---------------- 调度与通知

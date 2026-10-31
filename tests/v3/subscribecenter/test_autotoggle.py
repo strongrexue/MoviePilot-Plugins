@@ -1132,45 +1132,6 @@ def test_has_download_record_reads_note_and_priority():
     )
 
 
-def test_seasoninfo_episodes_accepts_int_and_str_keys():
-    """媒体库快照的 ``seasoninfo`` 键可能是 int 也可能是 str（JSON 落库后）。"""
-    assert autotoggle.seasoninfo_episodes({1: [1, 2, 3]}, 1) == {1, 2, 3}
-    assert autotoggle.seasoninfo_episodes({"2": [4, 5]}, 2) == {4, 5}
-    assert autotoggle.seasoninfo_episodes({1: [1]}, 2) == set(), "没有该季 = 快照没说"
-    assert autotoggle.seasoninfo_episodes(None, 1) == set()
-    assert autotoggle.seasoninfo_episodes("junk", 1) == set()
-
-
-def test_pending_episodes_lists_aired_and_missing():
-    """只列「已播且订阅记录里没有」的集，按集号升序 —— 探针靠它挑候选。"""
-    row = _row(note=[1, 2])
-    eps = _eps(
-        ("2026-10-18", 1),
-        ("2026-10-19", 2),
-        ("2026-10-20", 3),
-        ("2026-10-21", 4),
-    )
-    assert autotoggle.pending_episodes(row, eps, TODAY) == [("2026-10-20", 3)]
-
-
-def test_pending_episodes_honours_start_episode():
-    row = _row(start_episode=5, note=[])
-    eps = _eps(("2026-10-19", 4), ("2026-10-20", 5))
-    assert autotoggle.pending_episodes(row, eps, TODAY) == [("2026-10-20", 5)]
-
-
-def test_assumed_when_subscribe_has_no_record():
-    """订阅没有入库记录 → 缺集是算出来的，必须在 detail 里写明。"""
-    result = autotoggle.decide(_row(note=[]), _eps(("2026-10-20", 1)), TODAY, keep_days=3)
-    assert result.assumed is True
-    assert "推测" in result.detail
-
-
-def test_record_present_clears_assumed():
-    result = autotoggle.decide(_row(note=[1]), _eps(("2026-10-20", 2)), TODAY, keep_days=3)
-    assert result.assumed is False
-
-
 def test_library_present_removes_false_missing():
     """库里有第 1 集 → 不再算缺 → 已播全部入库 → 暂停。
 
@@ -1182,6 +1143,7 @@ def test_library_present_removes_false_missing():
         TODAY,
         keep_days=3,
         library_present={1},
+        library_check=True,
     )
     assert result.reason == autotoggle.REASON_ALL_DONE
     assert result.library_confirmed == 1
@@ -1196,6 +1158,7 @@ def test_library_present_keeps_really_missing():
         TODAY,
         keep_days=3,
         library_present={1},
+        library_check=True,
     )
     assert result.reason == autotoggle.REASON_PENDING
     assert list(result.pending) == [2]
@@ -1211,6 +1174,7 @@ def test_library_present_ignored_for_best_version():
         best_keep_days=90,
         best_mode=autotoggle.BEST_MODE_ALWAYS,
         library_present={1},
+        library_check=True,
     )
     assert result.library_confirmed == 0
     assert result.reason == autotoggle.REASON_BEST_PENDING
@@ -1220,7 +1184,9 @@ def test_plan_passes_library_index_by_subscribe_id():
     """``library_index`` 的键是**订阅 ID**，不是 media_id。"""
     rows = [_row(id=11, note=[]), _row(id=12, note=[])]
     index = {("1234", 1): _eps(("2026-10-19", 1))}
-    data = autotoggle.plan(rows, index, TODAY, keep_days=3, library_index={11: {1}})
+    data = autotoggle.plan(
+        rows, index, TODAY, keep_days=3, library_index={11: {1}}, library_check=True
+    )
     by_id = {item["id"]: item for item in data["items"]}
 
     assert by_id[11]["action"] == autotoggle.ACTION_PAUSE
@@ -1371,6 +1337,13 @@ def _lib_row(**overrides):
     for key, value in overrides.items():
         setattr(row, key, value)
     return row
+
+
+def _now_text(plugin):
+    """当前时区的 ISO 时间文本（构造「新鲜的」探针缓存用）。"""
+    from subscribecenter.core.window import local_now_text
+
+    return local_now_text(plugin._tz())
 
 
 def test_probe_skips_best_version_and_movies(plugin):
@@ -1603,21 +1576,6 @@ def test_apply_refuses_when_discovery_busy(plugin):
 
 # ------------------------------------------- 1.17.4 下载记录 + 缓存保质期
 
-def test_download_history_episodes_parses_common_shapes():
-    """宿主下载记录的 ``seasons`` / ``episodes`` 是字符串，形态不止一种。"""
-    parse = autotoggle.download_history_episodes
-
-    assert parse("S01", "E06", 1) == {6}
-    assert parse("S1", "E09-E11", 1) == {9, 10, 11}
-    assert parse("S05", "E09,E10,E11", 5) == {9, 10, 11}
-    assert parse("S01,S02", "E01", 2) == {1}
-    # 季号对不上 = 这条记录与本季无关，宁可漏用也不错用
-    assert parse("S01", "E06", 5) == set()
-    # 认不出季号时按本季处理（老数据可能没写季）
-    assert parse(None, "E06", 1) == {6}
-    assert parse("S01", None, 1) == set()
-
-
 def test_missing_from_no_exists_ignores_key_name():
     """宿主返回的键名它自己拼，我们不猜 —— 遍历取值（1.17.4 真机 70 条全空的原因）。"""
     from types import SimpleNamespace
@@ -1656,32 +1614,165 @@ def test_probe_cache_expires(plugin):
     assert plugin._probe_cache_fresh({"at": "不是时间"}) is False
 
 
-def test_library_index_merges_download_history(plugin):
-    """下载记录也是「库里已经有」的证据，必须并进索引（1.17.4 的核心）。"""
-    rows = [_lib_row(id=1), _lib_row(id=2, media_id="901")]
+def test_library_index_uses_only_probe_results(plugin):
+    """入库证据只有实探：下载记录与 note 一律不算（用户 2026-10-31 定稿）。"""
+    rows = [_lib_row(id=1)]
     index = {
-        ("900", 1): _eps(("2026-10-19", 1), ("2026-10-19", 2), ("2026-10-19", 3)),
-        ("901", 1): _eps(("2026-10-19", 1), ("2026-10-19", 2)),
+        ("900", 1): _eps(
+            ("2026-10-19", 1), ("2026-10-19", 2), ("2026-10-19", 3), ("2026-10-19", 4)
+        ),
     }
 
-    async def fake_snapshot(_rows):
-        return {}
+    async def fake_probe(_row):
+        return {1, 2, 3}
 
-    async def fake_download(_rows):
-        return {1: {1, 2}}
+    plugin._probe_one = fake_probe
+    plugin._auto_toggle_config = lambda: {
+        "library_check": True,
+        "library_probe_budget": 600,
+        "library_probe_interval": 0,
+    }
 
-    plugin._library_snapshot_index = fake_snapshot
-    plugin._download_history_index = fake_download
+    out, stats = asyncio.run(
+        plugin._library_present_index(rows, index, TODAY, probe=True)
+    )
+
+    assert out[1] == {1, 2, 3}
+    assert stats["probed"] == 1
+    assert "snapshot" not in stats and "download" not in stats
+
+
+def test_library_index_reuses_cached_probe(plugin):
+    """上一轮结果在保质期内直接沿用，预览不发任何请求。"""
+    rows = [_lib_row(id=1)]
+    index = {("900", 1): _eps(("2026-10-19", 1), ("2026-10-19", 2))}
+    cached = {"at": _now_text(plugin), "items": {"1": [1, 2]}}
+
+    async def boom(_row):  # pragma: no cover - 预览绝不该发请求
+        raise AssertionError("预览不该实探")
+
+    plugin._probe_one = boom
+    plugin._auto_toggle_config = lambda: {
+        "library_check": True,
+        "library_probe_budget": 600,
+        "library_probe_interval": 0,
+    }
+
+    out, stats = asyncio.run(
+        plugin._library_present_index(rows, index, TODAY, cached=cached)
+    )
+
+    assert out[1] == {1, 2}
+    assert stats["cached"] == 1
+    assert stats["probed"] == 0
+
+
+def test_library_index_reuses_cached_empty_result(plugin):
+    """核对了、库里一集都没有 —— 这也是一条结论，必须沿用。
+
+    否则「库里真的什么都没有」与「还没核对」混为一谈，该暂停的永远不暂停。
+    """
+    rows = [_lib_row(id=1)]
+    index = {("900", 1): _eps(("2026-10-19", 1))}
+    cached = {"at": _now_text(plugin), "items": {"1": []}}
+
+    plugin._auto_toggle_config = lambda: {
+        "library_check": True,
+        "library_probe_budget": 600,
+        "library_probe_interval": 0,
+    }
+
+    out, stats = asyncio.run(
+        plugin._library_present_index(rows, index, TODAY, cached=cached)
+    )
+
+    assert out[1] == set()
+    assert stats["cached"] == 1
+
+
+def test_library_index_drops_stale_cache(plugin):
+    """过期缓存不能当证据，这条订阅要重新成为候选。"""
+    rows = [_lib_row(id=1)]
+    index = {("900", 1): _eps(("2026-10-19", 1))}
+    cached = {"at": "2000-01-01T00:00:00+08:00", "items": {"1": [1]}}
+
     plugin._auto_toggle_config = lambda: {
         "library_check": True,
         "library_probe_budget": 0,
         "library_probe_interval": 0,
     }
 
-    out, stats = asyncio.run(plugin._library_present_index(rows, index, TODAY))
+    out, stats = asyncio.run(
+        plugin._library_present_index(rows, index, TODAY, cached=cached)
+    )
 
-    assert out[1] == {1, 2}
-    assert stats["download"] == 1
+    assert 1 not in out
+    assert stats["cached_stale"] is True
+    assert stats["candidates"] == 1
+
+
+def test_download_record_never_counts_as_imported():
+    """朱色假面场景：第 4 集刚下完没导入，note 里有 4，但库里只有 1~3。
+
+    以前把 note + 下载记录并进「已入库」→ 判成「已播 4 集全部入库」直接暂停。
+    """
+    row = _row(note=[4])
+    result = autotoggle.decide(
+        row,
+        _eps(("2026-10-17", 1), ("2026-10-18", 2), ("2026-10-19", 3), ("2026-10-20", 4)),
+        TODAY,
+        keep_days=30,
+        library_present={1, 2, 3},
+        library_check=True,
+    )
+
+    assert result.reason == autotoggle.REASON_PENDING
+    assert list(result.pending) == [4]
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.library_confirmed == 3
+
+
+def test_all_done_needs_library_confirmation():
+    """四集都在库里了才算「全部入库」。"""
+    row = _row(note=[4])
+    result = autotoggle.decide(
+        row,
+        _eps(("2026-10-17", 1), ("2026-10-18", 2), ("2026-10-19", 3), ("2026-10-20", 4)),
+        TODAY,
+        keep_days=30,
+        library_present={1, 2, 3, 4},
+        library_check=True,
+    )
+
+    assert result.reason == autotoggle.REASON_ALL_DONE
+    assert result.action == autotoggle.ACTION_PAUSE
+
+
+def test_library_unknown_does_nothing():
+    """还没核对到 → 什么都不动：既不暂停也不恢复。"""
+    running = autotoggle.decide(
+        _row(state="R"),
+        _eps(("2026-10-01", 1)),
+        TODAY,
+        keep_days=3,
+        library_present=None,
+        library_check=True,
+    )
+    assert running.reason == autotoggle.REASON_LIBRARY_UNKNOWN
+    assert running.action == autotoggle.ACTION_KEEP
+    assert running.target == autotoggle.STATE_RUN
+
+    paused = autotoggle.decide(
+        _row(state="S"),
+        _eps(("2026-10-01", 1)),
+        TODAY,
+        keep_days=3,
+        owned={7: {"state": "S"}},
+        library_present=None,
+        library_check=True,
+    )
+    assert paused.action == autotoggle.ACTION_KEEP
+    assert paused.target == autotoggle.STATE_PAUSED
 
 
 def test_probe_result_persisted_even_when_empty(plugin):
@@ -1693,26 +1784,20 @@ def test_probe_result_persisted_even_when_empty(plugin):
     rows = [_lib_row(id=1)]
     index = {("900", 1): _eps(("2026-10-19", 1))}
 
-    async def fake_snapshot(_rows):
-        return {}
-
-    async def fake_download(_rows):
-        return {}
-
     async def failing_probe(_row):
         plugin.__dict__["_probe_last_error"] = "探针剧 问媒体服务器失败：boom"
         return None
 
-    plugin._library_snapshot_index = fake_snapshot
-    plugin._download_history_index = fake_download
     plugin._probe_one = failing_probe
     plugin._auto_toggle_config = lambda: {
         "library_check": True,
-        "library_probe_budget": 300,
+        "library_probe_budget": 600,
         "library_probe_interval": 0,
     }
 
-    _out, stats = asyncio.run(plugin._library_present_index(rows, index, TODAY, probe=True))
+    _out, stats = asyncio.run(
+        plugin._library_present_index(rows, index, TODAY, probe=True)
+    )
 
     assert stats["failed"] == 1
     assert "boom" in stats["error"]

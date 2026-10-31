@@ -620,12 +620,20 @@ class MessagePipeline:
             return
 
         # 逻辑一：自定义关键词（OR）
+        # 命中明细进流水（1.13.28）：关键词是「整条消息全文子串」匹配，"电视剧消息
+        # 为何过了关键词闸"这类问题此前在流水里完全看不出来——现在把实际命中的词
+        # 写进 detail，配合流水表已有的 media_type 列，一眼可辨是频道 boilerplate
+        # 里的字样误命中，还是规则配置本身串了。
+        keyword_note = ""
         if rule.get("match_custom_keywords"):
             keywords = [str(kw) for kw in (rule.get("custom_keywords") or []) if str(kw).strip()]
-            if keywords and not any(keyword in cleaned for keyword in keywords):
-                self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_KEYWORD,
-                             "自定义关键词未命中", destination, links)
-                return
+            if keywords:
+                hits = [kw for kw in keywords if kw in cleaned]
+                if not hits:
+                    self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_KEYWORD,
+                                 "自定义关键词未命中", destination, links)
+                    return
+                keyword_note = f"（命中关键词：{'、'.join(hits)}）"
 
         # 仅缺失判断（依据 MP 媒体服务器 + 订阅快照）。
         # 标题识别只在需要判断缺失时是硬性要求：仅缺失关闭时，纯链接消息
@@ -686,7 +694,7 @@ class MessagePipeline:
                                      title=self._media_label(meta))
         if task_id:
             self._record(rule, chat_id, message_id, meta, DECISION_HIT,
-                         f"已入推送队列 #{task_id}", destination, links)
+                         f"已入推送队列 #{task_id}{keyword_note}", destination, links)
             self._stats["hit"] += 1
         else:
             self._record(rule, chat_id, message_id, meta, DECISION_FAILED,
@@ -1393,7 +1401,13 @@ class MessagePipeline:
             return True
 
         try:
-            ok = runtime.call(_register(), timeout=10)
+            # 走 credentials._call_tg：注册失败（多为连接断开）时自动重连并重试一次，
+            # 否则持续断开时事件监听注册不上、且自身不触发重连（被动 keep-alive 盲区）。
+            credentials = getattr(self._plugin, "_credentials", None)
+            if credentials is not None and hasattr(credentials, "_call_tg"):
+                ok = credentials._call_tg(runtime, _register, timeout=10)
+            else:
+                ok = runtime.call(_register(), timeout=10)
             self._handler_ok = bool(ok)
             if ok:
                 logger.info(

@@ -1,5 +1,11 @@
 <template>
   <div class="cache-pane">
+    <VTabs v-model="localTab" density="compact" class="cache-tabs">
+      <VTab value="cache">消息缓存</VTab>
+      <VTab value="wash">洗版规则</VTab>
+    </VTabs>
+
+    <div v-show="localTab === 'cache'" class="cache-tab-panel">
     <!-- 启用开关 -->
     <VCard flat class="cache-card">
       <VCardItem>
@@ -412,38 +418,6 @@
             关：与之前一致，只处理快照新增订阅并逐条判缺。
           </span>
         </div>
-        <!-- 质量门禁 + 每集最优（1.13.27）：洗版不再「命中即推」，只推真升级 -->
-        <div v-if="settings.reshuffle_enabled" class="cache-switch-row">
-          <VSwitch
-            v-model="settings.reshuffle_quality_gate"
-            color="primary"
-            density="compact"
-            hide-details
-            inset
-            label="质量门禁（只推真升级）"
-            class="cache-switch-inline"
-            @update:model-value="syncSettingsToForm"
-          />
-          <VTextField
-            v-model.number="settings.reshuffle_top_n"
-            label="同集最多推几条"
-            type="number"
-            min="0"
-            max="50"
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="cache-num-input"
-            @update:model-value="syncSettingsToForm"
-          />
-          <span class="cache-hint">
-            门禁开：候选要和你<strong>已经推过的最优画质</strong>比——分辨率/片源不能倒退，
-            加权总分（分辨率 40 · 片源 25 · 编码 15 · 特效 15 · 音轨 5）必须更高才推。
-            「同集最多推几条」按<strong>季 + 集区间</strong>分组择优，默认 1（只推最优），0 = 不限。
-            画质解析不出来的候选不参与比较，仍受这个条数限制。
-          </span>
-        </div>
-
         <!-- 推送节流（1.13.25）：洗版回搜不再限制入队条数，改由推送 worker 分批推送 -->
         <div class="cache-actions">
           <VTextField
@@ -639,6 +613,151 @@
       </VCard>
     </VDialog>
   </div>
+
+    <div v-show="localTab === 'wash'" class="cache-tab-panel">
+      <VCard flat class="cache-card">
+        <VCardItem>
+          <VCardTitle class="text-subtitle-2">洗版规则</VCardTitle>
+          <VCardSubtitle class="text-caption">
+            开启「洗版回搜」后生效：逐维比较只推真升级，同质量同分辨率同体积（±容差）不重复推。
+          </VCardSubtitle>
+        </VCardItem>
+        <VCardText class="cache-body">
+          <div v-if="!settings.reshuffle_enabled" class="cache-hint">
+            先在「消息缓存」里开启<strong>洗版回搜</strong>，这里的规则才会参与判定。
+          </div>
+        <!-- 洗版规则（1.13.32）：七维字典序 + 白名单 + 体积收口，替换 1.13.27 的加权质量门禁 -->
+        <div v-if="settings.reshuffle_enabled" class="wash-rules">
+          <div class="wash-head">
+            <strong>洗版规则</strong>
+            <span class="cache-hint">
+              行序＝优先级（拖 ⋮⋮ 调整），chip 位置＝维度内优劣，「✓/✕」只决定该值是否保留；
+              只有<strong>逐维更优</strong>才推，同质量同分辨率同体积（±容差）视为持平不推。
+            </span>
+          </div>
+          <div
+            v-for="(dim, index) in settings.wash_rules.order"
+            :key="dim"
+            class="wash-row"
+            :class="{ 'wash-row-locked': dim === 'quality' }"
+            :draggable="dim !== 'quality'"
+            @dragstart="onRowDragStart(index)"
+            @dragover.prevent
+            @drop="onRowDrop(index)"
+            @dragend="dragRow = -1"
+          >
+            <span class="wash-grip" :class="{ 'wash-grip-off': dim === 'quality' }">⋮⋮</span>
+            <span class="wash-index">{{ index + 1 }}</span>
+            <span class="wash-dim">{{ dimLabels[dim] }}</span>
+            <span v-if="dim === 'quality'" class="wash-lock">锁定</span>
+            <div v-if="dim === 'size'" class="wash-chips">
+              <VChip
+                size="small"
+                :color="settings.wash_rules.size.prefer === 'desc' ? 'primary' : undefined"
+                :variant="settings.wash_rules.size.prefer === 'desc' ? 'flat' : 'outlined'"
+                class="wash-chip"
+                @click="toggleSizePrefer"
+              >
+                由大到小
+              </VChip>
+              <VChip size="small" variant="outlined" class="wash-chip wash-chip-input">
+                小于
+                <input
+                  v-model.number="settings.wash_rules.size.min_mb"
+                  type="number"
+                  min="0"
+                  class="wash-input"
+                  @change="syncSettingsToForm"
+                />
+                MB
+              </VChip>
+              <VChip size="small" variant="outlined" class="wash-chip wash-chip-input">
+                大于
+                <input
+                  v-model.number="settings.wash_rules.size.max_gb"
+                  type="number"
+                  min="0"
+                  class="wash-input"
+                  @change="syncSettingsToForm"
+                />
+                GB
+              </VChip>
+            </div>
+            <div v-else class="wash-chips">
+              <VChip
+                v-for="(item, chipIndex) in settings.wash_rules.values[dim]"
+                :key="item.v"
+                size="small"
+                :color="item.on ? 'primary' : undefined"
+                :variant="item.on ? 'flat' : 'outlined'"
+                class="wash-chip"
+                :class="{ 'wash-chip-off': !item.on }"
+                draggable="true"
+                @dragstart.stop="onChipDragStart(dim, chipIndex)"
+                @dragover.prevent.stop
+                @drop.stop="onChipDrop(dim, chipIndex)"
+                @click="toggleChip(dim, item)"
+              >
+                {{ valueLabel(item.v) }}
+              </VChip>
+            </div>
+          </div>
+          <div class="wash-foot">
+            <span class="cache-hint">未在排列里的值</span>
+            <VSelect
+              v-model="unlistedPolicy"
+              :items="unlistedOptions"
+              item-title="title"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="wash-unlisted"
+            />
+            <VTextField
+              v-model.number="settings.wash_rules.top_n"
+              label="同集每轮最多推几条（0=不限）"
+              type="number"
+              min="0"
+              max="50"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="wash-num"
+              @update:model-value="syncSettingsToForm"
+            />
+            <VTextField
+              v-model.number="settings.wash_rules.size_tolerance_pct"
+              label="体积容差 ±%"
+              type="number"
+              min="0"
+              max="50"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="wash-num"
+              @update:model-value="syncSettingsToForm"
+            />
+          </div>
+          <div class="wash-sources">
+            <span class="cache-hint">比对来源</span>
+            <VCheckbox
+              v-for="item in sourceOptions"
+              :key="item.value"
+              :model-value="(settings.wash_rules.compare_sources || []).includes(item.value)"
+              density="compact"
+              hide-details
+              :label="item.title"
+              class="wash-source"
+              @update:model-value="toggleSource(item.value, $event)"
+            />
+          </div>
+        </div>
+
+        </VCardText>
+      </VCard>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -677,6 +796,175 @@ const dialogs = ref([])
 // 推送目标固定为 115 网盘：不再暴露「命中推送目标」下拉，保存时一律发 pan115（后端 DESTINATION_VALUES 合法值）
 const FIXED_DESTINATION = 'pan115'
 
+// ---------------------------------------------------------------- 洗版规则模型
+// 与后端 services/quality.py 的默认规则保持一致；后端会返回归一化结果，
+// 这里只负责「首次打开 / 后端缺字段」时的兜底结构，保证 UI 可编辑。
+const WASH_ORDER = ['quality', 'resolution', 'effect', 'audio', 'codec', 'ext', 'size']
+const WASH_DEFAULTS = {
+  quality: [['remux', 1], ['bluray', 1], ['webdl', 1], ['webrip', 1], ['hdtv', 0], ['cam', 0], ['ts', 0]],
+  resolution: [['2160p', 1], ['1080p', 1], ['720p', 1]],
+  effect: [['dv_hdr', 1], ['dv', 1], ['hdr10p', 1], ['hdr10', 1], ['hdr', 1], ['sdr', 1]],
+  audio: [['atmos', 1], ['truehd', 1], ['dtshd', 1], ['dtsx', 1], ['dts', 1], ['eac3', 1], ['ac3', 1], ['flac', 1], ['aac', 1]],
+  codec: [['av1', 1], ['hevc', 1], ['h264', 1], ['vp9', 1], ['other', 1]],
+  ext: [['mkv', 1], ['mp4', 1], ['ts', 1], ['iso', 1], ['rmvb', 1], ['avi', 1], ['mov', 0], ['mpeg', 0], ['mpg', 0], ['wmv', 0], ['other', 0]],
+}
+const dimLabels = {
+  quality: '质量', resolution: '分辨率', effect: '色彩模式',
+  audio: '音频规格', codec: '视频编码', ext: '扩展名', size: '文件体积',
+}
+const valueLabels = {
+  remux: 'REMUX', bluray: 'BluRay', webdl: 'WEB-DL', webrip: 'WEBRip', hdtv: 'HDTV', cam: 'CAM', ts: 'TS',
+  '2160p': '4K / 2160p', '1080p': '1080p', '720p': '720p 及以下',
+  dv_hdr: 'DV & HDR', dv: 'DV', hdr10p: 'HDR10+', hdr10: 'HDR10', hdr: 'HDR', sdr: 'SDR',
+  atmos: 'Atmos', truehd: 'TrueHD', dtshd: 'DTS-HD MA', dtsx: 'DTS-X', dts: 'DTS',
+  eac3: 'EAC3', ac3: 'AC3', flac: 'FLAC', aac: 'AAC',
+  av1: 'AV1', hevc: 'HEVC (H.265)', h264: 'H.264', vp9: 'VP9',
+  mkv: 'MKV', mp4: 'MP4', iso: 'ISO', rmvb: 'RMVB', avi: 'AVI', mov: 'MOV',
+  mpeg: 'MPEG', mpg: 'MPG', wmv: 'WMV', other: '其他',
+}
+const unlistedOptions = [
+  { value: 'deny', title: '默认排除' },
+  { value: 'bottom', title: '垫底纳入' },
+  { value: 'top', title: '置顶纳入' },
+]
+const sourceOptions = [
+  { value: 'pushed', title: '已推送基线' },
+  { value: 'library', title: '媒体库已存在' },
+  { value: 'history', title: '下载历史（PT）' },
+]
+
+function normalizeWashRules(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const values = {}
+  Object.keys(WASH_DEFAULTS).forEach((dim) => {
+    values[dim] = WASH_DEFAULTS[dim].map(([v, on]) => ({ v, on: Boolean(on) }))
+  })
+  const incoming = source.values && typeof source.values === 'object' ? source.values : {}
+  Object.keys(incoming).forEach((dim) => {
+    if (!values[dim] || !Array.isArray(incoming[dim]) || !incoming[dim].length) return
+    const merged = []
+    const seen = new Set()
+    incoming[dim].forEach((item) => {
+      const value = typeof item === 'string' ? item : (item && item.v)
+      if (!value || seen.has(value)) return
+      seen.add(value)
+      merged.push({ v: value, on: typeof item === 'object' && item ? item.on !== false : true })
+    })
+    values[dim].forEach((item) => { if (!seen.has(item.v)) merged.push(item) })
+    values[dim] = merged
+  })
+  const rawOrder = Array.isArray(source.order) ? source.order : []
+  const order = ['quality']
+  rawOrder.forEach((dim) => {
+    if (WASH_ORDER.includes(dim) && dim !== 'quality' && !order.includes(dim)) order.push(dim)
+  })
+  WASH_ORDER.forEach((dim) => { if (!order.includes(dim)) order.push(dim) })
+  const unlisted = {}
+  const rawUnlisted = source.unlisted && typeof source.unlisted === 'object' ? source.unlisted : {}
+  WASH_ORDER.forEach((dim) => {
+    if (dim === 'size') return
+    const policy = rawUnlisted[dim]
+    unlisted[dim] = ['deny', 'bottom', 'top'].includes(policy) ? policy : 'deny'
+  })
+  const rawSize = source.size && typeof source.size === 'object' ? source.size : {}
+  return {
+    order,
+    values,
+    unlisted,
+    size: {
+      min_mb: Number(rawSize.min_mb) || 0,
+      max_gb: Number(rawSize.max_gb) || 0,
+      prefer: rawSize.prefer === 'asc' ? 'asc' : 'desc',
+    },
+    top_n: source.top_n === undefined ? 1 : Math.max(0, Math.min(50, Number(source.top_n) || 0)),
+    size_tolerance_pct: source.size_tolerance_pct === undefined
+      ? 5 : Math.max(0, Math.min(50, Number(source.size_tolerance_pct) || 0)),
+    compare_sources: Array.isArray(source.compare_sources) && source.compare_sources.length
+      ? source.compare_sources.filter((item) => ['pushed', 'library', 'history'].includes(item))
+      : ['pushed', 'library', 'history'],
+  }
+}
+
+const localTab = ref('cache')
+const dragRow = ref(-1)
+const dragChip = ref(null)
+
+function valueLabel(value) {
+  return valueLabels[value] || value
+}
+
+function onRowDragStart(index) {
+  if (settings.value.wash_rules.order[index] === 'quality') return
+  dragRow.value = index
+}
+
+function onRowDrop(index) {
+  const from = dragRow.value
+  dragRow.value = -1
+  if (from < 0 || from === index) return
+  const list = settings.value.wash_rules.order.slice()
+  if (list[from] === 'quality' || list[index] === 'quality') return
+  const [moved] = list.splice(from, 1)
+  list.splice(index, 0, moved)
+  settings.value.wash_rules.order = list
+  syncSettingsToForm()
+}
+
+function onChipDragStart(dim, index) {
+  if (dim === 'size') return
+  dragChip.value = { dim, index }
+}
+
+function onChipDrop(dim, index) {
+  const from = dragChip.value
+  dragChip.value = null
+  if (!from || from.dim !== dim || from.index === index) return
+  const list = settings.value.wash_rules.values[dim]
+  if (!list) return
+  const [moved] = list.splice(from.index, 1)
+  list.splice(index, 0, moved)
+  syncSettingsToForm()
+}
+
+function toggleChip(dim, item) {
+  item.on = !item.on
+  syncSettingsToForm()
+}
+
+function toggleSizePrefer() {
+  const size = settings.value.wash_rules.size
+  size.prefer = size.prefer === 'desc' ? 'asc' : 'desc'
+  syncSettingsToForm()
+}
+
+function toggleSource(value, on) {
+  const list = (settings.value.wash_rules.compare_sources || []).slice()
+  const index = list.indexOf(value)
+  if (on && index < 0) list.push(value)
+  if (!on && index >= 0) list.splice(index, 1)
+  if (!list.length) list.push('pushed')
+  settings.value.wash_rules.compare_sources = list
+  syncSettingsToForm()
+}
+
+const unlistedPolicy = computed({
+  get() {
+    const map = settings.value.wash_rules.unlisted || {}
+    const keys = Object.keys(map)
+    if (!keys.length) return 'deny'
+    const first = map[keys[0]]
+    return keys.every((key) => map[key] === first) ? first : 'deny'
+  },
+  set(value) {
+    const map = {}
+    settings.value.wash_rules.order.forEach((dim) => {
+      if (dim !== 'size') map[dim] = value
+    })
+    settings.value.wash_rules.unlisted = map
+    syncSettingsToForm()
+  },
+})
+
 const settings = ref({
   chat_ids: [],
   sync_mode: 'relative',
@@ -686,8 +974,7 @@ const settings = ref({
   batch_size: 200,
   subscribe_enabled: true,
   reshuffle_enabled: false,
-  reshuffle_quality_gate: true,
-  reshuffle_top_n: 1,
+  wash_rules: normalizeWashRules({}),
   push_batch_size: 10,
   push_batch_interval: 15,
   backfill_enabled: false,
@@ -727,8 +1014,7 @@ function syncSettingsToForm() {
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200
   form.value.cache_subscribe_enabled = Boolean(settings.value.subscribe_enabled)
   form.value.cache_reshuffle_enabled = Boolean(settings.value.reshuffle_enabled)
-  form.value.cache_reshuffle_quality_gate = settings.value.reshuffle_quality_gate !== false
-  form.value.cache_reshuffle_top_n = Number(settings.value.reshuffle_top_n) || 0
+  form.value.cache_wash_rules = settings.value.wash_rules
   form.value.cache_push_batch_size = Number(settings.value.push_batch_size) || 10
   form.value.cache_push_batch_interval = Number(settings.value.push_batch_interval) || 15
   form.value.cache_backfill_enabled = Boolean(settings.value.backfill_enabled)
@@ -748,8 +1034,7 @@ function applySettings(data) {
     batch_size: Number(source.batch_size) || 200,
     subscribe_enabled: source.subscribe_enabled !== false,
     reshuffle_enabled: Boolean(source.reshuffle_enabled),
-    reshuffle_quality_gate: source.reshuffle_quality_gate !== false,
-    reshuffle_top_n: source.reshuffle_top_n === undefined ? 1 : Number(source.reshuffle_top_n) || 0,
+    wash_rules: normalizeWashRules(source.wash_rules),
     push_batch_size: Number(source.push_batch_size) || 10,
     push_batch_interval: Number(source.push_batch_interval) || 15,
     backfill_enabled: Boolean(source.backfill_enabled),
@@ -816,8 +1101,7 @@ async function saveSettings() {
       batch_size: Number(settings.value.batch_size) || 200,
       subscribe_enabled: Boolean(settings.value.subscribe_enabled),
       reshuffle_enabled: Boolean(settings.value.reshuffle_enabled),
-      reshuffle_quality_gate: settings.value.reshuffle_quality_gate !== false,
-      reshuffle_top_n: Number(settings.value.reshuffle_top_n) || 0,
+      wash_rules: settings.value.wash_rules,
       push_batch_size: Number(settings.value.push_batch_size) || 10,
       push_batch_interval: Number(settings.value.push_batch_interval) || 15,
       backfill_enabled: Boolean(settings.value.backfill_enabled),
@@ -1240,4 +1524,154 @@ onUnmounted(() => {
 .cache-details { font-size: 12px; }
 .cache-detail { opacity: 0.75; line-height: 1.7; }
 .cache-dialog-text { font-size: 13px; line-height: 1.7; }
+
+/* ------------------------------------------------------------ 洗版规则（1.13.32） */
+.wash-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.10);
+  border-radius: 10px;
+}
+
+.wash-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wash-head strong {
+  font-size: 13px;
+}
+
+.wash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-bottom: 1px dashed rgba(var(--v-theme-on-surface), 0.08);
+  cursor: grab;
+}
+
+.wash-row:last-of-type {
+  border-bottom: none;
+}
+
+.wash-row-locked {
+  cursor: default;
+}
+
+.wash-grip {
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: -1px;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+}
+
+.wash-grip-off {
+  opacity: 0.25;
+}
+
+.wash-index {
+  min-width: 14px;
+  font-size: 11px;
+  text-align: center;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+.wash-dim {
+  min-width: 62px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wash-lock {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.14);
+}
+
+.wash-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wash-chip {
+  font-size: 11px;
+  height: 22px;
+}
+
+.wash-chip-off {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.wash-chip-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.wash-input {
+  width: 42px;
+  border: none;
+  border-bottom: 1px dashed rgba(var(--v-theme-on-surface), 0.45);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  height: 16px;
+  outline: none;
+}
+
+.wash-input::-webkit-outer-spin-button,
+.wash-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.wash-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.wash-unlisted {
+  max-width: 130px;
+}
+
+.wash-num {
+  max-width: 190px;
+}
+
+.wash-sources {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.wash-source {
+  font-size: 11px;
+}
+
+.cache-tabs {
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.10);
+}
+
+.cache-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
 </style>

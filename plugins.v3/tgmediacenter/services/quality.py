@@ -1,215 +1,482 @@
-"""洗版质量对比服务（1.13.27）：解析资源画质，判断「是否真的升级」。
+# -*- coding: utf-8 -*-
+"""画质画像与「洗版规则」逐维比较（1.13.32）。
 
-背景
-----
-1.13.24 的洗版回搜是「命中即推」——频道里只要有链接、这条消息还没推过，就入队。
-结果是一堆 1080p / 低码率 / 同片源的重复版本灌满推送，用户没法挑。
+设计（见仓库 ``.devtools/wash_rules_design.md``）：
 
-这里提供与 ``media_automator`` 洗版同构的**两层对比**（不依赖媒体库返回画质，
-本插件只拿得到标题与正文，因此基线取自「该订阅历次已推送的最优画质」）：
-
-1. **第一层（硬门槛，不可配）**：分辨率、片源不得倒退。
-   1080p 的候选永远不会盖掉已经推过的 2160p。
-2. **第二层（加权总分）**：分辨率 / 片源 / 编码 / 特效 / 音轨 按权重求和，
-   总分必须**严格高于**基线才算升级。
-
-无法解析画质的候选（标题里没写分辨率）不参与比较，交给「每季集区间取最优
-TopN」兜底——既不会误杀，也不会无限推。
-
-设计要点
---------
-- **纯正则、无依赖**：不调用宿主 ``MetaVideo``，本地测试与宿主缺失时行为一致。
-- **可解释**：``compare()`` 返回 ``(state, reason)``，状态进日志与推送说明。
-- **幂等**：基线是普通 dict，序列化进插件数据，重启不丢。
+- 七个维度按配置顺序**逐维字典序**比较，第一个分出胜负的维度直接决定结果，
+  不再用加权总分（加权会把「4K WEB」和「1080p REMUX」这类问题变成玄学）。
+- 每个维度的取值是一个**有序列表**：位置越靠前越优；``on=False`` 表示淘汰。
+- 未出现在列表里的值按该维 ``unlisted`` 策略处理：
+  ``deny``（默认，整条候选淘汰）/ ``bottom``（垫底纳入）/ ``top``（置顶纳入）。
+- 解析不出来的值不参与该维比较（视为相同），由 TopN 兜底。
+- 体积维度带 ±容差；容差内视为同大小。
 """
+
 from __future__ import annotations
 
+import json
 import re
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-# 画质维度阶梯：数值越大越好。键是匹配用的字面量（已小写）。
-RESOLUTION_LADDER: Dict[str, int] = {
-    "8k": 7, "2160p": 6, "4k": 6, "1080p": 5, "1080i": 4,
-    "720p": 3, "576p": 2, "480p": 1,
-}
-SOURCE_LADDER: Dict[str, int] = {
-    "remux": 8, "bluray": 7, "bdrip": 6, "webdl": 5, "webrip": 4,
-    "hdtvrip": 3, "hdtv": 3, "dvdrip": 2, "hdrip": 2,
-    "hdcam": 1, "cam": 1, "ts": 1, "tc": 1,
-}
-CODEC_LADDER: Dict[str, int] = {
-    "av1": 4, "hevc": 3, "x265": 3, "h265": 3,
-    "h264": 2, "x264": 2, "avc": 2, "vp9": 1,
-}
-EFFECT_LADDER: Dict[str, int] = {
-    "dolbyvision": 4, "dovi": 4, "dv": 4,
-    "hdr10+": 3, "hdr10": 3, "hdr": 2, "sdr": 0,
-}
-AUDIO_LADDER: Dict[str, int] = {
-    "atmos": 5, "truehd": 4, "dtshd": 3, "flac": 3,
-    "dts": 2, "ddp": 2, "eac3": 2, "dd+": 2,
-    "ac3": 1, "aac": 1, "opus": 1,
-}
+# --------------------------------------------------------------------------- 常量
 
-# 第二层加权总分权重（分辨率权重最高：4K→1080p 的落差远大于编码差异）
-DEFAULT_WEIGHTS: Dict[str, int] = {
-    "resolution": 40,
-    "source": 25,
-    "codec": 15,
-    "effect": 15,
-    "audio": 5,
-}
-
-# 匹配用正则：按「长的写法在前」排列，避免 hdtvrip 被 hdtv 截断、
-# hdr10+ 被 hdr10 截断。短词（ts/tc/cam/dv）要求前后不是字母数字。
-_RESOLUTION_RE = re.compile(
-    r"(?<![a-z0-9])(8k|4k|2160p|1080p|1080i|720p|576p|480p)(?![a-z0-9])"
-)
-_SOURCE_RE = re.compile(
-    r"(remux|blu-?ray|bdrip|web-?dl|webrip|hdtvrip|hdtv|dvdrip|hdrip|hdcam|cam|ts|tc)"
-    r"(?![a-z0-9])"
-)
-_CODEC_RE = re.compile(
-    r"(?<![a-z0-9])(av1|hevc|x265|h\.?265|x264|h\.?264|avc|vp9)(?![a-z0-9])"
-)
-_EFFECT_RE = re.compile(
-    r"(dolby\s*vision|dovi|hdr10\+|hdr10|hdr|(?<![a-z0-9])dv(?![a-z0-9])|sdr)"
-)
-_AUDIO_RE = re.compile(
-    r"(?<![a-z0-9])(atmos|truehd|dts-?hd|dts|ddp|eac3|dd\+|ac3|aac|flac|opus)(?![a-z0-9])"
+DIMENSIONS: Tuple[str, ...] = (
+    "quality", "resolution", "effect", "audio", "codec", "ext", "size",
 )
 
-# 归一化：只留字母数字与汉字，用于拼基线键
-_NORM_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
+DIM_LABELS: Dict[str, str] = {
+    "quality": "质量",
+    "resolution": "分辨率",
+    "effect": "色彩模式",
+    "audio": "音频规格",
+    "codec": "视频编码",
+    "ext": "扩展名",
+    "size": "文件体积",
+}
 
-# 已知画质（至少解析出分辨率）才算可比
+# 各维默认取值顺序（越靠前越优）
+DEFAULT_VALUES: Dict[str, Tuple[str, ...]] = {
+    "quality": ("remux", "bluray", "webdl", "webrip", "hdtv", "cam", "ts"),
+    "resolution": ("2160p", "1080p", "720p"),
+    "effect": ("dv_hdr", "dv", "hdr10p", "hdr10", "hdr", "sdr"),
+    "audio": ("atmos", "truehd", "dtshd", "dtsx", "dts", "eac3", "ac3", "flac", "aac"),
+    "codec": ("av1", "hevc", "h264", "vp9", "other"),
+    "ext": ("mkv", "mp4", "ts", "iso", "rmvb", "avi", "mov", "mpeg", "mpg", "wmv", "other"),
+}
+
+# 默认「淘汰」（打叉）的取值，其余默认保留
+DEFAULT_OFF: Dict[str, Tuple[str, ...]] = {
+    "quality": ("hdtv", "cam", "ts"),
+    "ext": ("mov", "mpeg", "mpg", "wmv", "other"),
+}
+
+DEFAULT_UNLISTED = "deny"
+UNLISTED_POLICIES = ("deny", "bottom", "top")
+
+DEFAULT_SIZE: Dict[str, Any] = {"min_mb": 0, "max_gb": 0, "prefer": "desc"}
+DEFAULT_TOLERANCE_PCT = 5
+DEFAULT_TOP_N = 1
+DEFAULT_SOURCES: Tuple[str, ...] = ("pushed", "library", "history")
+SOURCE_LABELS = {"pushed": "已推送基线", "library": "媒体库已存在", "history": "下载历史（PT）"}
+
 STATE_UPGRADE = "upgrade"
 STATE_FLAT = "flat"
 STATE_UNKNOWN = "unknown"
 
+# --------------------------------------------------------------------------- 正则
 
-def _normalize_token(value: str) -> str:
-    """把匹配到的字面量归一成阶梯键：``Blu-ray``→``bluray``、``WEB-DL``→``webdl``。"""
-    return _NORM_RE.sub("", str(value or "").lower())
+_RESOLUTION_RE = re.compile(
+    r"(?<![0-9a-z])(8k|2160p|4k|1080p|1080i|720p|576p|480p)(?![0-9a-z])", re.I
+)
+_QUALITY_PATTERNS: Tuple[Tuple[str, str], ...] = (
+    ("remux", r"(?<![0-9a-z])remux(?![0-9a-z])"),
+    ("bluray", r"(?<![0-9a-z])(bluray|blu-ray|bdrip|bdremux)(?![0-9a-z])"),
+    ("webdl", r"(?<![0-9a-z])web[- .]?dl(?![0-9a-z])"),
+    ("webrip", r"(?<![0-9a-z])web[- .]?rip(?![0-9a-z])"),
+    ("hdtv", r"(?<![0-9a-z])hd[- .]?tv(?![0-9a-z])"),
+    ("cam", r"(?<![0-9a-z])(hdcam|cam)(?![0-9a-z])"),
+    ("ts", r"(?<![0-9a-z.])ts(?![0-9a-z])"),
+)
+_AUDIO_PATTERNS: Tuple[Tuple[str, str], ...] = (
+    ("atmos", r"(?<![0-9a-z])atmos(?![0-9a-z])"),
+    ("truehd", r"(?<![0-9a-z])true[- .]?hd(?![0-9a-z])"),
+    ("dtshd", r"(?<![0-9a-z])dts[- .]?hd(?![0-9a-z])"),
+    ("dtsx", r"(?<![0-9a-z])dts[- .]?x(?![0-9a-z])"),
+    ("dts", r"(?<![0-9a-z])dts(?![0-9a-z])"),
+    ("eac3", r"(?<![0-9a-z])e[- .]?ac[- .]?3(?![0-9a-z])"),
+    ("ac3", r"(?<![0-9a-z])ac[- .]?3(?![0-9a-z])"),
+    ("flac", r"(?<![0-9a-z])flac(?![0-9a-z])"),
+    ("aac", r"(?<![0-9a-z])aac(?![0-9a-z])"),
+)
+_CODEC_PATTERNS: Tuple[Tuple[str, str], ...] = (
+    ("av1", r"(?<![0-9a-z])av1(?![0-9a-z])"),
+    ("hevc", r"(?<![0-9a-z])(hevc|h[ .]?265|x265)(?![0-9a-z])"),
+    ("h264", r"(?<![0-9a-z])(h[ .]?264|x264|avc)(?![0-9a-z])"),
+    ("vp9", r"(?<![0-9a-z])vp9(?![0-9a-z])"),
+)
+_EXT_RE = re.compile(
+    r"\.(mkv|mp4|ts|iso|rmvb|avi|mov|mpeg|mpg|wmv)(?![0-9a-z])", re.I
+)
+_SIZE_RE = re.compile(r"(?<![0-9.])(\d+(?:\.\d+)?)\s*(gb|g|mb|m)(?![0-9a-z])", re.I)
+_SDR_RE = re.compile(r"(?<![0-9a-z])sdr(?![0-9a-z])", re.I)
+_DV_RE = re.compile(r"(?<![0-9a-z])(dovi|dolby[ .]?vision|dv)(?![0-9a-z])", re.I)
+_HDR10P_RE = re.compile(r"hdr10\+|hdr10p", re.I)
+_HDR10_RE = re.compile(r"hdr10(?![+p0-9a-z])", re.I)
+_HDR_RE = re.compile(r"(?<![0-9a-z])hdr(?![0-9a-z+])", re.I)
 
 
-def _match_ladder(text: str, pattern: "re.Pattern[str]", ladder: Mapping[str, int]
-                  ) -> Tuple[str, int]:
-    """在文本里找出阶梯值最高的一项，返回 ``(原始匹配, 阶梯值)``。"""
-    best_raw, best_rank = "", 0
-    for match in pattern.finditer(text):
-        raw = str(match.group(1) or "")
-        key = _normalize_token(raw)
-        rank = int(ladder.get(key) or 0)
-        if rank > best_rank:
-            best_raw, best_rank = raw, rank
-    return best_raw, best_rank
+# --------------------------------------------------------------------------- 工具
 
 
-def parse_quality(text: Any) -> Dict[str, Any]:
-    """从消息正文解析画质画像。
+def _as_dict(raw: Any) -> Dict[str, Any]:
+    """配置可能是 dict、JSON 字符串或空值，统一成 dict。"""
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
 
-    :returns: ``{"resolution","source","codec","effect","audio",
-                 "resolution_rank","source_rank","codec_rank","effect_rank",
-                 "audio_rank","score","known"}``
-    """
-    raw = str(text or "")
-    lowered = raw.lower()
-    resolution, resolution_rank = _match_ladder(lowered, _RESOLUTION_RE, RESOLUTION_LADDER)
-    source, source_rank = _match_ladder(lowered, _SOURCE_RE, SOURCE_LADDER)
-    codec, codec_rank = _match_ladder(lowered, _CODEC_RE, CODEC_LADDER)
-    effect, effect_rank = _match_ladder(lowered, _EFFECT_RE, EFFECT_LADDER)
-    audio, audio_rank = _match_ladder(lowered, _AUDIO_RE, AUDIO_LADDER)
-    profile: Dict[str, Any] = {
-        "resolution": resolution,
-        "source": source,
-        "codec": codec,
-        "effect": effect,
-        "audio": audio,
-        "resolution_rank": resolution_rank,
-        "source_rank": source_rank,
-        "codec_rank": codec_rank,
-        "effect_rank": effect_rank,
-        "audio_rank": audio_rank,
-        "known": resolution_rank > 0,
+
+def _coerce_int(value: Any, default: int, low: int, high: int) -> int:
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
+def _coerce_float(value: Any, default: float, low: float, high: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
+# --------------------------------------------------------------------------- 配置
+
+
+def default_rules() -> Dict[str, Any]:
+    """默认洗版规则（与效果图 v9 一致）。"""
+    return normalize_rules({})
+
+
+def normalize_rules(raw: Any) -> Dict[str, Any]:
+    """把外部配置归一成内部结构，任何脏数据都退回默认值。"""
+    data = _as_dict(raw)
+
+    # ① 维度顺序：质量锁定第一，其余按用户顺序，缺的补在末尾
+    raw_order = data.get("order")
+    order: List[str] = []
+    if isinstance(raw_order, (list, tuple)):
+        for item in raw_order:
+            name = str(item or "").strip()
+            if name in DIMENSIONS and name not in order:
+                order.append(name)
+    order = ["quality"] + [dim for dim in order if dim != "quality"]
+    for dim in DIMENSIONS:
+        if dim not in order:
+            order.append(dim)
+
+    # ② 各维取值列表（有序）+ 保留/淘汰
+    raw_values = data.get("values")
+    raw_values = raw_values if isinstance(raw_values, dict) else {}
+    values: Dict[str, List[Dict[str, Any]]] = {}
+    for dim in DIMENSIONS[:-1]:
+        fallback = [
+            {"v": token, "on": token not in DEFAULT_OFF.get(dim, ())}
+            for token in DEFAULT_VALUES[dim]
+        ]
+        entries = raw_values.get(dim)
+        if not isinstance(entries, (list, tuple)) or not entries:
+            values[dim] = fallback
+            continue
+        cleaned: List[Dict[str, Any]] = []
+        seen = set()
+        for entry in entries:
+            if isinstance(entry, dict):
+                token = str(entry.get("v") or "").strip()
+                on = bool(entry.get("on", True))
+            else:
+                token, on = str(entry or "").strip(), True
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            cleaned.append({"v": token, "on": on})
+        values[dim] = cleaned or fallback
+
+    # ③ 未列出值的策略
+    raw_unlisted = data.get("unlisted")
+    raw_unlisted = raw_unlisted if isinstance(raw_unlisted, dict) else {}
+    unlisted: Dict[str, str] = {}
+    for dim in DIMENSIONS[:-1]:
+        policy = str(raw_unlisted.get(dim) or DEFAULT_UNLISTED).strip().lower()
+        unlisted[dim] = policy if policy in UNLISTED_POLICIES else DEFAULT_UNLISTED
+
+    # ④ 体积维度
+    raw_size = data.get("size")
+    raw_size = raw_size if isinstance(raw_size, dict) else {}
+    prefer = str(raw_size.get("prefer") or DEFAULT_SIZE["prefer"]).strip().lower()
+    size = {
+        "min_mb": _coerce_int(raw_size.get("min_mb"), 0, 0, 10 ** 7),
+        "max_gb": _coerce_int(raw_size.get("max_gb"), 0, 0, 10 ** 6),
+        "prefer": prefer if prefer in ("desc", "asc", "none") else "desc",
     }
-    profile["score"] = score_of(profile)
+
+    # ⑤ 比对来源
+    raw_sources = data.get("compare_sources")
+    sources: List[str] = []
+    if isinstance(raw_sources, (list, tuple)):
+        for item in raw_sources:
+            name = str(item or "").strip().lower()
+            if name in DEFAULT_SOURCES and name not in sources:
+                sources.append(name)
+    if not sources:
+        sources = list(DEFAULT_SOURCES)
+
+    return {
+        "order": order,
+        "values": values,
+        "unlisted": unlisted,
+        "size": size,
+        "size_tolerance_pct": _coerce_float(
+            data.get("size_tolerance_pct"), DEFAULT_TOLERANCE_PCT, 0.0, 50.0
+        ),
+        "top_n": _coerce_int(data.get("top_n"), DEFAULT_TOP_N, 0, 50),
+        "compare_sources": sources,
+    }
+
+
+# --------------------------------------------------------------------------- 解析
+
+
+def _first_match(patterns: Tuple[Tuple[str, str], ...], text: str) -> Optional[str]:
+    for token, pattern in patterns:
+        if re.search(pattern, text, re.I):
+            return token
+    return None
+
+
+def _effect_of(text: str) -> Optional[str]:
+    has_dv = bool(_DV_RE.search(text))
+    has_hdr10p = bool(_HDR10P_RE.search(text))
+    has_hdr10 = bool(_HDR10_RE.search(text))
+    has_hdr = has_hdr10p or has_hdr10 or bool(_HDR_RE.search(text))
+    if has_dv and has_hdr:
+        return "dv_hdr"
+    if has_dv:
+        return "dv"
+    if has_hdr10p:
+        return "hdr10p"
+    if has_hdr10:
+        return "hdr10"
+    if has_hdr:
+        return "hdr"
+    if _SDR_RE.search(text):
+        return "sdr"
+    return None
+
+
+def _size_mb_of(text: str) -> Optional[float]:
+    best: Optional[float] = None
+    for value, unit in _SIZE_RE.findall(text):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        mb = number * 1024.0 if unit.lower() in ("gb", "g") else number
+        if best is None or mb > best:
+            best = mb
+    return best
+
+
+def parse_quality(text: str) -> Dict[str, Any]:
+    """从发布名/正文里解析七维画像（纯正则，便宜）。"""
+    raw = str(text or "")
+    resolution: Optional[str] = None
+    match = _RESOLUTION_RE.search(raw)
+    if match:
+        token = match.group(1).lower()
+        resolution = {"4k": "2160p", "8k": "2160p"}.get(token, token)
+    ext_match = _EXT_RE.search(raw)
+    profile: Dict[str, Any] = {
+        "quality": _first_match(_QUALITY_PATTERNS, raw),
+        "resolution": resolution,
+        "effect": _effect_of(raw),
+        "audio": _first_match(_AUDIO_PATTERNS, raw),
+        "codec": _first_match(_CODEC_PATTERNS, raw),
+        "ext": ext_match.group(1).lower() if ext_match else None,
+        "size_mb": _size_mb_of(raw),
+    }
+    profile["known"] = bool(profile["resolution"] or profile["quality"])
     return profile
 
 
-def score_of(profile: Mapping[str, Any], weights: Optional[Mapping[str, int]] = None) -> int:
-    """按权重算总分（只算已知维度）。"""
-    used = dict(DEFAULT_WEIGHTS)
-    if weights:
-        used.update({key: int(value) for key, value in weights.items() if key in used})
-    total = 0
-    for dimension, weight in used.items():
-        total += int(weight) * int(profile.get(f"{dimension}_rank") or 0)
-    return total
+# --------------------------------------------------------------------------- 比较
 
 
-def describe(profile: Mapping[str, Any]) -> str:
-    """画质画像的人话描述（日志 / 推送说明用）。"""
-    parts = []
-    for field, label in (("resolution", "分辨率"), ("source", "片源"),
-                         ("codec", "编码"), ("effect", "特效"), ("audio", "音轨")):
-        value = str(profile.get(field) or "").strip()
-        if value:
-            parts.append(f"{label} {value}")
-    if not parts:
-        return "画质未知"
-    return "、".join(parts)
+def _values_map(rules: Dict[str, Any], dim: str) -> Tuple[List[str], Dict[str, bool]]:
+    entries = rules.get("values", {}).get(dim) or []
+    ordered: List[str] = []
+    enabled: Dict[str, bool] = {}
+    for entry in entries:
+        token = str(entry.get("v") or "")
+        if not token:
+            continue
+        ordered.append(token)
+        enabled[token] = bool(entry.get("on", True))
+    return ordered, enabled
 
 
-def compare(base: Optional[Mapping[str, Any]], candidate: Mapping[str, Any]
-            ) -> Tuple[str, str]:
-    """两层对比：候选是否相对基线升级。
+def rank_of(dim: str, token: Optional[str], rules: Dict[str, Any]) -> Optional[int]:
+    """取值在维度内的名次：0 = 最优，越小越好；None = 不参与比较。"""
+    if not token:
+        return None
+    ordered, _enabled = _values_map(rules, dim)
+    if token in ordered:
+        return ordered.index(token)
+    policy = rules.get("unlisted", {}).get(dim, DEFAULT_UNLISTED)
+    if policy == "bottom":
+        return len(ordered)
+    if policy == "top":
+        return -1
+    return None
 
-    :returns: ``(state, reason)``，state ∈ ``upgrade`` / ``flat`` / ``unknown``。
-        ``unknown`` 表示候选画质解析不出来——不参与比较，由 TopN 兜底。
+
+def filter_profile(profile: Dict[str, Any], rules: Dict[str, Any]) -> Tuple[bool, str]:
+    """准入过滤：被淘汰的取值、未列出且策略为 deny 的取值、体积越界。
+
+    :returns: ``(是否保留, 淘汰原因)``
     """
+    for dim in rules.get("order", []):
+        if dim == "size":
+            continue
+        token = profile.get(dim)
+        if not token:
+            continue
+        ordered, enabled = _values_map(rules, dim)
+        label = DIM_LABELS.get(dim, dim)
+        if token in ordered:
+            if not enabled.get(token, True):
+                return False, f"{label}「{token}」已淘汰"
+            continue
+        policy = rules.get("unlisted", {}).get(dim, DEFAULT_UNLISTED)
+        if policy == "deny":
+            return False, f"{label}「{token}」不在白名单"
+    size_cfg = rules.get("size") or {}
+    size_mb = profile.get("size_mb")
+    if size_mb:
+        min_mb = int(size_cfg.get("min_mb") or 0)
+        max_gb = int(size_cfg.get("max_gb") or 0)
+        if min_mb and size_mb < min_mb:
+            return False, f"体积小于 {min_mb} MB"
+        if max_gb and size_mb > max_gb * 1024:
+            return False, f"体积大于 {max_gb} GB"
+    return True, ""
+
+
+def sort_key(profile: Dict[str, Any], rules: Dict[str, Any]) -> Tuple:
+    """TopN 用的排序键：越小越优（未知值排在最后）。"""
+    key: List[float] = []
+    prefer = (rules.get("size") or {}).get("prefer") or "desc"
+    for dim in rules.get("order", []):
+        if dim == "size":
+            size_mb = profile.get("size_mb")
+            if size_mb is None:
+                key.append(0.0)
+            elif prefer == "asc":
+                key.append(float(size_mb))
+            else:
+                key.append(-float(size_mb))
+            continue
+        rank = rank_of(dim, profile.get(dim), rules)
+        key.append(float(rank) if rank is not None else 10 ** 6)
+    return tuple(key)
+
+
+def _size_close(base_mb: Any, cand_mb: Any, pct: float) -> bool:
+    if not base_mb or not cand_mb:
+        return False
+    base = float(base_mb)
+    cand = float(cand_mb)
+    return abs(base - cand) <= max(base, cand) * (float(pct) / 100.0)
+
+
+def compare(
+    base: Optional[Dict[str, Any]],
+    candidate: Optional[Dict[str, Any]],
+    rules: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str]:
+    """基线 vs 候选的逐维比较。
+
+    :returns: ``(STATE_UPGRADE|STATE_FLAT|STATE_UNKNOWN, 原因)``
+    """
+    rules = rules or default_rules()
     if not candidate or not candidate.get("known"):
         return STATE_UNKNOWN, "画质无法解析"
-    if not base or not base.get("known"):
+    if not base:
         return STATE_UPGRADE, "首次推送（无基线）"
-    # 第一层：硬门槛，分辨率与片源都不得倒退
-    base_resolution = int(base.get("resolution_rank") or 0)
-    candidate_resolution = int(candidate.get("resolution_rank") or 0)
-    if candidate_resolution < base_resolution:
-        return STATE_FLAT, (
-            f"分辨率低于基线（{candidate.get('resolution') or '?'}"
-            f" < {base.get('resolution') or '?'}）"
-        )
-    base_source = int(base.get("source_rank") or 0)
-    candidate_source = int(candidate.get("source_rank") or 0)
-    if candidate_source < base_source:
-        return STATE_FLAT, (
-            f"片源低于基线（{candidate.get('source') or '?'}"
-            f" < {base.get('source') or '?'}）"
-        )
-    # 第二层：加权总分必须严格更高
-    base_score = int(base.get("score") or 0)
-    candidate_score = int(candidate.get("score") or 0)
-    if candidate_score > base_score:
-        return STATE_UPGRADE, f"总分更高（{candidate_score} > {base_score}）"
-    return STATE_FLAT, f"与基线持平（{candidate_score} ≤ {base_score}）"
+    tolerance = float(rules.get("size_tolerance_pct") or 0)
+
+    # 「同质量 + 同分辨率 + 同体积」直接判持平（效果图里那条规则）
+    if (
+        candidate.get("quality")
+        and candidate.get("quality") == base.get("quality")
+        and candidate.get("resolution")
+        and candidate.get("resolution") == base.get("resolution")
+        and _size_close(base.get("size_mb"), candidate.get("size_mb"), tolerance)
+    ):
+        return STATE_FLAT, "同质量同分辨率同体积（±{:g}% 容差）".format(tolerance)
+
+    prefer = (rules.get("size") or {}).get("prefer") or "desc"
+    for dim in rules.get("order", []):
+        label = DIM_LABELS.get(dim, dim)
+        if dim == "size":
+            base_mb = base.get("size_mb")
+            cand_mb = candidate.get("size_mb")
+            if not base_mb or not cand_mb:
+                continue
+            if _size_close(base_mb, cand_mb, tolerance):
+                continue
+            if prefer == "none":
+                continue
+            bigger = float(cand_mb) > float(base_mb)
+            if (prefer == "desc" and bigger) or (prefer == "asc" and not bigger):
+                return STATE_UPGRADE, f"{label}更优（{float(cand_mb):.0f}MB > {float(base_mb):.0f}MB）"
+            return STATE_FLAT, f"{label}更小（{float(cand_mb):.0f}MB < {float(base_mb):.0f}MB）"
+        base_rank = rank_of(dim, base.get(dim), rules)
+        cand_rank = rank_of(dim, candidate.get(dim), rules)
+        if base_rank is None or cand_rank is None:
+            continue
+        if cand_rank < base_rank:
+            return STATE_UPGRADE, f"{label}更优（{candidate.get(dim)} > {base.get(dim)}）"
+        if cand_rank > base_rank:
+            return STATE_FLAT, f"{label}低于基线（{candidate.get(dim)} < {base.get(dim)}）"
+    return STATE_FLAT, "逐维相同"
 
 
-def baseline_key(title: Any, year: Any, season: Any = None,
-                 episode: Any = None, episode_end: Any = None) -> str:
-    """基线键：订阅标题 + 年份 + 季集区间（电影只到年份）。"""
-    def _part(value: Any) -> str:
-        if value is None or value == "":
+def describe(profile: Optional[Dict[str, Any]]) -> str:
+    """把画像压成一行中文描述（通知/日志用）。"""
+    if not profile:
+        return "画质未知"
+    parts: List[str] = []
+    labels = (
+        ("quality", "质量"), ("resolution", "分辨率"), ("effect", "色彩"),
+        ("audio", "音频"), ("codec", "编码"), ("ext", "格式"),
+    )
+    for key, label in labels:
+        value = profile.get(key)
+        if value:
+            parts.append(f"{label} {value}")
+    size_mb = profile.get("size_mb")
+    if size_mb:
+        parts.append(f"{float(size_mb) / 1024.0:.1f}GB" if size_mb >= 1024
+                     else f"{float(size_mb):.0f}MB")
+    return "、".join(parts) if parts else "画质未知"
+
+
+def baseline_key(
+    title: str,
+    year: Any,
+    season: Any = None,
+    episode: Any = None,
+    episode_end: Any = None,
+) -> str:
+    """基线键：标题 + 年 + 季 + 集区间（与 1.13.27 完全一致，老数据可直接读）。"""
+    def _norm(value: Any) -> str:
+        if value is None:
             return ""
-        try:
-            return str(int(value))
-        except (TypeError, ValueError):
-            return _NORM_RE.sub("", str(value).lower())
+        text = str(value).strip()
+        return text
 
-    return "|".join((
-        _NORM_RE.sub("", str(title or "").lower()),
-        _part(year),
-        _part(season),
-        _part(episode),
-        _part(episode_end),
-    ))
+    return "|".join([
+        _norm(title),
+        _norm(year),
+        _norm(season),
+        _norm(episode),
+        _norm(episode_end),
+    ])

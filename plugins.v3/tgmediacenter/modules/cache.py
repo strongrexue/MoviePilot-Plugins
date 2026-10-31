@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import re
 import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -327,21 +328,13 @@ class CacheModule:
         """
         return bool(self._cfg("cache_reshuffle_enabled"))
 
-    def reshuffle_quality_gate(self) -> bool:
-        """洗版回搜的质量门禁（1.13.27，默认开）。
+    def wash_rules(self) -> dict:
+        """洗版规则（1.13.32）：七维白名单 + 逐维字典序 + TopN + 比对来源。
 
-        开：洗版候选要和「该订阅已推送过的最优画质」做两层对比，只有真升级才推；
-        关：退回 1.13.24 的「命中即推」。
+        `cache_reshuffle_enabled` 仍是「洗版回搜」的总开关；规则本身只管
+        「哪条候选算升级」，质量门禁的语义已并入这里（开洗版即启用规则）。
         """
-        return bool(self._cfg("cache_reshuffle_quality_gate", True))
-
-    def reshuffle_top_n(self) -> int:
-        """同一季集区间每轮最多推几条（1.13.27，默认 1；0 表示不限）。"""
-        try:
-            value = int(self._cfg("cache_reshuffle_top_n", 1))
-        except (TypeError, ValueError):
-            return 1
-        return value if value >= 0 else 1
+        return quality_service.normalize_rules(self._cfg("cache_wash_rules"))
 
     def backfill_cron(self) -> str:
         """存量补扫 cron（独立配置，默认与订阅兜底同频 30 分钟）。"""
@@ -392,8 +385,7 @@ class CacheModule:
             "batch_size": self.batch_size(),
             "subscribe_enabled": self.subscribe_enabled(),
             "reshuffle_enabled": self.reshuffle_enabled(),
-            "reshuffle_quality_gate": self.reshuffle_quality_gate(),
-            "reshuffle_top_n": self.reshuffle_top_n(),
+            "wash_rules": self.wash_rules(),
             "push_batch_size": self.push_batch_size(),
             "push_batch_interval": self.push_batch_interval(),
             "backfill_enabled": self.backfill_enabled(),
@@ -439,10 +431,8 @@ class CacheModule:
             patch["cache_subscribe_enabled"] = bool(data.get("subscribe_enabled"))
         if "reshuffle_enabled" in data:
             patch["cache_reshuffle_enabled"] = bool(data.get("reshuffle_enabled"))
-        if "reshuffle_quality_gate" in data:
-            patch["cache_reshuffle_quality_gate"] = bool(data.get("reshuffle_quality_gate"))
-        if "reshuffle_top_n" in data:
-            patch["cache_reshuffle_top_n"] = self._coerce_top_n(data.get("reshuffle_top_n"))
+        if "wash_rules" in data:
+            patch["cache_wash_rules"] = quality_service.normalize_rules(data.get("wash_rules"))
         if "push_batch_size" in data:
             patch["cache_push_batch_size"] = self._coerce_batch_size(data.get("push_batch_size"))
         if "push_batch_interval" in data:
@@ -978,28 +968,44 @@ class CacheModule:
 
     def _apply_reshuffle_quality(self, records: List[dict], sub: dict, title: str,
                                  reasons: Dict[str, int]) -> "tuple[List[dict], int]":
-        """洗版回搜的两道收口（1.13.27）：TopN 择优 + 质量门禁。
+        """洗版回搜的三道收口（1.13.32，规则见 ``cache_wash_rules``）。
 
-        1. **TopN（B）**：同一「季 + 集区间」的候选只留画质总分最高的
-           ``cache_reshuffle_top_n`` 条（默认 1）。不同集区间各自比较，避免
-           一部剧只推一集、或者整包资源被单集挤掉。
-        2. **质量门禁（A）**：候选与该订阅「已推送过的最优画质」做两层对比，
-           只有真升级才留下；画质解析不出来的候选不参与比较（交给 TopN 兜底）。
+        1. **准入过滤**：逐维白名单——取值为 ✕ 的淘汰，未列出值按该维
+           ``unlisted`` 策略（默认排除），体积小于/大于阈值的淘汰。
+        2. **TopN**：同一「季 + 集区间」的候选按 ``order`` 逐维字典序排序，
+           只留最优 ``top_n`` 条（默认 1，0 = 不限）。不同集区间各自比较。
+        3. **逐维比较**：候选与该订阅的基线（已推送 / 媒体库 / 下载历史）
+           逐维字典序比较，只有更优才留下；同质量 + 同分辨率 + 同体积
+           （±容差）视为持平；画质解析不出的候选不参与比较（交给 TopN 兜底）。
 
-        :returns: ``(保留的候选, 被这两道收口跳过的条数)``。
+        :returns: ``(保留的候选, 被这三道收口跳过的条数)``。
         """
         if not records:
             return [], 0
-        top_n = self.reshuffle_top_n()
-        gate_enabled = self.reshuffle_quality_gate()
-        # 每条的画质画像（纯正则解析，便宜）
+        rules = self.wash_rules()
+        skipped = 0
+
+        # —— 准入过滤 ——
+        kept: List[dict] = []
         for record in records:
-            record["profile"] = quality_service.parse_quality(
-                record["item"].get("text") or ""
-            )
-        # —— TopN：按（媒体类型, 季, 集, 集尾）分组，组内按总分降序 ——
+            profile = quality_service.parse_quality(record["item"].get("text") or "")
+            ok, why = quality_service.filter_profile(profile, rules)
+            if not ok:
+                skipped += 1
+                _count_reason(reasons, why)
+                logger.debug(
+                    f"[{self._plugin_id()}] 洗版回搜淘汰："
+                    f"{record['item'].get('title') or title}"
+                    f"（msg={record['message_id']}）{why}"
+                )
+                continue
+            record["profile"] = profile
+            kept.append(record)
+
+        # —— TopN：按（媒体类型, 季, 集, 集尾）分组，组内取逐维最优 ——
+        top_n = int(rules.get("top_n") or 0)
         groups: Dict[tuple, List[dict]] = {}
-        for record in records:
+        for record in kept:
             item = record["item"]
             key = (
                 str(item.get("media_type") or ""),
@@ -1008,22 +1014,19 @@ class CacheModule:
                 item.get("episode_end"),
             )
             groups.setdefault(key, []).append(record)
-        kept: List[dict] = []
-        skipped = 0
+        selected: List[dict] = []
         for bucket in groups.values():
             bucket.sort(
                 key=lambda r: (
-                    int(r["profile"].get("score") or 0),
-                    int(r["item"].get("message_id") or 0),
-                ),
-                reverse=True,
+                    quality_service.sort_key(r["profile"], rules),
+                    -int(r["item"].get("message_id") or 0),
+                )
             )
             if top_n > 0 and len(bucket) > top_n:
                 dropped = bucket[top_n:]
                 skipped += len(dropped)
-                for _ in dropped:
-                    _count_reason(reasons, "非最优版本")
                 for record in dropped:
+                    _count_reason(reasons, "非最优版本")
                     logger.debug(
                         f"[{self._plugin_id()}] 洗版回搜跳过（非最优）："
                         f"{record['item'].get('title') or title}"
@@ -1031,15 +1034,12 @@ class CacheModule:
                         f"{quality_service.describe(record['profile'])}）"
                     )
                 bucket = bucket[:top_n]
-            kept.extend(bucket)
+            selected.extend(bucket)
 
-        if not gate_enabled:
-            return kept, skipped
-
-        # —— 质量门禁：与基线比 ——
-        baseline = self._reshuffle_baseline()
+        # —— 基线比对：已推送 + 下载历史 ——
+        baselines = self._wash_baselines(title, sub)
         gated: List[dict] = []
-        for record in kept:
+        for record in selected:
             item = record["item"]
             profile = record["profile"]
             key = quality_service.baseline_key(
@@ -1049,7 +1049,8 @@ class CacheModule:
                 item.get("episode"),
                 item.get("episode_end"),
             )
-            state, why = quality_service.compare(baseline.get(key), profile)
+            base = baselines.get(key) or baselines.get(_normalized_key(key))
+            state, why = quality_service.compare(base, profile, rules)
             if state == quality_service.STATE_FLAT:
                 skipped += 1
                 _count_reason(reasons, "画质未升级")
@@ -1064,6 +1065,84 @@ class CacheModule:
             record["quality_reason"] = why
             gated.append(record)
         return gated, skipped
+
+    def _wash_baselines(self, title: str, sub: dict) -> Dict[str, dict]:
+        """汇总比对来源（已推送 / 下载历史），键为 ``baseline_key``。"""
+        rules = self.wash_rules()
+        sources = set(rules.get("compare_sources") or ())
+        baselines: Dict[str, dict] = {}
+        if "pushed" in sources:
+            baselines.update(self._reshuffle_baseline())
+        if "history" in sources:
+            for key, profile in self._history_baseline(title, sub).items():
+                baselines.setdefault(key, profile)
+        return baselines
+
+    def _history_baseline(self, title: str, sub: dict) -> Dict[str, dict]:
+        """下载历史（PT 已下）基线：把发布名解析成画像，按季集区间归并。
+
+        宿主媒体库拿不到画质字段（``MediaServerItem`` 无 resolution / codec），
+        所以「媒体库已存在」这一来源目前不参与画质比较；PT 下载历史里有发布名
+        与体积，足以判断「同质量同大小」。
+        """
+        records = self._download_history(title)
+        if not records:
+            return {}
+        rules = self.wash_rules()
+        result: Dict[str, dict] = {}
+        for record in records:
+            text = " ".join(
+                str(record.get(field) or "")
+                for field in ("torrent_name", "text", "path", "title")
+            )
+            profile = quality_service.parse_quality(text)
+            if not profile.get("known"):
+                continue
+            key = _normalized_key(quality_service.baseline_key(
+                title,
+                sub.get("year"),
+                _first_value(record.get("seasons")),
+                _first_value(record.get("episodes")),
+                None,
+            ))
+            current = result.get(key)
+            if current is None or (
+                quality_service.sort_key(profile, rules)
+                < quality_service.sort_key(current, rules)
+            ):
+                result[key] = profile
+        return result
+
+    @staticmethod
+    def _download_history(title: str) -> List[dict]:
+        """按标题分页拉下载历史；宿主接口缺失或异常时返回空（不阻断洗版）。"""
+        try:
+            from ..services import forward_gate as gate
+        except Exception:
+            return []
+        query = getattr(gate, "list_download_history", None)
+        if not getattr(gate, "HISTORY_QUERIES_AVAILABLE", False) or query is None:
+            return []
+        page_size = int(getattr(gate, "_HISTORY_PAGE_SIZE", 50) or 50)
+        max_pages = int(getattr(gate, "_HISTORY_MAX_PAGES", 4) or 4)
+        collected: List[dict] = []
+        for page_num in range(1, max_pages + 1):
+            try:
+                try:
+                    page = query({"title": title}, {"page": page_num, "count": page_size})
+                except TypeError:
+                    page = query({"title": title})
+            except Exception as err:
+                logger.warning(
+                    f"[tgmediacenter] 下载历史查询失败，洗版仅用已推送基线：{err}"
+                )
+                return collected
+            items = list(getattr(page, "items", None) or [])
+            for item in items:
+                collected.append(_history_fields(item))
+            if len(items) < page_size:
+                break
+        return collected
 
     def _reshuffle_baseline(self) -> Dict[str, dict]:
         """读取洗版质量基线（订阅 + 季集区间 → 最优画质画像）。"""
@@ -1653,6 +1732,45 @@ def _count_reason(bucket: Dict[str, int], label: str) -> None:
     """累计跳过原因（回搜结果说明用）。"""
     key = str(label or "其他").strip() or "其他"
     bucket[key] = int(bucket.get(key) or 0) + 1
+
+
+def _numbered(value: Any) -> str:
+    """季/集值归一：``S01`` / ``第1季`` / ``1`` 都压成 ``1``（认不出就原样返回）。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    digits = re.findall(r"\d+", text)
+    return digits[0] if digits else text
+
+
+def _normalized_key(key: str) -> str:
+    """基线键的季/集归一版本（下载历史的 ``S01`` 与缓存写法对齐）。"""
+    parts = str(key or "").split("|")
+    if len(parts) >= 5:
+        for index in (2, 3, 4):
+            parts[index] = _numbered(parts[index])
+    return "|".join(parts)
+
+
+def _first_value(raw: Any) -> Any:
+    """``seasons`` / ``episodes`` 可能是列表或标量，取第一个。"""
+    if isinstance(raw, (list, tuple)):
+        return raw[0] if raw else None
+    return raw
+
+
+def _history_fields(item: Any) -> Dict[str, Any]:
+    """下载历史快照压成判定所需字段（发布名/体积在部分宿主上是 torrent_*）。"""
+    return {
+        "torrent_name": getattr(item, "torrent_name", None),
+        "torrent_size": getattr(item, "torrent_size", None),
+        "text": getattr(item, "text", None),
+        "path": getattr(item, "path", None),
+        "title": getattr(item, "title", None),
+        "seasons": getattr(item, "seasons", None),
+        "episodes": getattr(item, "episodes", None),
+        "date": getattr(item, "date", None),
+    }
 
 
 def _skip_label(verdict: dict) -> str:

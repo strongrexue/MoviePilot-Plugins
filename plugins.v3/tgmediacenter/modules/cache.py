@@ -429,268 +429,6 @@ class CacheModule:
             return ""
         return last_reason or "未通过监控规则过滤"
 
-    def _search_subscription(self, sub: dict) -> dict:
-        """对单个订阅在缓存里回搜并推送。
-
-        1.13.34 起这是洗版规则唯一的判定路径：频道来了新消息 → 入库 → 按订阅
-        回搜缓存 → 洗版规则逐维比较（``cache_wash_rules`` 开启时）→ 更优才入队。
-        """
-        title = str(sub.get("name") or "").strip()
-        if not title:
-            return {"name": "", "candidates": 0, "pushed": 0}
-        candidates = self._history.search_by_title(
-            title, year=str(sub.get("year") or ""), limit=200, chat_ids=self.chat_ids() or None
-        )
-        logger.info(
-            f"[{self._plugin_id()}] 缓存回搜：「{title}」命中候选 {len(candidates)} 条"
-        )
-        pushed = 0
-        pushed_items: List[dict] = []
-        skipped = 0
-        reasons: Dict[str, int] = {}
-        media_note = ""
-        # 第一遍：筛出「可推候选」——有链接、没推过、媒体库判定通过。
-        # 洗版回搜的媒体库判定本来就是伪造的（不判库），这里保持原样。
-        eligible: List[dict] = []
-        for item in candidates:
-            links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
-            if not links:
-                skipped += 1
-                _count_reason(reasons, "无可用链接")
-                continue
-            chat_id = int(item.get("chat_id") or 0)
-            message_id = int(item.get("message_id") or 0)
-            # 频道级过滤（1.13.30）：缓存翻出来的资源同样要遵守来源频道监控规则的
-            # 排除词 / 关键词——否则「关键词=电影」对回搜 / 洗版这条路径完全失效。
-            filter_reason = self.rule_filter_reason(chat_id, str(item.get("text") or ""))
-            if filter_reason:
-                skipped += 1
-                _count_reason(reasons, filter_reason)
-                continue
-            already = self._hit_exists(chat_id, message_id)
-            if already:
-                skipped += 1
-                _count_reason(reasons, "已推送过")
-                continue
-            verdict = self._matcher.is_missing(
-                title=str(item.get("title") or title),
-                year=str(item.get("year") or sub.get("year") or ""),
-                media_type=str(item.get("media_type") or ""),
-                season=item.get("season"),
-                episode=item.get("episode"),
-                episode_end=item.get("episode_end"),
-                require_subscription=True,
-            )
-            if verdict.get("missing") is True and verdict.get("reason") == "媒体库中不存在":
-                media_note = media_note or str(verdict.get("note") or "")
-            if verdict.get("missing") is not True:
-                skipped += 1
-                label = _skip_label(verdict)
-                _count_reason(reasons, label)
-                logger.debug(
-                    f"[{self._plugin_id()}] 缓存回搜跳过：{item.get('title') or title}"
-                    f"（chat={chat_id}, msg={message_id}）{label}"
-                    f"｜{verdict.get('reason') or ''}"
-                )
-                continue
-            eligible.append({
-                "item": item,
-                "links": links,
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "verdict": verdict,
-            })
-
-        # 第二遍（1.13.34）：洗版规则开着才做「准入过滤 → TopN → 逐维比较」
-        baseline_updates: Dict[str, dict] = {}
-        rules = self.wash_rules()
-        if rules.get("enabled"):
-            eligible, gate_skipped = self._apply_wash_rules(
-                eligible, sub, title, reasons
-            )
-            skipped += gate_skipped
-
-        # 第三遍：入队
-        for record in eligible:
-            item = record["item"]
-            links = record["links"]
-            chat_id = int(record["chat_id"])
-            message_id = int(record["message_id"])
-            verdict = record["verdict"]
-            task_id = push_queue.enqueue_push(
-                self._db(),
-                self._plugin_id(),
-                rule_id=CACHE_SEARCH_RULE_ID,
-                chat_id=chat_id,
-                message_id=message_id,
-                destination=self.destination(),
-                target_id="",
-                links=links,
-                text=str(item.get("text") or ""),
-                title=str(item.get("title") or title),
-            )
-            if task_id:
-                self._record_hit(item, title, verdict, task_id)
-                pushed += 1
-                # 收集每条被推送消息的展示详情：通知里按消息分块、各自标来源
-                pushed_items.append({
-                    "title": str(item.get("title") or title),
-                    "year": str(item.get("year") or sub.get("year") or ""),
-                    "season": item.get("season"),
-                    "episode": item.get("episode"),
-                    "episode_end": item.get("episode_end"),
-                    "links": links,
-                    "chat_id": chat_id,
-                })
-                # 推送成功才把画质记进基线：入队失败的下一轮还要能再比一次
-                baseline_key = record.get("baseline_key")
-                if baseline_key and record.get("profile"):
-                    baseline_updates[baseline_key] = record["profile"]
-            else:
-                skipped += 1
-                _count_reason(reasons, "入队失败")
-        if baseline_updates:
-            self._save_wash_baseline(baseline_updates)
-        reason_text = _reason_text(reasons)
-        channels = sorted({int(item.get("chat_id") or 0) for item in candidates if item.get("chat_id")})
-        # 候选识别年份里最多的一种：订阅没写年份时通知块名兜底用（1.7.5）
-        year_counts: Dict[str, int] = {}
-        for item in candidates:
-            year = str(item.get("year") or "").strip()
-            if year:
-                year_counts[year] = int(year_counts.get(year) or 0) + 1
-        candidate_year = max(year_counts.items(), key=lambda kv: (kv[1], kv[0]))[0] if year_counts else ""
-        logger.info(
-            f"[{self._plugin_id()}] 缓存回搜结果：「{title}」候选 {len(candidates)} 条，"
-            f"推送 {pushed} 条，跳过 {skipped} 条"
-            + (f"（{reason_text}）" if reason_text else "")
-        )
-        return {
-            "name": title,
-            "year": str(sub.get("year") or ""),
-            "candidate_year": candidate_year,
-            "candidates": len(candidates),
-            "pushed": pushed,
-            "pushed_items": pushed_items,
-            "skipped": skipped,
-            "reasons": reasons,
-            "reason_text": reason_text,
-            "media_note": media_note,
-            "channels": channels,
-        }
-
-    def _apply_wash_rules(self, records: List[dict], sub: dict, title: str,
-                          reasons: Dict[str, int]) -> "tuple[List[dict], int]":
-        """洗版的三道收口（1.13.32，规则见 ``cache_wash_rules``）。
-
-        1. **准入过滤**：逐维白名单——取值为 ✕ 的淘汰，未列出值按该维
-           ``unlisted`` 策略（默认排除），体积小于/大于阈值的淘汰。
-        2. **TopN**：同一「季 + 集区间」的候选按 ``order`` 逐维字典序排序，
-           只留最优 ``top_n`` 条（默认 1，0 = 不限）。不同集区间各自比较。
-        3. **逐维比较**：候选与该订阅的基线（已推送 / 媒体库 / 下载历史）
-           逐维字典序比较，只有更优才留下；同质量 + 同分辨率 + 同体积
-           （±容差）视为持平；画质解析不出的候选不参与比较（交给 TopN 兜底）。
-
-        :returns: ``(保留的候选, 被这三道收口跳过的条数)``。
-        """
-        if not records:
-            return [], 0
-        rules = self.wash_rules()
-        skipped = 0
-
-        # —— 准入过滤 ——
-        kept: List[dict] = []
-        for record in records:
-            profile = quality_service.parse_quality(record["item"].get("text") or "")
-            ok, why = quality_service.filter_profile(profile, rules)
-            if not ok:
-                skipped += 1
-                _count_reason(reasons, why)
-                logger.debug(
-                    f"[{self._plugin_id()}] 洗版淘汰："
-                    f"{record['item'].get('title') or title}"
-                    f"（msg={record['message_id']}）{why}"
-                )
-                continue
-            record["profile"] = profile
-            kept.append(record)
-
-        # —— TopN：按（媒体类型, 季, 集, 集尾）分组，组内取逐维最优 ——
-        top_n = int(rules.get("top_n") or 0)
-        groups: Dict[tuple, List[dict]] = {}
-        for record in kept:
-            item = record["item"]
-            key = (
-                str(item.get("media_type") or ""),
-                item.get("season"),
-                item.get("episode"),
-                item.get("episode_end"),
-            )
-            groups.setdefault(key, []).append(record)
-        selected: List[dict] = []
-        for bucket in groups.values():
-            bucket.sort(
-                key=lambda r: (
-                    quality_service.sort_key(r["profile"], rules),
-                    -int(r["item"].get("message_id") or 0),
-                )
-            )
-            if top_n > 0 and len(bucket) > top_n:
-                dropped = bucket[top_n:]
-                skipped += len(dropped)
-                for record in dropped:
-                    _count_reason(reasons, "非最优版本")
-                    logger.debug(
-                        f"[{self._plugin_id()}] 洗版跳过（非最优）："
-                        f"{record['item'].get('title') or title}"
-                        f"（msg={record['message_id']}，"
-                        f"{quality_service.describe(record['profile'])}）"
-                    )
-                bucket = bucket[:top_n]
-            selected.extend(bucket)
-
-        # —— 基线比对：已推送 + 下载历史 ——
-        baselines = self._wash_baselines(title, sub)
-        gated: List[dict] = []
-        for record in selected:
-            item = record["item"]
-            profile = record["profile"]
-            key = quality_service.baseline_key(
-                title,
-                sub.get("year"),
-                item.get("season"),
-                item.get("episode"),
-                item.get("episode_end"),
-            )
-            base = baselines.get(key) or baselines.get(_normalized_key(key))
-            state, why = quality_service.compare(base, profile, rules)
-            if state == quality_service.STATE_FLAT:
-                skipped += 1
-                _count_reason(reasons, "画质未升级")
-                logger.debug(
-                    f"[{self._plugin_id()}] 洗版跳过（画质未升级）："
-                    f"{item.get('title') or title}（msg={record['message_id']}）"
-                    f"{quality_service.describe(profile)}｜{why}"
-                )
-                continue
-            record["baseline_key"] = key
-            record["quality_state"] = state
-            record["quality_reason"] = why
-            gated.append(record)
-        return gated, skipped
-
-    def _wash_baselines(self, title: str, sub: dict) -> Dict[str, dict]:
-        """汇总比对来源（已推送 / 下载历史），键为 ``baseline_key``。"""
-        rules = self.wash_rules()
-        sources = set(rules.get("compare_sources") or ())
-        baselines: Dict[str, dict] = {}
-        if "pushed" in sources:
-            baselines.update(self._wash_baseline())
-        if "history" in sources:
-            for key, profile in self._history_baseline(title, sub).items():
-                baselines.setdefault(key, profile)
-        return baselines
-
     def _history_baseline(self, title: str, sub: dict) -> Dict[str, dict]:
         """下载历史（PT 已下）基线：把发布名解析成画像，按季集区间归并。
 
@@ -744,6 +482,53 @@ class CacheModule:
             )
             return []
         return [_history_fields(item) for item in list(records or [])]
+
+    def wash_baselines(self, title: str, year=None, media_type: str = "",
+                       season: int = None) -> Dict[str, dict]:
+        """汇总洗版比对基线（1.13.35）：已推送 / 下载历史 / 媒体库，按来源开关合并。"""
+        rules = self.wash_rules()
+        sources = set(rules.get("compare_sources") or ())
+        merged: Dict[str, dict] = {}
+        if "pushed" in sources:
+            merged.update(self._wash_baseline())
+        if "history" in sources:
+            for key, profile in self._history_baseline(title, {"year": year}).items():
+                merged.setdefault(key, profile)
+        if "library" in sources:
+            for key, profile in self._library_baseline(title, year, media_type, season).items():
+                merged.setdefault(key, profile)
+        return merged
+
+    def _library_baseline(self, title: str, year, media_type: str,
+                          season: int = None) -> Dict[str, dict]:
+        """媒体库画质基线：从媒体服务器取逐集 MediaSources，转成逐集基线键。"""
+        try:
+            from ..services.library_quality import LibraryQualityService
+        except Exception:  # pragma: no cover
+            return {}
+        try:
+            service = LibraryQualityService(self._db(), self._plugin_id())
+            episodes = service.profiles_for(title, year, media_type) or {}
+        except Exception as err:  # pragma: no cover - 探测失败按无基线处理
+            logger.debug(f"[{self._plugin_id()}] 读取媒体库画质失败：{err}")
+            return {}
+        result: Dict[str, dict] = {}
+        for number, profile in episodes.items():
+            if not isinstance(profile, dict) or not profile.get("known"):
+                continue
+            if str(media_type or "") == "电视剧":
+                if str(number) == "0":
+                    key = quality_service.baseline_key(title, year, season)
+                else:
+                    key = quality_service.baseline_key(title, year, season, number)
+            else:
+                key = quality_service.baseline_key(title, year)
+            result[_normalized_key(key)] = profile
+        return result
+
+    def remember_baselines(self, updates: Dict[str, dict]) -> None:
+        """推送入队后记录基线（供后续同集资源比较）。"""
+        self._save_wash_baseline(updates)
 
     def _wash_baseline(self) -> Dict[str, dict]:
         """读取洗版质量基线（订阅 + 季集区间 → 最优画质画像）。"""
@@ -887,94 +672,6 @@ class CacheModule:
     # ------------------------------------------------------------------ 定时任务入口
 
     # -------------------------------------------------- 洗版回搜（1.13.34 唯一入口）
-
-    def _list_subscription_targets(self) -> List[dict]:
-        """把宿主订阅压成 ``[{name, year, media_id}]``（读不到就返回空列表）。"""
-        targets: List[dict] = []
-        try:
-            iterator = matcher_service.iter_subscriptions()
-        except Exception as err:  # pragma: no cover - 宿主查询异常
-            logger.debug(f"[{self._plugin_id()}] 读取订阅失败：{err}")
-            return targets
-        for item in iterator or []:
-            try:
-                name = str(getattr(item, "name", "") or "").strip()
-            except Exception:  # pragma: no cover - 宿主对象异常
-                continue
-            if not name:
-                continue
-            targets.append({
-                "name": name,
-                "year": str(getattr(item, "year", "") or ""),
-                "media_id": str(getattr(item, "tmdb_id", "") or getattr(item, "media_id", "") or ""),
-            })
-        return targets
-
-    def run_subscription_search(self) -> dict:
-        """遍历订阅逐条回搜缓存，命中更优资源才入队。
-
-        1.13.34 起这是洗版规则唯一的判定路径：频道来了新消息 → 入库 →
-        对每个订阅回搜本地缓存 → 洗版规则逐维比较 → 更优才推 115。
-        """
-        empty = {"checked": False, "pushed": 0, "details": [], "subscriptions": 0}
-        if not self.enabled() or not self.chat_ids():
-            return empty
-        targets = self._list_subscription_targets()
-        if not targets:
-            return empty
-        details: List[dict] = []
-        pushed = 0
-        for sub in targets:
-            try:
-                detail = self._search_subscription(sub)
-            except Exception as err:  # pragma: no cover - 单订阅异常不拖垮整轮
-                logger.warning(f"[{self._plugin_id()}] 洗版回搜「{sub.get('name')}」失败：{err}")
-                continue
-            details.append(detail)
-            pushed += int(detail.get("pushed") or 0)
-        if pushed:
-            self._notify_search_result(pushed, details)
-        return {
-            "checked": True,
-            "pushed": pushed,
-            "details": details,
-            "subscriptions": len(targets),
-        }
-
-    def request_wash_search(self, delay: float = 2.0) -> None:
-        """新消息入库后请求一次洗版回搜（``delay`` 秒防抖，合并连续消息）。"""
-        if not self.wash_rules().get("enabled"):
-            return
-        lock = getattr(self, "_wash_request_lock", None)
-        if lock is None:
-            lock = threading.Lock()
-            self._wash_request_lock = lock  # type: ignore[attr-defined]
-        with lock:
-            timer = getattr(self, "_wash_request_timer", None)
-            if timer is not None and timer.is_alive():
-                return
-            timer = threading.Timer(max(0.0, float(delay)), self._run_wash_search_quietly)
-            timer.daemon = True
-            self._wash_request_timer = timer  # type: ignore[attr-defined]
-            timer.start()
-
-    def _run_wash_search_quietly(self) -> None:
-        try:
-            result = self.run_subscription_search()
-            if result.get("pushed"):
-                logger.info(
-                    f"[{self._plugin_id()}] 洗版回搜推送 {result['pushed']} 条"
-                    f"（订阅 {result['subscriptions']} 个）"
-                )
-        except Exception as err:  # pragma: no cover - 后台线程兜底
-            logger.warning(f"[{self._plugin_id()}] 洗版回搜异常：{err}")
-
-    def cancel_wash_search(self) -> None:
-        """停用/卸载时取消挂起的洗版回搜。"""
-        timer = getattr(self, "_wash_request_timer", None)
-        if timer is not None and timer.is_alive():
-            timer.cancel()
-        self._wash_request_timer = None  # type: ignore[attr-defined]
 
     def run_scheduled_sync(self) -> None:
         """定时增量同步（cache_cron 触发）。"""

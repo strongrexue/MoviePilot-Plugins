@@ -63,15 +63,16 @@ from ..model.hit_log import (
     DECISION_SKIPPED_NOT_MISSING,
     DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_NO_LINK,
-    DECISION_SKIPPED_PT_ACTIVE,
-    DECISION_SKIPPED_PT_WAITING,
+    DECISION_SKIPPED_QUALITY,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_UNRECOGNIZED,
     KIND_FORWARD,
     KIND_MONITOR,
     TgHitLog,
 )
+from ..services import quality as quality_service
 from ..services import recognizer as recognizer_service
+from ..services import wash_gate as wash_gate_service
 
 # 单频道批量消息条数上限：超过即无视聚合窗口立即处理（防大频道刷爆缓冲）
 _MAX_BATCH = 20
@@ -536,9 +537,17 @@ class MessagePipeline:
 
         if not rules and not forward_rules:
             return
-        for rule in rules or []:
+        # 1.13.35「订阅优先」：先算订阅类规则，它们已经做过画质判定的消息，
+        # 关键词类规则（未开订阅门禁）不再重复推送。
+        claimed: set = set()
+        ordered = sorted(
+            rules or [],
+            key=lambda item: 0 if item.get("match_subscribed_only", True) else 1,
+        )
+        for rule in ordered:
             self._apply_rule(chat_id=chat_id, message_id=message_id, text=text,
-                             cleaned=cleaned, meta=meta, links=links, rule=rule)
+                             cleaned=cleaned, meta=meta, links=links, rule=rule,
+                             claimed=claimed)
         for rule in forward_rules or []:
             self._apply_forward_rule(chat_id=chat_id, message_id=message_id, text=text,
                                      cleaned=cleaned, meta=meta, links=links, rule=rule)
@@ -570,6 +579,85 @@ class MessagePipeline:
             return None
         return None if verdict.get("subscribed") else verdict
 
+    def _wash_rules(self) -> Optional[dict]:
+        """洗版规则（总开关关闭时返回 None，等于跳过画质门）。"""
+        module = self._cache_module()
+        if module is None:
+            return None
+        try:
+            rules = module.wash_rules()
+        except Exception as err:  # pragma: no cover - 配置异常不影响推送
+            logger.debug(f"[{self._plugin_id()}] 读取洗版规则失败（跳过画质门）：{err}")
+            return None
+        if not isinstance(rules, dict) or not rules.get("enabled"):
+            return None
+        return rules
+
+    def _evaluate_wash(self, *, meta: Optional[dict], text: str, rules: dict) -> Dict[str, Any]:
+        """跑一次洗版判定：解析候选画质 → 取三源基线 → 逐维字典序比较。"""
+        data = meta if isinstance(meta, dict) else {}
+        title = str(data.get("title") or "").strip()
+        year = str(data.get("year") or "").strip()
+        media_type = str(data.get("media_type") or "").strip()
+        season = data.get("season")
+        episode = data.get("episode")
+        episode_end = data.get("episode_end")
+
+        profile = quality_service.parse_quality(text)
+        baselines: Dict[str, dict] = {}
+        module = self._cache_module()
+        if module is not None and title:
+            try:
+                baselines = module.wash_baselines(title, year=year, media_type=media_type,
+                                                  season=season)
+            except Exception as err:  # pragma: no cover - 基线查询异常按「无基线」放行
+                logger.debug(f"[{self._plugin_id()}] 取洗版基线失败（按无基线处理）：{err}")
+
+        keys = quality_service.episode_keys(title, year, media_type=media_type,
+                                            season=season, episode=episode,
+                                            episode_end=episode_end)
+        verdict = wash_gate_service.judge(profile, rules, baselines=baselines, keys=keys)
+        verdict["profile"] = profile
+        verdict["keys"] = keys
+        return verdict
+
+    @staticmethod
+    def _wash_extra(verdict: Optional[dict]) -> Optional[Dict[str, Any]]:
+        """部分转存指令：只升级了部分集时，让 115 只转这些集。
+
+        整包（无季集信息 / 全部集都升级 / 认不出集号）时返回 None，按整包转存。
+        """
+        if not verdict:
+            return None
+        keys = list(verdict.get("keys") or [])
+        upgraded = list(verdict.get("upgraded") or [])
+        if not upgraded or len(upgraded) >= len(keys):
+            return None
+        episodes = []
+        for key in upgraded:
+            part = str(key).split("|")
+            if len(part) >= 4 and part[3].strip().isdigit():
+                episodes.append(int(part[3].strip()))
+        if not episodes:
+            return None
+        return {"wash": {"episodes": sorted(set(episodes))}}
+
+    def _remember_wash_baseline(self, verdict: Optional[dict]) -> None:
+        """推送成功后把本次确定要升级的季集写进基线，避免下一轮重复推。"""
+        if not verdict:
+            return
+        module = self._cache_module()
+        if module is None:
+            return
+        keys = [key for key in verdict.get("upgraded") or [] if key]
+        profile = verdict.get("profile") or {}
+        if not keys or not isinstance(profile, dict):
+            return
+        try:
+            module.remember_baselines({key: profile for key in keys})
+        except Exception as err:  # pragma: no cover - 写基线失败不影响已入队任务
+            logger.debug(f"[{self._plugin_id()}] 写洗版基线失败：{err}")
+
     def _record_cache(self, chat_id: int, message_id: int, text: str, *,
                       cleaned: Optional[str], meta: Optional[dict], links: List[str]) -> None:
         """写入历史消息缓存（复用已算好的净化与识别结果，不重复识别）。"""
@@ -581,17 +669,12 @@ class MessagePipeline:
                                      cleaned=cleaned, meta=meta, links=links)
             if inserted:
                 self._stats["cache_written"] = self._stats.get("cache_written", 0) + 1
-                # 1.13.34：新消息入库后请求一次洗版回搜（洗版规则开启时才动作，
-                # 模块内部按 2 秒防抖合并连续消息）。
-                try:
-                    module.request_wash_search()
-                except Exception as err:  # pragma: no cover - 触发失败不影响入库
-                    logger.debug(f"请求洗版回搜失败：{err}")
         except Exception as err:  # pragma: no cover - 缓存写入失败不影响监控
             logger.debug(f"写入消息缓存失败（chat={chat_id}, msg={message_id}）：{err}")
 
     def _apply_rule(self, *, chat_id: int, message_id: int, text: str, cleaned: str,
-                    meta: Optional[dict], links: List[str], rule: dict) -> None:
+                    meta: Optional[dict], links: List[str], rule: dict,
+                    claimed: Optional[set] = None) -> None:
         rule_id = str(rule.get("id") or "")
         rule_name = str(rule.get("name") or "")
         destination = str(rule.get("destination") or "smart")
@@ -631,35 +714,10 @@ class MessagePipeline:
                     return
                 keyword_note = f"（命中关键词：{'、'.join(hits)}）"
 
-        # 仅缺失判断（依据 MP 媒体服务器 + 订阅快照）。
-        # 标题识别只在需要判断缺失时是硬性要求：仅缺失关闭时，纯链接消息
-        # 也应能按规则推送（推送 115 只需要链接，不需要标题）。
-        if rule.get("match_only_if_missing"):
-            if meta is None:
-                reason = ("宿主识别引擎不可用（请确认 MoviePilot 版本）"
-                          if not recognizer_service.meta_available() else "标题无法识别，无法判断缺失")
-                self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_UNRECOGNIZED,
-                             reason, destination, links)
-                return
-            verdict = self._matcher.is_missing(
-                title=meta.get("title") or "",
-                year=meta.get("year") or "",
-                media_type=meta.get("media_type") or "",
-                season=meta.get("season"),
-                episode=meta.get("episode"),
-                episode_end=meta.get("episode_end"),
-                # 订阅门禁由独立开关控制（1.13.23）：默认开，未订阅的资源直接跳过，
-                # 不再误标成"媒体库已存在"（订阅数据源可用时生效）。
-                require_subscription=bool(rule.get("match_subscribed_only", True)),
-            )
-            if verdict.get("missing") is None or not verdict.get("missing"):
-                decision, reason = _decision_for_skip(verdict)
-                self._record(rule, chat_id, message_id, meta, decision, reason, destination, links)
-                return
-        elif rule.get("match_subscribed_only", True):
-            # 独立订阅门禁（1.13.23）：关掉「仅缺失时推送」是"想推全部资源"，
-            # 不该连带把订阅门禁一起关掉——否则未订阅的也全推。识别不出片名的
-            # 纯链接消息无法判断订阅身份，按约定照旧放行（下面还有链接检查）。
+        # 订阅门禁（1.13.35 起「仅缺失」整块下线）：开了「仅推已订阅」的规则，
+        # 未订阅的资源直接跳过；未开订阅门禁的关键词类规则，只要该消息已被
+        # 订阅类规则做过画质判定，就不再重复处理。
+        if rule.get("match_subscribed_only", True):
             gate = self._subscription_gate(meta)
             if gate is not None:
                 self._record(rule, chat_id, message_id, meta,
@@ -667,6 +725,27 @@ class MessagePipeline:
                              f"未订阅（{gate.get('detail') or gate.get('reason') or ''}）",
                              destination, links)
                 return
+        elif claimed is not None and message_id in claimed:
+            logger.debug(
+                f"[{self._plugin_id()}] 订阅规则已判定该消息，关键词规则跳过"
+                f"（rule={rule_id}, msg={message_id}）"
+            )
+            return
+
+        # 洗版门（1.13.35）：解析画质 → 准入过滤 → 三源基线 → 逐维字典序比较。
+        # 洗版规则关闭时直接跳过这一步（等于临时全放行）。
+        wash_rules = self._wash_rules()
+        wash_verdict = None
+        if wash_rules:
+            wash_verdict = self._evaluate_wash(meta=meta, text=cleaned, rules=wash_rules)
+            if wash_verdict["state"] != "push":
+                self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_QUALITY,
+                             wash_verdict.get("reason") or "画质不达标", destination, links)
+                if claimed is not None and rule.get("match_subscribed_only", True):
+                    claimed.add(message_id)
+                return
+        if claimed is not None and rule.get("match_subscribed_only", True):
+            claimed.add(message_id)
 
         # 115 类目标必须拿到可推送的链接；TG 转发 / 仅记录不需要
         if destination in ("smart", "pan115") and not links:
@@ -676,11 +755,14 @@ class MessagePipeline:
 
         task_id = self._enqueue_push(rule=rule, chat_id=chat_id, message_id=message_id,
                                      text=text, links=links, destination=destination,
-                                     title=self._media_label(meta))
+                                     title=self._media_label(meta),
+                                     extra=self._wash_extra(wash_verdict))
         if task_id:
             self._record(rule, chat_id, message_id, meta, DECISION_HIT,
                          f"已入推送队列 #{task_id}{keyword_note}", destination, links)
             self._stats["hit"] += 1
+            if wash_verdict:
+                self._remember_wash_baseline(wash_verdict)
         else:
             self._record(rule, chat_id, message_id, meta, DECISION_FAILED,
                          "推送任务入队失败（请查看运行日志）", destination, links)
@@ -1059,6 +1141,9 @@ class MessagePipeline:
 
     def _supports_batch(self, destination: str, task: Dict[str, Any]) -> bool:
         """该任务的目标是否支持一次提交多条链接。"""
+        # 部分转存（1.13.35）：每个任务要转的季集不同，合并会张冠李戴。
+        if isinstance(task.get("payload"), dict) and (task["payload"].get("wash") or {}).get("episodes"):
+            return False
         try:
             target = resolve_destination(destination, self._plugin, self._gate)
         except Exception:  # pragma: no cover - 未知目标交给单任务路径报错

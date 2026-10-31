@@ -55,7 +55,6 @@ UNLISTED_POLICIES = ("deny", "bottom", "top")
 
 DEFAULT_SIZE: Dict[str, Any] = {"min_mb": 0, "max_gb": 0, "prefer": "desc"}
 DEFAULT_TOLERANCE_PCT = 5
-DEFAULT_TOP_N = 1
 DEFAULT_SOURCES: Tuple[str, ...] = ("pushed", "library", "history")
 SOURCE_LABELS = {"pushed": "已推送基线", "library": "媒体库已存在", "history": "下载历史（PT）"}
 
@@ -219,7 +218,7 @@ def normalize_rules(raw: Any) -> Dict[str, Any]:
         sources = list(DEFAULT_SOURCES)
 
     return {
-        "enabled": bool(data.get("enabled", False)),
+        "enabled": bool(data.get("enabled", True)),
         "order": order,
         "values": values,
         "unlisted": unlisted,
@@ -227,7 +226,6 @@ def normalize_rules(raw: Any) -> Dict[str, Any]:
         "size_tolerance_pct": _coerce_float(
             data.get("size_tolerance_pct"), DEFAULT_TOLERANCE_PCT, 0.0, 50.0
         ),
-        "top_n": _coerce_int(data.get("top_n"), DEFAULT_TOP_N, 0, 50),
         "compare_sources": sources,
     }
 
@@ -338,6 +336,9 @@ def filter_profile(profile: Dict[str, Any], rules: Dict[str, Any]) -> Tuple[bool
             continue
         token = profile.get(dim)
         if not token:
+            # 1.13.35：分辨率是必备维——解析不出直接不合格；其余维度缺失只跳过该维。
+            if dim == "resolution":
+                return False, "标题里没有分辨率"
             continue
         ordered, enabled = _values_map(rules, dim)
         label = DIM_LABELS.get(dim, dim)
@@ -481,3 +482,39 @@ def baseline_key(
         _norm(episode),
         _norm(episode_end),
     ])
+
+
+_MAX_EPISODE_SPAN = 60
+
+
+def episode_keys(
+    title: str,
+    year: Any,
+    media_type: str = "",
+    season: Any = None,
+    episode: Any = None,
+    episode_end: Any = None,
+) -> List[str]:
+    """把一条资源展开成「逐集基线键」。
+
+    电影/无季集信息：返回单个键。
+    剧集：返回区间内每一集的键（最多 ``_MAX_EPISODE_SPAN`` 集，超出按整段处理）。
+    """
+    if str(media_type or "") != "电视剧":
+        return [baseline_key(title, year)]
+    first = _as_int(episode)
+    last = _as_int(episode_end)
+    if first is None:
+        return [baseline_key(title, year, season)]
+    if last is None or last < first:
+        last = first
+    if last - first + 1 > _MAX_EPISODE_SPAN:
+        return [baseline_key(title, year, season, first, last)]
+    return [baseline_key(title, year, season, ep) for ep in range(first, last + 1)]
+
+
+def _as_int(value: Any) -> Optional[int]:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None

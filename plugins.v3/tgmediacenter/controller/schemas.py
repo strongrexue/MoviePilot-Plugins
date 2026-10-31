@@ -235,7 +235,6 @@ class MonitorRule(BaseModel):
     source_ids: List[int] = Field(default_factory=list, description="监听的会话 ID（频道/群组，可多选）")
     destination: str = Field(default="smart", description="推送目标：smart/pan115/tg_forward/none")
     target_id: str = Field(default="", description="TG 转发目标会话 ID（destination=tg_forward 时必填）")
-    match_only_if_missing: bool = Field(default=True, description="仅当媒体库/订阅缺失时才推送")
     match_subscribed_only: bool = Field(default=True, description="仅推送已订阅的资源（纯链接消息无法判断，照旧放行）")
     match_custom_keywords: bool = Field(default=False, description="是否启用自定义关键词过滤")
     custom_keywords: List[str] = Field(default_factory=list, description="自定义关键词（任一命中即通过）")
@@ -454,7 +453,7 @@ class CacheSettingsRequest(BaseModel):
     sync_days: Optional[int] = None
     batch_size: Optional[int] = None
     wash_rules: Optional[dict] = Field(
-        default=None, description="洗版规则：七维白名单/顺序、体积与容差、TopN、比对来源"
+        default=None, description="洗版规则：七维白名单/顺序、体积与容差、比对来源"
     )
     push_batch_size: Optional[int] = Field(
         default=None, description="推送每批条数（1~200）"

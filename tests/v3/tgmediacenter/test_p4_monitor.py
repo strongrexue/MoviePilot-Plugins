@@ -33,6 +33,7 @@ from app.plugins.tgmediacenter.model.hit_log import (
     DECISION_LABELS,
     DECISION_SKIPPED_KEYWORD,
     DECISION_SKIPPED_NO_LINK,
+    DECISION_SKIPPED_QUALITY,
     DECISION_SKIPPED_NOT_MISSING,
     DECISION_SKIPPED_NOT_SUBSCRIBED,
     DECISION_SKIPPED_UNKNOWN,
@@ -118,6 +119,43 @@ class FakeDatabase:
 
     def session(self):
         return self._factory()
+
+
+class _AnyKeyMap(dict):
+    """任意键都指向同一份基线，免去在测试里复算季集键。"""
+
+    def __init__(self, profile):
+        super().__init__()
+        self._profile = profile
+
+    def get(self, key, default=None):
+        return self._profile
+
+    def __bool__(self):
+        return True
+
+
+class _WashStub:
+    """pipeline 用的最小缓存模块替身：只提供洗版相关的三个接口。"""
+
+    def __init__(self, rules=None, baselines=None, any_key=None):
+        from app.plugins.tgmediacenter.services import quality
+
+        self._rules = dict(rules) if rules is not None else quality.default_rules()
+        self._baselines = dict(baselines or {})
+        self._any_key = any_key
+        self.remembered = {}
+
+    def wash_rules(self):
+        return self._rules
+
+    def wash_baselines(self, title, year=None, media_type="", season=None):
+        if self._any_key is not None:
+            return _AnyKeyMap(self._any_key)
+        return dict(self._baselines)
+
+    def remember_baselines(self, updates):
+        self.remembered.update(updates)
 
 
 class FakePlugin:
@@ -408,7 +446,7 @@ class TestRuleNormalization:
         assert rule["name"] == "监控规则 1"
         assert rule["source_ids"] == [-100123]
         assert rule["destination"] == "smart"
-        assert rule["match_only_if_missing"] is True
+        assert "match_only_if_missing" not in rule
         assert rule["enabled"] is True
 
     def test_destination_invalid_falls_back_to_smart(self):
@@ -1059,35 +1097,62 @@ class TestPipeline:
         logs = query_all(TgHitLog, plugin)
         assert logs[0].decision == DECISION_SKIPPED_KEYWORD
 
-    def test_unrecognized_skipped(self, plugin, monitor, pipeline, monkeypatch):
-        class Empty(FakeMetaVideo):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.name = ""
-
-        monkeypatch.setattr(recognizer_module, "MetaVideo", Empty)
-        # 仅缺失开启时，无法识别就没法判断缺失 → 跳过
-        monitor.save_rules([base_rule(match_only_if_missing=True)])
-        self._process(pipeline, CHAT_A, "这段文字没有可识别的资源名")
+    def test_wash_rejects_without_resolution(self, plugin, monitor, pipeline):
+        # 1.13.35：分辨率是必备维，解析不出直接不推
+        plugin._cache = _WashStub()
+        monitor.save_rules([base_rule(destination="pan115")])
+        self._process(pipeline, CHAT_A,
+                      "测试剧集.S01E02\nhttps://115.com/s/swtest?password=abcd")
         logs = query_all(TgHitLog, plugin)
-        assert logs[0].decision == DECISION_SKIPPED_UNRECOGNIZED
+        assert logs[0].decision == DECISION_SKIPPED_QUALITY
+        assert query_all(TgPushTask, plugin) == []
 
-    def test_link_only_message_pushes_when_only_missing_off(self, plugin, monitor, pipeline):
-        # 仅缺失关闭时，纯链接消息不需要识别即可推送（115 目标只要求链接）
-        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=False)])
+    def test_wash_pushes_when_no_baseline(self, plugin, monitor, pipeline):
+        stub = _WashStub()
+        plugin._cache = stub
+        monitor.save_rules([base_rule(destination="pan115")])
+        self._process(pipeline, CHAT_A,
+                      "测试剧集.S01E02.2160p.REMUX\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_HIT
+        assert query_all(TgPushTask, plugin)
+        # 推送成功后写入基线，下一轮不会再推
+        assert stub.remembered
+
+    def test_wash_flat_skips_equal_quality(self, plugin, monitor, pipeline):
+        from app.plugins.tgmediacenter.services import quality
+
+        stub = _WashStub(any_key=quality.parse_quality("测试剧集 S01E02 2160p REMUX"))
+        plugin._cache = stub
+        monitor.save_rules([base_rule(destination="pan115")])
+        self._process(pipeline, CHAT_A,
+                      "测试剧集.S01E02.2160p.REMUX\nhttps://115.com/s/swtest?password=abcd")
+        logs = query_all(TgHitLog, plugin)
+        assert logs[0].decision == DECISION_SKIPPED_QUALITY
+        assert query_all(TgPushTask, plugin) == []
+
+    def test_wash_disabled_falls_back_to_push(self, plugin, monitor, pipeline):
+        plugin._cache = _WashStub(rules={"enabled": False})
+        monitor.save_rules([base_rule(destination="pan115")])
         self._process(pipeline, CHAT_A, "https://115.com/s/swtest?password=abcd")
         logs = query_all(TgHitLog, plugin)
         assert logs[0].decision == DECISION_HIT
-        assert logs[0].title == ""
-        tasks = query_all(TgPushTask, plugin)
-        assert tasks and "115.com/s/swtest" in tasks[0].payload
 
-    def test_link_only_message_unrecognized_when_only_missing_on(self, plugin, monitor, pipeline):
-        monitor.save_rules([base_rule(destination="pan115", match_only_if_missing=True)])
-        self._process(pipeline, CHAT_A, "https://115.com/s/swtest?password=abcd")
-        logs = query_all(TgHitLog, plugin)
-        assert logs[0].decision == DECISION_SKIPPED_UNRECOGNIZED
-        assert query_all(TgPushTask, plugin) == []
+    def test_keyword_rule_skipped_when_subscription_rule_claimed(self, plugin, monitor, pipeline):
+        plugin._cache = _WashStub()
+        monitor.save_rules([
+            base_rule(id="r-sub", match_subscribed_only=True, destination="pan115"),
+        ])
+        monitor.save_rules([
+            base_rule(id="r-sub", match_subscribed_only=True, destination="pan115"),
+            base_rule(id="r-kw", match_subscribed_only=False,
+                      match_custom_keywords=True, custom_keywords=["剧集"],
+                      destination="pan115"),
+        ])
+        self._process(pipeline, CHAT_A,
+                      "测试剧集.S01E02.2160p.REMUX\nhttps://115.com/s/swtest?password=abcd")
+        tasks = query_all(TgPushTask, plugin)
+        assert len(tasks) == 1
 
     def test_pan115_without_links_skipped(self, plugin, monitor, pipeline):
         monitor.save_rules([base_rule(destination="pan115")])
@@ -1104,25 +1169,6 @@ class TestPipeline:
         tasks = query_all(TgPushTask, plugin)
         assert tasks[0].destination == "tg_forward"
         assert tasks[0].target_id == "-1003229693136"
-
-    def test_only_if_missing_unknown_skips(self, plugin, monitor, pipeline):
-        monitor.save_rules([base_rule(match_only_if_missing=True)])
-        self._process(pipeline, CHAT_A, "测试剧集.S01E02\nhttps://115.com/s/swtest?password=abcd")
-        logs = query_all(TgHitLog, plugin)
-        assert logs[0].decision == DECISION_SKIPPED_UNKNOWN
-        assert query_all(TgPushTask, plugin) == []
-
-    def test_only_if_missing_not_missing_skips(self, plugin, monitor, pipeline, monkeypatch):
-        class Exist:
-            seasons = {1: [1, 2]}
-
-        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", False)
-        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
-        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(FakeMediaServerModule(Exist())))
-        monitor.save_rules([base_rule(match_only_if_missing=True)])
-        self._process(pipeline, CHAT_A, "测试剧集.S01E02.2160p\nhttps://115.com/s/swtest?password=abcd")
-        logs = query_all(TgHitLog, plugin)
-        assert logs[0].decision == DECISION_SKIPPED_NOT_MISSING
 
     def test_only_if_missing_unsubscribed_skips(self, plugin, monitor, pipeline, monkeypatch):
         """方案 A：订阅可用但该资源未订阅 → 仅缺失判「未订阅」跳过，而非「媒体库已存在」。"""
@@ -1747,7 +1793,8 @@ class FakePan115Module:
     def enabled(self):
         return self._enabled
 
-    def push(self, links, cid=None):
+    def push(self, links, cid=None, episodes=None):
+        self.last_episodes = episodes
         return self._result
 
 
@@ -2027,7 +2074,7 @@ class TestPluginWiring:
 
         models = TgMediaCenter().get_database_models()
         assert [model.__name__ for model in models] == [
-            "TgHitLog", "TgMessageCache", "TgPushTask",
+            "TgHitLog", "TgLibraryQuality", "TgMessageCache", "TgPushTask",
         ]
 
     def test_monitor_routes_registered(self):

@@ -6,7 +6,7 @@
  * - 七维字典序：行序＝优先级（质量锁第 1），chip 左右＝维度内优劣，✓/✕ 只决定是否保留；
  * - 未列出值默认排除（可按维切垫底/置顶纳入）；
  * - 体积维：由大到小 + 小于 N MB / 大于 N GB 硬闸；
- * - 收口：同集每轮最多推几条（TopN）、体积容差、比对来源三源。
+ * - 收口：体积容差、比对来源三源。
  */
 import { computed, onMounted, ref } from 'vue'
 
@@ -87,7 +87,7 @@ function normalizeWashRules(raw) {
   })
   const rawSize = source.size && typeof source.size === 'object' ? source.size : {}
   return {
-    enabled: source.enabled === true,
+    enabled: source.enabled !== false,
     order,
     values,
     unlisted,
@@ -96,7 +96,6 @@ function normalizeWashRules(raw) {
       max_gb: Number(rawSize.max_gb) || 0,
       prefer: rawSize.prefer === 'asc' ? 'asc' : 'desc',
     },
-    top_n: source.top_n === undefined ? 1 : Math.max(0, Math.min(50, Number(source.top_n) || 0)),
     size_tolerance_pct: source.size_tolerance_pct === undefined
       ? 5 : Math.max(0, Math.min(50, Number(source.size_tolerance_pct) || 0)),
     compare_sources: Array.isArray(source.compare_sources) && source.compare_sources.length
@@ -209,7 +208,7 @@ const examples = [
             color="primary"
             density="compact"
             hide-details
-            label="启用洗版（开启后：准入过滤 + 逐维比较 + TopN 全部生效）"
+            label="启用洗版（默认开；关闭后完全跳过画质比较，命中订阅就推）"
           />
         </div>
       </VCardText>
@@ -286,7 +285,7 @@ const examples = [
             </div>
           </div>
           <div class="wash-foot-note">
-            未在 chip 里的值：默认排除（可切「垫底纳入 / 置顶纳入」）；画质/体积解析不出的候选不参与比较，由 TopN 兜底。
+            未在 chip 里的值：默认排除（可切「垫底纳入 / 置顶纳入」）；分辨率是必备维，解析不出不推；其余维度解析不出就跳过该维。
           </div>
         </div>
       </VCardText>
@@ -306,18 +305,6 @@ const examples = [
               :items="unlistedOptions"
               item-title="title"
               item-value="value"
-              density="compact"
-              variant="outlined"
-              hide-details
-            />
-          </div>
-          <div class="wash-field">
-            <span class="wash-hint">同集每轮最多推几条（0=不限）</span>
-            <VTextField
-              v-model.number="rules.top_n"
-              type="number"
-              min="0"
-              max="50"
               density="compact"
               variant="outlined"
               hide-details

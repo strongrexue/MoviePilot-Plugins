@@ -17,10 +17,9 @@ const DECISION_LABELS = {
   skipped_keyword: '关键词未命中',
   skipped_excluded: '命中排除词',
   skipped_no_link: '无可推链接',
+  skipped_quality: '画质未升级',
   skipped_unknown: '无法判断',
   skipped_extension: '扩展名未命中',
-  skipped_pt_active: 'PT 在途',
-  skipped_pt_waiting: '等 PT 成熟期',
 }
 
 /** 决策中文文案（未知值原样返回）。 */

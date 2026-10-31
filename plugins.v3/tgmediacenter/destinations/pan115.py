@@ -53,8 +53,10 @@ class Pan115Destination(Destination):
         if not links:
             return PushResult(ok=False, message="任务中没有可推送的链接", retryable=False)
 
+        wash = task.get("wash") if isinstance(task.get("wash"), dict) else {}
+        episodes = wash.get("episodes") or None
         try:
-            result = module.push(links, cid=task.get("target_cid") or None)
+            result = module.push(links, cid=task.get("target_cid") or None, episodes=episodes)
         except Exception as err:
             logger.warning(f"115 推送目标执行失败：{err}")
             return PushResult(ok=False, message=f"115 推送失败：{err}", retryable=True)

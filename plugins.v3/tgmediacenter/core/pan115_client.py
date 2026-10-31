@@ -25,7 +25,8 @@
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+import re
+from typing import Any, List, Optional
 
 from app.adapters.network.http import AsyncRequestUtils
 from app.sdk.logging import logger
@@ -356,16 +357,23 @@ class Pan115Client:
         listing = data.get("list") if isinstance(data, dict) else None
         if listing is None and isinstance(data, list):
             listing = data
-        file_ids = [
-            str(item.get("fid") or item.get("file_id") or item.get("cid") or "")
+        files = [
+            {
+                "file_id": str(item.get("fid") or item.get("file_id") or item.get("cid") or ""),
+                "name": str(item.get("file_name") or item.get("n") or ""),
+                "is_dir": bool(item.get("file_category") == 0 or item.get("is_dir")),
+                "size": _as_int(item.get("file_size") or item.get("s")),
+            }
             for item in (listing or [])
             if isinstance(item, dict)
         ]
-        file_ids = [item for item in file_ids if item]
+        files = [entry for entry in files if entry["file_id"]]
+        file_ids = [entry["file_id"] for entry in files]
         share_info = (data.get("shareinfo") if isinstance(data, dict) else None) or {}
         return {
             "share_code": str(share_code or ""),
             "file_ids": file_ids,
+            "files": files,
             "file_count": len(file_ids),
             "title": str(
                 share_info.get("share_title")
@@ -429,3 +437,47 @@ class Pan115Client:
             self._raise_if_auth_error(message)
             raise Pan115Error(f"离线下载提交失败：{message}")
         return {"ok": True, "message": "离线任务已提交"}
+
+
+def _as_int(value: Any) -> Optional[int]:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+_EPISODE_RE = re.compile(r"[Ss](\d{1,2})[\s._-]*[Ee](\d{1,4})")
+
+
+def episodes_of(name: str) -> List[int]:
+    """从文件名里捞季集号（S01E02 / S01E02-E05）。"""
+    text = str(name or "")
+    numbers: List[int] = []
+    for match in _EPISODE_RE.finditer(text):
+        numbers.append(int(match.group(2)))
+    span = re.search(r"[Ee](\d{1,4})[-~][Ee](\d{1,4})", text)
+    if span:
+        start, end = int(span.group(1)), int(span.group(2))
+        if 0 < end - start <= 60:
+            numbers.extend(range(start, end + 1))
+    return sorted(set(numbers))
+
+
+def filter_share_files(files: List[dict], episodes: Optional[List[int]]) -> Optional[List[str]]:
+    """按集号挑出要转存的文件 id；返回 None 表示「整包转存」。
+
+    分享根目录是文件夹（或文件名里认不出季集）时无法按集切分，按约定整包转存。
+    """
+    wanted = {int(item) for item in (episodes or []) if str(item).strip().isdigit() or isinstance(item, int)}
+    if not wanted or not files:
+        return None
+    if any(entry.get("is_dir") for entry in files):
+        return None
+    picked: List[str] = []
+    for entry in files:
+        numbers = episodes_of(entry.get("name") or "")
+        if numbers and wanted.intersection(numbers):
+            picked.append(str(entry.get("file_id")))
+    if not picked or len(picked) == len(files):
+        return None
+    return picked

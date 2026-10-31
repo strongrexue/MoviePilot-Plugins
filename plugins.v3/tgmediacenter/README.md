@@ -557,11 +557,16 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
   后端同步清退 `first_search_guard` / `pt_guard` / `p9_gate` 三个模块与 P9 判定，
   以及订阅兜底、存量补扫的 cron / API / 配置项 / 数据模型。
 - **洗版规则页可用性**（`1.13.33`）：「启用洗版规则」开关内嵌到洗版页顶部，规则常显（关闭时仍可编辑保存）；收口区改三栏网格、chip 尺寸与效果图对齐。详见上方「⑤ 历史消息缓存 · 洗版规则」。
+- **洗版并入监控单链路**（`1.13.35`）：「仅缺失时推送」下线，订阅门禁 + 洗版门是唯一判定路径；
+  洗版默认开启、删除 TopN；分辨率成为必备维（解析不出不推），其余维度解析不出就跳过；
+  整季包逐集比较、只转存真正更好的集；洗版基线三源（已推送 / 下载历史 / 媒体库）默认全开，
+  新增媒体库画质表 `library_quality`（MediaSources + 7 天 TTL + 失败按无基线放行）；
+  订阅类规则优先判定，已判定的消息不再被关键词规则重复推。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.34`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
+当前 `1.13.35`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
 `package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
 前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
 `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本

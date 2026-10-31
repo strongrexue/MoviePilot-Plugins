@@ -25,9 +25,9 @@ const config = useConfigForm({
 const modules = [
   { key: 'tg', title: 'TG 凭证', icon: 'mdi-send-lock-outline', desc: '登录向导、冷却与保活、对话列表' },
   { key: 'pan115', title: '115 网盘', icon: 'mdi-cloud-outline', desc: '登录态、目标目录、批量提交与通知' },
-  { key: 'monitor', title: '订阅监控', icon: 'mdi-radar', desc: '监听频道、关键词与缺失判定' },
+  { key: 'monitor', title: '订阅监控', icon: 'mdi-radar', desc: '监听频道、关键词与订阅门禁' },
   { key: 'cache', title: '消息缓存', icon: 'mdi-database-outline', desc: '缓存频道、回溯同步与检索' },
-  { key: 'wash', title: '洗版规则', icon: 'mdi-tune-vertical', desc: '七维字典序、体积收口与 TopN' },
+  { key: 'wash', title: '洗版规则', icon: 'mdi-tune-vertical', desc: '七维字典序、体积与比对来源' },
   { key: 'forward', title: '通用转发', icon: 'mdi-share-outline', desc: '关键词与扩展名匹配、置顶与内容转换' },
 ]
 

@@ -545,402 +545,6 @@ def subscriptions(monkeypatch):
     return state
 
 
-class TestSubscriptionSearch:
-
-
-    def test_subscription_gate_sees_beyond_first_page(self, monkeypatch):
-        """订阅门禁必须翻页读全量：排在第 51 个之后的订阅不能被误判「未订阅」。"""
-        all_subs = [
-            FakeSubscription(f"填充{i:03d}", year="2020", media_id=str(i))
-            for i in range(60)
-        ]
-        all_subs.append(FakeSubscription("青与碧", year="2026", season=1, lack_episode=3, media_id="999"))
-
-        def _paged(filters=None, page=None):
-            request = page or {}
-            num = int(request.get("page", 1))
-            size = int(request.get("count", 50))
-            return FakeQueryPage(all_subs[(num - 1) * size: num * size])
-
-        monkeypatch.setattr(matcher_module, "QUERIES_AVAILABLE", True)
-        monkeypatch.setattr(matcher_module, "list_subscriptions", _paged)
-        result = MediaMatcher().is_missing(
-            title="青与碧", year="2026", season=1, require_subscription=True,
-        )
-        assert result["missing"] is True
-        assert "未订阅" not in result["reason"]
-
-    def test_new_subscription_triggers_search_and_push(self, cache, subscriptions, plugin, fake_metavideo):
-        # 第一次：建立基线
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        # 缓存里已有目标资源
-        cache.history().record(CHAT_A, 4101, _text("青与碧 (2026) S01E01"))
-        cache.history().record(CHAT_A, 4102, _text("无关资源 (2026) S01E01", "https://115.com/s/swabc888"))
-        # 第二次：订阅列表新增《青与碧》
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", year="2026", media_id="2"),
-        ]
-        cache._matcher = FakeMatcher(missing=True)
-        result = cache.run_subscription_search()
-        assert result["subscriptions"] == 2
-        assert result["pushed"] == 1
-        tasks = _pending_tasks(plugin)
-        assert len(tasks) == 1
-        assert tasks[0].status == STATUS_PENDING
-        assert tasks[0].rule_id == CACHE_SEARCH_RULE_ID
-        assert tasks[0].message_id == 4101
-        # 命中流水可复盘
-        with plugin.get_database().session() as session:
-            hits = list(session.execute(select(TgHitLog)).scalars().all())
-        assert len(hits) == 1
-        assert hits[0].decision == DECISION_HIT
-        assert "缓存回搜" in hits[0].detail
-
-
-
-
-
-    def test_search_notification_follows_switch(self, cache, subscriptions, plugin, fake_metavideo):
-        """回搜结果通知受「回搜到资源后通知我」开关控制（默认开，关掉后只回搜不打扰）。"""
-
-        def _run(message_id: int) -> int:
-            subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-            cache.run_subscription_search()  # 建立基线
-            cache.history().record(CHAT_A, message_id, _text("青与碧 (2026) S01E01"))
-            cache._matcher = FakeMatcher(missing=True)
-            subscriptions["items"] = [
-                FakeSubscription("老片", media_id="1"),
-                FakeSubscription("青与碧", year="2026", media_id="2"),
-            ]
-            before = len(plugin.messages)
-            assert cache.run_subscription_search()["pushed"] == 1
-            return len(plugin.messages) - before
-
-        # 默认开启：回搜到并推送后发一条汇总
-        assert _run(4301) == 1
-        assert "缓存回搜" in plugin.messages[-1]["title"]
-        # 关掉开关：回搜照常执行，只是不打扰
-        plugin.save_config(notify_on_search=False)
-        assert cache.notify_enabled() is False
-        assert _run(4302) == 0
-
-    def test_already_pushed_message_not_pushed_twice(self, cache, subscriptions, plugin, fake_metavideo):
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4201, _text("青与碧 (2026) S01E01"))
-        cache._matcher = FakeMatcher(missing=True)
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        assert cache.run_subscription_search()["pushed"] == 1
-        # 删掉订阅再重新加回（快照键变化 → 视为新增），命中流水去重仍然拦住
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        assert cache.run_subscription_search()["pushed"] == 0
-        assert _count(plugin, TgPushTask) == 1
-
-    def test_subscription_without_links_is_skipped(self, cache, subscriptions, plugin, fake_metavideo):
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4301, "青与碧 (2026) S01E01 无链接版本")
-        cache._matcher = FakeMatcher(missing=True)
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 0
-        assert _detail(result, "青与碧")["skipped"] == 1
-
-    def test_missing_check_blocks_already_owned(self, cache, subscriptions, plugin, fake_metavideo):
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4401, _text("青与碧 (2026) S01E01"))
-        cache._matcher = FakeMatcher(missing=False)
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        assert cache.run_subscription_search()["pushed"] == 0
-        assert _count(plugin, TgPushTask) == 0
-
-    def test_notification_sent_when_pushed(self, cache, subscriptions, plugin, fake_metavideo):
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4501, _text("青与碧 (2026) S01E01"))
-        cache._matcher = FakeMatcher(missing=True)
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        cache.run_subscription_search()
-        assert plugin.messages
-        assert "缓存回搜" in plugin.messages[-1]["title"]
-
-    def test_skip_reasons_reported_but_not_notified(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.13.25：一条都没推时**不再发通知**（用户要求），但明细口径照旧保留。"""
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4601, _text("青与碧 (2026) S01E01"))
-        cache.history().record(CHAT_A, 4602, _text("青与碧 (2026) S01E02"))
-        cache._matcher = FakeMatcher(missing=False)
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        before = len(plugin.messages)
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 0
-        detail = _detail(result, "青与碧")
-        assert detail["candidates"] == 2
-        assert detail["skipped"] == 2
-        # 明细/日志口径保留计数（排障仍在）
-        assert detail["reason_text"] == "订阅无缺集 2"
-        # 1.13.25：没推东西就不发通知，运行详情页查明细
-        assert len(plugin.messages) == before
-
-    def test_no_push_block_layout_with_year_and_source_line(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.13.25：跳过块不再进通知；明细里片名+年份、来源照旧可查。"""
-        class FullMatcher:
-            def is_missing(self, **kwargs):
-                return {"missing": False, "reason": "订阅已存在且无缺集",
-                        "source": "subscription", "detail": ""}
-
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4655, _text("青与碧 (2026) S01E01"))
-        cache._matcher = FullMatcher()
-        # 订阅没写年份：块名用候选识别年份兜底
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        before = len(plugin.messages)
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 0
-        detail = _detail(result, "青与碧")
-        assert detail["candidate_year"] == "2026"
-        assert detail["channels"] == [CHAT_A]
-        assert len(plugin.messages) == before  # 没推就不发通知
-
-    def test_not_subscribed_reason_hidden_from_notification(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.7.4：「未订阅」不在通知里展示；1.13.25 起整条跳过通知都不再发。
-
-        候选是标题包含匹配捞出来的，识别片名/年份/季没对上订阅就记未订阅；
-        这些判定只进命中流水与运行详情页。
-        """
-        class MixedMatcher:
-            def __init__(self) -> None:
-                self.calls = 0
-
-            def is_missing(self, **kwargs):
-                self.calls += 1
-                if self.calls <= 2:
-                    return {"missing": False, "reason": "未订阅",
-                            "source": "subscription", "detail": ""}
-                return {"missing": False, "reason": "订阅已存在且无缺集",
-                        "source": "subscription", "detail": ""}
-
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4651, _text("青与碧 (2026) S01E01"))
-        cache.history().record(CHAT_A, 4652, _text("青与碧 (2026) S01E02"))
-        cache.history().record(CHAT_A, 4653, _text("青与碧 (2026) S01E03"))
-        cache._matcher = MixedMatcher()
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        before = len(plugin.messages)
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 0
-        # 明细/日志里的 reason_text 保留未订阅（排障口径不变）
-        assert _detail(result, "青与碧")["reason_text"] == "未订阅 2、订阅无缺集 1"
-        assert len(plugin.messages) == before
-
-    def test_notification_with_only_hidden_reasons(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.13.25：「未订阅」全部隐藏 + 没有推送 → 整条通知都不发。"""
-        class NotSubscribedMatcher:
-            def is_missing(self, **kwargs):
-                return {"missing": False, "reason": "未订阅",
-                        "source": "subscription", "detail": ""}
-
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4661, _text("青与碧 (2026) S01E01"))
-        cache.history().record(CHAT_A, 4662, _text("青与碧 (2026) S01E02"))
-        cache._matcher = NotSubscribedMatcher()
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        before = len(plugin.messages)
-        assert cache.run_subscription_search()["pushed"] == 0
-        assert len(plugin.messages) == before
-
-    def test_skip_reason_marks_media_library_hit(self, cache, subscriptions, plugin, fake_metavideo, monkeypatch):
-        """真机口径：媒体库已有的候选要归类成"媒体库已存在"（而不是笼统的跳过）。"""
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4701, _text("青与碧 (2026) S01E01"))
-        monkeypatch.setattr(matcher_module, "MEDIASERVER_AVAILABLE", True)
-
-        class Exist:
-            seasons = {1: [1]}
-
-        module = FakeMediaServerModule(Exist())
-        monkeypatch.setattr(matcher_module, "MediaServerHelper", lambda: FakeMediaServerHelper(module))
-        cache._matcher = MediaMatcher()
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", year="2026", season=1, media_id="2"),
-        ]
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 0
-        assert _detail(result, "青与碧")["reason_text"] == "媒体库已存在 1"
-        assert module.calls == 1
-
-    def test_push_notification_reports_library_miss_reason(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.4.6：全推出去时必须说清"为什么判定媒体库没有"（真机：库里明明有）。"""
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4801, _text("青与碧 (2026) S01E01"))
-
-        class FakeLibraryMissing:
-            def is_missing(self, **kwargs):
-                return {
-                    "missing": True,
-                    "reason": "媒体库中不存在",
-                    "source": "mediaserver",
-                    "note": "媒体库中没有同名剧集条目（宿主按片名+年份精确匹配失败）",
-                    "detail": "「青与碧」在已配置媒体服务器中未找到",
-                }
-
-        cache._matcher = FakeLibraryMissing()
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", media_id="2"),
-        ]
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 1
-        assert _detail(result, "青与碧")["media_note"]
-        text = plugin.messages[-1]["text"]
-        assert "媒体库未收录" in text
-        assert "没有同名剧集条目" in text
-
-    def test_search_notification_pushed_block_format(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.6.10：命中并推送的资源按消息分块，块内带年份 / 链接 / 来源，且去「· 」。"""
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4501, _text("青与碧 (2026) S01E01"))
-        cache._matcher = FakeMatcher(missing=True)
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", year="2026", media_id="2"),
-        ]
-        cache.run_subscription_search()
-        title = plugin.messages[-1]["title"]
-        text = plugin.messages[-1]["text"]
-        assert "缓存回搜" in title
-        # 去「· 」、首字对齐
-        assert "· " not in text
-        # 媒体名带年份
-        assert "青与碧 (2026)" in text
-        # 真实链接
-        assert LINK in text
-        # 来源（测试无对话缓存，退回原始频道 ID）
-        assert f"来源：{CHAT_A}" in text
-        # 1.7.6：去「命中并推送 N 条资源」头行，正文直接从媒体块开始
-        assert "命中并推送" not in text
-        assert "新增订阅" not in text
-
-    def test_search_notification_multi_channel_blocks(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.6.10：同片名命中多个频道时，按消息分块、每块自带来源，链接归属清晰。"""
-        # 缓存可配多个频道：放开到 A + B，否则回搜只会搜 CHAT_A
-        plugin.save_config(cache_chat_ids=[CHAT_A, CHAT_B])
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4501, _text("青与碧 (2026) S01E01"))
-        cache.history().record(CHAT_B, 4502, _text("青与碧 (2026) S01E02", "https://115.com/s/swabc888"))
-        cache._matcher = FakeMatcher(missing=True)
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", year="2026", media_id="2"),
-        ]
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 2
-        text = plugin.messages[-1]["text"]
-        # 1.7.6：无头行，两条推送块直接排列
-        assert "命中并推送" not in text
-        assert "新增订阅" not in text
-        assert "· " not in text
-        # 两块各自带来源
-        assert f"来源：{CHAT_A}" in text
-        assert f"来源：{CHAT_B}" in text
-        # 两条链接都在，分属两个频道
-        assert LINK in text
-        assert "https://115.com/s/swabc888" in text
-
-    def test_search_notification_mixed_pushed_and_skipped(self, cache, subscriptions, plugin, fake_metavideo):
-        """1.13.25：只报推出去的；跳过（无需推送）那部分不再进通知正文。"""
-        plugin.save_config(cache_chat_ids=[CHAT_A])
-        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 4661, _text("青与碧 (2026) S01E01"))
-        cache.history().record(CHAT_A, 4662, _text("你好时光 (2026) S01E01"))
-
-        class SelectiveMatcher:
-            """青与碧缺集（推送），你好时光不缺（跳过）。"""
-
-            def is_missing(self, **kwargs):
-                if "青与碧" in str(kwargs.get("title") or ""):
-                    return {"missing": True, "reason": "订阅缺 3 集",
-                            "source": "subscription", "detail": ""}
-                return {"missing": False, "reason": "订阅已存在且无缺集",
-                        "source": "subscription", "detail": ""}
-
-        cache._matcher = SelectiveMatcher()
-        subscriptions["items"] = [
-            FakeSubscription("老片", media_id="1"),
-            FakeSubscription("青与碧", year="2026", media_id="2"),
-            FakeSubscription("你好时光", year="2026", media_id="3"),
-        ]
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 1
-        text = plugin.messages[-1]["text"]
-        # 无头行（1.7.6）
-        assert "新增订阅" not in text
-        assert "命中并推送" not in text
-        # 只列推送块，跳过块（无需推送）不出现
-        lines = text.split("\n")
-        push_idx = next(i for i, ln in enumerate(lines) if ln.startswith("📺 青与碧 (2026) S01E01"))
-        assert push_idx >= 0
-        assert "你好时光" not in text
-        assert "无需推送" not in text
-        assert "" not in lines
-
-    def test_disabled_module_skips_check(self, plugin, fake_metavideo):
-        plugin.save_config(cache_enabled=False)
-        module = CacheModule(plugin)
-        plugin._cache = module
-        assert module.run_subscription_search()["checked"] is False
-
-
-# ---------------------------------------------------------------------- 洗版回搜（1.13.24）
-
-
-
-
-# ---------------------------------------------------------------------- 设置与状态
-
-
 class TestSettingsAndStatus:
     def test_settings_normalizes_invalid_values(self, plugin, cache):
         saved = cache.save_settings({
@@ -1286,54 +890,111 @@ class TestWashRules:
         episode = quality.baseline_key("title", "2024", 1, 2)
         assert movie != episode
 
-    def test_top_n_keeps_only_best_per_episode(self, plugin, cache, subscriptions, fake_metavideo):
-        subscriptions["items"] = [FakeSubscription("drama", year="2026", media_id="2")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 6001, _text("drama (2026) S01E01 2160p REMUX"))
-        cache.history().record(CHAT_A, 6002, _text("drama (2026) S01E01 1080p WEB-DL"))
-        plugin.save_config(cache_wash_rules={"enabled": True})
-        result = cache.run_subscription_search()
-        assert result["pushed"] == 1
+    def test_wash_gate_prefers_upgrade_over_flat(self):
+        from app.plugins.tgmediacenter.services import quality, wash_gate
 
-    def test_progressively_worse_blocked_after_first_push(self, plugin, cache, subscriptions, fake_metavideo):
-        subscriptions["items"] = [FakeSubscription("drama", year="2026", media_id="2")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 6011, _text("drama (2026) S01E01 2160p REMUX"))
-        plugin.save_config(cache_wash_rules={"enabled": True})
-        assert cache.run_subscription_search()["pushed"] == 1
-        cache.history().record(CHAT_A, 6012, _text("drama (2026) S01E01 1080p WEB-DL"))
-        assert cache.run_subscription_search()["pushed"] == 0
+        rules = quality.default_rules()
+        base = quality.parse_quality("drama S01E01 2160p REMUX 60G")
+        better = quality.parse_quality("drama S01E01 2160p REMUX 80G")
+        key = quality.baseline_key("drama", "2026", 1, 1)
+        verdict = wash_gate.judge(better, rules, baselines={key: base}, keys=[key])
+        assert verdict["state"] == wash_gate.STATE_PUSH
+        assert verdict["upgraded"] == [key]
 
-    def test_baseline_persisted_in_plugin_data(self, plugin, cache, subscriptions, fake_metavideo):
+        same = quality.parse_quality("drama S01E01 2160p REMUX 61G")
+        flat = wash_gate.judge(same, rules, baselines={key: base}, keys=[key])
+        assert flat["state"] == wash_gate.STATE_FLAT
+
+    def test_progressively_worse_blocked_by_remembered_baseline(self, cache):
+        from app.plugins.tgmediacenter.services import quality, wash_gate
+
+        rules = quality.default_rules()
+        key = quality.baseline_key("drama", "2026", 1, 1)
+        good = quality.parse_quality("drama (2026) S01E01 2160p REMUX")
+        first = wash_gate.judge(good, rules, baselines={}, keys=[key])
+        assert first["state"] == wash_gate.STATE_PUSH
+        first["profile"] = good
+        cache.remember_baselines({k: good for k in first["upgraded"]})
+
+        worse = quality.parse_quality("drama (2026) S01E01 1080p WEB-DL")
+        second = wash_gate.judge(worse, rules, baselines=cache.wash_baselines("drama", "2026", "", 1),
+                                 keys=[key])
+        assert second["state"] == wash_gate.STATE_FLAT
+
+    def test_baseline_persisted_in_plugin_data(self, plugin, cache):
         from app.plugins.tgmediacenter.modules.cache import _WASH_BASELINE_KEY
+        from app.plugins.tgmediacenter.services import quality
 
-        subscriptions["items"] = [FakeSubscription("drama", year="2026", media_id="2")]
-        cache.run_subscription_search()
-        cache.history().record(CHAT_A, 6021, _text("drama (2026) S01E01 2160p REMUX"))
-        plugin.save_config(cache_wash_rules={"enabled": True})
-        cache.run_subscription_search()
+        key = quality.baseline_key("drama", "2026", 1, 1)
+        profile = quality.parse_quality("drama (2026) S01E01 2160p REMUX")
+        cache.remember_baselines({key: profile})
         stored = plugin.get_data(_WASH_BASELINE_KEY) or {}
         items = stored.get("items") or {}
         assert len(items) == 1
-        profile = next(iter(items.values()))
-        assert profile["resolution"] == "2160p"
-        assert profile.get("ts")
+        saved = next(iter(items.values()))
+        assert saved["resolution"] == "2160p"
+        assert saved.get("ts")
 
     def test_wash_rules_settings_roundtrip(self, cache):
-        from app.plugins.tgmediacenter.services import quality
-
         saved = cache.save_settings({
-            "wash_rules": {"top_n": 3, "size_tolerance_pct": 8},
+            "wash_rules": {"size_tolerance_pct": 8},
         })
-        assert saved["wash_rules"]["top_n"] == 3
         assert saved["wash_rules"]["size_tolerance_pct"] == 8
+        assert saved["wash_rules"]["enabled"] is True
         assert saved["wash_rules"]["order"][0] == "quality"
         assert len(saved["wash_rules"]["order"]) == 7
 
     def test_wash_rules_normalize_rejects_garbage(self):
         from app.plugins.tgmediacenter.services import quality
 
-        rules = quality.normalize_rules({"order": ["size", "bogus"], "top_n": -3})
+        rules = quality.normalize_rules({"order": ["size", "bogus"]})
         assert rules["order"][0] == "quality"
         assert "size" in rules["order"]
-        assert rules["top_n"] == 0
+        assert rules["enabled"] is True
+
+    def test_episode_keys_split_season_pack(self):
+        from app.plugins.tgmediacenter.services import quality
+
+        keys = quality.episode_keys("drama", "2026", "电视剧", 1, 1, 3)
+        assert len(keys) == 3
+        assert keys[0] != keys[1]
+        assert quality.episode_keys("movie", "2026", "movie") == [quality.baseline_key("movie", "2026")]
+
+    def test_resolution_is_required(self):
+        from app.plugins.tgmediacenter.services import quality
+
+        rules = quality.default_rules()
+        ok, why = quality.filter_profile(quality.parse_quality("drama S01E01 REMUX"), rules)
+        assert ok is False and "分辨率" in why
+
+
+class TestPartialTransfer:
+    """1.13.35：整季包只转需要的集。"""
+
+    def test_filter_picks_needed_episodes(self):
+        from app.plugins.tgmediacenter.core import pan115_client
+
+        files = [
+            {"file_id": "1", "name": "Show.S01E01.2160p.mkv", "is_dir": False},
+            {"file_id": "2", "name": "Show.S01E02.2160p.mkv", "is_dir": False},
+            {"file_id": "3", "name": "Show.S01E03.2160p.mkv", "is_dir": False},
+        ]
+        assert pan115_client.filter_share_files(files, [2]) == ["2"]
+        # 全都要 / 认不出集号 / 根目录是文件夹 → 整包转存
+        assert pan115_client.filter_share_files(files, [1, 2, 3]) is None
+        assert pan115_client.filter_share_files(files, None) is None
+        assert pan115_client.filter_share_files([{"file_id": "d", "name": "Show", "is_dir": True}], [1]) is None
+
+    def test_episodes_of_parses_span(self):
+        from app.plugins.tgmediacenter.core import pan115_client
+
+        assert pan115_client.episodes_of("Show.S01E02.mkv") == [2]
+        assert pan115_client.episodes_of("Show.S01E02-E04.mkv") == [2, 3, 4]
+
+    def test_wash_extra_only_for_partial_upgrade(self):
+        from app.plugins.tgmediacenter.core.pipeline import MessagePipeline
+
+        keys = ["show|2026|1|1", "show|2026|1|2"]
+        assert MessagePipeline._wash_extra({"keys": keys, "upgraded": keys}) is None
+        extra = MessagePipeline._wash_extra({"keys": keys, "upgraded": [keys[1]]})
+        assert extra == {"wash": {"episodes": [2]}}

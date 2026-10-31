@@ -18,6 +18,7 @@ from typing import Any, Optional
 from app.sdk.logging import logger
 
 from ..core import links as link_utils
+from ..core import pan115_client
 from ..core.pan115_client import Pan115AuthError, Pan115Client, Pan115Error
 from ..core.pan115_login import (
     DEFAULT_APP,
@@ -387,6 +388,7 @@ class Pan115Module:
         dry_run: bool = False,
         deadline_seconds: int = _PUSH_DEADLINE_SECONDS,
         max_items: int = _PUSH_MAX_ITEMS,
+        episodes: "Optional[list]" = None,
     ) -> dict:
         """把链接批量推送到 115。
 
@@ -445,7 +447,7 @@ class Pan115Module:
                 if time.monotonic() > deadline:
                     logger.warning("115 推送达到时间预算，提前结束")
                     break
-                ok, message, label = self._push_one(client, item, target)
+                ok, message, label = self._push_one(client, item, target, episodes=episodes)
                 if ok:
                     result["succeeded"] += 1
                 else:
@@ -477,7 +479,8 @@ class Pan115Module:
         result["message"] = "推送完成：" + "，".join(parts)
         return result
 
-    def _push_one(self, client: Pan115Client, item: link_utils.PushItem, cid: str) -> "tuple[bool, str, str]":
+    def _push_one(self, client: Pan115Client, item: link_utils.PushItem, cid: str,
+                  episodes: "Optional[list]" = None) -> "tuple[bool, str, str]":
         """推送单条链接，返回 ``(是否成功, 说明, 媒体名)``。
 
         媒体名（1.7.5 起取原名，1.7.6 起过识别器）：分享取 115 分享标题
@@ -488,8 +491,12 @@ class Pan115Module:
         try:
             if item.kind == "share":
                 snap = run_sync(lambda: client.share_snap(item.code, item.password))
+                # 1.13.35：整季包里只有部分集更好时，按集号只转存需要的文件；
+                # 分享根目录是文件夹（或认不出季集）时 filter 返回 None → 整包转存。
+                picked = pan115_client.filter_share_files(snap.get("files") or [], episodes)
                 received = run_sync(
-                    lambda: client.share_receive(item.code, item.password, snap["file_ids"], cid)
+                    lambda: client.share_receive(item.code, item.password,
+                                                 picked or snap["file_ids"], cid)
                 )
                 label = recognizer_service.label_for(
                     snap.get("title"), fallback=f"115分享:{item.code}"

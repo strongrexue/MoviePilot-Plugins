@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, d as decisionLabel, c as decisionColor, u as unwrap, a as getPluginApi, p as postPluginApi } from './decision-D5HEJ5Fb.js';
+import { _ as _export_sfc, d as decisionLabel, c as decisionColor, u as unwrap, a as getPluginApi, p as postPluginApi } from './decision-BcxIDicF.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,renderList:_renderList,unref:_unref} = await importShared('vue');
 

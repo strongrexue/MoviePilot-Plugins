@@ -134,10 +134,7 @@
               </div>
               <!-- 折叠态右侧概览：按当前规则内容动态显示，没设置任何过滤时给一句占位 -->
               <div class="mon-rule-tags">
-                <VChip v-if="rule.match_only_if_missing" size="x-small" variant="tonal" color="info" label>
-                  仅缺失
-                </VChip>
-                <VChip v-else-if="rule.match_subscribed_only" size="x-small" variant="tonal" color="info" label>
+                <VChip v-if="rule.match_subscribed_only" size="x-small" variant="tonal" color="info" label>
                   仅推已订阅
                 </VChip>
                 <VChip v-if="rule.match_custom_keywords && keywordCount(rule)" size="x-small" variant="tonal" color="primary" label>
@@ -147,7 +144,7 @@
                   排除 {{ excludeCount(rule) }}
                 </VChip>
                 <span
-                  v-if="!rule.match_only_if_missing && !rule.match_subscribed_only && !(rule.match_custom_keywords && keywordCount(rule)) && !excludeCount(rule)"
+                  v-if="!rule.match_subscribed_only && !(rule.match_custom_keywords && keywordCount(rule)) && !excludeCount(rule)"
                   class="mon-rule-tag-empty"
                 >无额外过滤</span>
               </div>
@@ -186,15 +183,8 @@
                     hide-details
                   />
                   <div class="mon-switch-row">
-                    <VSwitch v-model="rule.match_only_if_missing" color="primary" hide-details inset density="compact">
-                      <template #label>
-                        <span class="mon-switch-label">仅缺失时推送</span>
-                      </template>
-                    </VSwitch>
-                    <!-- 行内说明：不另起一行，避免组内文字挤在一起 -->
-                    <span class="mon-group-note">无法判断时跳过</span>
-                    <!-- 订阅门禁（1.13.23）：从「仅缺失」里拆出来的独立开关。
-                         关掉「仅缺失」是想推全部资源，但不该连带把未订阅的也推出去。 -->
+                    <!-- 订阅门禁（1.13.23，1.13.35 起成为唯一门禁）：只推已订阅的资源，
+                         画质是否更好由「洗版规则」板块统一判定。 -->
                     <div class="mon-kw-switch">
                       <VSwitch
                         v-model="rule.match_subscribed_only"
@@ -432,7 +422,6 @@ function blankRule() {
     name: '',
     source_ids: [],
     destination: FIXED_DESTINATION,
-    match_only_if_missing: true,
     match_subscribed_only: true,
     match_custom_keywords: false,
     custom_keywords: [],
@@ -486,7 +475,6 @@ async function loadRules() {
       source_ids: Array.isArray(rule.source_ids) ? rule.source_ids.map(Number) : [],
       // 推送目标不再可选，历史规则的其他取值也一并归一到 115
       destination: FIXED_DESTINATION,
-      match_only_if_missing: rule.match_only_if_missing !== false,
       match_subscribed_only: rule.match_subscribed_only !== false,
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: Array.isArray(rule.custom_keywords) ? rule.custom_keywords : [],
@@ -560,7 +548,6 @@ async function saveRules() {
       // 固定走 115 网盘，不再接受前端选项；target_id 留空（仅 TG 转发才需要）
       destination: FIXED_DESTINATION,
       target_id: '',
-      match_only_if_missing: Boolean(rule.match_only_if_missing),
       match_subscribed_only: Boolean(rule.match_subscribed_only),
       match_custom_keywords: Boolean(rule.match_custom_keywords),
       custom_keywords: (rule.custom_keywords || []).map(kw => String(kw).trim()).filter(Boolean),

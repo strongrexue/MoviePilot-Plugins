@@ -985,6 +985,53 @@ class TestPartialTransfer:
         assert pan115_client.filter_share_files(files, None) is None
         assert pan115_client.filter_share_files([{"file_id": "d", "name": "Show", "is_dir": True}], [1]) is None
 
+    def test_history_baseline_blocks_equal_quality(self):
+        from app.plugins.tgmediacenter.modules import cache as cache_module
+        from app.plugins.tgmediacenter.services import quality, wash_gate
+
+        record = {
+            "title": "妈妈发疯了",
+            "seasons": "S01",
+            "episodes": "E25",
+            "torrent_name": "Mission Mompossible 2026 S01E25 1080p Viu WEB-DL H264 AAC-UBWEB",
+            "path": "/media/downloads/日剧/妈妈发疯了/Mission Mompossible 2026 S01E25 1080p WEB-DL.mkv",
+        }
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cache_module.CacheModule, "_download_history",
+                            staticmethod(lambda title: [cache_module._history_fields(record)]))
+        module = object.__new__(cache_module.CacheModule)
+        module._plugin = type("P", (), {"get_data": lambda self, key: {"items": {}}})()
+        module._plugin_id = lambda: "TgMediaCenter"
+        rules = quality.normalize_rules({"compare_sources": ["pushed", "history"]})
+        module.wash_rules = lambda: rules
+
+        baselines = module.wash_baselines("妈妈发疯了", year="2026", media_type="tv", season=1)
+        monkeypatch.undo()
+
+        keys = quality.episode_keys("妈妈发疯了", "2026", "tv", 1, 25)
+        assert keys[0] in baselines, baselines
+        candidate = quality.parse_quality(record["torrent_name"])
+        verdict = wash_gate.judge(candidate, rules, baselines=baselines, keys=keys)
+        assert verdict["state"] == wash_gate.STATE_FLAT, verdict
+
+    def test_history_fields_accept_dict_snapshot(self):
+        from app.plugins.tgmediacenter.modules import cache as cache_module
+
+        fields = cache_module._history_fields({
+            "title": "妈妈发疯了",
+            "seasons": "S01",
+            "episodes": "E25",
+            "torrent_name": "Mission Mompossible 2026 S01E25 1080p WEB-DL",
+        })
+        assert fields["title"] == "妈妈发疯了"
+        assert fields["episodes"] == "E25"
+
+        profile = __import__(
+            "app.plugins.tgmediacenter.services.quality", fromlist=["parse_quality"]
+        ).parse_quality(" ".join(str(fields[name] or "") for name in (
+            "torrent_name", "text", "path", "title")))
+        assert profile["resolution"] == "1080p"
+
     def test_episode_keys_accept_host_media_type(self):
         from app.plugins.tgmediacenter.services import quality
 

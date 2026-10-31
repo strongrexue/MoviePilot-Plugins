@@ -516,7 +516,7 @@ class CacheModule:
         for number, profile in episodes.items():
             if not isinstance(profile, dict) or not profile.get("known"):
                 continue
-            if str(media_type or "") == "电视剧":
+            if quality_service.is_series(media_type):
                 if str(number) == "0":
                     key = quality_service.baseline_key(title, year, season)
                 else:
@@ -716,7 +716,13 @@ def _numbered(value: Any) -> str:
     if not text:
         return ""
     digits = re.findall(r"\d+", text)
-    return digits[0] if digits else text
+    if not digits:
+        return text
+    try:
+        # ``S01`` / ``E025`` 都要和缓存里的 ``1`` / ``25`` 对齐，前导零必须去掉
+        return str(int(digits[0]))
+    except ValueError:  # pragma: no cover - 超长数字串
+        return digits[0]
 
 
 def _normalized_key(key: str) -> str:
@@ -735,18 +741,19 @@ def _first_value(raw: Any) -> Any:
     return raw
 
 
+_HISTORY_FIELDS = ("torrent_name", "torrent_size", "text", "path", "title",
+                   "seasons", "episodes", "date")
+
+
 def _history_fields(item: Any) -> Dict[str, Any]:
-    """下载历史快照压成判定所需字段（发布名/体积在部分宿主上是 torrent_*）。"""
-    return {
-        "torrent_name": getattr(item, "torrent_name", None),
-        "torrent_size": getattr(item, "torrent_size", None),
-        "text": getattr(item, "text", None),
-        "path": getattr(item, "path", None),
-        "title": getattr(item, "title", None),
-        "seasons": getattr(item, "seasons", None),
-        "episodes": getattr(item, "episodes", None),
-        "date": getattr(item, "date", None),
-    }
+    """下载历史快照压成判定所需字段（发布名/体积在部分宿主上是 torrent_*）。
+
+    ``forward_gate`` 交回来的是普通字典，早期只按对象取属性会导致整条记录被
+    读成空串 —— 下载历史源因此长期「静默无效」（1.13.35 热修）。
+    """
+    if isinstance(item, dict):
+        return {name: item.get(name) for name in _HISTORY_FIELDS}
+    return {name: getattr(item, name, None) for name in _HISTORY_FIELDS}
 
 
 def _skip_label(verdict: dict) -> str:

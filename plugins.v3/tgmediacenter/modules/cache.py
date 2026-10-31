@@ -45,6 +45,7 @@ from ..core.notify import (
     notify_mtype,
 )
 from ..services import matcher as matcher_service
+from ..services import quality as quality_service
 from ..services import recognizer as recognizer_service
 from ..services.matcher import MediaMatcher
 
@@ -65,6 +66,11 @@ _BACKFILL_BATCH = 100
 # 已成功推送过的被命中流水拦住，入队失败的那批（无流水记录）得以补推。
 _SUB_SNAPSHOT_KEY = "cache_sub_snapshot_v2"
 _SUB_STATE_KEY = "cache_sub_state"
+# 洗版质量基线（1.13.27）：按「订阅标题 + 年份 + 季集区间」记住已推送过的最优画质，
+# 后续洗版回搜只有严格优于它的候选才算升级。存插件数据，重启不丢。
+_RESHUFFLE_BASELINE_KEY = "cache_reshuffle_baseline"
+# 基线条目上限：超过按最近更新时间截断，防止长期运行无限膨胀
+_RESHUFFLE_BASELINE_LIMIT = 500
 # 洗版回搜（1.13.24）每轮入队条数不再设上限（1.13.25）：一轮定时就能把全部订阅
 # 捞完，不必反复点「立即洗版回搜」。推送节奏改由推送 worker 的「每批条数 / 批间隔」
 # 控制（见 core/pipeline.py 的 push_batch_size / push_batch_interval），队列不会
@@ -321,6 +327,22 @@ class CacheModule:
         """
         return bool(self._cfg("cache_reshuffle_enabled"))
 
+    def reshuffle_quality_gate(self) -> bool:
+        """洗版回搜的质量门禁（1.13.27，默认开）。
+
+        开：洗版候选要和「该订阅已推送过的最优画质」做两层对比，只有真升级才推；
+        关：退回 1.13.24 的「命中即推」。
+        """
+        return bool(self._cfg("cache_reshuffle_quality_gate", True))
+
+    def reshuffle_top_n(self) -> int:
+        """同一季集区间每轮最多推几条（1.13.27，默认 1；0 表示不限）。"""
+        try:
+            value = int(self._cfg("cache_reshuffle_top_n", 1))
+        except (TypeError, ValueError):
+            return 1
+        return value if value >= 0 else 1
+
     def backfill_cron(self) -> str:
         """存量补扫 cron（独立配置，默认与订阅兜底同频 30 分钟）。"""
         return _normalize_cron(self._cfg("cache_backfill_cron"), DEFAULT_BACKFILL_CRON)
@@ -370,6 +392,8 @@ class CacheModule:
             "batch_size": self.batch_size(),
             "subscribe_enabled": self.subscribe_enabled(),
             "reshuffle_enabled": self.reshuffle_enabled(),
+            "reshuffle_quality_gate": self.reshuffle_quality_gate(),
+            "reshuffle_top_n": self.reshuffle_top_n(),
             "push_batch_size": self.push_batch_size(),
             "push_batch_interval": self.push_batch_interval(),
             "backfill_enabled": self.backfill_enabled(),
@@ -415,6 +439,10 @@ class CacheModule:
             patch["cache_subscribe_enabled"] = bool(data.get("subscribe_enabled"))
         if "reshuffle_enabled" in data:
             patch["cache_reshuffle_enabled"] = bool(data.get("reshuffle_enabled"))
+        if "reshuffle_quality_gate" in data:
+            patch["cache_reshuffle_quality_gate"] = bool(data.get("reshuffle_quality_gate"))
+        if "reshuffle_top_n" in data:
+            patch["cache_reshuffle_top_n"] = self._coerce_top_n(data.get("reshuffle_top_n"))
         if "push_batch_size" in data:
             patch["cache_push_batch_size"] = self._coerce_batch_size(data.get("push_batch_size"))
         if "push_batch_interval" in data:
@@ -458,6 +486,16 @@ class CacheModule:
             return min(3600, max(5, int(raw)))
         except (TypeError, ValueError):
             return 15
+
+    @staticmethod
+    def _coerce_top_n(raw: Any) -> int:
+        """同一季集区间每轮最多推几条：收敛到 0~50；0 表示不限。"""
+        if raw is None or raw == "":
+            return 1
+        try:
+            return min(50, max(0, int(raw)))
+        except (TypeError, ValueError):
+            return 1
 
     def push_batch_size(self) -> int:
         """推送每批条数（1.13.25 新增，推送 worker 读取，默认 10）。
@@ -800,6 +838,9 @@ class CacheModule:
         skipped = 0
         reasons: Dict[str, int] = {}
         media_note = ""
+        # 第一遍：筛出「可推候选」——有链接、没推过、媒体库判定通过。
+        # 洗版回搜的媒体库判定本来就是伪造的（不判库），这里保持原样。
+        eligible: List[dict] = []
         for item in candidates:
             links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
             if not links:
@@ -850,6 +891,29 @@ class CacheModule:
                     f"｜{verdict.get('reason') or ''}"
                 )
                 continue
+            eligible.append({
+                "item": item,
+                "links": links,
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "verdict": verdict,
+            })
+
+        # 第二遍（仅洗版回搜，1.13.27）：先按季集区间取最优 TopN，再过质量门禁
+        baseline_updates: Dict[str, dict] = {}
+        if reshuffle:
+            eligible, gate_skipped = self._apply_reshuffle_quality(
+                eligible, sub, title, reasons
+            )
+            skipped += gate_skipped
+
+        # 第三遍：入队
+        for record in eligible:
+            item = record["item"]
+            links = record["links"]
+            chat_id = int(record["chat_id"])
+            message_id = int(record["message_id"])
+            verdict = record["verdict"]
             task_id = push_queue.enqueue_push(
                 self._db(),
                 self._plugin_id(),
@@ -875,9 +939,15 @@ class CacheModule:
                     "links": links,
                     "chat_id": chat_id,
                 })
+                # 推送成功才把画质记进基线：入队失败的下一轮还要能再比一次
+                baseline_key = record.get("baseline_key")
+                if baseline_key and record.get("profile"):
+                    baseline_updates[baseline_key] = record["profile"]
             else:
                 skipped += 1
                 _count_reason(reasons, "入队失败")
+        if baseline_updates:
+            self._save_reshuffle_baseline(baseline_updates)
         reason_text = _reason_text(reasons)
         channels = sorted({int(item.get("chat_id") or 0) for item in candidates if item.get("chat_id")})
         # 候选识别年份里最多的一种：订阅没写年份时通知块名兜底用（1.7.5）
@@ -905,6 +975,122 @@ class CacheModule:
             "media_note": media_note,
             "channels": channels,
         }
+
+    def _apply_reshuffle_quality(self, records: List[dict], sub: dict, title: str,
+                                 reasons: Dict[str, int]) -> "tuple[List[dict], int]":
+        """洗版回搜的两道收口（1.13.27）：TopN 择优 + 质量门禁。
+
+        1. **TopN（B）**：同一「季 + 集区间」的候选只留画质总分最高的
+           ``cache_reshuffle_top_n`` 条（默认 1）。不同集区间各自比较，避免
+           一部剧只推一集、或者整包资源被单集挤掉。
+        2. **质量门禁（A）**：候选与该订阅「已推送过的最优画质」做两层对比，
+           只有真升级才留下；画质解析不出来的候选不参与比较（交给 TopN 兜底）。
+
+        :returns: ``(保留的候选, 被这两道收口跳过的条数)``。
+        """
+        if not records:
+            return [], 0
+        top_n = self.reshuffle_top_n()
+        gate_enabled = self.reshuffle_quality_gate()
+        # 每条的画质画像（纯正则解析，便宜）
+        for record in records:
+            record["profile"] = quality_service.parse_quality(
+                record["item"].get("text") or ""
+            )
+        # —— TopN：按（媒体类型, 季, 集, 集尾）分组，组内按总分降序 ——
+        groups: Dict[tuple, List[dict]] = {}
+        for record in records:
+            item = record["item"]
+            key = (
+                str(item.get("media_type") or ""),
+                item.get("season"),
+                item.get("episode"),
+                item.get("episode_end"),
+            )
+            groups.setdefault(key, []).append(record)
+        kept: List[dict] = []
+        skipped = 0
+        for bucket in groups.values():
+            bucket.sort(
+                key=lambda r: (
+                    int(r["profile"].get("score") or 0),
+                    int(r["item"].get("message_id") or 0),
+                ),
+                reverse=True,
+            )
+            if top_n > 0 and len(bucket) > top_n:
+                dropped = bucket[top_n:]
+                skipped += len(dropped)
+                for _ in dropped:
+                    _count_reason(reasons, "非最优版本")
+                for record in dropped:
+                    logger.debug(
+                        f"[{self._plugin_id()}] 洗版回搜跳过（非最优）："
+                        f"{record['item'].get('title') or title}"
+                        f"（msg={record['message_id']}，"
+                        f"{quality_service.describe(record['profile'])}）"
+                    )
+                bucket = bucket[:top_n]
+            kept.extend(bucket)
+
+        if not gate_enabled:
+            return kept, skipped
+
+        # —— 质量门禁：与基线比 ——
+        baseline = self._reshuffle_baseline()
+        gated: List[dict] = []
+        for record in kept:
+            item = record["item"]
+            profile = record["profile"]
+            key = quality_service.baseline_key(
+                title,
+                sub.get("year"),
+                item.get("season"),
+                item.get("episode"),
+                item.get("episode_end"),
+            )
+            state, why = quality_service.compare(baseline.get(key), profile)
+            if state == quality_service.STATE_FLAT:
+                skipped += 1
+                _count_reason(reasons, "画质未升级")
+                logger.debug(
+                    f"[{self._plugin_id()}] 洗版回搜跳过（画质未升级）："
+                    f"{item.get('title') or title}（msg={record['message_id']}）"
+                    f"{quality_service.describe(profile)}｜{why}"
+                )
+                continue
+            record["baseline_key"] = key
+            record["quality_state"] = state
+            record["quality_reason"] = why
+            gated.append(record)
+        return gated, skipped
+
+    def _reshuffle_baseline(self) -> Dict[str, dict]:
+        """读取洗版质量基线（订阅 + 季集区间 → 最优画质画像）。"""
+        stored = self._plugin.get_data(_RESHUFFLE_BASELINE_KEY) or {}
+        items = stored.get("items") if isinstance(stored, dict) else None
+        if not isinstance(items, dict):
+            return {}
+        return {str(key): dict(value) for key, value in items.items() if isinstance(value, dict)}
+
+    def _save_reshuffle_baseline(self, updates: Dict[str, dict]) -> None:
+        """把本轮推送成功的画质合并进基线并落盘（按最近时间截断）。"""
+        if not updates:
+            return
+        items = dict(self._reshuffle_baseline())
+        now = datetime.now().isoformat(timespec="seconds")
+        for key, profile in updates.items():
+            if not profile or not profile.get("known"):
+                continue
+            items[str(key)] = {**dict(profile), "ts": now}
+        if len(items) > _RESHUFFLE_BASELINE_LIMIT:
+            ordered = sorted(
+                items.items(),
+                key=lambda kv: str(kv[1].get("ts") or ""),
+                reverse=True,
+            )
+            items = dict(ordered[:_RESHUFFLE_BASELINE_LIMIT])
+        self._plugin.save_data(_RESHUFFLE_BASELINE_KEY, {"items": items, "version": 1})
 
     def _remember_check(self, *, new: int, pushed: int, error: str) -> None:
         state = {

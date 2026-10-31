@@ -37,6 +37,10 @@ export const configDefaults = {
   cache_subscribe_enabled: true,
   // 洗版回搜（1.13.24）：定时兜底跳过媒体库判定、遍历全部订阅回搜，默认关
   cache_reshuffle_enabled: false,
+  // 洗版质量门禁 + 每集最优（1.13.27）：候选与已推送最优画质两层对比，
+  // 只有真升级才推；同一「季 + 集区间」默认只推最优 1 条
+  cache_reshuffle_quality_gate: true,
+  cache_reshuffle_top_n: 1,
   // 推送节流（1.13.25）：洗版回搜不限入队条数，改由推送 worker 每批 N 条、
   // 批间隔 M 秒匀速消费（实时任务与批量任务各占一半额度）
   cache_push_batch_size: 10,

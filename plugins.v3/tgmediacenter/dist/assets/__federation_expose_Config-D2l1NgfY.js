@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.30';
+const FRONTEND_VERSION = '1.13.31';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -2793,27 +2793,31 @@ const _hoisted_46 = { class: "cache-tags" };
 const _hoisted_47 = { class: "cache-tag" };
 const _hoisted_48 = { class: "cache-tag" };
 const _hoisted_49 = { class: "cache-switch-row" };
-const _hoisted_50 = { class: "cache-actions" };
-const _hoisted_51 = { class: "cache-hint" };
-const _hoisted_52 = { class: "cache-actions" };
+const _hoisted_50 = {
+  key: 0,
+  class: "cache-switch-row"
+};
+const _hoisted_51 = { class: "cache-actions" };
+const _hoisted_52 = { class: "cache-hint" };
 const _hoisted_53 = { class: "cache-actions" };
-const _hoisted_54 = {
+const _hoisted_54 = { class: "cache-actions" };
+const _hoisted_55 = {
   key: 0,
   class: "cache-hint"
 };
-const _hoisted_55 = { class: "cache-hint" };
-const _hoisted_56 = {
-  key: 0,
+const _hoisted_56 = { class: "cache-hint" };
+const _hoisted_57 = {
+  key: 1,
   class: "cache-details"
 };
-const _hoisted_57 = { class: "cache-actions" };
-const _hoisted_58 = {
+const _hoisted_58 = { class: "cache-actions" };
+const _hoisted_59 = {
   key: 0,
   class: "cache-actions"
 };
-const _hoisted_59 = { class: "cache-hint" };
-const _hoisted_60 = { class: "cache-backfill-actions" };
-const _hoisted_61 = {
+const _hoisted_60 = { class: "cache-hint" };
+const _hoisted_61 = { class: "cache-backfill-actions" };
+const _hoisted_62 = {
   key: 1,
   class: "cache-hint"
 };
@@ -2867,6 +2871,8 @@ const settings = ref$4({
   batch_size: 200,
   subscribe_enabled: true,
   reshuffle_enabled: false,
+  reshuffle_quality_gate: true,
+  reshuffle_top_n: 1,
   push_batch_size: 10,
   push_batch_interval: 15,
   backfill_enabled: false,
@@ -2906,6 +2912,8 @@ function syncSettingsToForm() {
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200;
   form.value.cache_subscribe_enabled = Boolean(settings.value.subscribe_enabled);
   form.value.cache_reshuffle_enabled = Boolean(settings.value.reshuffle_enabled);
+  form.value.cache_reshuffle_quality_gate = settings.value.reshuffle_quality_gate !== false;
+  form.value.cache_reshuffle_top_n = Number(settings.value.reshuffle_top_n) || 0;
   form.value.cache_push_batch_size = Number(settings.value.push_batch_size) || 10;
   form.value.cache_push_batch_interval = Number(settings.value.push_batch_interval) || 15;
   form.value.cache_backfill_enabled = Boolean(settings.value.backfill_enabled);
@@ -2925,6 +2933,8 @@ function applySettings(data) {
     batch_size: Number(source.batch_size) || 200,
     subscribe_enabled: source.subscribe_enabled !== false,
     reshuffle_enabled: Boolean(source.reshuffle_enabled),
+    reshuffle_quality_gate: source.reshuffle_quality_gate !== false,
+    reshuffle_top_n: source.reshuffle_top_n === undefined ? 1 : Number(source.reshuffle_top_n) || 0,
     push_batch_size: Number(source.push_batch_size) || 10,
     push_batch_interval: Number(source.push_batch_interval) || 15,
     backfill_enabled: Boolean(source.backfill_enabled),
@@ -2991,6 +3001,8 @@ async function saveSettings() {
       batch_size: Number(settings.value.batch_size) || 200,
       subscribe_enabled: Boolean(settings.value.subscribe_enabled),
       reshuffle_enabled: Boolean(settings.value.reshuffle_enabled),
+      reshuffle_quality_gate: settings.value.reshuffle_quality_gate !== false,
+      reshuffle_top_n: Number(settings.value.reshuffle_top_n) || 0,
       push_batch_size: Number(settings.value.push_batch_size) || 10,
       push_batch_interval: Number(settings.value.push_batch_interval) || 15,
       backfill_enabled: Boolean(settings.value.backfill_enabled),
@@ -3276,13 +3288,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$3(() => [...(_cache[21] || (_cache[21] = [
+              default: _withCtx$3(() => [...(_cache[23] || (_cache[23] = [
                 _createTextVNode$3("启用消息缓存", -1)
               ]))]),
               _: 1
             }),
             _createVNode$3(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$3(() => [...(_cache[22] || (_cache[22] = [
+              default: _withCtx$3(() => [...(_cache[24] || (_cache[24] = [
                 _createTextVNode$3(" 新消息实时入库，历史按范围回溯；新增订阅回搜（含兜底）命中后推送 115。 ", -1)
               ]))]),
               _: 1
@@ -3333,7 +3345,7 @@ return (_ctx, _cache) => {
                 loading: loading.value,
                 onClick: refreshAll
               }, {
-                default: _withCtx$3(() => [...(_cache[24] || (_cache[24] = [
+                default: _withCtx$3(() => [...(_cache[26] || (_cache[26] = [
                   _createTextVNode$3(" 刷新状态 ", -1)
                 ]))]),
                 _: 1
@@ -3342,7 +3354,7 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$3(() => [...(_cache[23] || (_cache[23] = [
+              default: _withCtx$3(() => [...(_cache[25] || (_cache[25] = [
                 _createTextVNode$3("运行状态", -1)
               ]))]),
               _: 1
@@ -3354,19 +3366,19 @@ return (_ctx, _cache) => {
           default: _withCtx$3(() => [
             _createElementVNode$3("div", _hoisted_3$3, [
               _createElementVNode$3("div", _hoisted_4$3, [
-                _cache[25] || (_cache[25] = _createElementVNode$3("div", { class: "cache-stat-label" }, "已缓存消息", -1)),
+                _cache[27] || (_cache[27] = _createElementVNode$3("div", { class: "cache-stat-label" }, "已缓存消息", -1)),
                 _createElementVNode$3("div", _hoisted_5$2, _toDisplayString$3(fmtCount(status.value?.total ?? 0)), 1)
               ]),
               _createElementVNode$3("div", _hoisted_6$2, [
-                _cache[26] || (_cache[26] = _createElementVNode$3("div", { class: "cache-stat-label" }, "缓存频道", -1)),
+                _cache[28] || (_cache[28] = _createElementVNode$3("div", { class: "cache-stat-label" }, "缓存频道", -1)),
                 _createElementVNode$3("div", _hoisted_7$2, _toDisplayString$3(status.value?.chats ?? 0), 1)
               ]),
               _createElementVNode$3("div", _hoisted_8$2, [
-                _cache[27] || (_cache[27] = _createElementVNode$3("div", { class: "cache-stat-label" }, "同步", -1)),
+                _cache[29] || (_cache[29] = _createElementVNode$3("div", { class: "cache-stat-label" }, "同步", -1)),
                 _createElementVNode$3("div", _hoisted_9$2, _toDisplayString$3(status.value?.sync?.running ? '进行中' : '空闲'), 1)
               ]),
               _createElementVNode$3("div", _hoisted_10$2, [
-                _cache[28] || (_cache[28] = _createElementVNode$3("div", { class: "cache-stat-label" }, "新增订阅回搜", -1)),
+                _cache[30] || (_cache[30] = _createElementVNode$3("div", { class: "cache-stat-label" }, "新增订阅回搜", -1)),
                 _createElementVNode$3("div", _hoisted_11$2, _toDisplayString$3(status.value?.subscribe?.enabled ? '已开启' : '已关闭'), 1)
               ])
             ]),
@@ -3384,7 +3396,7 @@ return (_ctx, _cache) => {
                 : (status.value?.sync?.finished_at)
                   ? (_openBlock$3(), _createElementBlock$3("span", _hoisted_14$2, " 上次同步结束 " + _toDisplayString$3(fmtTime(status.value.sync.finished_at)) + " · 新增 " + _toDisplayString$3(status.value.sync.inserted ?? 0) + " 条 ", 1))
                   : (_openBlock$3(), _createElementBlock$3("span", _hoisted_15$2, "尚未执行过历史回溯同步")),
-              _cache[29] || (_cache[29] = _createElementVNode$3("span", { class: "cache-dot" }, "·", -1)),
+              _cache[31] || (_cache[31] = _createElementVNode$3("span", { class: "cache-dot" }, "·", -1)),
               (status.value?.subscribe?.last_check_at)
                 ? (_openBlock$3(), _createElementBlock$3("span", _hoisted_16$2, " 订阅检查 " + _toDisplayString$3(fmtTime(status.value.subscribe.last_check_at)) + " · 新增订阅 " + _toDisplayString$3(status.value.subscribe.last_check_new ?? 0) + " · 推送 " + _toDisplayString$3(status.value.subscribe.last_check_pushed ?? 0) + " 条 ", 1))
                 : (_openBlock$3(), _createElementBlock$3("span", _hoisted_17$2, "订阅兜底检查尚未运行（首次运行只建立订阅基线）")),
@@ -3429,7 +3441,7 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardItem, null, {
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$3(() => [...(_cache[30] || (_cache[30] = [
+              default: _withCtx$3(() => [...(_cache[32] || (_cache[32] = [
                 _createTextVNode$3("缓存频道与范围", -1)
               ]))]),
               _: 1
@@ -3526,7 +3538,7 @@ return (_ctx, _cache) => {
             _createElementVNode$3("div", _hoisted_24$1, [
               _createElementVNode$3("div", _hoisted_25$1, [
                 _createElementVNode$3("div", _hoisted_26$1, [
-                  _cache[31] || (_cache[31] = _createElementVNode$3("span", { class: "cache-toggle-title" }, "新增订阅回搜", -1)),
+                  _cache[33] || (_cache[33] = _createElementVNode$3("span", { class: "cache-toggle-title" }, "新增订阅回搜", -1)),
                   _createVNode$3(_component_VSwitch, {
                     modelValue: settings.value.subscribe_enabled,
                     "onUpdate:modelValue": [
@@ -3539,11 +3551,11 @@ return (_ctx, _cache) => {
                     inset: ""
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[32] || (_cache[32] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 宿主新增订阅后立刻回搜缓存，命中缺失资源就推送；关掉只影响这条实时通道，下方「订阅兜底检查」照常按 cron 跑。 ", -1))
+                _cache[34] || (_cache[34] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 宿主新增订阅后立刻回搜缓存，命中缺失资源就推送；关掉只影响这条实时通道，下方「订阅兜底检查」照常按 cron 跑。 ", -1))
               ]),
               _createElementVNode$3("div", _hoisted_27$1, [
                 _createElementVNode$3("div", _hoisted_28$1, [
-                  _cache[33] || (_cache[33] = _createElementVNode$3("span", { class: "cache-toggle-title" }, "跳过原生首次全站搜索", -1)),
+                  _cache[35] || (_cache[35] = _createElementVNode$3("span", { class: "cache-toggle-title" }, "跳过原生首次全站搜索", -1)),
                   _createVNode$3(_component_VSwitch, {
                     modelValue: form.value.skip_first_search_enabled,
                     "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.value.skip_first_search_enabled) = $event)),
@@ -3553,7 +3565,7 @@ return (_ctx, _cache) => {
                     inset: ""
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[34] || (_cache[34] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 新增订阅不再触发原生首次全站搜索，避免与左边的新增订阅回搜撞车；后续仍按订阅间隔继续搜。 ", -1))
+                _cache[36] || (_cache[36] = _createElementVNode$3("div", { class: "cache-toggle-desc" }, " 新增订阅不再触发原生首次全站搜索，避免与左边的新增订阅回搜撞车；后续仍按订阅间隔继续搜。 ", -1))
               ])
             ]),
             _createElementVNode$3("div", _hoisted_29$1, [
@@ -3564,12 +3576,12 @@ return (_ctx, _cache) => {
                 loading: busy.value === 'save',
                 onClick: saveSettings
               }, {
-                default: _withCtx$3(() => [...(_cache[35] || (_cache[35] = [
+                default: _withCtx$3(() => [...(_cache[37] || (_cache[37] = [
                   _createTextVNode$3(" 保存缓存设置（即时生效） ", -1)
                 ]))]),
                 _: 1
               }, 8, ["loading"]),
-              _cache[36] || (_cache[36] = _createElementVNode$3("span", { class: "cache-hint" }, "设置直接写入插件配置；开关与其它模块设置随底部「保存配置」持久化。", -1))
+              _cache[38] || (_cache[38] = _createElementVNode$3("span", { class: "cache-hint" }, "设置直接写入插件配置；开关与其它模块设置随底部「保存配置」持久化。", -1))
             ])
           ]),
           _: 1
@@ -3585,7 +3597,7 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardItem, null, {
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$3(() => [...(_cache[37] || (_cache[37] = [
+              default: _withCtx$3(() => [...(_cache[39] || (_cache[39] = [
                 _createTextVNode$3("缓存检索", -1)
               ]))]),
               _: 1
@@ -3614,13 +3626,13 @@ return (_ctx, _cache) => {
                   loading: busy.value === 'search',
                   onClick: doSearch
                 }, {
-                  default: _withCtx$3(() => [...(_cache[38] || (_cache[38] = [
+                  default: _withCtx$3(() => [...(_cache[40] || (_cache[40] = [
                     _createTextVNode$3(" 检索 ", -1)
                   ]))]),
                   _: 1
                 }, 8, ["loading"])
               ]),
-              _cache[39] || (_cache[39] = _createElementVNode$3("div", { class: "cache-summary" }, [
+              _cache[41] || (_cache[41] = _createElementVNode$3("div", { class: "cache-summary" }, [
                 _createElementVNode$3("div", { class: "cache-summary-line" }, " 检索本地缓存（不访问 TG）：先按归一标题命中，再退回全文模糊，用来验证「订阅回搜能不能命中」。 "),
                 _createElementVNode$3("div", { class: "cache-tags" }, [
                   _createElementVNode$3("span", { class: "cache-tag" }, "手动触发"),
@@ -3629,7 +3641,7 @@ return (_ctx, _cache) => {
                   _createElementVNode$3("span", { class: "cache-tag" }, "只读不推送")
                 ])
               ], -1)),
-              _cache[40] || (_cache[40] = _createElementVNode$3("div", { class: "cache-note" }, " 命中只读展示缓存原文与链接数；空结果说明该片没被缓存覆盖，先到「缓存管理」跑一次回溯同步。 ", -1))
+              _cache[42] || (_cache[42] = _createElementVNode$3("div", { class: "cache-note" }, " 命中只读展示缓存原文与链接数；空结果说明该片没被缓存覆盖，先到「缓存管理」跑一次回溯同步。 ", -1))
             ]),
             (searchItems.value.length)
               ? (_openBlock$3(), _createBlock$3(_component_VTable, {
@@ -3638,7 +3650,7 @@ return (_ctx, _cache) => {
                   class: "cache-table"
                 }, {
                   default: _withCtx$3(() => [
-                    _cache[41] || (_cache[41] = _createElementVNode$3("thead", null, [
+                    _cache[43] || (_cache[43] = _createElementVNode$3("thead", null, [
                       _createElementVNode$3("tr", null, [
                         _createElementVNode$3("th", null, "媒体"),
                         _createElementVNode$3("th", { class: "cache-nowrap" }, "来源"),
@@ -3696,7 +3708,7 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardItem, null, {
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$3(() => [...(_cache[42] || (_cache[42] = [
+              default: _withCtx$3(() => [...(_cache[44] || (_cache[44] = [
                 _createTextVNode$3("缓存管理", -1)
               ]))]),
               _: 1
@@ -3715,7 +3727,7 @@ return (_ctx, _cache) => {
                   disabled: !status.value?.enabled || Boolean(status.value?.sync?.running),
                   onClick: startSync
                 }, {
-                  default: _withCtx$3(() => [...(_cache[43] || (_cache[43] = [
+                  default: _withCtx$3(() => [...(_cache[45] || (_cache[45] = [
                     _createTextVNode$3(" 开始回溯同步 ", -1)
                   ]))]),
                   _: 1
@@ -3726,7 +3738,7 @@ return (_ctx, _cache) => {
                   disabled: !status.value?.sync?.running,
                   onClick: cancelSync
                 }, {
-                  default: _withCtx$3(() => [...(_cache[44] || (_cache[44] = [
+                  default: _withCtx$3(() => [...(_cache[46] || (_cache[46] = [
                     _createTextVNode$3(" 停止同步 ", -1)
                   ]))]),
                   _: 1
@@ -3738,7 +3750,7 @@ return (_ctx, _cache) => {
                   disabled: !status.value?.enabled || !(status.value?.chats > 0),
                   onClick: _cache[9] || (_cache[9] = $event => (clearDialog.value = true))
                 }, {
-                  default: _withCtx$3(() => [...(_cache[45] || (_cache[45] = [
+                  default: _withCtx$3(() => [...(_cache[47] || (_cache[47] = [
                     _createTextVNode$3(" 清空缓存 ", -1)
                   ]))]),
                   _: 1
@@ -3756,14 +3768,14 @@ return (_ctx, _cache) => {
                   class: "cache-cron-input"
                 }, null, 8, ["modelValue"])
               ]),
-              _cache[46] || (_cache[46] = _createElementVNode$3("div", { class: "cache-hint" }, " 回溯同步在后台线程执行，界面可随时刷新查看进度；清空只删缓存与同步位点，下次回溯会重新拉取。 ", -1))
+              _cache[48] || (_cache[48] = _createElementVNode$3("div", { class: "cache-hint" }, " 回溯同步在后台线程执行，界面可随时刷新查看进度；清空只删缓存与同步位点，下次回溯会重新拉取。 ", -1))
             ]),
             _createVNode$3(_component_VTable, {
               density: "compact",
               class: "cache-table"
             }, {
               default: _withCtx$3(() => [
-                _cache[48] || (_cache[48] = _createElementVNode$3("thead", null, [
+                _cache[50] || (_cache[50] = _createElementVNode$3("thead", null, [
                   _createElementVNode$3("tr", null, [
                     _createElementVNode$3("th", null, "频道"),
                     _createElementVNode$3("th", { class: "cache-nowrap" }, "ID"),
@@ -3785,7 +3797,7 @@ return (_ctx, _cache) => {
                     ]))
                   }), 128)),
                   (!(status.value?.channels || []).length)
-                    ? (_openBlock$3(), _createElementBlock$3("tr", _hoisted_44, [...(_cache[47] || (_cache[47] = [
+                    ? (_openBlock$3(), _createElementBlock$3("tr", _hoisted_44, [...(_cache[49] || (_cache[49] = [
                         _createElementVNode$3("td", {
                           colspan: "5",
                           class: "cache-empty"
@@ -3810,7 +3822,7 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardItem, null, {
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$3(() => [...(_cache[49] || (_cache[49] = [
+              default: _withCtx$3(() => [...(_cache[51] || (_cache[51] = [
                 _createTextVNode$3("订阅兜底检查", -1)
               ]))]),
               _: 1
@@ -3821,19 +3833,19 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardText, { class: "cache-body" }, {
           default: _withCtx$3(() => [
             _createElementVNode$3("div", _hoisted_45, [
-              _cache[52] || (_cache[52] = _createElementVNode$3("div", { class: "cache-summary-line" }, [
+              _cache[54] || (_cache[54] = _createElementVNode$3("div", { class: "cache-summary-line" }, [
                 _createTextVNode$3(" 定时对比订阅快照，把插件离线 / 事件丢失期间新增的订阅捞出来回搜推送；"),
                 _createElementVNode$3("strong", null, "不依赖上面的「新增订阅回搜」开关"),
                 _createTextVNode$3("，关掉它这里照旧按 cron 运行。 打开下方「洗版回搜」后，这里改成遍历全部订阅、跳过媒体库判定，专门捞更高质量的资源洗版。 ")
               ], -1)),
               _createElementVNode$3("div", _hoisted_46, [
                 _createElementVNode$3("span", _hoisted_47, _toDisplayString$3(settings.value.reshuffle_enabled ? '全部订阅' : '快照对比'), 1),
-                _cache[50] || (_cache[50] = _createElementVNode$3("span", { class: "cache-tag" }, "按下方 cron", -1)),
-                _cache[51] || (_cache[51] = _createElementVNode$3("span", { class: "cache-tag" }, "已推送流水去重", -1)),
+                _cache[52] || (_cache[52] = _createElementVNode$3("span", { class: "cache-tag" }, "按下方 cron", -1)),
+                _cache[53] || (_cache[53] = _createElementVNode$3("span", { class: "cache-tag" }, "已推送流水去重", -1)),
                 _createElementVNode$3("span", _hoisted_48, _toDisplayString$3(settings.value.reshuffle_enabled ? '跳过媒体库判定' : '首次只建基线'), 1)
               ])
             ]),
-            _cache[59] || (_cache[59] = _createElementVNode$3("div", { class: "cache-note" }, [
+            _cache[62] || (_cache[62] = _createElementVNode$3("div", { class: "cache-note" }, [
               _createTextVNode$3(" 判缺"),
               _createElementVNode$3("strong", null, "以媒体库逐集比对为准"),
               _createTextVNode$3("（媒体库不可用才退回订阅缺集数），库内查询按「片名+年份 → 仅片名 → 名称变体」逐层放宽； 无链接 / 已推送的过滤后入队，同一目标合并下发不超过 20 条链接。通知"),
@@ -3854,7 +3866,7 @@ return (_ctx, _cache) => {
                 label: "洗版回搜（跳过媒体库判定）",
                 class: "cache-switch-inline"
               }, null, 8, ["modelValue"]),
-              _cache[53] || (_cache[53] = _createElementVNode$3("span", { class: "cache-hint" }, [
+              _cache[55] || (_cache[55] = _createElementVNode$3("span", { class: "cache-hint" }, [
                 _createTextVNode$3(" 开：本卡每次运行都遍历"),
                 _createElementVNode$3("strong", null, "全部订阅"),
                 _createTextVNode$3("、"),
@@ -3862,11 +3874,51 @@ return (_ctx, _cache) => {
                 _createTextVNode$3("， 频道后来进了更高质量的资源也会被捞出来洗版（只按推送流水去重，入队条数不限， 推送速度由下面的「每批条数 / 批间隔」控制）。 关：与之前一致，只处理快照新增订阅并逐条判缺。 ")
               ], -1))
             ]),
-            _createElementVNode$3("div", _hoisted_50, [
+            (settings.value.reshuffle_enabled)
+              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_50, [
+                  _createVNode$3(_component_VSwitch, {
+                    modelValue: settings.value.reshuffle_quality_gate,
+                    "onUpdate:modelValue": [
+                      _cache[12] || (_cache[12] = $event => ((settings.value.reshuffle_quality_gate) = $event)),
+                      syncSettingsToForm
+                    ],
+                    color: "primary",
+                    density: "compact",
+                    "hide-details": "",
+                    inset: "",
+                    label: "质量门禁（只推真升级）",
+                    class: "cache-switch-inline"
+                  }, null, 8, ["modelValue"]),
+                  _createVNode$3(_component_VTextField, {
+                    modelValue: settings.value.reshuffle_top_n,
+                    "onUpdate:modelValue": [
+                      _cache[13] || (_cache[13] = $event => ((settings.value.reshuffle_top_n) = $event)),
+                      syncSettingsToForm
+                    ],
+                    modelModifiers: { number: true },
+                    label: "同集最多推几条",
+                    type: "number",
+                    min: "0",
+                    max: "50",
+                    density: "compact",
+                    variant: "outlined",
+                    "hide-details": "",
+                    class: "cache-num-input"
+                  }, null, 8, ["modelValue"]),
+                  _cache[56] || (_cache[56] = _createElementVNode$3("span", { class: "cache-hint" }, [
+                    _createTextVNode$3(" 门禁开：候选要和你"),
+                    _createElementVNode$3("strong", null, "已经推过的最优画质"),
+                    _createTextVNode$3("比——分辨率/片源不能倒退， 加权总分（分辨率 40 · 片源 25 · 编码 15 · 特效 15 · 音轨 5）必须更高才推。 「同集最多推几条」按"),
+                    _createElementVNode$3("strong", null, "季 + 集区间"),
+                    _createTextVNode$3("分组择优，默认 1（只推最优），0 = 不限。 画质解析不出来的候选不参与比较，仍受这个条数限制。 ")
+                  ], -1))
+                ]))
+              : _createCommentVNode$3("", true),
+            _createElementVNode$3("div", _hoisted_51, [
               _createVNode$3(_component_VTextField, {
                 modelValue: settings.value.push_batch_size,
                 "onUpdate:modelValue": [
-                  _cache[12] || (_cache[12] = $event => ((settings.value.push_batch_size) = $event)),
+                  _cache[14] || (_cache[14] = $event => ((settings.value.push_batch_size) = $event)),
                   syncSettingsToForm
                 ],
                 modelModifiers: { number: true },
@@ -3882,7 +3934,7 @@ return (_ctx, _cache) => {
               _createVNode$3(_component_VTextField, {
                 modelValue: settings.value.push_batch_interval,
                 "onUpdate:modelValue": [
-                  _cache[13] || (_cache[13] = $event => ((settings.value.push_batch_interval) = $event)),
+                  _cache[15] || (_cache[15] = $event => ((settings.value.push_batch_interval) = $event)),
                   syncSettingsToForm
                 ],
                 modelModifiers: { number: true },
@@ -3895,16 +3947,16 @@ return (_ctx, _cache) => {
                 "hide-details": "",
                 class: "cache-num-input"
               }, null, 8, ["modelValue"]),
-              _createElementVNode$3("span", _hoisted_51, [
-                _cache[54] || (_cache[54] = _createTextVNode$3(" 推送 worker 每 ", -1)),
+              _createElementVNode$3("span", _hoisted_52, [
+                _cache[57] || (_cache[57] = _createTextVNode$3(" 推送 worker 每 ", -1)),
                 _createElementVNode$3("strong", null, _toDisplayString$3(settings.value.push_batch_interval ?? 15), 1),
-                _cache[55] || (_cache[55] = _createTextVNode$3(" 秒取 ", -1)),
+                _cache[58] || (_cache[58] = _createTextVNode$3(" 秒取 ", -1)),
                 _createElementVNode$3("strong", null, _toDisplayString$3(settings.value.push_batch_size ?? 10), 1),
-                _cache[56] || (_cache[56] = _createTextVNode$3(" 条下发； 实时监控 / 普通转发任务与洗版批量任务各占一半额度，不会被洗版挤掉。 ", -1))
+                _cache[59] || (_cache[59] = _createTextVNode$3(" 条下发； 实时监控 / 普通转发任务与洗版批量任务各占一半额度，不会被洗版挤掉。 ", -1))
               ])
             ]),
-            _createElementVNode$3("div", _hoisted_52, [
-              _cache[57] || (_cache[57] = _createElementVNode$3("span", { class: "cache-hint" }, "缺失判断：", -1)),
+            _createElementVNode$3("div", _hoisted_53, [
+              _cache[60] || (_cache[60] = _createElementVNode$3("span", { class: "cache-hint" }, "缺失判断：", -1)),
               _createVNode$3(_component_VChip, {
                 size: "small",
                 variant: "tonal",
@@ -3927,9 +3979,9 @@ return (_ctx, _cache) => {
                 ]),
                 _: 1
               }, 8, ["color"]),
-              _cache[58] || (_cache[58] = _createElementVNode$3("span", { class: "cache-hint" }, "徽章随状态每 10 秒自动刷新", -1))
+              _cache[61] || (_cache[61] = _createElementVNode$3("span", { class: "cache-hint" }, "徽章随状态每 10 秒自动刷新", -1))
             ]),
-            _createElementVNode$3("div", _hoisted_53, [
+            _createElementVNode$3("div", _hoisted_54, [
               _createVNode$3(_component_VBtn, {
                 variant: "tonal",
                 "prepend-icon": "mdi-cloud-search-outline",
@@ -3945,7 +3997,7 @@ return (_ctx, _cache) => {
               _createVNode$3(_component_VTextField, {
                 modelValue: settings.value.subscribe_cron,
                 "onUpdate:modelValue": [
-                  _cache[14] || (_cache[14] = $event => ((settings.value.subscribe_cron) = $event)),
+                  _cache[16] || (_cache[16] = $event => ((settings.value.subscribe_cron) = $event)),
                   syncSettingsToForm
                 ],
                 label: "订阅兜底检查定时（cron）",
@@ -3955,10 +4007,10 @@ return (_ctx, _cache) => {
                 class: "cache-cron-input"
               }, null, 8, ["modelValue"]),
               (checkResult.value)
-                ? (_openBlock$3(), _createElementBlock$3("span", _hoisted_54, _toDisplayString$3(checkResult.value), 1))
+                ? (_openBlock$3(), _createElementBlock$3("span", _hoisted_55, _toDisplayString$3(checkResult.value), 1))
                 : _createCommentVNode$3("", true)
             ]),
-            _createElementVNode$3("div", _hoisted_55, [
+            _createElementVNode$3("div", _hoisted_56, [
               (settings.value.reshuffle_enabled)
                 ? (_openBlock$3(), _createElementBlock$3(_Fragment$3, { key: 0 }, [
                     _createTextVNode$3(" 「立即洗版回搜」= 立刻按洗版口径跑一次（遍历全部订阅、跳过媒体库判定）， 适合频道刚进了一批好资源时手动捞一遍；入队条数不限，会按上面的 「每批条数 / 批间隔」分批慢慢推完，队列里的任务不会丢。 ")
@@ -3968,7 +4020,7 @@ return (_ctx, _cache) => {
                   ], 64))
             ]),
             (checkDetails.value.length)
-              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_56, [
+              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_57, [
                   (_openBlock$3(true), _createElementBlock$3(_Fragment$3, null, _renderList$3(checkDetails.value, (item, index) => {
                     return (_openBlock$3(), _createElementBlock$3("div", {
                       key: index,
@@ -4003,7 +4055,7 @@ return (_ctx, _cache) => {
         _createVNode$3(_component_VCardItem, null, {
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-2" }, {
-              default: _withCtx$3(() => [...(_cache[60] || (_cache[60] = [
+              default: _withCtx$3(() => [...(_cache[63] || (_cache[63] = [
                 _createTextVNode$3("存量补扫", -1)
               ]))]),
               _: 1
@@ -4013,7 +4065,7 @@ return (_ctx, _cache) => {
         }),
         _createVNode$3(_component_VCardText, { class: "cache-body" }, {
           default: _withCtx$3(() => [
-            _cache[64] || (_cache[64] = _createElementVNode$3("div", { class: "cache-summary" }, [
+            _cache[67] || (_cache[67] = _createElementVNode$3("div", { class: "cache-summary" }, [
               _createElementVNode$3("div", { class: "cache-summary-line" }, [
                 _createTextVNode$3(" 定时反扫缓存补缺集：捞出"),
                 _createElementVNode$3("strong", null, "水位之后新入库"),
@@ -4026,8 +4078,8 @@ return (_ctx, _cache) => {
                 _createElementVNode$3("span", { class: "cache-tag" }, "首次只建基线")
               ])
             ], -1)),
-            _cache[65] || (_cache[65] = _createElementVNode$3("div", { class: "cache-note" }, " 先过前向闸门（PT 在途不抢）；只在真的推了时发一条汇总通知，没推不打扰。想补历史缺口用「全量补扫一次」（后台分批，可随时停止）。 ", -1)),
-            _createElementVNode$3("div", _hoisted_57, [
+            _cache[68] || (_cache[68] = _createElementVNode$3("div", { class: "cache-note" }, " 先过前向闸门（PT 在途不抢）；只在真的推了时发一条汇总通知，没推不打扰。想补历史缺口用「全量补扫一次」（后台分批，可随时停止）。 ", -1)),
+            _createElementVNode$3("div", _hoisted_58, [
               _createVNode$3(_component_VChip, {
                 size: "small",
                 variant: "tonal",
@@ -4065,30 +4117,30 @@ return (_ctx, _cache) => {
                 : _createCommentVNode$3("", true)
             ]),
             (status.value?.backfill?.running)
-              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_58, [
-                  _createElementVNode$3("span", _hoisted_59, " 已扫 " + _toDisplayString$3(status.value.backfill.processed ?? 0) + " 条 · 推送 " + _toDisplayString$3(status.value.backfill.pushed ?? 0) + " 条 · 跳过 " + _toDisplayString$3(status.value.backfill.skipped ?? 0) + " 条（30 秒自动刷新） ", 1),
+              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_59, [
+                  _createElementVNode$3("span", _hoisted_60, " 已扫 " + _toDisplayString$3(status.value.backfill.processed ?? 0) + " 条 · 推送 " + _toDisplayString$3(status.value.backfill.pushed ?? 0) + " 条 · 跳过 " + _toDisplayString$3(status.value.backfill.skipped ?? 0) + " 条（30 秒自动刷新） ", 1),
                   _createVNode$3(_component_VBtn, {
                     variant: "tonal",
                     "prepend-icon": "mdi-stop-circle-outline",
                     loading: busy.value === 'backfillCancel',
                     onClick: cancelBackfill
                   }, {
-                    default: _withCtx$3(() => [...(_cache[61] || (_cache[61] = [
+                    default: _withCtx$3(() => [...(_cache[64] || (_cache[64] = [
                       _createTextVNode$3(" 停止补扫 ", -1)
                     ]))]),
                     _: 1
                   }, 8, ["loading"])
                 ]))
               : _createCommentVNode$3("", true),
-            _createElementVNode$3("div", _hoisted_60, [
+            _createElementVNode$3("div", _hoisted_61, [
               _createVNode$3(_component_VBtn, {
                 variant: "tonal",
                 "prepend-icon": "mdi-refresh-circle",
                 loading: busy.value === 'backfill',
                 disabled: !status.value?.enabled || Boolean(status.value?.backfill?.running),
-                onClick: _cache[15] || (_cache[15] = $event => (startBackfill(false)))
+                onClick: _cache[17] || (_cache[17] = $event => (startBackfill(false)))
               }, {
-                default: _withCtx$3(() => [...(_cache[62] || (_cache[62] = [
+                default: _withCtx$3(() => [...(_cache[65] || (_cache[65] = [
                   _createTextVNode$3(" 立即增量补扫 ", -1)
                 ]))]),
                 _: 1
@@ -4098,9 +4150,9 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-database-search-outline",
                 loading: busy.value === 'backfill',
                 disabled: !status.value?.enabled || Boolean(status.value?.backfill?.running),
-                onClick: _cache[16] || (_cache[16] = $event => (startBackfill(true)))
+                onClick: _cache[18] || (_cache[18] = $event => (startBackfill(true)))
               }, {
-                default: _withCtx$3(() => [...(_cache[63] || (_cache[63] = [
+                default: _withCtx$3(() => [...(_cache[66] || (_cache[66] = [
                   _createTextVNode$3(" 全量补扫一次 ", -1)
                 ]))]),
                 _: 1
@@ -4108,7 +4160,7 @@ return (_ctx, _cache) => {
               _createVNode$3(_component_VSwitch, {
                 modelValue: settings.value.backfill_enabled,
                 "onUpdate:modelValue": [
-                  _cache[17] || (_cache[17] = $event => ((settings.value.backfill_enabled) = $event)),
+                  _cache[19] || (_cache[19] = $event => ((settings.value.backfill_enabled) = $event)),
                   syncSettingsToForm
                 ],
                 label: "存量补扫",
@@ -4121,7 +4173,7 @@ return (_ctx, _cache) => {
               _createVNode$3(_component_VTextField, {
                 modelValue: settings.value.backfill_cron,
                 "onUpdate:modelValue": [
-                  _cache[18] || (_cache[18] = $event => ((settings.value.backfill_cron) = $event)),
+                  _cache[20] || (_cache[20] = $event => ((settings.value.backfill_cron) = $event)),
                   syncSettingsToForm
                 ],
                 label: "存量补扫定时（cron）",
@@ -4132,7 +4184,7 @@ return (_ctx, _cache) => {
               }, null, 8, ["modelValue"])
             ]),
             (backfillSummary.value)
-              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_61, _toDisplayString$3(backfillSummary.value), 1))
+              ? (_openBlock$3(), _createElementBlock$3("div", _hoisted_62, _toDisplayString$3(backfillSummary.value), 1))
               : _createCommentVNode$3("", true)
           ]),
           _: 1
@@ -4140,17 +4192,17 @@ return (_ctx, _cache) => {
       ]),
       _: 1
     }),
-    _cache[69] || (_cache[69] = _createElementVNode$3("div", { class: "cache-hint" }, " 存储占用：缓存的是净化后的消息全文与识别字段（片名 / 年份 / 季集 / 链接），单条约 1~2 KB； 单频道万级消息约几十 MB，由 MoviePilot 的插件数据库承载，不会影响宿主业务数据。 ", -1)),
+    _cache[72] || (_cache[72] = _createElementVNode$3("div", { class: "cache-hint" }, " 存储占用：缓存的是净化后的消息全文与识别字段（片名 / 年份 / 季集 / 链接），单条约 1~2 KB； 单频道万级消息约几十 MB，由 MoviePilot 的插件数据库承载，不会影响宿主业务数据。 ", -1)),
     _createVNode$3(_component_VDialog, {
       modelValue: clearDialog.value,
-      "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((clearDialog).value = $event)),
+      "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((clearDialog).value = $event)),
       "max-width": "420"
     }, {
       default: _withCtx$3(() => [
         _createVNode$3(_component_VCard, null, {
           default: _withCtx$3(() => [
             _createVNode$3(_component_VCardTitle, { class: "text-subtitle-1" }, {
-              default: _withCtx$3(() => [...(_cache[66] || (_cache[66] = [
+              default: _withCtx$3(() => [...(_cache[69] || (_cache[69] = [
                 _createTextVNode$3("确认清空缓存？", -1)
               ]))]),
               _: 1
@@ -4166,9 +4218,9 @@ return (_ctx, _cache) => {
                 _createVNode$3(_component_VSpacer),
                 _createVNode$3(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[19] || (_cache[19] = $event => (clearDialog.value = false))
+                  onClick: _cache[21] || (_cache[21] = $event => (clearDialog.value = false))
                 }, {
-                  default: _withCtx$3(() => [...(_cache[67] || (_cache[67] = [
+                  default: _withCtx$3(() => [...(_cache[70] || (_cache[70] = [
                     _createTextVNode$3("取消", -1)
                   ]))]),
                   _: 1
@@ -4179,7 +4231,7 @@ return (_ctx, _cache) => {
                   loading: busy.value === 'clear',
                   onClick: doClear
                 }, {
-                  default: _withCtx$3(() => [...(_cache[68] || (_cache[68] = [
+                  default: _withCtx$3(() => [...(_cache[71] || (_cache[71] = [
                     _createTextVNode$3("确认清空", -1)
                   ]))]),
                   _: 1
@@ -4198,7 +4250,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-b387154d"]]);
+const ConfigCachePane = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-3247b659"]]);
 
 const {resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createTextVNode:_createTextVNode$2,withCtx:_withCtx$2,toDisplayString:_toDisplayString$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,createElementVNode:_createElementVNode$2,createElementBlock:_createElementBlock$2,renderList:_renderList$2,Fragment:_Fragment$2,withModifiers:_withModifiers,vShow:_vShow,withDirectives:_withDirectives,unref:_unref$1} = await importShared('vue');
 
@@ -5643,6 +5695,10 @@ const configDefaults = {
   cache_subscribe_enabled: true,
   // 洗版回搜（1.13.24）：定时兜底跳过媒体库判定、遍历全部订阅回搜，默认关
   cache_reshuffle_enabled: false,
+  // 洗版质量门禁 + 每集最优（1.13.27）：候选与已推送最优画质两层对比，
+  // 只有真升级才推；同一「季 + 集区间」默认只推最优 1 条
+  cache_reshuffle_quality_gate: true,
+  cache_reshuffle_top_n: 1,
   // 推送节流（1.13.25）：洗版回搜不限入队条数，改由推送 worker 每批 N 条、
   // 批间隔 M 秒匀速消费（实时任务与批量任务各占一半额度）
   cache_push_batch_size: 10,

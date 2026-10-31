@@ -307,6 +307,37 @@ FloodWait 退避；命中入队后由内置 worker 线程按目标分派执行�
 - 媒体库判定被完全跳过，因此**库里已有的资源也会被再推一次**——这正是洗版的语义，
   但如果只想补缺口，请保持开关关闭。
 
+#### 质量门禁 + 每集最优（1.13.31）
+
+1.13.24 的洗版是「命中即推」：只要消息没推过、有链接就入队，一轮下来一个订阅能灌进几十条，
+把「洗版」变成了「把频道历史全量转存一遍」。1.13.31 加两道收口，**默认全开**：
+
+| 开关 | 默认 | 作用 |
+|---|---|---|
+| `cache_reshuffle_quality_gate` | 开 | 候选与该订阅**已推送过的最优画质**做两层对比，只有真升级才推 |
+| `cache_reshuffle_top_n` | 1 | 同一「季 + 集区间」的候选按画质总分择优，最多推 N 条（0 = 不限，上限 50） |
+
+两层对比（`services/quality.py`，纯正则解析消息标题，不查媒体库、不调 Emby）：
+
+- **第一层：硬门槛。** 分辨率、片源任一倒退直接否——1080p 永远不会盖掉已有的 2160p，
+  WEB-DL 也不会盖掉 REMUX，哪怕加权总分更高；
+- **第二层：加权总分。** 分辨率 40 / 片源 25 / 编码 15 / 特效 15 / 音轨 5，必须**严格更高**
+  才推，持平不推（避免同画质反复洗）。
+
+要点：
+
+- **基线是「这个订阅推过的最优画质」**，按「归一标题 + 年份 + 季集区间」存在插件数据里
+  （`cache_reshuffle_baseline`，上限 500 条，按最近更新时间截断），推送成功才写基线，
+  入队失败的下一轮还能再比一次；
+- 宿主接口拿不到媒体库里已入库文件的画质（`MediaServerItem` 无 resolution / codec，
+  `get_iteminfo` 不带 MediaSources），所以基线只能来自插件自己推过的东西——**第一轮永远是
+  「首次推送」**，之后才有得比；
+- **画质解析不出来的候选不拦**（标题里没有 1080p / 2160p 这类信息），否则不带分辨率的频道
+  会被全卡死，这部分交给 `cache_reshuffle_top_n` 兜底；
+- 不同集区间各自比较，所以一部剧不会只推一集、整包资源也不会被单集挤掉；
+- 跳过原因新增「画质未升级」「非最优版本」，运行详情页可查；
+- 想回到 1.13.24 的「命中即推」：把质量门禁关掉、`同集最多推几条` 填 0。
+
 ### 跳过宿主的「新增订阅首次全站搜索」（1.13.8，独立开关）
 
 宿主保存订阅后会把这条订阅排进一次全站搜索（`source=new`，约 60 秒后自动开始）。
@@ -409,9 +440,9 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
 - **telethon** 不全局打桩，而是由用例声明 `telethon_available` fixture（它同时修正 `runtime.TELETHON_AVAILABLE`），
   涉及凭证就绪、`_register_handler` 注册形状的断言因此不再随机器变化。
 
-结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境都是 **536 passed**。
+结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境结果一致（1.13.31 在宿主 venv 实测 **573 passed**）。
 在宿主 venv（`D:\projects\MoviePilot\.venv`，另两个插件的依赖也齐）里还可以直接
-`python -m pytest tests\v3` 一次跑完三个插件（1202 passed）——本目录有 `__init__.py`
+`python -m pytest tests\v3` 一次跑完三个插件——本目录有 `__init__.py`
 （另两个插件没有），用来消除与 `tests/v3/embycovercenter/test_plugin.py` 的同名冲突。
 
 注意 CI **不跑 pytest**（`release.yml` 只有版本门禁与联邦 CSS 门禁），测试全靠本地/发版前自觉执行。
@@ -498,11 +529,16 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
   按 `cache_push_batch_size`（每批条数，1~200，默认 10）/ `cache_push_batch_interval`
   （批间隔，5~3600 秒，默认 15）分批匀速下发，实时任务与批量任务各占一半额度；
   回搜通知只报真正推出去的资源，「已推送过 / 无需推送」不再发通知。
+- **洗版质量门禁 + 每集最优**（`1.13.31`）：洗版回搜不再「命中即推」，默认只推真升级——
+  新增 `cache_reshuffle_quality_gate`（质量门禁，默认开：与该订阅已推送过的最优画质做两层对比，
+  分辨率 / 片源不得倒退，加权总分必须严格更高）与 `cache_reshuffle_top_n`
+  （同一季集区间最多推几条，默认 1，0 = 不限）。画质从消息标题正则解析，不依赖 Emby；
+  基线按订阅 + 季集区间存插件数据。详见上方「⑤ 历史消息缓存 · 质量门禁」。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.25`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
+当前 `1.13.31`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
 `package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
 前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
 `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本

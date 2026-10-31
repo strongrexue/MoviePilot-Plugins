@@ -45,7 +45,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.30"
+    plugin_version = "1.13.31"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -287,6 +287,13 @@ class TgMediaCenter(_PluginBase):
             # 洗版回搜（1.13.24）：开 = 定时兜底跳过媒体库判定、遍历全部订阅回搜，
             # 频道后来进了更高质量的资源也能被捞出来洗版；关 = 与 1.13.23 完全一致
             "cache_reshuffle_enabled": False,
+            # 洗版质量门禁（1.13.27）：开 = 洗版候选与该订阅已推送过的最优画质做
+            # 两层对比（分辨率/片源不得倒退 + 加权总分必须更高），只有真升级才推；
+            # 关 = 退回 1.13.24 的「命中即推」。
+            "cache_reshuffle_quality_gate": True,
+            # 同一「季 + 集区间」每轮最多推几条（1.13.27）：默认 1 = 只推最优；
+            # 0 = 不限（仍受质量门禁约束）。
+            "cache_reshuffle_top_n": 1,
             # 推送节流（1.13.25）：洗版回搜不再限制单轮入队条数，改由推送 worker
             # 分批匀速消费——每批 cache_push_batch_size 条、批间隔
             # cache_push_batch_interval 秒。一次定时能把全部订阅陆续推完，不必反复

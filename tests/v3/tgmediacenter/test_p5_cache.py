@@ -1608,3 +1608,157 @@ class TestSubscribeEvent:
         plugin = self._plugin_instance(cache)
         plugin._install_subscribe_listener()
         assert cache.status()["subscribe"]["event_listener"] is True
+
+
+# ---------------------------------------------------------------------- 洗版质量门禁（1.13.27）
+
+
+class TestReshuffleQualityGate:
+    """洗版回搜的 A（质量门禁）+ B（每季集区间取最优 TopN）。"""
+
+    def test_quality_parse_and_compare(self):
+        from app.plugins.tgmediacenter.services import quality
+
+        base = quality.parse_quality("某某电影 2024 2160p BluRay x265 HDR10 DTS-HD")
+        assert base["resolution"] == "2160p"
+        assert base["resolution_rank"] == quality.RESOLUTION_LADDER["2160p"]
+        assert base["known"] is True
+        assert base["score"] > 0
+
+        worse = quality.parse_quality("某某电影 2024 1080p WEB-DL x264 AAC")
+        assert quality.compare(base, worse)[0] == quality.STATE_FLAT
+        # 第一层硬门槛：分辨率倒退直接否，哪怕别的维度更好
+        assert "分辨率低于基线" in quality.compare(base, worse)[1]
+
+        better = quality.parse_quality("某某电影 2024 2160p REMUX HEVC HDR10+ Atmos")
+        assert quality.compare(base, better)[0] == quality.STATE_UPGRADE
+
+        # 画质解析不出来 → 不参与比较
+        unknown = quality.parse_quality("某某电影 2024 高清中字")
+        assert unknown["known"] is False
+        assert quality.compare(base, unknown)[0] == quality.STATE_UNKNOWN
+        # 没有基线时一律算首次
+        assert quality.compare(None, base)[0] == quality.STATE_UPGRADE
+
+    def test_baseline_key_includes_episode(self):
+        from app.plugins.tgmediacenter.services import quality
+
+        movie = quality.baseline_key("某片", "2024")
+        episode = quality.baseline_key("某片", "2024", 1, 2)
+        assert movie != episode
+        assert quality.baseline_key("某 片!", "2024") == movie  # 标点/空格归一
+
+    def test_lower_resolution_blocked_after_first_push(
+        self, cache, subscriptions, plugin, fake_metavideo
+    ):
+        """第一轮推 2160p 并写基线；第二轮 1080p 被门禁挡住。"""
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        cache.check_subscriptions(trigger="测试")  # 建快照基线
+        cache.history().record(CHAT_A, 6001, _text("青与碧 (2026) S01E01 2160p BluRay x265"))
+        plugin.save_config(cache_reshuffle_enabled=True)
+        first = cache.check_subscriptions(trigger="测试")
+        assert first["pushed"] == 1
+
+        cache.history().record(CHAT_A, 6002, _text("青与碧 (2026) S01E01 1080p WEB-DL x264"))
+        second = cache.check_subscriptions(trigger="测试")
+        assert second["pushed"] == 0
+        assert second["details"][0]["reasons"].get("画质未升级") == 1
+        assert _count(plugin, TgPushTask) == 1
+
+    def test_upgrade_pushed_and_baseline_advanced(
+        self, cache, subscriptions, plugin, fake_metavideo
+    ):
+        """先推 1080p，再进 2160p REMUX → 判为升级并推。"""
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 6011, _text("青与碧 (2026) S01E01 1080p WEB-DL x264"))
+        plugin.save_config(cache_reshuffle_enabled=True)
+        assert cache.check_subscriptions(trigger="测试")["pushed"] == 1
+
+        cache.history().record(CHAT_A, 6012, _text("青与碧 (2026) S01E01 2160p REMUX HEVC"))
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 1
+        assert _count(plugin, TgPushTask) == 2
+
+    def test_top_n_keeps_only_best_per_episode(self, cache, subscriptions, plugin, fake_metavideo):
+        """同一集有三条候选 → 默认只推画质最好的那条。"""
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 6021, _text("青与碧 (2026) S01E01 1080p WEB-DL x264"))
+        cache.history().record(CHAT_A, 6022, _text("青与碧 (2026) S01E01 2160p REMUX HEVC"))
+        cache.history().record(CHAT_A, 6023, _text("青与碧 (2026) S01E01 720p HDTV"))
+        plugin.save_config(cache_reshuffle_enabled=True)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 1
+        assert result["details"][0]["reasons"].get("非最优版本") == 2
+        # 推的是 2160p 那条
+        with plugin.get_database().session() as session:
+            tasks = session.query(TgPushTask).all()
+        assert [task.message_id for task in tasks] == [6022]
+
+    def test_top_n_groups_by_episode(self, cache, subscriptions, plugin, fake_metavideo):
+        """不同集各自比较：E01 两条、E02 一条 → 推 2 条（每集最优）。"""
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 6031, _text("青与碧 (2026) S01E01 1080p WEB-DL"))
+        cache.history().record(CHAT_A, 6032, _text("青与碧 (2026) S01E01 2160p REMUX"))
+        cache.history().record(CHAT_A, 6033, _text("青与碧 (2026) S01E02 1080p WEB-DL"))
+        plugin.save_config(cache_reshuffle_enabled=True)
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 2
+
+    def test_unknown_quality_still_pushed(self, cache, subscriptions, plugin, fake_metavideo):
+        """标题里没有画质信息 → 不参与比较，照旧推（交给 TopN 限条数）。"""
+        subscriptions["items"] = [FakeSubscription("老片", media_id="1")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 6041, _text("老片 (2026) S01E01"))
+        plugin.save_config(cache_reshuffle_enabled=True)
+        assert cache.check_subscriptions(trigger="测试")["pushed"] == 1
+
+    def test_gate_disabled_restores_push_everything(
+        self, cache, subscriptions, plugin, fake_metavideo
+    ):
+        """关掉质量门禁 + TopN 设 0 → 退回 1.13.24 的命中即推。"""
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 6051, _text("青与碧 (2026) S01E01 2160p REMUX"))
+        plugin.save_config(
+            cache_reshuffle_enabled=True,
+            cache_reshuffle_quality_gate=False,
+            cache_reshuffle_top_n=0,
+        )
+        cache.history().record(CHAT_A, 6052, _text("青与碧 (2026) S01E01 1080p WEB-DL"))
+        result = cache.check_subscriptions(trigger="测试")
+        assert result["pushed"] == 2
+
+    def test_baseline_persisted_in_plugin_data(
+        self, cache, subscriptions, plugin, fake_metavideo
+    ):
+        from app.plugins.tgmediacenter.modules.cache import _RESHUFFLE_BASELINE_KEY
+
+        subscriptions["items"] = [FakeSubscription("青与碧", year="2026", media_id="2")]
+        cache.check_subscriptions(trigger="测试")
+        cache.history().record(CHAT_A, 6061, _text("青与碧 (2026) S01E01 2160p REMUX"))
+        plugin.save_config(cache_reshuffle_enabled=True)
+        cache.check_subscriptions(trigger="测试")
+        stored = plugin.get_data(_RESHUFFLE_BASELINE_KEY) or {}
+        items = stored.get("items") or {}
+        assert len(items) == 1
+        profile = next(iter(items.values()))
+        assert profile["resolution"] == "2160p"
+        assert profile.get("ts")
+
+    def test_settings_roundtrip_for_new_fields(self, plugin, cache):
+        saved = cache.save_settings({
+            "reshuffle_quality_gate": False,
+            "reshuffle_top_n": 3,
+        })
+        assert saved["reshuffle_quality_gate"] is False
+        assert saved["reshuffle_top_n"] == 3
+        assert plugin.config["cache_reshuffle_quality_gate"] is False
+        assert plugin.config["cache_reshuffle_top_n"] == 3
+        assert api_schemas.CacheSettingsData.model_validate(saved).reshuffle_top_n == 3
+        # 越界收敛：负数 → 0（不限），超上限 → 50，非法 → 1
+        assert cache.save_settings({"reshuffle_top_n": -5})["reshuffle_top_n"] == 0
+        assert cache.save_settings({"reshuffle_top_n": 999})["reshuffle_top_n"] == 50
+        assert cache.save_settings({"reshuffle_top_n": "abc"})["reshuffle_top_n"] == 1

@@ -412,6 +412,38 @@
             关：与之前一致，只处理快照新增订阅并逐条判缺。
           </span>
         </div>
+        <!-- 质量门禁 + 每集最优（1.13.27）：洗版不再「命中即推」，只推真升级 -->
+        <div v-if="settings.reshuffle_enabled" class="cache-switch-row">
+          <VSwitch
+            v-model="settings.reshuffle_quality_gate"
+            color="primary"
+            density="compact"
+            hide-details
+            inset
+            label="质量门禁（只推真升级）"
+            class="cache-switch-inline"
+            @update:model-value="syncSettingsToForm"
+          />
+          <VTextField
+            v-model.number="settings.reshuffle_top_n"
+            label="同集最多推几条"
+            type="number"
+            min="0"
+            max="50"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="cache-num-input"
+            @update:model-value="syncSettingsToForm"
+          />
+          <span class="cache-hint">
+            门禁开：候选要和你<strong>已经推过的最优画质</strong>比——分辨率/片源不能倒退，
+            加权总分（分辨率 40 · 片源 25 · 编码 15 · 特效 15 · 音轨 5）必须更高才推。
+            「同集最多推几条」按<strong>季 + 集区间</strong>分组择优，默认 1（只推最优），0 = 不限。
+            画质解析不出来的候选不参与比较，仍受这个条数限制。
+          </span>
+        </div>
+
         <!-- 推送节流（1.13.25）：洗版回搜不再限制入队条数，改由推送 worker 分批推送 -->
         <div class="cache-actions">
           <VTextField
@@ -654,6 +686,8 @@ const settings = ref({
   batch_size: 200,
   subscribe_enabled: true,
   reshuffle_enabled: false,
+  reshuffle_quality_gate: true,
+  reshuffle_top_n: 1,
   push_batch_size: 10,
   push_batch_interval: 15,
   backfill_enabled: false,
@@ -693,6 +727,8 @@ function syncSettingsToForm() {
   form.value.cache_batch_size = Number(settings.value.batch_size) || 200
   form.value.cache_subscribe_enabled = Boolean(settings.value.subscribe_enabled)
   form.value.cache_reshuffle_enabled = Boolean(settings.value.reshuffle_enabled)
+  form.value.cache_reshuffle_quality_gate = settings.value.reshuffle_quality_gate !== false
+  form.value.cache_reshuffle_top_n = Number(settings.value.reshuffle_top_n) || 0
   form.value.cache_push_batch_size = Number(settings.value.push_batch_size) || 10
   form.value.cache_push_batch_interval = Number(settings.value.push_batch_interval) || 15
   form.value.cache_backfill_enabled = Boolean(settings.value.backfill_enabled)
@@ -712,6 +748,8 @@ function applySettings(data) {
     batch_size: Number(source.batch_size) || 200,
     subscribe_enabled: source.subscribe_enabled !== false,
     reshuffle_enabled: Boolean(source.reshuffle_enabled),
+    reshuffle_quality_gate: source.reshuffle_quality_gate !== false,
+    reshuffle_top_n: source.reshuffle_top_n === undefined ? 1 : Number(source.reshuffle_top_n) || 0,
     push_batch_size: Number(source.push_batch_size) || 10,
     push_batch_interval: Number(source.push_batch_interval) || 15,
     backfill_enabled: Boolean(source.backfill_enabled),
@@ -778,6 +816,8 @@ async function saveSettings() {
       batch_size: Number(settings.value.batch_size) || 200,
       subscribe_enabled: Boolean(settings.value.subscribe_enabled),
       reshuffle_enabled: Boolean(settings.value.reshuffle_enabled),
+      reshuffle_quality_gate: settings.value.reshuffle_quality_gate !== false,
+      reshuffle_top_n: Number(settings.value.reshuffle_top_n) || 0,
       push_batch_size: Number(settings.value.push_batch_size) || 10,
       push_batch_interval: Number(settings.value.push_batch_interval) || 15,
       backfill_enabled: Boolean(settings.value.backfill_enabled),

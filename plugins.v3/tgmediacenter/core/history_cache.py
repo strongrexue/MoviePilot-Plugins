@@ -349,20 +349,10 @@ class HistoryCacheService:
         failures = 0
         while not self._cancel.is_set():
             try:
-                # 走 credentials._call_tg：拉取失败（多为连接断开）时自动重连并重试一次，
-                # 否则持续断开时缓存同步直接按失败计数退出、自身不触发重连。
-                credentials = getattr(self._plugin, "_credentials", None)
-                if credentials is not None and hasattr(credentials, "_call_tg"):
-                    payload = credentials._call_tg(
-                        runtime,
-                        lambda: self._fetch_batch(runtime.client, chat_id, cursor, batch),
-                        timeout=_FETCH_TIMEOUT,
-                    )
-                else:
-                    payload = runtime.call(
-                        self._fetch_batch(runtime.client, chat_id, cursor, batch),
-                        timeout=_FETCH_TIMEOUT,
-                    )
+                payload = runtime.call(
+                    self._fetch_batch(runtime.client, chat_id, cursor, batch),
+                    timeout=_FETCH_TIMEOUT,
+                )
             except Exception as err:
                 failures += 1
                 wait = _flood_wait_seconds(err)

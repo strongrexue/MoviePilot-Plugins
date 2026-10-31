@@ -27,8 +27,6 @@ except Exception:  # pragma: no cover - 环境缺依赖时的降级分支
     StringSession = None  # type: ignore[assignment]
     TELETHON_AVAILABLE = False
 
-from .telegram import is_authkey_error
-
 try:  # Telethon 只在装上 python-socks 时才会真正使用代理
     from python_socks.async_.asyncio import Proxy as _PythonSocksProxy
 
@@ -67,9 +65,6 @@ class TelegramRuntime:
         self._thread: Optional[threading.Thread] = None
         self._client: Any = None
         self._keep_alive_task: Any = None
-        # 最近一次 start() 连接失败的异常对象：供上层判断是否"授权密钥作废"，
-        # 给出比"连接超时"更准的提示（与 last_start_error 字符串互为补充）。
-        self._last_connect_error: Optional[BaseException] = None
         # 最近一次 start() 未成功的原因：调用方据此给出可读错误，
         # 而不是把"凭证不合法"一律说成"连接超时"。
         self.last_start_error: str = ""
@@ -152,10 +147,6 @@ class TelegramRuntime:
         """运行时线程是否存活。"""
         with self._lock:
             return bool(self._thread and self._thread.is_alive() and self._loop and not self._loop.is_closed())
-
-    def last_connect_error(self) -> Optional[BaseException]:
-        """返回最近一次连接失败的异常对象（供上层给出针对性提示）。"""
-        return self._last_connect_error
 
     def is_connected(self) -> bool:
         """客户端是否处于连接状态。"""
@@ -247,18 +238,7 @@ class TelegramRuntime:
             client = self.call(self._connect_client(), timeout=max(5, int(connect_timeout)))
         except Exception as err:
             self.last_start_error = str(err)
-            self._last_connect_error = err
-            if is_authkey_error(err):
-                # 授权密钥作废：通常是旋转/自动切换代理让同一会话从两个出口 IP 同时出现，
-                # Telegram 直接停用密钥。这不是网络超时——必须提示用户退出重登 + 固定代理出口 IP，
-                # 否则刚登上的新会话马上又会被烧。
-                logger.warning(
-                    f"[{self._plugin_id}] TG 授权密钥已作废（同一会话在两处出口 IP 同时出现，"
-                    f"Telegram 已停用该密钥）：{err}。请先「退出登录」清掉失效会话，并把代理改为出口 IP "
-                    f"固定的（如 V2rayA 关闭节点自动切换），稳定后再重新登录。"
-                )
-            else:
-                logger.warning(f"[{self._plugin_id}] TG 客户端连接失败：{err}")
+            logger.warning(f"[{self._plugin_id}] TG 客户端连接失败：{err}")
             if hint:
                 logger.warning(f"[{self._plugin_id}] {hint}")
             self.stop()
@@ -422,15 +402,12 @@ class TelegramRuntime:
             logger.debug(f"[{self._plugin_id}] 启动保活任务失败：{err}")
 
     async def _keep_alive(self) -> Any:
-        """被动探活：仅检测连接状态，不主动掐线重连。
+        """周期性探活；连接掉线时尝试恢复。
 
-        早期实现会每 ≤30s 主动 ``disconnect()`` + ``connect()``。在出口 IP 不固定的代理
-        （如 V2rayA 节点自动切换）下，每次重连都可能落到新 IP；若 Telegram 仍认为旧 IP
-        的连接存活，会判定「同一 AuthKey 在两处 IP 同时出现」并直接作废密钥。
-        改为被动：只在本地检测到断开时记录日志，真正的重连交给实际请求路径
-        （``ensure_connected`` 的惰性重连），与稳定的参考实现（media_automator 等）一致。
+        探活只看本地连接标志（不发网络请求，开销可忽略），因此把检查间隔压到
+        最长 30 秒，让掉线能尽快自愈，而不是等到用户点按钮时才发现是断的。
         """
-        interval = max(60, min(int(self._keep_alive_seconds or 60), 300))
+        interval = max(10, min(int(self._keep_alive_seconds or 60), 30))
         while True:
             await asyncio.sleep(interval)
             client = self.client
@@ -438,10 +415,14 @@ class TelegramRuntime:
                 return
             try:
                 if not client.is_connected():
-                    logger.info(
-                        f"[{self._plugin_id}] 探活发现 TG 连接已断开（交由下次请求惰性重连，不主动掐线）"
-                    )
+                    logger.info(f"[{self._plugin_id}] 探活发现 TG 连接已断开，尝试重连")
+                    try:
+                        await client.disconnect()
+                    except Exception:  # pragma: no cover - 陈旧句柄断开可能报错
+                        pass
+                    await client.connect()
+                    logger.info(f"[{self._plugin_id}] TG 重连完成")
             except asyncio.CancelledError:
                 raise
             except Exception as err:
-                logger.debug(f"[{self._plugin_id}] 探活检查异常（忽略）：{err}")
+                logger.warning(f"[{self._plugin_id}] TG 保活重连失败（下轮继续尝试）：{err}")

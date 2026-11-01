@@ -4,6 +4,7 @@
 """
 import asyncio
 import sys
+import types as _types
 from pathlib import Path
 
 import pytest
@@ -227,6 +228,8 @@ def test_api_routes_declared_with_bare_paths(plugin_cls):
         "/calendar/day",
         "/auto_toggle",
         "/auto_toggle/apply",
+        "/gaps",
+        "/gaps/search",
         "/blacklist",
         "/blacklist/test",
         "/blacklist/audit",
@@ -277,6 +280,8 @@ def test_every_route_has_a_response_model():
         "/calendar/day",
         "/auto_toggle",
         "/auto_toggle/apply",
+        "/gaps",
+        "/gaps/search",
         "/blacklist",
         "/blacklist/test",
         "/blacklist/audit",
@@ -649,7 +654,13 @@ def test_recorded_keys_ignores_history_truncation(plugin):
 
 def test_clear_history_clears_recorded_store(plugin):
     """清空流水必须同时清去重表，否则界面空了却依然订不上。"""
-    plugin._append_history([_outcome("9", 1, C.DECISION_ADDED)], run_at="2026-10-01 05:00:00")
+    from core.window import local_now_text
+
+    #: 必须用「现在」：流水按天保留（默认 30 天），写一条过期时间戳会被
+    #: ``_prune_history`` 当场清掉，这条测试就变成在测空表。
+    run_at = local_now_text(plugin._tz())
+    plugin._append_history([_outcome("9", 1, C.DECISION_ADDED)], run_at=run_at)
+    assert plugin._history(), "流水没写进去，后面的断言就没意义了"
     assert plugin._recorded_keys() == {"themoviedb:9:1"}
 
     plugin.clear_history()
@@ -1039,3 +1050,124 @@ def test_blacklist_audit_runs_in_background(plugin, monkeypatch):
     assert started["started"] is True
     state = plugin.blacklist_audit_state()
     assert "running" in state and "result" in state
+
+
+def _stub_host_module(monkeypatch, name, **attrs):
+    """往 ``sys.modules`` 里插一个假宿主模块，父包一并造出。"""
+    parts = name.split(".")
+    for index in range(1, len(parts)):
+        parent = ".".join(parts[:index])
+        if parent not in sys.modules:
+            pkg = _types.ModuleType(parent)
+            pkg.__path__ = []
+            monkeypatch.setitem(sys.modules, parent, pkg)
+    mod = _types.ModuleType(name)
+    for key, value in attrs.items():
+        setattr(mod, key, value)
+    monkeypatch.setitem(sys.modules, name, mod)
+    return mod
+
+
+class _Cfg:
+    def __init__(self, values):
+        self.values = values
+
+    def get(self, key):
+        return self.values.get(key)
+
+
+def test_gaps_search_triggers_title_manual_search(plugin, monkeypatch):
+    """「去搜索」必须调宿主「手动搜索（按标题）」，用搜索结果页缓存 + 搜索站点范围。
+
+    用假宿主模块替换：
+    - ``app.db.async_session_scope`` 返回假 session，让 ``select(Subscribe)`` 命中
+      我们造的订阅行（取标题、类型）；
+    - ``app.chain.search.facade`` 的 ``SearchChain`` 记录标题 / 站点 / 是否落缓存，
+      并返回固定结果条数。
+    ``gaps_search`` 内部 import 时绑定，因此直接 stub sys.modules 让它命中假模块。
+    """
+    import types as _t
+
+    class _Row(_t.SimpleNamespace):
+        pass
+
+    row = _Row(
+        id=42,
+        name="某剧",
+        type="电视剧",
+        season=1,
+        state="R",
+        media_source="themoviedb",
+        media_id="1",
+    )
+
+    class Result:
+        def scalar_one_or_none(self):
+            return row
+
+    class Session:
+        async def execute(self, stmt):
+            return Result()
+
+    class Scope:
+        async def __aenter__(self):
+            return Session()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    captured = {}
+
+    class FakeChain:
+        async def async_search_by_title(
+            self, title, page=0, sites=None, cache_local=False, mtype=None, rule_groups=None
+        ):
+            captured["title"] = title
+            captured["sites"] = sites
+            captured["cache_local"] = cache_local
+            captured["mtype"] = mtype
+            return [_t.SimpleNamespace(), _t.SimpleNamespace(), _t.SimpleNamespace()]
+
+    _stub_host_module(monkeypatch, "app.db", async_session_scope=lambda: Scope())
+    _stub_host_module(
+        monkeypatch,
+        "app.chain.search.facade",
+        SearchChain=lambda: FakeChain(),
+    )
+
+    result = asyncio.run(plugin.gaps_search(subscribe_id=42))
+    assert captured["title"] == "某剧"
+    # sites 不传 → 用搜索站点范围（IndexerSites）
+    assert captured["sites"] is None
+    # cache_local=True → 结果落到 MP「搜索结果」页
+    assert captured["cache_local"] is True
+    # 电视剧 → MediaType.TV；用其 value 断言（值型枚举成员）
+    assert captured["mtype"] is not None and str(captured["mtype"].value) == "电视剧"
+    assert "3 个资源" in result["message"]
+
+def test_gaps_search_without_title_returns_hint(plugin, monkeypatch):
+    """没有标题的订阅不能触发搜索，给出明确提示而不是报错。"""
+    import types as _t
+
+    row = _t.SimpleNamespace(name="", type="电视剧")
+
+    class Result:
+        def scalar_one_or_none(self):
+            return row
+
+    class Session:
+        async def execute(self, stmt):
+            return Result()
+
+    class Scope:
+        async def __aenter__(self):
+            return Session()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    _stub_host_module(monkeypatch, "app.db", async_session_scope=lambda: Scope())
+
+    result = asyncio.run(plugin.gaps_search(subscribe_id=99))
+    assert result["subscribe_id"] == 99
+    assert "没有可用的标题" in result["message"]

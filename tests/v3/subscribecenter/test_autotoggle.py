@@ -827,6 +827,199 @@ def test_service_registers_autotoggle_job(plugin_cls):
     assert job["trigger"] is not None
 
 
+def _follow_ready(plugin_cls, **overrides):
+    """构造一个「自动启停 + 跟随刷新」都打开的插件实例。"""
+    plugin = plugin_cls()
+    config = {
+        "enabled": True,
+        "auto_toggle_enabled": True,
+        "auto_toggle_follow_refresh": True,
+    }
+    config.update(overrides)
+    plugin.init_plugin(config)
+    return plugin
+
+
+class _FollowBridge:
+    """记录「有没有真的被叫去跑一轮」。"""
+
+    def __init__(self):
+        self.calls = 0
+
+    def run(self, func, timeout=None):
+        self.calls += 1
+        return {"ok": True}
+
+
+def test_follow_refresh_registers_service_only_when_enabled(plugin_cls):
+    """跟随刷新的心跳只在开关打开时注册；关着不能凭空多一个每分钟任务。"""
+    off = _follow_ready(plugin_cls, auto_toggle_follow_refresh=False)
+    assert "subscribecenter_autotoggle_follow" not in [
+        item["id"] for item in off.get_service()
+    ]
+
+    on = _follow_ready(plugin_cls)
+    jobs = {item["id"]: item for item in on.get_service()}
+    assert "subscribecenter_autotoggle_follow" in jobs
+    job = jobs["subscribecenter_autotoggle_follow"]
+    assert job["func"] == on.auto_toggle_follow_tick
+    assert job["trigger"] is not None
+
+
+def test_follow_tick_records_then_runs_next_minute(plugin_cls):
+    """两段式：先记下「刷新完成了」，下一次心跳才真正跑（给宿主留落库时间）。"""
+    plugin = _follow_ready(plugin_cls)
+    plugin._refresh_progress = lambda: ("2026-11-01 10:00:00", False)
+    bridge = _FollowBridge()
+    plugin._bridge = bridge
+
+    plugin.auto_toggle_follow_tick()
+    assert bridge.calls == 0, "第一次只记下完成时间，不马上跑"
+    seen = plugin._auto_toggle_state()["refresh_follow"]
+    assert seen["finished_at"] == "2026-11-01 10:00:00"
+
+    state = plugin._auto_toggle_state()
+    state["refresh_follow"]["seen_at"] -= 120
+    plugin._save_auto_toggle_state(state)
+    plugin.auto_toggle_follow_tick()
+    assert bridge.calls == 1, "过了静置时间，这一跳应该真的跑"
+    assert plugin._auto_toggle_state()["refresh_follow"].get("ran_at")
+
+
+def test_follow_tick_waits_for_settle_seconds(plugin_cls):
+    """刚看到完成就立刻跑 = 可能读到没落库的旧账，必须等。"""
+    plugin = _follow_ready(plugin_cls)
+    plugin._refresh_progress = lambda: ("2026-11-01 10:00:00", False)
+    bridge = _FollowBridge()
+    plugin._bridge = bridge
+
+    plugin.auto_toggle_follow_tick()
+    plugin.auto_toggle_follow_tick()
+    assert bridge.calls == 0
+
+
+def test_follow_tick_debounces_within_thirty_minutes(plugin_cls):
+    """spider 模式一天刷 32 次，30 分钟内跑过就不再跟着跑。"""
+    plugin = _follow_ready(plugin_cls)
+    plugin._refresh_progress = lambda: ("2026-11-01 10:00:00", False)
+    bridge = _FollowBridge()
+    plugin._bridge = bridge
+    plugin._save_auto_toggle_state(
+        {
+            "refresh_follow": {
+                "finished_at": "2026-11-01 10:00:00",
+                "seen_at": time.time() - 300,
+                "ran_at": time.time() - 60,
+            }
+        }
+    )
+
+    plugin.auto_toggle_follow_tick()
+    assert bridge.calls == 0
+
+
+def test_follow_tick_ignores_missing_or_running_refresh(plugin_cls):
+    """拿不到完成时间、或刷新正在跑，都不能触发。"""
+    plugin = _follow_ready(plugin_cls)
+    bridge = _FollowBridge()
+    plugin._bridge = bridge
+
+    plugin._refresh_progress = lambda: (None, False)
+    plugin.auto_toggle_follow_tick()
+    assert "refresh_follow" not in plugin._auto_toggle_state()
+
+    plugin._refresh_progress = lambda: ("2026-11-01 10:00:00", True)
+    plugin.auto_toggle_follow_tick()
+    assert "refresh_follow" not in plugin._auto_toggle_state()
+    assert bridge.calls == 0
+
+
+def test_follow_tick_does_nothing_when_switch_off(plugin_cls):
+    """开关关着时连进度都不该去读（每分钟一次也不白花）。"""
+    plugin = _follow_ready(plugin_cls, auto_toggle_follow_refresh=False)
+    reads = []
+    plugin._refresh_progress = lambda: reads.append(1) or ("2026-11-01 10:00:00", False)
+    bridge = _FollowBridge()
+    plugin._bridge = bridge
+
+    plugin.auto_toggle_follow_tick()
+    assert reads == []
+    assert bridge.calls == 0
+
+
+def test_follow_tick_skips_when_previous_round_running(plugin_cls):
+    """上一轮还在跑就别叠一轮。"""
+    plugin = _follow_ready(plugin_cls)
+    plugin._refresh_progress = lambda: ("2026-11-01 10:00:00", False)
+    plugin._auto_toggle_running = lambda: {"running": True}
+    bridge = _FollowBridge()
+    plugin._bridge = bridge
+    plugin._save_auto_toggle_state(
+        {
+            "refresh_follow": {
+                "finished_at": "2026-11-01 10:00:00",
+                "seen_at": time.time() - 300,
+            }
+        }
+    )
+
+    plugin.auto_toggle_follow_tick()
+    assert bridge.calls == 0
+
+
+def test_refresh_progress_reads_only_subscribe_refresh(plugin_cls, monkeypatch):
+    """只认订阅刷新：其它任务（比如文件整理）跑完了不能触发我们。"""
+    plugin = _follow_ready(plugin_cls)
+
+    class _FakeScheduler:
+        def list(self):
+            return [
+                SimpleNamespace(id="subscribe_refresh"),
+                SimpleNamespace(id="subscribe_refresh|8:30"),
+                SimpleNamespace(id="transfer"),
+            ]
+
+        def get_progress(self, job_id):
+            return {
+                "subscribe_refresh": SimpleNamespace(
+                    status="success", finished_at="2026-11-01 10:00:00"
+                ),
+                "subscribe_refresh|8:30": SimpleNamespace(
+                    status="success", finished_at="2026-11-01 12:30:00"
+                ),
+                "transfer": SimpleNamespace(
+                    status="success", finished_at="2026-11-01 23:59:00"
+                ),
+            }.get(job_id)
+
+    fake_module = types.ModuleType("app.application.scheduling")
+    fake_module.get_scheduler = lambda: _FakeScheduler()
+    monkeypatch.setitem(sys.modules, "app.application.scheduling", fake_module)
+
+    finished, running = plugin._refresh_progress()
+    assert finished == "2026-11-01 12:30:00", "取订阅刷新里最新的那个完成时间"
+    assert running is False
+
+
+def test_refresh_progress_marks_running(plugin_cls, monkeypatch):
+    """刷新正在跑的时候不能当成「已经跑完」。"""
+    plugin = _follow_ready(plugin_cls)
+
+    class _FakeScheduler:
+        def list(self):
+            return []
+
+        def get_progress(self, job_id):
+            return SimpleNamespace(status="running", finished_at="2026-11-01 09:00:00")
+
+    fake_module = types.ModuleType("app.application.scheduling")
+    fake_module.get_scheduler = lambda: _FakeScheduler()
+    monkeypatch.setitem(sys.modules, "app.application.scheduling", fake_module)
+
+    _finished, running = plugin._refresh_progress()
+    assert running is True
+
+
 def test_routes_declared(plugin_cls):
     """两个路由都要有响应模型（否则宿主按模型校验时前端只拿到「未知错误」）。"""
     plugin = plugin_cls()
@@ -1346,178 +1539,9 @@ def _now_text(plugin):
     return local_now_text(plugin._tz())
 
 
-def test_probe_skips_best_version_and_movies(plugin):
-    """洗版（问「洗到顶没有」）和非剧集都不该被拿去问媒体库。"""
-    rows = [
-        _lib_row(id=1, best_version=1, episode_priority={"1": 80}),
-        _lib_row(id=2, type="电影", season=0),
-        _lib_row(id=3, media_id="901"),
-    ]
-    index = {
-        ("900", 1): _eps(("2026-10-19", 1)),
-        ("901", 1): _eps(("2026-10-19", 1)),
-    }
-    asked = []
-
-    async def fake_probe(row):
-        asked.append(row.id)
-        return set()
-
-    plugin._probe_one = fake_probe
-    _, stats = asyncio.run(
-        plugin._probe_missing_episodes(
-            rows, index, TODAY, budget_seconds=10, interval=0, known={}
-        )
-    )
-
-    assert asked == [3], "只有普通剧集需要核对"
-    assert stats["candidates"] == 1
-
-
-def test_probe_tv_row_without_season_uses_movie_key(plugin):
-    """剧集行 ``season<=0`` 时，索引键要按 ``calendar.MOVIE_KEY``（``"movie"``）。
-
-    回归：这一分支以前引用了**没有导入**的 ``calendar_core``，
-    一旦遇到没有季号的剧集就 ``NameError``，把整轮媒体库核对直接打断
-    （ruff F821 抓到的就是它）。这里锁住「不抛异常且能挑出候选」。
-    """
-    rows = [_lib_row(id=1, season=0)]
-    index = {("900", "movie"): _eps(("2026-10-19", 1))}
-    asked = []
-
-    async def fake_probe(row):
-        asked.append(row.id)
-        return set()
-
-    plugin._probe_one = fake_probe
-    _, stats = asyncio.run(
-        plugin._probe_missing_episodes(
-            rows, index, TODAY, budget_seconds=10, interval=0, known={}
-        )
-    )
-
-    assert asked == [1], "无季号剧集也要能被核对"
-    assert stats["candidates"] == 1
-
-
-def test_probe_ignores_lack_episode_fallback(plugin):
-    """``lack_episode<=0`` + ``note`` 空：``episode_numbers`` 会兜底成「整季已入库」，
-    但那恰恰是「需要核对」的形态 —— 探针不能被这个兜底挡住。"""
-    rows = [_lib_row(id=1, lack_episode=0)]
-    index = {("900", 1): _eps(("2026-10-19", 1))}
-    asked = []
-
-    async def fake_probe(row):
-        asked.append(row.id)
-        return {1}
-
-    plugin._probe_one = fake_probe
-    out, stats = asyncio.run(
-        plugin._probe_missing_episodes(
-            rows, index, TODAY, budget_seconds=10, interval=0, known={}
-        )
-    )
-
-    assert asked == [1]
-    assert stats["candidates"] == 1
-    assert out == {1: {1}}
-
-
-def test_probe_with_zero_budget_never_asks(plugin):
-    """预算 0 = 只读快照：一个请求都不发，全部标「待核对」。"""
-    rows = [_lib_row(id=1), _lib_row(id=2, media_id="901")]
-    index = {
-        ("900", 1): _eps(("2026-10-19", 1)),
-        ("901", 1): _eps(("2026-10-19", 1)),
-    }
-    asked = []
-
-    async def fake_probe(row):
-        asked.append(row.id)
-        return set()
-
-    plugin._probe_one = fake_probe
-    out, stats = asyncio.run(
-        plugin._probe_missing_episodes(
-            rows, index, TODAY, budget_seconds=0, interval=0, known={}
-        )
-    )
-
-    assert asked == []
-    assert out == {}
-    assert stats["probed"] == 0
-    assert stats["deferred"] == 2
-
-
-def test_probe_stops_when_budget_used_up(plugin):
-    """预算到点就停，剩下的下一轮再来 —— 这是不打挂 NAS 的那道刹车。"""
-    rows = [_lib_row(id=i, media_id=str(900 + i)) for i in range(1, 6)]
-    index = {
-        (str(900 + i), 1): _eps(("2026-10-19", 1)) for i in range(1, 6)
-    }
-    asked = []
-
-    async def slow_probe(row):
-        # 每条 0.6 秒，预算 1 秒 → 最多核对 2 条就要刹车
-        await asyncio.sleep(0.6)
-        asked.append(row.id)
-        return {1}
-
-    plugin._probe_one = slow_probe
-    _, stats = asyncio.run(
-        plugin._probe_missing_episodes(
-            rows, index, TODAY, budget_seconds=1, interval=0, known={}
-        )
-    )
-
-    assert 1 <= stats["probed"] < 5, "预算到点必须刹车"
-    assert stats["deferred"] == 5 - stats["probed"]
-    assert len(asked) == stats["probed"]
-
-
 # ------------------------------------------------------------------ 后台执行
 # 真机事故：预览里同步跑探针，200 条串行要好几分钟，请求被网关 502 掐断。
 # 现在预览永远 probe=False，真正的核对只在后台线程里做。
-
-
-def test_preview_never_probes(plugin):
-    """``auto_toggle_plan()``（预览/日历用）必须 probe=False，只有执行传 True。"""
-    seen = []
-
-    async def fake_library(rows, index, today_date, **kwargs):
-        seen.append(kwargs.get("probe"))
-        return {}, {}
-
-    plugin._library_present_index = fake_library
-    plugin._auto_toggle_config = lambda: {
-        "enabled": True,
-        "cron": "5 0 * * *",
-        "lookahead_days": 0,
-        "keep_days": 3,
-        "best_keep_days": 90,
-        "best_mode": "after_finale",
-        "max_changes": 0,
-        "notify": False,
-        "movie_enabled": False,
-        "movie_theatrical_offset_days": 90,
-        "library_check": True,
-        "library_probe_budget": 300,
-        "library_probe_interval": 1.5,
-    }
-    async def fake_index(rows, date_text):
-        return {}
-
-    plugin._episode_air_index = fake_index
-    plugin._auto_toggle_state = lambda: {}
-
-    async def fake_rows():
-        return []
-
-    plugin._auto_toggle_rows = fake_rows
-    asyncio.run(plugin.auto_toggle_plan())
-    asyncio.run(plugin.auto_toggle_plan(probe=True))
-
-    assert seen == [False, True]
 
 
 def test_apply_starts_background_thread(plugin):
@@ -1598,119 +1622,6 @@ def test_missing_from_no_exists_ignores_key_name():
     assert parse({"x": "不是字典"}, 1) is None
 
 
-def test_probe_cache_expires(plugin):
-    """缓存过了保质期就不该再当「已入库」证据 —— 否则缺集被永久钉死。"""
-    from datetime import datetime, timedelta
-
-    from subscribecenter.core.window import get_tz
-
-    now = datetime.now(get_tz(plugin._tz()))
-    fresh = {"at": (now - timedelta(hours=1)).isoformat()}
-    stale = {"at": (now - timedelta(hours=99)).isoformat()}
-
-    assert plugin._probe_cache_fresh(fresh) is True
-    assert plugin._probe_cache_fresh(stale) is False
-    assert plugin._probe_cache_fresh({}) is False
-    assert plugin._probe_cache_fresh({"at": "不是时间"}) is False
-
-
-def test_library_index_uses_only_probe_results(plugin):
-    """入库证据只有实探：下载记录与 note 一律不算（用户 2026-10-31 定稿）。"""
-    rows = [_lib_row(id=1)]
-    index = {
-        ("900", 1): _eps(
-            ("2026-10-19", 1), ("2026-10-19", 2), ("2026-10-19", 3), ("2026-10-19", 4)
-        ),
-    }
-
-    async def fake_probe(_row):
-        return {1, 2, 3}
-
-    plugin._probe_one = fake_probe
-    plugin._auto_toggle_config = lambda: {
-        "library_check": True,
-        "library_probe_budget": 600,
-        "library_probe_interval": 0,
-    }
-
-    out, stats = asyncio.run(
-        plugin._library_present_index(rows, index, TODAY, probe=True)
-    )
-
-    assert out[1] == {1, 2, 3}
-    assert stats["probed"] == 1
-    assert "snapshot" not in stats and "download" not in stats
-
-
-def test_library_index_reuses_cached_probe(plugin):
-    """上一轮结果在保质期内直接沿用，预览不发任何请求。"""
-    rows = [_lib_row(id=1)]
-    index = {("900", 1): _eps(("2026-10-19", 1), ("2026-10-19", 2))}
-    cached = {"at": _now_text(plugin), "items": {"1": [1, 2]}}
-
-    async def boom(_row):  # pragma: no cover - 预览绝不该发请求
-        raise AssertionError("预览不该实探")
-
-    plugin._probe_one = boom
-    plugin._auto_toggle_config = lambda: {
-        "library_check": True,
-        "library_probe_budget": 600,
-        "library_probe_interval": 0,
-    }
-
-    out, stats = asyncio.run(
-        plugin._library_present_index(rows, index, TODAY, cached=cached)
-    )
-
-    assert out[1] == {1, 2}
-    assert stats["cached"] == 1
-    assert stats["probed"] == 0
-
-
-def test_library_index_reuses_cached_empty_result(plugin):
-    """核对了、库里一集都没有 —— 这也是一条结论，必须沿用。
-
-    否则「库里真的什么都没有」与「还没核对」混为一谈，该暂停的永远不暂停。
-    """
-    rows = [_lib_row(id=1)]
-    index = {("900", 1): _eps(("2026-10-19", 1))}
-    cached = {"at": _now_text(plugin), "items": {"1": []}}
-
-    plugin._auto_toggle_config = lambda: {
-        "library_check": True,
-        "library_probe_budget": 600,
-        "library_probe_interval": 0,
-    }
-
-    out, stats = asyncio.run(
-        plugin._library_present_index(rows, index, TODAY, cached=cached)
-    )
-
-    assert out[1] == set()
-    assert stats["cached"] == 1
-
-
-def test_library_index_drops_stale_cache(plugin):
-    """过期缓存不能当证据，这条订阅要重新成为候选。"""
-    rows = [_lib_row(id=1)]
-    index = {("900", 1): _eps(("2026-10-19", 1))}
-    cached = {"at": "2000-01-01T00:00:00+08:00", "items": {"1": [1]}}
-
-    plugin._auto_toggle_config = lambda: {
-        "library_check": True,
-        "library_probe_budget": 0,
-        "library_probe_interval": 0,
-    }
-
-    out, stats = asyncio.run(
-        plugin._library_present_index(rows, index, TODAY, cached=cached)
-    )
-
-    assert 1 not in out
-    assert stats["cached_stale"] is True
-    assert stats["candidates"] == 1
-
-
 def test_download_record_never_counts_as_imported():
     """朱色假面场景：第 4 集刚下完没导入，note 里有 4，但库里只有 1~3。
 
@@ -1775,33 +1686,247 @@ def test_library_unknown_does_nothing():
     assert paused.target == autotoggle.STATE_PAUSED
 
 
-def test_probe_result_persisted_even_when_empty(plugin):
-    """核对一条都没成功也要落盘，并带出失败原因。
+# --------------------------------------------------------------------- 集数缺口（订阅中但缺几集）
 
-    真机事故：``library_probe.at`` 一直是 None、条数 0 —— 探针到底跑没跑、
-    为什么没结果，从数据里完全看不出来。
-    """
-    rows = [_lib_row(id=1)]
-    index = {("900", 1): _eps(("2026-10-19", 1))}
 
-    async def failing_probe(_row):
-        plugin.__dict__["_probe_last_error"] = "探针剧 问媒体服务器失败：boom"
-        return None
-
-    plugin._probe_one = failing_probe
-    plugin._auto_toggle_config = lambda: {
-        "library_check": True,
-        "library_probe_budget": 600,
-        "library_probe_interval": 0,
-    }
-
-    _out, stats = asyncio.run(
-        plugin._library_present_index(rows, index, TODAY, probe=True)
+def test_in_window_gaps_basic():
+    """已播但没入库、还在窗口内的集 → 返回 (播出日, 集号, 还剩几天)。"""
+    gaps = autotoggle.in_window_gaps(
+        _row(total_episode=5),
+        _eps(("2026-10-19", 1), ("2026-10-18", 2), ("2026-10-25", 3)),
+        TODAY,
+        keep_days=3,
+        confirmed=set(),  # 实探：库一集都没有 → 这些都是缺口
     )
+    # TODAY=2026-10-20，keep_days=3 → 只收 10-17..10-20 已播且未入库的
+    # 10-19 缺: gap=1 → days_left=3-1=2；10-18 缺: gap=2 → days_left=1
+    # 10-25 是未来集，不算缺口
+    assert gaps == [
+        ("2026-10-18", 2, 1),
+        ("2026-10-19", 1, 2),
+    ]
 
-    assert stats["failed"] == 1
-    assert "boom" in stats["error"]
-    saved = plugin.__dict__["_auto_toggle_library_probe"]
-    assert saved["items"] == {}
-    assert saved["at"]
-    assert saved["stats"]["failed"] == 1
+
+def test_in_window_gaps_excludes_downloaded():
+    """实探已入库的集不算缺口，未入库的仍算。"""
+    gaps = autotoggle.in_window_gaps(
+        _row(total_episode=5, note=[1]),
+        _eps(("2026-10-19", 1), ("2026-10-18", 2)),
+        TODAY,
+        keep_days=3,
+        confirmed={1},  # 实探确认第 1 集在库 → 不报缺；第 2 集缺
+    )
+    assert gaps == [("2026-10-18", 2, 1)]
+
+
+def test_in_window_gaps_no_probe_evidence_reports_nothing():
+    """没有实探证据（confirmed=None）→ 一律不报缺（宁可漏报不误报）。"""
+    # note=[1] 即使标记了下过第 1 集，没实探证据也不该用它兜底报缺口
+    gaps = autotoggle.in_window_gaps(
+        _row(total_episode=5, note=[1]),
+        _eps(("2026-10-19", 1), ("2026-10-18", 2)),
+        TODAY,
+        keep_days=3,
+    )
+    assert gaps == []
+
+
+def test_in_window_gaps_confirmed_only():
+    """传了 confirmed（实探）就只认实探，note 不再算入库 → 都显示为缺口。"""
+    row = _row(total_episode=5, note=[1])
+    # 实探只确认了一个空集（set()）：第 1 集即使有 note 也应重新算缺口
+    gaps = autotoggle.in_window_gaps(
+        row,
+        _eps(("2026-10-19", 1), ("2026-10-18", 2)),
+        TODAY,
+        keep_days=3,
+        confirmed=set(),
+    )
+    assert gaps == [
+        ("2026-10-18", 2, 1),
+        ("2026-10-19", 1, 2),
+    ]
+
+
+def test_in_window_gaps_future_air_date_not_counted():
+    """播出日在今天之后的，不是缺口（还没到播出时间）。"""
+    gaps = autotoggle.in_window_gaps(
+        _row(total_episode=5),
+        _eps(("2026-10-21", 1)),
+        TODAY,
+        keep_days=3,
+    )
+    assert gaps == []
+
+
+def test_in_window_gaps_today_listed_when_old_gap_exists():
+    """有旧缺口时，今天（TODAY）播的集也一并列出（直观）。"""
+    gaps = autotoggle.in_window_gaps(
+        _row(total_episode=5),
+        _eps(("2026-10-19", 1), ("2026-10-20", 2)),  # 昨天缺 1 + 今天播 2
+        TODAY,
+        keep_days=3,
+        confirmed=set(),
+    )
+    # 旧缺口 10-19/1（days_left=3-1=2）→ 今天 10-20/2 也一并列出（days_left=3-0=3）
+    assert gaps == [
+        ("2026-10-19", 1, 2),
+        ("2026-10-20", 2, 3),
+    ]
+
+
+def test_in_window_gaps_today_only_without_old_gap_not_listed():
+    """只有今天第一次播、没有旧缺口 → 整部不列（今天才播，还没到补搜）。"""
+    gaps = autotoggle.in_window_gaps(
+        _row(total_episode=5),
+        _eps(("2026-10-20", 1)),  # 只有今天这一集
+        TODAY,
+        keep_days=3,
+        confirmed=set(),
+    )
+    assert gaps == []
+
+
+def test_in_window_gaps_before_start_episode_ignored():
+    """早于 start_episode 的不算缺口（不存在要补它）。"""
+    gaps = autotoggle.in_window_gaps(
+        _row(total_episode=12, start_episode=3),
+        _eps(("2026-10-19", 2), ("2026-10-18", 3)),
+        TODAY,
+        keep_days=3,
+        start_episode=3,
+        confirmed=set(),  # 实探：库一集都没有 → 缺口按缺席逐个算
+    )
+    assert gaps == [("2026-10-18", 3, 1)]
+
+
+def test_library_present_from_lack_prefix():
+    """缺 4 集 → 前 8 集视为已入库（宿主顺序追更的假设）。"""
+    row = _lib_row(total_episode=12, lack_episode=4, start_episode=1)
+    assert autotoggle.library_present_from_lack(row) == {1, 2, 3, 4, 5, 6, 7, 8}
+
+
+def test_library_present_from_lack_respects_start_episode():
+    """从第 5 集开始追：目标范围 5..12 共 8 集，缺 4 集 → 5,6,7,8。"""
+    row = _lib_row(total_episode=12, lack_episode=4, start_episode=5)
+    assert autotoggle.library_present_from_lack(row) == {5, 6, 7, 8}
+
+
+def test_library_present_from_lack_missing_total_returns_none():
+    assert autotoggle.library_present_from_lack(_lib_row(total_episode=0)) is None
+
+
+def test_library_present_from_lack_missing_lack_returns_none():
+    assert autotoggle.library_present_from_lack(_lib_row(lack_episode=None)) is None
+
+
+def test_library_present_from_lack_full_lack_means_empty():
+    """新建订阅宿主会直接把缺集置成总集数 —— 此时当作一集都没有。"""
+    row = _lib_row(total_episode=12, lack_episode=12)
+    assert autotoggle.library_present_from_lack(row) == set()
+
+
+def test_library_present_from_lack_never_overshoots_total():
+    row = _lib_row(total_episode=12, lack_episode=99)
+    assert autotoggle.library_present_from_lack(row) == set()
+
+
+def test_library_index_reads_host_lack_episode(plugin):
+    """索引来自 lack_episode：电影与拿不到数字的不进索引。"""
+    rows = [
+        _lib_row(id=1, lack_episode=10),
+        _lib_row(id=2, lack_episode=12),
+        _lib_row(id=3, type="电影"),
+        _lib_row(id=4, lack_episode=None),
+    ]
+    index, stats = asyncio.run(plugin._library_present_index(rows))
+    assert index == {1: {1, 2}, 2: set()}
+    assert stats["mode"] == "mp"
+    assert stats["known"] == 2
+    assert stats["unknown"] == 1, "电影不算；缺集数未知的算待核对"
+
+
+def test_library_index_skips_best_version(plugin):
+    rows = [_lib_row(id=1, best_version=1)]
+    index, stats = asyncio.run(plugin._library_present_index(rows))
+    assert index == {}
+    assert stats["known"] == 0
+
+
+def _capture_messages(plugin):
+    """把 ``post_message`` 换成记录器，返回收到的消息列表。"""
+    sent = []
+
+    def fake_post_message(**kwargs):
+        sent.append(kwargs)
+
+    plugin.post_message = fake_post_message
+    return sent
+
+
+def test_notify_auto_toggle_sends_one_card_per_change(plugin):
+    """一部一条卡片：标题带剧名+季+原因，带海报，链接到订阅页。"""
+    sent = _capture_messages(plugin)
+    plugin._notify_auto_toggle(
+        {
+            "changed": [
+                {
+                    "id": 38,
+                    "name": "朱色假面",
+                    "season": 1,
+                    "action": "pause",
+                    "reason_label": "已播剧集全部入库",
+                    "detail": "已播 4 集全部入库",
+                    "poster": "https://image.tmdb.org/t/p/w500/a.jpg",
+                    "kind": "tv",
+                },
+                {
+                    "id": 198,
+                    "name": "神探之痕迹",
+                    "season": 0,
+                    "action": "resume",
+                    "reason_label": "缺集在窗口内",
+                    "detail": "下一集 2026-11-07",
+                    "poster": "",
+                    "kind": "movie",
+                },
+            ],
+            "failed": [],
+        }
+    )
+    assert len(sent) == 2, "两条改动就发两条，不再合成一条"
+    first, second = sent
+    assert first["title"] == "朱色假面 S1 已播剧集全部入库"
+    assert "处理：已暂停订阅" in first["text"]
+    assert "说明：已播 4 集全部入库" in first["text"]
+    assert first["image"] == "https://image.tmdb.org/t/p/w500/a.jpg"
+    assert first["link"] == "#/subscribe/tv?tab=mysub"
+    assert second["title"] == "神探之痕迹 缺集在窗口内", "电影没有季号"
+    assert "处理：已恢复订阅" in second["text"]
+    assert second["image"] is None, "没有海报就别传空串"
+    assert second["link"] == "#/subscribe/movie?tab=mysub"
+
+
+def test_notify_auto_toggle_reports_failures_separately(plugin):
+    """失败单独发一条，别混在卡片里让人以为改成功了。"""
+    sent = _capture_messages(plugin)
+    plugin._notify_auto_toggle(
+        {
+            "changed": [],
+            "failed": [
+                {"id": 7, "name": "某剧", "error": "宿主未找到该订阅（可能已被删除）"},
+            ],
+        }
+    )
+    assert len(sent) == 1
+    assert "有失败" in sent[0]["title"]
+    assert "某剧" in sent[0]["text"]
+    assert "宿主未找到该订阅" in sent[0]["text"]
+
+
+def test_notify_auto_toggle_silent_without_changes(plugin):
+    """没改动、没失败就一条都不发。"""
+    sent = _capture_messages(plugin)
+    plugin._notify_auto_toggle({"changed": [], "failed": []})
+    assert sent == []
+

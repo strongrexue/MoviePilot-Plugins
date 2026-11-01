@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d as decisionLabel, b as putPluginApi, g as getPluginConfig } from './decision-BcxIDicF.js';
+import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d as decisionLabel, b as putPluginApi, g as getPluginConfig } from './decision-B7RYAJ9Y.js';
 
 /**
  * 前端构建版本。
@@ -11,7 +11,7 @@ import { _ as _export_sfc, u as unwrap, a as getPluginApi, p as postPluginApi, d
  *
  * ⚠️ 发版时必须与本插件 `plugin_version` 同步（有单测校验，见 tests/v3/tgmediacenter）。
  */
-const FRONTEND_VERSION = '1.13.36';
+const FRONTEND_VERSION = '1.13.38';
 
 const {resolveComponent:_resolveComponent$7,createVNode:_createVNode$7,withCtx:_withCtx$7,openBlock:_openBlock$7,createBlock:_createBlock$7} = await importShared('vue');
 
@@ -5417,6 +5417,9 @@ const configDefaults = {
   notify_mtype: '插件',
   interactive_push: true,
   interactive_dedup: true,
+  // ⑪ 手动回搜（1.13.38）：手机上说「胖虎 片名」查缓存候选并点选推送。
+  //    没有前端页面（本就是聊天交互），这里只镜像默认值，避免保存配置时被清空
+  manual_search_enabled: true,
   // ⑨ 发现页入口（1.8.0；1.13.18 起不再单独开关）：
   //   插件启用即在 MP 左侧「发现」分区注册整页入口，停用即自动移除
   // ⑩ P9 重复获取治理（1.9.0）

@@ -81,8 +81,8 @@ def notify_mtype(value: Any) -> str:
     return text if text in NOTIFY_MTYPES else DEFAULT_NOTIFY_MTYPE
 
 
-def _accepts_mtype(func: Any) -> bool:
-    """判断 ``post_message`` 是否接收 ``mtype`` 关键字（宿主 3.x 有，替身可能没有）。"""
+def _accepts_param(func: Any, name: str) -> bool:
+    """判断 ``post_message`` 是否接收某个关键字（宿主 3.x 有，替身可能没有）。"""
     try:
         params = inspect.signature(func).parameters
     except (TypeError, ValueError):  # 内建 / 动态签名：按不支持处理，走旧调用
@@ -90,19 +90,50 @@ def _accepts_mtype(func: Any) -> bool:
     for param in params.values():
         if param.kind is inspect.Parameter.VAR_KEYWORD:
             return True
-    return "mtype" in params
+    return name in params
 
 
-def deliver(func: Any, title: str, text: str, mtype: str) -> None:
+def _accepts_mtype(func: Any) -> bool:
+    """判断 ``post_message`` 是否接收 ``mtype`` 关键字（宿主 3.x 有，替身可能没有）。"""
+    return _accepts_param(func, "mtype")
+
+
+def channel_value(name: Any) -> Any:
+    """把渠道名（``"Telegram"`` / ``"微信"`` …）转成宿主 ``NotificationChannel``。
+
+    1.13.38：宿主 ``Message.channel`` 为空时 ``check_message`` 不过滤，消息会
+    广播给**所有**管理员渠道——手动回搜在 TG 里点的推送，回执会同时发到微信。
+    这里把事件里带来的渠道名还原成枚举，交给宿主按渠道过滤。
+
+    宿主 ``NotificationChannel`` 不是 ``str`` 子类，只能按 value 构造；拿不到
+    宿主包时（单测替身）原样返回字符串，由宿主 pydantic 按 value 自行转换。
+    """
+    text = str(name or "").strip()
+    if not text:
+        return None
+    try:
+        from app.schemas.types import NotificationChannel
+    except Exception:  # pragma: no cover - 宿主包缺失（测试替身）
+        return text
+    try:
+        return NotificationChannel(text)
+    except Exception:  # pragma: no cover - 未知渠道名：宁可不带，避免整条通知发不出去
+        return None
+
+
+def deliver(func: Any, title: str, text: str, mtype: str, channel: Any = None) -> None:
     """把一条通知交给 ``func``（宿主的 ``post_message``）。
 
     宿主 3.x 的签名有 ``mtype``，旧版 / 测试替身可能只有 ``title``/``text``：
     先探签名再决定要不要带，避免用 try/except TypeError 把真正的报错一起吞掉。
+    ``channel`` 非空时一并透传，宿主据此只发给该渠道（空则保持广播）。
     """
+    kwargs: dict[str, Any] = {"title": title, "text": text}
     if _accepts_mtype(func):
-        func(title=title, text=text, mtype=mtype)
-    else:
-        func(title=title, text=text)
+        kwargs["mtype"] = mtype
+    if channel is not None and _accepts_param(func, "channel"):
+        kwargs["channel"] = channel
+    func(**kwargs)
 
 
 def media_icon(label: str) -> str:
@@ -164,15 +195,23 @@ class Notifier:
 
     # ------------------------------------------------------------------ 发送
 
-    def send(self, title: str, text: str = "", *, key: str = "", window: float = 0.0) -> bool:
+    def send(self, title: str, text: str = "", *, key: str = "", window: float = 0.0,
+             channel: str = "") -> bool:
         """发送一条通知；``key`` 非空时按 ``window`` 秒节流。
 
+        :param channel: 目标渠道名（如 ``"Telegram"``）。空串 = 广播给所有
+            管理员渠道（监控 / 订阅 / 缓存这类没有「发起渠道」的通知仍走这条）。
         :returns: 真的发出去了返回 True；被节流、渠道缺失或发送失败返回 False。
         """
         title = str(title or "").strip()
         if not title:
             return False
+        channel_name = str(channel or "").strip()
         dedupe_key = str(key or "").strip()
+        # 1.13.38：节流 key 带上渠道，否则「TG 一条 + 微信一条」同 key 时
+        # 第二条会被吞掉，表现为某一侧静默收不到回执。
+        if dedupe_key and channel_name:
+            dedupe_key = f"{channel_name}|{dedupe_key}"
         now = time.monotonic()
         with self._lock:
             if dedupe_key:
@@ -187,7 +226,7 @@ class Notifier:
         if not callable(func):
             return False
         try:
-            deliver(func, title, str(text or ""), self.mtype())
+            deliver(func, title, str(text or ""), self.mtype(), channel_value(channel_name))
             return True
         except Exception as err:  # pragma: no cover - 通知失败不能影响主流程
             from app.sdk.logging import logger

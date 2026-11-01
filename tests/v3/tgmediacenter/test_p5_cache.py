@@ -837,7 +837,7 @@ class TestWashRules:
         rules = quality.default_rules()
         remux = quality.parse_quality("some movie 2024 1080p REMUX")
         webdl = quality.parse_quality("some movie 2024 2160p WEB-DL")
-        assert quality.compare(remux, webdl, rules)[0] == quality.STATE_FLAT
+        assert quality.compare(remux, webdl, rules)[0] == quality.STATE_LOWER
         assert quality.compare(webdl, remux, rules)[0] == quality.STATE_UPGRADE
 
     def test_lower_resolution_blocked(self):
@@ -847,7 +847,7 @@ class TestWashRules:
         base = quality.parse_quality("some movie 2024 2160p WEB-DL x264")
         worse = quality.parse_quality("some movie 2024 1080p WEB-DL x264")
         state, why = quality.compare(base, worse, rules)
-        assert state == quality.STATE_FLAT
+        assert state == quality.STATE_LOWER
         assert "resolution" in why or "分辨率" in why
 
     def test_size_tolerance_flat(self):
@@ -919,7 +919,8 @@ class TestWashRules:
         worse = quality.parse_quality("drama (2026) S01E01 1080p WEB-DL")
         second = wash_gate.judge(worse, rules, baselines=cache.wash_baselines("drama", "2026", "", 1),
                                  keys=[key])
-        assert second["state"] == wash_gate.STATE_FLAT
+        assert second["state"] == wash_gate.STATE_LOWER
+        assert second["downgraded"] == [key]
 
     def test_baseline_persisted_in_plugin_data(self, plugin, cache):
         from app.plugins.tgmediacenter.modules.cache import _WASH_BASELINE_KEY
@@ -1049,6 +1050,105 @@ class TestPartialTransfer:
         from app.plugins.tgmediacenter.core.pipeline import MessagePipeline
 
         keys = ["show|2026|1|1", "show|2026|1|2"]
-        assert MessagePipeline._wash_extra({"keys": keys, "upgraded": keys}) is None
+        # 1.13.37：全量升级也要带上「基线待写」数据（基线改到推送 done 后写），
+        # 但不再下发集号——整包转存。
+        whole = MessagePipeline._wash_extra({"keys": keys, "upgraded": keys})
+        assert whole["wash"]["keys"] == keys
+        assert "episodes" not in whole["wash"]
         extra = MessagePipeline._wash_extra({"keys": keys, "upgraded": [keys[1]]})
-        assert extra == {"wash": {"episodes": [2]}}
+        assert extra["wash"]["episodes"] == [2]
+        assert extra["wash"]["keys"] == [keys[1]]
+
+
+# ------------------------------------ 集号以链接为准 / 单集体积 / 台账去重（1.13.37）
+
+
+def _ed2k(name: str, size: int, char: str) -> str:
+    return f"ed2k://|file|{name}|{size}|{char * 32}|/"
+
+
+def test_link_episodes_parsed_from_links():
+    """1.13.37：集号以链接为准（正文区间常与真实链接条数对不上）。"""
+    from app.plugins.tgmediacenter.core.pipeline import MessagePipeline
+
+    links = [_ed2k("Show.S01E02.2160p.mkv", 1, "a"),
+             _ed2k("Show.S01E03.2160p.mkv", 1, "b")]
+    assert MessagePipeline._link_episodes(links) == [2, 3]
+    assert MessagePipeline._link_episodes([]) == []
+    # 115 分享链接认不出季集 → 退回正文识别结果
+    assert MessagePipeline._link_episodes(["https://115.com/s/swabc?password=1a2b"]) == []
+
+
+def test_episode_profiles_drop_size_for_pack():
+    """整包资源的体积维度不参与比较（否则整包体积摊给每集，单集永远「更小」）。"""
+    from app.plugins.tgmediacenter.core.pipeline import MessagePipeline
+    from app.plugins.tgmediacenter.services import quality
+
+    profile = quality.parse_quality("Show S01E01-E03 2160p REMUX 100.01GB")
+    keys = ["Show|2026|1|1|", "Show|2026|1|2|"]
+    profiles = MessagePipeline._episode_profiles(profile=profile, links=[], keys=keys,
+                                                 title="Show", year="2026", season=1)
+    assert profiles is not None
+    assert all(item["size_mb"] is None for item in profiles.values())
+    # 其它维度照旧保留
+    assert profiles[keys[0]]["resolution"] == profile["resolution"]
+
+
+def test_episode_profiles_use_ed2k_real_size():
+    """单集 eD2k 用链接里的真实字节数当体积。"""
+    from app.plugins.tgmediacenter.core.pipeline import MessagePipeline
+    from app.plugins.tgmediacenter.services import quality
+
+    profile = quality.parse_quality("Show S01E02 2160p REMUX 100.01GB")
+    keys = ["Show|2026|1|2|"]
+    profiles = MessagePipeline._episode_profiles(
+        profile=profile, links=[_ed2k("Show.S01E02.2160p.mkv", 2147483648, "b")],
+        keys=keys, title="Show", year="2026", season=1,
+    )
+    assert profiles[keys[0]]["size_mb"] == 2048.0
+
+
+def test_single_episode_without_link_size_keeps_text_size():
+    """单集资源且拿不到链接体积时，正文体积就是该集体积，保持原样。"""
+    from app.plugins.tgmediacenter.core.pipeline import MessagePipeline
+    from app.plugins.tgmediacenter.services import quality
+
+    profile = quality.parse_quality("Show 2026 2160p REMUX 8GB")
+    assert MessagePipeline._episode_profiles(
+        profile=profile, links=[], keys=["Show|2026|||"], title="Show", year="2026", season=None,
+    ) is None
+
+
+def test_drop_transferred_removes_known_links():
+    """入队前查转存台账：已转存过的链接不再重复提交。"""
+    from app.plugins.tgmediacenter.core import transfer_ledger
+    from app.plugins.tgmediacenter.core.pipeline import MessagePipeline
+
+    store: dict = {}
+    plugin = type("P", (), {
+        "get_data": lambda self, key: store.get(key),
+        "save_data": lambda self, key, value: store.__setitem__(key, value),
+    })()
+    first = _ed2k("Show.S01E02.2160p.mkv", 1, "a")
+    second = _ed2k("Show.S01E03.2160p.mkv", 1, "b")
+    transfer_ledger.record(plugin, [{"kind": "ed2k", "url": first, "code": "", "label": "x"}])
+    pipeline = object.__new__(MessagePipeline)
+    pipeline._plugin = plugin
+    pipeline._plugin_id = lambda: "TgMediaCenter"
+    assert pipeline._drop_transferred([first, second]) == [second]
+    assert pipeline._drop_transferred([first]) == []
+
+
+def test_judge_uses_per_key_profiles():
+    """逐集画像生效：同一消息里一集升级、一集持平，只推升级那集。"""
+    from app.plugins.tgmediacenter.services import quality, wash_gate
+
+    rules = quality.default_rules()
+    keys = ["Show|2026|1|1|", "Show|2026|1|2|"]
+    base = quality.parse_quality("Show S01E01 1080p WEB-DL 8GB")
+    candidate = quality.parse_quality("Show S01E01-E02 2160p REMUX 50GB")
+    profiles = {keys[0]: dict(candidate), keys[1]: dict(base)}
+    verdict = wash_gate.judge(candidate, rules, baselines={key: base for key in keys},
+                              keys=keys, profiles=profiles)
+    assert verdict["state"] == wash_gate.STATE_PUSH
+    assert verdict["upgraded"] == [keys[0]]

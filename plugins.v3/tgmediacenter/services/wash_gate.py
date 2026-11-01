@@ -12,6 +12,7 @@ from . import quality as quality_service
 
 STATE_PUSH = "push"
 STATE_FLAT = "flat"
+STATE_LOWER = "lower"
 STATE_REJECTED = "rejected"
 
 
@@ -20,6 +21,7 @@ def judge(
     rules: Dict[str, Any],
     baselines: Optional[Dict[str, Dict[str, Any]]] = None,
     keys: Optional[List[str]] = None,
+    profiles: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """判定一条候选资源是否值得推送。
 
@@ -27,6 +29,9 @@ def judge(
     :param rules: 归一化后的洗版规则
     :param baselines: 基线键 → 基线 profile（已按三源合并后的最优）
     :param keys: 该资源覆盖的逐集基线键（电影为单个键）
+    :param profiles: 逐集候选画像（键 → profile）。整包资源逐集体积不同，
+        或单集 eD2k 能取到真实字节数时由调用方注入；缺省时整条资源共用
+        ``profile``。
     :returns: ``{"state": push|flat|rejected, "reason": str, "details": [...],
         "upgraded": [...], "downgraded": [...]}``
     """
@@ -35,6 +40,7 @@ def judge(
         return {"state": STATE_REJECTED, "reason": why, "details": [], "upgraded": [], "downgraded": []}
 
     baselines = baselines or {}
+    profiles = profiles or {}
     keys = list(keys or [])
     if not keys:
         return {"state": STATE_PUSH, "reason": "无季集信息，按首推处理", "details": [], "upgraded": [], "downgraded": []}
@@ -42,14 +48,20 @@ def judge(
     details: List[Dict[str, Any]] = []
     upgraded: List[str] = []
     downgraded: List[str] = []
+    lowered: List[str] = []
     flat = 0
     for key in keys:
-        state, reason = quality_service.compare(baselines.get(key), profile, rules)
+        candidate = profiles.get(key) or profile
+        state, reason = quality_service.compare(baselines.get(key), candidate, rules)
         details.append({"key": key, "state": state, "reason": reason})
         if state == quality_service.STATE_UPGRADE:
             upgraded.append(key)
         elif state == quality_service.STATE_FLAT:
             flat += 1
+        elif state == quality_service.STATE_LOWER:
+            # 明确不如基线（分辨率/片源/音频/体积等任一维更差）
+            lowered.append(key)
+            downgraded.append(key)
         else:
             # unknown：基线缺失或画质解析不出——按「首推」放行
             upgraded.append(key)
@@ -61,6 +73,15 @@ def judge(
             "reason": f"{first['reason']}（{len(upgraded)}/{len(keys)} 集可推）",
             "details": details,
             "upgraded": upgraded,
+            "downgraded": downgraded,
+        }
+    if lowered:
+        first = next(item for item in details if item["key"] == lowered[0])
+        return {
+            "state": STATE_LOWER,
+            "reason": f"{first['reason']}（{len(lowered)}/{len(keys)} 集不如现有版本）",
+            "details": details,
+            "upgraded": [],
             "downgraded": downgraded,
         }
     return {
@@ -93,12 +114,18 @@ def merge_baselines(*sources: Optional[Dict[str, Dict[str, Any]]]) -> Dict[str, 
 
 
 def covered_keys(details: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
-    """从判定明细里挑出「确实更优」与「持平」的键，供部分转存使用。"""
+    """从判定明细里挑出「确实更优」与「持平」的键，供部分转存使用。
+
+    ``lower``（明确不如基线）既不算更优也不算持平，直接忽略。
+    """
     better: List[str] = []
     same: List[str] = []
     for item in details or []:
-        if item.get("state") == quality_service.STATE_FLAT:
+        state = item.get("state")
+        if state == quality_service.STATE_FLAT:
             same.append(str(item.get("key") or ""))
+        elif state == quality_service.STATE_LOWER:
+            continue
         else:
             better.append(str(item.get("key") or ""))
     return better, same

@@ -214,6 +214,7 @@ const DECISION_LABELS = {
   skipped_excluded: '命中排除词',
   skipped_no_link: '无可推链接',
   skipped_quality: '画质未升级',
+  skipped_duplicate: '已转存过',
   skipped_unknown: '无法判断',
   skipped_extension: '扩展名未命中',
 };

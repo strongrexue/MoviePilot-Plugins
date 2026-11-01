@@ -31,6 +31,8 @@ from typing import Any, List, Optional
 from app.adapters.network.http import AsyncRequestUtils
 from app.sdk.logging import logger
 
+from . import links as link_utils
+
 _BASE_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -446,21 +448,13 @@ def _as_int(value: Any) -> Optional[int]:
         return None
 
 
-_EPISODE_RE = re.compile(r"[Ss](\d{1,2})[\s._-]*[Ee](\d{1,4})")
-
-
 def episodes_of(name: str) -> List[int]:
-    """从文件名里捞季集号（S01E02 / S01E02-E05）。"""
-    text = str(name or "")
-    numbers: List[int] = []
-    for match in _EPISODE_RE.finditer(text):
-        numbers.append(int(match.group(2)))
-    span = re.search(r"[Ee](\d{1,4})[-~][Ee](\d{1,4})", text)
-    if span:
-        start, end = int(span.group(1)), int(span.group(2))
-        if 0 < end - start <= 60:
-            numbers.extend(range(start, end + 1))
-    return sorted(set(numbers))
+    """从文件名里捞季集号（S01E02 / S01E02-E05）。
+
+    1.13.37 起与 ``core.links.episodes_of_name`` 共用同一份实现，避免洗版判定、
+    按集转存、部分转存三处口径漂移。
+    """
+    return link_utils.episodes_of_name(name)
 
 
 def filter_share_files(files: List[dict], episodes: Optional[List[int]]) -> Optional[List[str]]:

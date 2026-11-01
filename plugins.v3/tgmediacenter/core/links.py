@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -204,8 +205,63 @@ def split_batches(items: list[PushItem], batch_size: int) -> list[list[PushItem]
     return [items[index:index + size] for index in range(0, len(items), size)]
 
 
-# 判定"115 里其实已经有了、本次没重复保存"的关键词（1.6.11 起，1.7.0 消息交互共用）。
-# 与 core/pan115_client.py 的口径对齐：分享转存遇「已转存 / 重复」、离线遇
+_EPISODE_RE = re.compile(r"[Ss](\d{1,2})[\s._-]*[Ee](\d{1,4})")
+_EPISODE_SPAN_RE = re.compile(r"[Ee](\d{1,4})\s*[-~]\s*[Ee]?(\d{1,4})")
+
+
+def episodes_of_name(name: str) -> list[int]:
+    """从文件名里解析集号（``S01E02`` / ``S01E02-E05``），返回去重升序列表。
+
+    1.13.37：洗版判定与按集转存共用同一口径——**以链接自带的文件名为准**，
+    避免消息正文声明的季集区间与实际链接条数对不上（E20 被推却从未参与判定）。
+    """
+    text = str(name or "")
+    numbers = [int(match.group(2)) for match in _EPISODE_RE.finditer(text)]
+    span = _EPISODE_SPAN_RE.search(text)
+    if span:
+        start, end = int(span.group(1)), int(span.group(2))
+        if 0 < end - start <= 60:
+            numbers.extend(range(start, end + 1))
+    return sorted({number for number in numbers if number > 0})
+
+
+def item_episodes(item: PushItem) -> list[int]:
+    """链接条目自带的集号；115 分享链接认不出季集，返回空列表。"""
+    if item.kind in ("magnet", "ed2k"):
+        return episodes_of_name(item.file_name)
+    return []
+
+
+def ed2k_size_bytes(url: str) -> Optional[int]:
+    """eD2k 链接里的文件字节数（第 4 段），取不到返回 None。
+
+    结构：``ed2k://|file|<名>|<大小>|<哈希>|/``——大小是该文件的真实字节数，
+    比消息正文的整包体积更适合做「单集体积」。
+    """
+    text = str(url or "").strip()
+    segments = text.split("|")
+    if not text.lower().startswith("ed2k://") or len(segments) < 4:
+        return None
+    try:
+        value = int(str(segments[3]).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def item_size_mb(item: PushItem) -> Optional[float]:
+    """链接自带的单文件体积（MB）；磁力与 115 分享拿不到时返回 None。
+
+    分享链接要拿到逐文件体积必须调 115 的 share/snap 接口（判定阶段还不该发
+    网络请求），因此这里只认 eD2k；拿不到的维度按「不参与比较」处理。
+    """
+    if item.kind != "ed2k":
+        return None
+    size = ed2k_size_bytes(item.url)
+    return round(size / (1024 * 1024), 2) if size else None
+
+
+# 判定"115 里其实已经有了、本次没重复保存"的关键词（1.6.11 起，1.7.0 消息交互共用）。# 与 core/pan115_client.py 的口径对齐：分享转存遇「已转存 / 重复」、离线遇
 # 「已存在 / 重复」都会返回 ok=True + "…（跳过）"——是成功，但不是新转存。
 _DUPLICATE_HINTS = ("已转存", "已存在", "重复", "已保存", "此前已", "已接收")
 

@@ -25,6 +25,8 @@ from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
 from .modules.forward import ForwardModule
 from .modules.interactive import InteractiveModule
+from .modules.manual_search import ManualSearchModule
+from .modules import manual_search as manual_search_module
 from .modules.monitor import MonitorModule
 from .modules.pan115 import Pan115Module
 
@@ -41,7 +43,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.36"
+    plugin_version = "1.13.38"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -123,7 +125,11 @@ class TgMediaCenter(_PluginBase):
         self._cache = CacheModule(self)
         # ⑧ 监听宿主「用户消息」事件：私聊发 115 / 磁力 / ed2k 链接即转存并回执
         self._interactive = InteractiveModule(self)
+        # ⑨ 手动回搜：手机上说「胖虎 片名」查缓存候选并点选推送（1.13.38）
+        self._manual_search = ManualSearchModule(self)
         self._install_user_message_listener()
+        self._install_message_action_listener()
+        self._install_plugin_action_listener()
         # ⑥ 转发模块与 ④ 监控模块共用同一条事件流水线（后者持有流水线生命周期）
         self._forward = ForwardModule(self)
         self._monitor = MonitorModule(self)
@@ -330,6 +336,7 @@ class TgMediaCenter(_PluginBase):
             "notify_mtype": "插件",
             # ⑧ 消息交互：私聊机器人发链接直接转存 115 并回执
             "interactive_push": True,
+            "manual_search_enabled": True,
             # 私聊转存查重：转存成功过的链接（台账）不再重复转存（1.7.5）
             "interactive_dedup": True,
             # ⑨ 发现页入口（1.8.0；1.13.18 起并入「启用」开关）：
@@ -364,6 +371,33 @@ class TgMediaCenter(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         """返回插件 API 路由声明。"""
         return api_controller.get_api(self)
+
+    def get_command(self) -> List[Dict[str, Any]]:
+        """返回插件命令声明：``/胖虎 片名`` 手动回搜（1.13.38）。
+
+        为什么要做成宿主命令而不是纯文本触发：宿主在派发 ``UserMessage`` 给插件之前，
+        会先用 ``_MediaInteractionChain.handle_text_interaction`` 判断「这句话像不像
+        片名」（``app/chain/music_interaction/music.py:resolve_media_action``），像就
+        当成媒体搜索吃掉——所以纯文本「胖虎 凡人修仙传」到不了插件。``/`` 开头走的是
+        ``EventType.CommandExcute`` 分支（``app/chain/message.py:523``），不会被拦。
+        """
+        try:
+            from app.schemas.types import EventType
+        except Exception as err:  # pragma: no cover - 宿主未提供事件类型
+            logger.debug(f"[TgMediaCenter] 宿主事件类型不可用，插件命令不注册：{err}")
+            return []
+        event_type = getattr(EventType, "PluginAction", None)
+        if event_type is None:  # pragma: no cover - 旧宿主无此事件
+            return []
+        return [
+            {
+                "cmd": f"/{manual_search_module.TRIGGER}",
+                "event": event_type,
+                "desc": f"手动回搜：/{manual_search_module.TRIGGER} 片名",
+                "category": "胖虎媒体中心",
+                "data": {"action": manual_search_module.ACTION_COMMAND},
+            }
+        ]
 
     # ------------------------------------------------------------------ API 端点
 
@@ -532,6 +566,14 @@ class TgMediaCenter(_PluginBase):
         处理器**必须定义在插件主类上**，否则宿主
         事件分发会静默跳过（详见该方法注释）。
         """
+        manual = getattr(self, "_manual_search", None)
+        if manual is not None:
+            try:
+                # 「胖虎 片名」与编号/p/n 回复都在这里消费掉，不再当成链接消息
+                if manual.handle_text(event):
+                    return
+            except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
+                logger.warning(f"[TgMediaCenter] 处理手动回搜失败：{err}")
         interactive = getattr(self, "_interactive", None)
         if interactive is None:
             return
@@ -539,6 +581,26 @@ class TgMediaCenter(_PluginBase):
             interactive.handle(event)
         except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
             logger.warning(f"[TgMediaCenter] 处理用户消息失败：{err}")
+
+    def on_message_action(self, event) -> None:
+        """宿主「插件消息交互动作」广播事件：手动回搜的按钮点击（1.13.38）。"""
+        manual = getattr(self, "_manual_search", None)
+        if manual is None:
+            return
+        try:
+            manual.handle_action(event)
+        except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
+            logger.warning(f"[TgMediaCenter] 处理消息交互动作失败：{err}")
+
+    def on_plugin_action(self, event) -> None:
+        """宿主「插件动作」广播事件：插件命令回调（``/胖虎 片名``，1.13.38）。"""
+        manual = getattr(self, "_manual_search", None)
+        if manual is None:
+            return
+        try:
+            manual.handle_command(event)
+        except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
+            logger.warning(f"[TgMediaCenter] 处理插件命令失败：{err}")
 
     def _install_user_message_listener(self) -> bool:
         """注册宿主用户消息事件监听（宿主无该事件时静默降级）。"""
@@ -562,6 +624,39 @@ class TgMediaCenter(_PluginBase):
         self._user_message_event_type = event_type
         return True
 
+    def _install_message_action_listener(self) -> bool:
+        """注册宿主「消息交互动作」事件监听（按钮回调；宿主无该事件时静默降级）。"""
+        try:
+            from app.schemas.types import EventType
+            from app.sdk.events import eventmanager
+        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
+            logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，按钮回调不启用：{err}")
+            return False
+        event_type = getattr(EventType, "MessageAction", None)
+        if event_type is None:  # pragma: no cover - 旧宿主无此事件
+            logger.debug("[TgMediaCenter] 宿主未提供 MessageAction 事件，按钮回调不启用")
+            return False
+        try:
+            eventmanager.add_event_listener(event_type, self.on_message_action)
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] 注册消息交互监听失败：{err}")
+            return False
+        self._message_action_eventmanager = eventmanager
+        self._message_action_event_type = event_type
+        return True
+
+    def _uninstall_message_action_listener(self) -> None:
+        """移除宿主「消息交互动作」事件监听。"""
+        manager = getattr(self, "_message_action_eventmanager", None)
+        event_type = getattr(self, "_message_action_event_type", None)
+        self._message_action_eventmanager = None
+        self._message_action_event_type = None
+        if manager is not None and event_type is not None:
+            try:
+                manager.remove_event_listener(event_type, self.on_message_action)
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"[TgMediaCenter] 移除消息交互监听失败：{err}")
+
     def _uninstall_user_message_listener(self) -> None:
         """移除宿主用户消息事件监听。"""
         manager = getattr(self, "_user_message_eventmanager", None)
@@ -573,6 +668,39 @@ class TgMediaCenter(_PluginBase):
                 manager.remove_event_listener(event_type, self.on_user_message)
             except Exception as err:  # pragma: no cover
                 logger.debug(f"[TgMediaCenter] 移除用户消息监听失败：{err}")
+
+    def _install_plugin_action_listener(self) -> bool:
+        """注册宿主「插件动作」事件监听（插件命令回调；宿主无该事件时静默降级）。"""
+        try:
+            from app.schemas.types import EventType
+            from app.sdk.events import eventmanager
+        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
+            logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，插件命令不启用：{err}")
+            return False
+        event_type = getattr(EventType, "PluginAction", None)
+        if event_type is None:  # pragma: no cover - 旧宿主无此事件
+            logger.debug("[TgMediaCenter] 宿主未提供 PluginAction 事件，插件命令不启用")
+            return False
+        try:
+            eventmanager.add_event_listener(event_type, self.on_plugin_action)
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] 注册插件动作监听失败：{err}")
+            return False
+        self._plugin_action_eventmanager = eventmanager
+        self._plugin_action_event_type = event_type
+        return True
+
+    def _uninstall_plugin_action_listener(self) -> None:
+        """移除宿主「插件动作」事件监听。"""
+        manager = getattr(self, "_plugin_action_eventmanager", None)
+        event_type = getattr(self, "_plugin_action_event_type", None)
+        self._plugin_action_eventmanager = None
+        self._plugin_action_event_type = None
+        if manager is not None and event_type is not None:
+            try:
+                manager.remove_event_listener(event_type, self.on_plugin_action)
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"[TgMediaCenter] 移除插件动作监听失败：{err}")
 
     # ------------------------------------------------------------------ 其它扩展点
 
@@ -637,7 +765,9 @@ class TgMediaCenter(_PluginBase):
         self._forward = None
         # 先摘事件监听，再释放缓存模块
         self._uninstall_user_message_listener()
+        self._uninstall_message_action_listener()
         self._interactive = None
+        self._manual_search = None
         cache = getattr(self, "_cache", None)
         self._cache = None
         if cache is not None:

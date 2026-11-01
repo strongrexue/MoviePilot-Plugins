@@ -310,6 +310,10 @@ class CacheModule:
     def search(self, keyword: str, *, limit: int = 50) -> List[dict]:
         return self._history.search(keyword, limit=limit, chat_ids=self.chat_ids() or None)
 
+    def search_by_title(self, title: str, *, limit: int = 200) -> List[dict]:
+        """按片名检索（归一标题包含匹配，1.13.38 手动回搜用）。"""
+        return self._history.search_by_title(title, limit=limit, chat_ids=self.chat_ids() or None)
+
     # ------------------------------------------------------------------ 订阅回搜
 
     def _notify(self, title: str, text: str) -> None:
@@ -651,6 +655,10 @@ class CacheModule:
             },
             "settings": self.settings(),
         }
+
+    def dialog_names(self) -> Dict[int, str]:
+        """对话 ID → 频道名映射（手动回搜列表展示来源用）。"""
+        return self._dialog_names()
 
     def _dialog_names(self) -> Dict[int, str]:
         """对话缓存里的 ID → 标题映射（展示增强，失败不影响主体）。"""

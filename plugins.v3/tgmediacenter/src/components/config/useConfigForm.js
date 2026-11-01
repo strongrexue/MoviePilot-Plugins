@@ -59,6 +59,9 @@ export const configDefaults = {
   notify_mtype: '插件',
   interactive_push: true,
   interactive_dedup: true,
+  // ⑪ 手动回搜（1.13.38）：手机上说「胖虎 片名」查缓存候选并点选推送。
+  //    没有前端页面（本就是聊天交互），这里只镜像默认值，避免保存配置时被清空
+  manual_search_enabled: true,
   // ⑨ 发现页入口（1.8.0；1.13.18 起不再单独开关）：
   //   插件启用即在 MP 左侧「发现」分区注册整页入口，停用即自动移除
   // ⑩ P9 重复获取治理（1.9.0）

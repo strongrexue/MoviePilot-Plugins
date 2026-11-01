@@ -31,6 +31,7 @@ DECISION_SKIPPED_KEYWORD = "skipped_keyword"            # 自定义关键词未�
 DECISION_SKIPPED_EXCLUDED = "skipped_excluded"          # 命中排除关键词（黑名单，优先于一切命中）
 DECISION_SKIPPED_NO_LINK = "skipped_no_link"            # 没有可推送的链接
 DECISION_SKIPPED_QUALITY = "skipped_quality"          # 洗版门：画质不达标/不比现有版本更好
+DECISION_SKIPPED_DUPLICATE = "skipped_duplicate"      # 链接此前已转存过（台账命中，未重复提交）
 DECISION_SKIPPED_UNKNOWN = "skipped_unknown"            # 无法判断缺失（无媒体服务器/订阅）
 DECISION_SKIPPED_EXTENSION = "skipped_extension"        # ⑥ 转发：文件扩展名未命中
 DECISION_FAILED = "failed"                # 处理过程出错
@@ -49,6 +50,7 @@ DECISIONS = (
     DECISION_SKIPPED_EXCLUDED,
     DECISION_SKIPPED_NO_LINK,
     DECISION_SKIPPED_QUALITY,
+    DECISION_SKIPPED_DUPLICATE,
     DECISION_SKIPPED_UNKNOWN,
     DECISION_SKIPPED_EXTENSION,
     DECISION_FAILED,
@@ -66,6 +68,7 @@ DECISION_LABELS = {
     DECISION_SKIPPED_EXCLUDED: "命中排除词",
     DECISION_SKIPPED_NO_LINK: "无可推链接",
     DECISION_SKIPPED_QUALITY: "画质未升级",
+    DECISION_SKIPPED_DUPLICATE: "已转存过",
     DECISION_SKIPPED_UNKNOWN: "无法判断",
     DECISION_SKIPPED_EXTENSION: "扩展名未命中",
     DECISION_FAILED: "处理失败",

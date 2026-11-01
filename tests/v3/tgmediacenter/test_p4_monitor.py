@@ -1108,6 +1108,8 @@ class TestPipeline:
         assert query_all(TgPushTask, plugin) == []
 
     def test_wash_pushes_when_no_baseline(self, plugin, monitor, pipeline):
+        import json
+
         stub = _WashStub()
         plugin._cache = stub
         monitor.save_rules([base_rule(destination="pan115")])
@@ -1115,8 +1117,19 @@ class TestPipeline:
                       "测试剧集.S01E02.2160p.REMUX\nhttps://115.com/s/swtest?password=abcd")
         logs = query_all(TgHitLog, plugin)
         assert logs[0].decision == DECISION_HIT
-        assert query_all(TgPushTask, plugin)
-        # 推送成功后写入基线，下一轮不会再推
+        tasks = query_all(TgPushTask, plugin)
+        assert tasks
+        # 1.13.37：入队时不再写基线（推送失败也会推进基线），改为推送 done 后写
+        assert not stub.remembered
+        payload = json.loads(tasks[0].payload)
+        assert payload["wash"]["keys"]
+        pipeline._note_outcome(
+            task={"id": tasks[0].id, "rule_id": tasks[0].rule_id,
+                  "chat_id": tasks[0].chat_id, "message_id": tasks[0].message_id,
+                  "payload": payload},
+            via="pan115", outcome="done", message="ok", detail={},
+        )
+        # 推送 done 之后才落基线，下一轮不会再推
         assert stub.remembered
 
     def test_wash_flat_skips_equal_quality(self, plugin, monitor, pipeline):
@@ -1834,6 +1847,25 @@ class TestDestinations:
         })
         result = resolve_destination("pan115", plugin).push({"links": ["a", "b", "c"]})
         assert not result.ok and result.retryable
+
+    def test_pan115_push_fatal_error_not_retryable(self, plugin):
+        """1.13.38：分享被取消 / 提取码错误这类永久性错误不再重试。"""
+        plugin._pan115 = FakePan115Module(enabled=True, result={
+            "succeeded": 0, "failed": 1, "remaining": 0,
+            "message": "推送完成：成功 0，失败 1，原因：读取分享失败：分享已取消",
+        })
+        result = resolve_destination("pan115", plugin).push({"links": ["a"]})
+        assert not result.ok
+        assert not result.retryable
+
+    def test_pan115_push_transient_error_still_retryable(self, plugin):
+        """非永久性错误（网络抖动）仍然重试。"""
+        plugin._pan115 = FakePan115Module(enabled=True, result={
+            "succeeded": 0, "failed": 1, "remaining": 0, "message": "网络抖动，请稍后再试",
+        })
+        result = resolve_destination("pan115", plugin).push({"links": ["a"]})
+        assert not result.ok
+        assert result.retryable
 
     def test_pan115_push_disabled(self, plugin):
         plugin._pan115 = FakePan115Module(enabled=False)

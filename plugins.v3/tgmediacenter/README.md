@@ -452,7 +452,7 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
 - **telethon** 不全局打桩，而是由用例声明 `telethon_available` fixture（它同时修正 `runtime.TELETHON_AVAILABLE`），
   涉及凭证就绪、`_register_handler` 注册形状的断言因此不再随机器变化。
 
-结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境结果一致（1.13.34 在宿主 venv 实测 **483 passed**）。
+结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境结果一致（1.13.37 在宿主 venv 实测 **484 passed**；1.13.38 实测 **555 passed**）。
 在宿主 venv（`D:\projects\MoviePilot\.venv`，另两个插件的依赖也齐）里还可以直接
 `python -m pytest tests\v3` 一次跑完三个插件——本目录有 `__init__.py`
 （另两个插件没有），用来消除与 `tests/v3/embycovercenter/test_plugin.py` 的同名冲突。
@@ -567,11 +567,27 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
   配合已有的 `rule_name` 列一眼看出这条为什么被推；修复「容器重启后 TG 客户端不自动重连」——
   宿主调度器未就绪时一次性连接任务被静默丢弃，现注册失败即退回守护线程延迟连接
   （30 秒内去抖，只起一次），确保重启后定时与实时回搜的监听都能自动恢复。
+- **转存准确性**（`1.13.37`）：按集转存对 eD2k / 磁力真正生效（此前只对 115 分享链接生效，
+  判定 8 集却把整包 20 条全提交）；集号以链接为准（正文集数常与真实链接条数对不上）；
+  整包资源的体积维度不再参与比较、单集 eD2k 用链接真实字节数（修「整包体积摊给每集导致洗版被卡死」）；
+  入队前查 115 转存台账，已转存过的链接不再重复提交（命中记「已转存过」）；
+  洗版基线改到推送真正完成（done）后才写，推送失败不再推进基线。
+- **手动回搜**（`1.13.38`）：手机上发 `/胖虎 片名`，插件按片名检索消息缓存，命中的**每一条**都列出来
+  （只丢「没有链接」和「连分辨率/体积都解析不出」的），逐条对洗版基线标注「↑ 可升级 / ↓ 更低 / = 持平 /
+  ? 无基线」，值得升级的排前面。TG 每页 8 条、下方数字键盘点选 + 翻页按钮，正文不写操作提示；
+  微信每页 6 条（8 条实测被客户端吞掉最后 3 行），操作走 `/胖虎 1` 推送、`/胖虎 n` `/胖虎 p` 翻页、
+  `/胖虎 取消`。所有交互都走 `/胖虎` 专属命令，避开宿主对裸数字与 `p` / `n` 的拦截。
+  推送回执是「📥 开始推送」资源卡，只发回发起渠道；请求状态 24 小时过期、最多留 5 条，不做前端页面。
+- **媒体库画质基线修复**（`1.13.38` 内）：媒体库探测此前恒为空——剧集按中文「电视剧」判类型而宿主给的是
+  `tv`，剧集被当电影搜；电影分支只请求 `Fields=Path` 拿不到 `MediaSources`；旧缓存又把空结果锁 7 天。
+  三者叠加使洗版与手动回搜永远判「无基线」，库里已有 4K 也显示「可升级」。现改为统一类型判定
+  （`quality.is_series`）、电影按 `Ids` 补查明细、分辨率优先取文件名（`.strm` 的 `Height` 常失真，
+  实测 2160p 报 1608）、缓存加探测版本号让旧空结果自动失效。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.36`。版本号需六处同步：`__init__.py`  的 `plugin_version`、
+当前 `1.13.38`。版本号需六处同步：`__init__.py`  的 `plugin_version`、
 `package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
 前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
 `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本

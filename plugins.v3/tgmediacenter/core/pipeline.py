@@ -58,6 +58,7 @@ from ..model.push_task import (
 from ..model.hit_log import (
     DECISION_FAILED,
     DECISION_HIT,
+    DECISION_SKIPPED_DUPLICATE,
     DECISION_SKIPPED_EXCLUDED,
     DECISION_SKIPPED_KEYWORD,
     DECISION_SKIPPED_NOT_MISSING,
@@ -178,6 +179,36 @@ def _task_duplicate(task: Dict[str, Any], detail: Any) -> bool:
     if len(known) != len(links):
         return False
     return all(bool(entry.get("dup")) for entry in known)
+
+
+def _task_origin_channel(task: Dict[str, Any]) -> str:
+    """任务是由哪个渠道发起的（手动回搜写入 ``payload.origin_channel``）。
+
+    1.13.38：手动回搜在 TG / 微信里点按钮入队时，把发起渠道写进负载；回执
+    据此只发回该渠道。监控 / 订阅 / 缓存自动推的任务没有这个字段，返回空串
+    = 广播（与旧行为一致）。
+    """
+    payload = task.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("origin_channel") or "").strip()
+
+
+def _group_by_channel(rows: List[tuple]) -> Dict[str, List[tuple]]:
+    """按行末的渠道名分组，返回 ``{渠道: [去掉渠道后的原元组]}``。
+
+    保持首次出现顺序；空渠道排在最前（广播那条）。同一轮里混了不同来源时
+    分开各发一条，避免 TG 发起的回执漏到微信。
+    """
+    grouped: Dict[str, List[tuple]] = {}
+    for row in rows:
+        channel = str(row[-1] or "").strip()
+        grouped.setdefault(channel, []).append(row[:-1])
+    if "" in grouped:
+        ordered = {"": grouped.pop("")}
+        ordered.update(grouped)
+        return ordered
+    return grouped
 
 
 def _decision_for_skip(verdict: dict) -> "tuple[str, str]":
@@ -593,7 +624,8 @@ class MessagePipeline:
             return None
         return rules
 
-    def _evaluate_wash(self, *, meta: Optional[dict], text: str, rules: dict) -> Dict[str, Any]:
+    def _evaluate_wash(self, *, meta: Optional[dict], text: str, rules: dict,
+                       links: Optional[List[str]] = None) -> Dict[str, Any]:
         """跑一次洗版判定：解析候选画质 → 取三源基线 → 逐维字典序比较。"""
         data = meta if isinstance(meta, dict) else {}
         title = str(data.get("title") or "").strip()
@@ -616,47 +648,134 @@ class MessagePipeline:
         keys = quality_service.episode_keys(title, year, media_type=media_type,
                                             season=season, episode=episode,
                                             episode_end=episode_end)
-        verdict = wash_gate_service.judge(profile, rules, baselines=baselines, keys=keys)
+        # 1.13.37：集号以链接为准。消息正文声明的季集区间常与真实链接条数不一致
+        # （尚公主：正文 17 集、链接 20 条），用链接文件名解析出的集号，才能保证
+        # 「判定的集」与「推送的集」是同一批，E20 这类多出来的链接也才会参与判定。
+        link_episodes = self._link_episodes(links)
+        if link_episodes and quality_service.is_series(media_type):
+            keys = [quality_service.baseline_key(title, year, season, number)
+                    for number in link_episodes]
+        profiles = self._episode_profiles(profile=profile, links=links, keys=keys,
+                                          title=title, year=year, season=season)
+        verdict = wash_gate_service.judge(profile, rules, baselines=baselines,
+                                          keys=keys, profiles=profiles)
         verdict["profile"] = profile
         verdict["keys"] = keys
+        if profiles:
+            verdict["profiles"] = profiles
         return verdict
 
     @staticmethod
-    def _wash_extra(verdict: Optional[dict]) -> Optional[Dict[str, Any]]:
-        """部分转存指令：只升级了部分集时，让 115 只转这些集。
+    def _link_episodes(links: Optional[List[str]]) -> List[int]:
+        """从链接文件名里解析集号（115 分享链接认不出季集，返回空）。"""
+        numbers = set()
+        for item in link_utils.make_items(links or []):
+            numbers.update(link_utils.item_episodes(item))
+        return sorted(numbers)
 
-        整包（无季集信息 / 全部集都升级 / 认不出集号）时返回 None，按整包转存。
+    @staticmethod
+    def _episode_profiles(*, profile: dict, links: Optional[List[str]], keys: List[str],
+                          title: str, year: Any, season: Any) -> Optional[Dict[str, dict]]:
+        """逐集候选画像：整包资源的体积维度不参与比较（1.13.37）。
+
+        消息正文的「💾 大小」是**整包**体积，摊给每一集会让以后任何单集都显得
+        「更小」而永远洗不动版（尚公主基线 8 条全是 102410MB）。这里只认链接
+        自带的真实单文件体积（eD2k 第 4 段），拿不到就把该集的 ``size_mb`` 置空
+        ——``quality.compare`` 遇空会跳过体积维。
+        """
+        sizes: Dict[str, float] = {}
+        for item in link_utils.make_items(links or []):
+            episodes = link_utils.item_episodes(item)
+            size = link_utils.item_size_mb(item)
+            if size and len(episodes) == 1:
+                sizes[quality_service.baseline_key(title, year, season, episodes[0])] = size
+        if not sizes and len(keys or []) <= 1:
+            # 单集资源且拿不到链接体积：沿用正文体积（此时正文体积就是该集体积）
+            return None
+        profiles: Dict[str, dict] = {}
+        for key in keys or []:
+            item = dict(profile or {})
+            item["size_mb"] = sizes.get(key)
+            profiles[key] = item
+        return profiles
+
+    @staticmethod
+    def _wash_extra(verdict: Optional[dict]) -> Optional[Dict[str, Any]]:
+        """洗版指令随任务下发：部分升级时限定集号，并带上「基线待写」数据。
+
+        1.13.37：基线不再在入队时写（推送失败也会推进），改为推送 done 后由
+        ``_note_outcome`` 读 ``payload["wash"]`` 落库，因此这里必须把要写的
+        键与逐集画像一并塞进任务负载。
         """
         if not verdict:
             return None
-        keys = list(verdict.get("keys") or [])
-        upgraded = list(verdict.get("upgraded") or [])
-        if not upgraded or len(upgraded) >= len(keys):
+        keys = [key for key in verdict.get("keys") or [] if key]
+        upgraded = [key for key in verdict.get("upgraded") or [] if key]
+        if not upgraded:
             return None
-        episodes = []
-        for key in upgraded:
-            part = str(key).split("|")
-            if len(part) >= 4 and part[3].strip().isdigit():
-                episodes.append(int(part[3].strip()))
-        if not episodes:
-            return None
-        return {"wash": {"episodes": sorted(set(episodes))}}
+        wash: Dict[str, Any] = {"keys": upgraded, "profile": verdict.get("profile") or {}}
+        profiles = verdict.get("profiles") or {}
+        picked = {key: profiles[key] for key in upgraded if profiles.get(key)}
+        if picked:
+            wash["profiles"] = picked
+        if len(upgraded) < len(keys):
+            episodes = []
+            for key in upgraded:
+                part = str(key).split("|")
+                if len(part) >= 4 and part[3].strip().isdigit():
+                    episodes.append(int(part[3].strip()))
+            if episodes:
+                wash["episodes"] = sorted(set(episodes))
+        return {"wash": wash}
 
     def _remember_wash_baseline(self, verdict: Optional[dict]) -> None:
-        """推送成功后把本次确定要升级的季集写进基线，避免下一轮重复推。"""
+        """把本次确定要升级的季集写进基线（推送 done 后调用，避免失败也推进）。"""
         if not verdict:
             return
         module = self._cache_module()
         if module is None:
             return
-        keys = [key for key in verdict.get("upgraded") or [] if key]
+        keys = [key for key in (verdict.get("upgraded") or verdict.get("keys") or []) if key]
+        if not keys:
+            return
         profile = verdict.get("profile") or {}
-        if not keys or not isinstance(profile, dict):
+        profiles = verdict.get("profiles") or {}
+        payload: Dict[str, dict] = {}
+        for key in keys:
+            chosen = profiles.get(key) or profile
+            if isinstance(chosen, dict) and chosen:
+                payload[key] = chosen
+        if not payload:
             return
         try:
-            module.remember_baselines({key: profile for key in keys})
+            module.remember_baselines(payload)
         except Exception as err:  # pragma: no cover - 写基线失败不影响已入队任务
             logger.debug(f"[{self._plugin_id()}] 写洗版基线失败：{err}")
+
+    def _drop_transferred(self, links: List[str]) -> List[str]:
+        """剔除台账里已转存成功的链接（整条来源链接全部命中才丢，多链接正文保守保留）。"""
+        items = link_utils.make_items(links)
+        if not items:
+            return links
+        identities = [transfer_ledger.link_identity(item.kind, item.url, item.code)
+                      for item in items]
+        try:
+            hits = transfer_ledger.lookup(self._plugin, identities)
+        except Exception as err:  # pragma: no cover - 台账不可用按不判重处理
+            logger.debug(f"[{self._plugin_id()}] 查已转存台账失败（按未转存处理）：{err}")
+            return links
+        if not hits:
+            return links
+        grouped: Dict[str, List[str]] = {}
+        for item, identity in zip(items, identities):
+            grouped.setdefault(item.source or item.url, []).append(identity)
+        kept: List[str] = []
+        for link in links:
+            here = grouped.get(link) or []
+            if here and all(identity in hits for identity in here):
+                continue
+            kept.append(link)
+        return kept
 
     def _record_cache(self, chat_id: int, message_id: int, text: str, *,
                       cleaned: Optional[str], meta: Optional[dict], links: List[str]) -> None:
@@ -737,7 +856,8 @@ class MessagePipeline:
         wash_rules = self._wash_rules()
         wash_verdict = None
         if wash_rules:
-            wash_verdict = self._evaluate_wash(meta=meta, text=cleaned, rules=wash_rules)
+            wash_verdict = self._evaluate_wash(meta=meta, text=cleaned, rules=wash_rules,
+                                               links=links)
             if wash_verdict["state"] != "push":
                 self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_QUALITY,
                              wash_verdict.get("reason") or "画质不达标", destination, links)
@@ -753,6 +873,17 @@ class MessagePipeline:
                          "消息中没有可推送的链接（115 分享 / 磁力 / eD2k）", destination, links)
             return
 
+        # 台账去重（1.13.37）：这些链接此前已经转存成功过的，不再重复提交。
+        # 115 对重复的离线任务会返回「该任务已存在（跳过）」并照样算成功，通知
+        # 里却写「✅ 转存成功」，用户看到的就是「又转了一遍」（尚公主 E01 事故）。
+        if destination in ("smart", "pan115") and links:
+            remaining = self._drop_transferred(links)
+            if not remaining:
+                self._record(rule, chat_id, message_id, meta, DECISION_SKIPPED_DUPLICATE,
+                             "全部链接此前已转存过（台账命中，未重复提交）", destination, links)
+                return
+            links = remaining
+
         task_id = self._enqueue_push(rule=rule, chat_id=chat_id, message_id=message_id,
                                      text=text, links=links, destination=destination,
                                      title=self._media_label(meta),
@@ -764,8 +895,6 @@ class MessagePipeline:
             self._record(rule, chat_id, message_id, meta, DECISION_HIT,
                          f"已入推送队列 #{task_id}{reason}{keyword_note}", destination, links)
             self._stats["hit"] += 1
-            if wash_verdict:
-                self._remember_wash_baseline(wash_verdict)
         else:
             self._record(rule, chat_id, message_id, meta, DECISION_FAILED,
                          "推送任务入队失败（请查看运行日志）", destination, links)
@@ -1013,19 +1142,28 @@ class MessagePipeline:
                     transfer_ledger.record(self._plugin, entries)
             except Exception as err:  # pragma: no cover - 台账失败不影响主流程
                 logger.debug(f"[{self._plugin_id()}] 已转存台账记录失败（忽略）：{err}")
+            # 洗版基线（1.13.37）：改在推送真正 done 之后写。此前在入队时就写，
+            # 推送失败也会把基线推进，导致真升级下一轮被判「不比现有版本更好」。
+            wash = (task.get("payload") or {}).get("wash")
+            if isinstance(wash, dict) and wash.get("keys"):
+                self._remember_wash_baseline(wash)
             # 缓存回搜来源的任务不发「115 转存完成」：回搜通知在入队时已把
             # 链接 + 来源列过一遍，完成通知再列就是同样内容发两遍（1.7.4 真机
             # 反馈）。失败通知不受影响——回搜推送失败仍要单独报。
             if str(task.get("rule_id") or "") == _CACHE_SEARCH_RULE_ID:
                 return
             # 元组带上 chat_id 与 duplicate：通知里按任务分块、各自标注来源频道，
-            # 并区分「新转存」与「已转存过」（115 把重复也算成功，必须说清）
+            # 并区分「新转存」与「已转存过」（115 把重复也算成功，必须说清）。
+            # 1.13.38：末位补「发起渠道」——手动回搜在 TG 里点的推送，回执不该
+            # 再广播到微信；空渠道（监控/订阅/缓存自动推）仍按广播处理。
             self._cycle["pan115_done"].append(
-                (self._task_label(task), links, chat_id, _task_duplicate(task, detail))
+                (self._task_label(task), links, chat_id, _task_duplicate(task, detail),
+                 _task_origin_channel(task))
             )
             return
         self._cycle["pan115_failed"].append(
-            (self._task_label(task), str(message or ""), links, chat_id)
+            (self._task_label(task), str(message or ""), links, chat_id,
+             _task_origin_channel(task))
         )
 
     def _dialog_names(self) -> Dict[int, str]:
@@ -1064,55 +1202,64 @@ class MessagePipeline:
         names: Dict[int, str] = {}
         if done and self._notifier.enabled("notify_on_hit", True):
             names = self._dialog_names()
-            lines: List[str] = []
-            shown = done[:8]
-            for label, links, chat_id, duplicate in shown:
-                # 去「· 」、链接行左对齐（首字对齐）；每条任务一个块，自带来源
-                lines.append(media_line(label))
-                for url in links[:3]:
-                    lines.append(f"{ICON_LINK} 链接：{url}")
-                if len(links) > 3:
-                    lines.append(f"{ICON_LINK} 还有 {len(links) - 3} 条链接")
-                src = names.get(int(chat_id)) or str(chat_id)
-                lines.append(f"{ICON_SOURCE} 来源：{src}")
-                # 1.7.7：每块一行状态（与链接转存回执同款）——已转存过 ♻️ / 新转存 ✅
-                if duplicate:
-                    lines.append(f"{ICON_RECYCLE} 已转存过，本次未重复保存")
-                else:
-                    lines.append(f"{ICON_OK} 转存成功")
-            if len(done) > 8:
-                lines.append(f"…另有 {len(done) - 8} 条")
-            self._notifier.send(f"{ICON_DOWNLOAD} 胖虎媒体中心 · 115 转存完成", "\n".join(lines))
+            # 1.13.38：按发起渠道分组各发一条。同轮混源（TG 点了一条、监控又命中
+            # 一条）就发两条，避免 TG 发起的回执漏到微信；空渠道仍按广播发。
+            for channel, items in _group_by_channel(done).items():
+                lines: List[str] = []
+                shown = items[:8]
+                for label, links, chat_id, duplicate in shown:
+                    # 去「· 」、链接行左对齐（首字对齐）；每条任务一个块，自带来源
+                    lines.append(media_line(label))
+                    for url in links[:3]:
+                        lines.append(f"{ICON_LINK} 链接：{url}")
+                    if len(links) > 3:
+                        lines.append(f"{ICON_LINK} 还有 {len(links) - 3} 条链接")
+                    src = names.get(int(chat_id)) or str(chat_id)
+                    lines.append(f"{ICON_SOURCE} 来源：{src}")
+                    # 1.7.7：每块一行状态（与链接转存回执同款）——已转存过 ♻️ / 新转存 ✅
+                    if duplicate:
+                        lines.append(f"{ICON_RECYCLE} 已转存过，本次未重复保存")
+                    else:
+                        lines.append(f"{ICON_OK} 转存成功")
+                if len(items) > 8:
+                    lines.append(f"…另有 {len(items) - 8} 条")
+                self._notifier.send(
+                    f"{ICON_DOWNLOAD} 胖虎媒体中心 · 115 转存完成",
+                    "\n".join(lines),
+                    channel=channel,
+                )
 
         total = len(failed_115)
         if total and self._notifier.enabled("notify_on_error", True):
             if not names:
                 names = self._dialog_names()
-            credential_issue = any(_looks_like_auth_error(msg) for _, msg, _, _ in failed_115)
-            # 与成功通知同款版式：每条任务一个块（媒体名 → 链接 → 来源 → 失败原因），
-            # 去「· 」、首字对齐，便于一眼定位是哪条链接、来自哪个频道、为什么失败。
-            lines: List[str] = []
-            shown = failed_115[:6]
-            for label, msg, links, chat_id in shown:
-                lines.append(media_line(label))
-                for url in links[:3]:
-                    lines.append(f"{ICON_LINK} 链接：{url}")
-                if len(links) > 3:
-                    lines.append(f"{ICON_LINK} 还有 {len(links) - 3} 条链接")
-                src = names.get(int(chat_id)) or str(chat_id)
-                lines.append(f"{ICON_SOURCE} 来源：{src}")
-                lines.append(f"{ICON_FAIL} 失败原因：{msg or '未知原因'}")
-            if total > len(shown):
-                lines.append(f"…另有 {total - len(shown)} 条")
-            if credential_issue:
-                lines.append(f"{ICON_ERROR} 看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
-            self._notifier.send(
-                f"{ICON_ERROR} 胖虎媒体中心 · 115 转存失败",
-                "\n".join(lines),
-                # 登录态失效属"需要人工介入且会长时间持续"的故障：6 小时内只提醒一次
-                key="pan115_credential" if credential_issue else "",
-                window=_CREDENTIAL_NOTIFY_WINDOW,
-            )
+            for channel, items in _group_by_channel(failed_115).items():
+                credential_issue = any(_looks_like_auth_error(msg) for _, msg, _, _ in items)
+                # 与成功通知同款版式：每条任务一个块（媒体名 → 链接 → 来源 → 失败原因），
+                # 去「· 」、首字对齐，便于一眼定位是哪条链接、来自哪个频道、为什么失败。
+                lines: List[str] = []
+                shown = items[:6]
+                for label, msg, links, chat_id in shown:
+                    lines.append(media_line(label))
+                    for url in links[:3]:
+                        lines.append(f"{ICON_LINK} 链接：{url}")
+                    if len(links) > 3:
+                        lines.append(f"{ICON_LINK} 还有 {len(links) - 3} 条链接")
+                    src = names.get(int(chat_id)) or str(chat_id)
+                    lines.append(f"{ICON_SOURCE} 来源：{src}")
+                    lines.append(f"{ICON_FAIL} 失败原因：{msg or '未知原因'}")
+                if len(items) > len(shown):
+                    lines.append(f"…另有 {len(items) - len(shown)} 条")
+                if credential_issue:
+                    lines.append(f"{ICON_ERROR} 看起来是 115 登录态失效：请到「115 网盘」面板重新扫码登录，之后重推即可。")
+                self._notifier.send(
+                    f"{ICON_ERROR} 胖虎媒体中心 · 115 转存失败",
+                    "\n".join(lines),
+                    # 登录态失效属"需要人工介入且会长时间持续"的故障：6 小时内只提醒一次
+                    key="pan115_credential" if credential_issue else "",
+                    window=_CREDENTIAL_NOTIFY_WINDOW,
+                    channel=channel,
+                )
 
     def _group_tasks(self, tasks: List[Dict[str, Any]]) -> "List[List[Dict[str, Any]]]":
         """把可合并的任务分组（保持原顺序）。
@@ -1386,7 +1533,12 @@ class MessagePipeline:
                 else:
                     row.status = STATUS_FAILED
                     row.error = str(message)[:500]
-                    row.result = json.dumps({"message": message}, ensure_ascii=False)[:2000]
+                    # 1.13.38：失败也要落 detail。此前只写 {"message": ...}，把
+                    # 115 逐条给的失败原因（如「分享已取消」）整段丢掉，用户只能
+                    # 看到「推送完成：成功 0，失败 1」，查不到到底为什么失败。
+                    row.result = json.dumps(
+                        {"message": message, "detail": detail or {}}, ensure_ascii=False
+                    )[:2000]
                 session.commit()
         except Exception as err:  # pragma: no cover
             logger.warning(f"更新推送任务状态失败（#{task_id}）：{err}")

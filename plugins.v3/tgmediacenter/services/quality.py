@@ -60,6 +60,7 @@ SOURCE_LABELS = {"pushed": "已推送基线", "library": "媒体库已存在", "
 
 STATE_UPGRADE = "upgrade"
 STATE_FLAT = "flat"
+STATE_LOWER = "lower"
 STATE_UNKNOWN = "unknown"
 
 # --------------------------------------------------------------------------- 正则
@@ -395,7 +396,7 @@ def compare(
 ) -> Tuple[str, str]:
     """基线 vs 候选的逐维比较。
 
-    :returns: ``(STATE_UPGRADE|STATE_FLAT|STATE_UNKNOWN, 原因)``
+    :returns: ``(STATE_UPGRADE|STATE_FLAT|STATE_LOWER|STATE_UNKNOWN, 原因)``
     """
     rules = rules or default_rules()
     if not candidate or not candidate.get("known"):
@@ -429,7 +430,7 @@ def compare(
             bigger = float(cand_mb) > float(base_mb)
             if (prefer == "desc" and bigger) or (prefer == "asc" and not bigger):
                 return STATE_UPGRADE, f"{label}更优（{float(cand_mb):.0f}MB > {float(base_mb):.0f}MB）"
-            return STATE_FLAT, f"{label}更小（{float(cand_mb):.0f}MB < {float(base_mb):.0f}MB）"
+            return STATE_LOWER, f"{label}更小（{float(cand_mb):.0f}MB < {float(base_mb):.0f}MB）"
         base_rank = rank_of(dim, base.get(dim), rules)
         cand_rank = rank_of(dim, candidate.get(dim), rules)
         if base_rank is None or cand_rank is None:
@@ -437,7 +438,7 @@ def compare(
         if cand_rank < base_rank:
             return STATE_UPGRADE, f"{label}更优（{candidate.get(dim)} > {base.get(dim)}）"
         if cand_rank > base_rank:
-            return STATE_FLAT, f"{label}低于基线（{candidate.get(dim)} < {base.get(dim)}）"
+            return STATE_LOWER, f"{label}低于基线（{candidate.get(dim)} < {base.get(dim)}）"
     return STATE_FLAT, "逐维相同"
 
 

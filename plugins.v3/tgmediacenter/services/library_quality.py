@@ -34,6 +34,9 @@ TTL_DAYS = 7
 RETRY_FAILED_DAYS = 7
 TIMEOUT = 5
 _MAX_ROWS = 4000
+# 探测结果版本：解析口径变更时自增，旧缓存（含旧版的空结果）自动失效重探。
+_PROBE_VERSION = 2
+_clients_logged = False
 _VIDEO_CODEC_MAP = {
     "av1": "av1",
     "hevc": "hevc",
@@ -76,6 +79,9 @@ class LibraryQualityService:
             payload = json.loads(row.profiles or "{}")
         except Exception:
             return None
+        if payload.get("v") != _PROBE_VERSION:
+            # 旧版本缓存（含历史空结果）一律重探，避免一直判「无基线」
+            return None
         ts = payload.get("ts")
         ttl = RETRY_FAILED_DAYS if payload.get("empty") else TTL_DAYS
         if ts and (datetime.now() - datetime.fromtimestamp(float(ts))) < timedelta(days=ttl):
@@ -99,7 +105,11 @@ class LibraryQualityService:
 
     # ------------------------------------------------------------------ 探测
     def _clients(self) -> List[Tuple[str, str, str, str]]:
+        global _clients_logged
         if not MEDIASERVER_AVAILABLE:
+            if not _clients_logged:
+                _clients_logged = True
+                logger.info("媒体库画质：宿主媒体服务器 SDK 不可用，跳过探测")
             return []
         clients: List[Tuple[str, str, str, str]] = []
         try:
@@ -114,20 +124,24 @@ class LibraryQualityService:
                 if host and api_key:
                     clients.append((str(getattr(service, "name", "") or ""), host, api_key, user))
         except Exception as err:  # pragma: no cover
-            logger.debug(f"读取媒体服务器实例失败：{err}")
+            logger.warning(f"读取媒体服务器实例失败：{err}")
+        if not _clients_logged:
+            _clients_logged = True
+            logger.info(f"媒体库画质：发现 {len(clients)} 个媒体服务器实例")
         return clients
 
     def _fetch(self, title: str, year: Any, media_type: str) -> Tuple[Dict[str, Any], str, str]:
         episodes: Dict[str, Any] = {}
         for name, host, api_key, _user in self._clients():
             base = host if host.rstrip("/").endswith(("emby", "jellyfin")) else host
-            item_type = "Series" if str(media_type or "") == "电视剧" else "Movie"
+            # 宿主给的是 "tv"/"movie"，不是中文标签，必须走统一的类型判定
+            item_type = "Series" if quality_service.is_series(media_type) else "Movie"
             params = {
                 "api_key": api_key,
                 "Recursive": "true",
                 "IncludeItemTypes": item_type,
                 "SearchTerm": str(title or ""),
-                "Fields": "Path",
+                "Fields": "MediaSources,Path",
                 "Limit": 5,
             }
             if str(year or "").strip():
@@ -151,7 +165,18 @@ class LibraryQualityService:
                     if profile and number is not None:
                         episodes[str(number)] = profile
             else:
-                profile = self._profile_of(entry)
+                # 搜索接口对电影常常不回 MediaSources，补一次按 Id 的明细查询
+                detail = entry
+                if not (entry.get("MediaSources") or []):
+                    rows = self._get(base, "/Items", {
+                        "api_key": api_key,
+                        "Ids": item_id,
+                        "Fields": "MediaSources,Path",
+                        "Limit": 1,
+                    }) or []
+                    if rows:
+                        detail = rows[0]
+                profile = self._profile_of(detail)
                 if profile:
                     episodes["0"] = profile
             if episodes:
@@ -183,40 +208,42 @@ class LibraryQualityService:
     @staticmethod
     def _profile_of(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         sources = item.get("MediaSources") or []
-        if not sources:
-            return None
-        source = sources[0] or {}
+        source = (sources[0] or {}) if sources else {}
         path = str(source.get("Path") or item.get("Path") or "")
-        # 文件名通常带分辨率/片源，直接复用质量解析器
+        # 文件名（含 2160p/H.265 等）是最可靠的画质来源：.strm 直链时
+        # 媒体服务器给出的 Height 常与真实分辨率不符（例如 2160p 报 1608）。
         profile = quality_service.parse_quality(path)
         streams = source.get("MediaStreams") or []
         video = next((s for s in streams if str(s.get("Type") or "") == "Video"), None)
         audio = next((s for s in streams if str(s.get("Type") or "") == "Audio"), None)
         if video:
-            height = video.get("Height")
-            try:
-                height_int = int(height)
-            except (TypeError, ValueError):
-                height_int = 0
-            if height_int >= 2000:
-                profile["resolution"] = "2160p"
-            elif height_int >= 1000:
-                profile["resolution"] = "1080p"
-            elif height_int >= 700:
-                profile["resolution"] = "720p"
-            codec = _VIDEO_CODEC_MAP.get(str(video.get("Codec") or "").lower())
-            if codec:
-                profile["codec"] = codec
-            effect = str(video.get("VideoRangeType") or video.get("VideoRange") or "").upper()
-            if "DOLBY" in effect or "DOVI" in effect or effect == "DV":
-                profile["effect"] = "dv"
-            elif "HDR10+" in effect:
-                profile["effect"] = "hdr10p"
-            elif "HDR10" in effect:
-                profile["effect"] = "hdr10"
-            elif "HDR" in effect:
-                profile["effect"] = "hdr"
-        if audio:
+            if not profile.get("resolution"):
+                height = video.get("Height")
+                try:
+                    height_int = int(height)
+                except (TypeError, ValueError):
+                    height_int = 0
+                if height_int >= 2000:
+                    profile["resolution"] = "2160p"
+                elif height_int >= 1000:
+                    profile["resolution"] = "1080p"
+                elif height_int >= 700:
+                    profile["resolution"] = "720p"
+            if not profile.get("codec"):
+                codec = _VIDEO_CODEC_MAP.get(str(video.get("Codec") or "").lower())
+                if codec:
+                    profile["codec"] = codec
+            if not profile.get("effect"):
+                effect = str(video.get("VideoRangeType") or video.get("VideoRange") or "").upper()
+                if "DOLBY" in effect or "DOVI" in effect or effect == "DV":
+                    profile["effect"] = "dv"
+                elif "HDR10+" in effect:
+                    profile["effect"] = "hdr10p"
+                elif "HDR10" in effect:
+                    profile["effect"] = "hdr10"
+                elif "HDR" in effect:
+                    profile["effect"] = "hdr"
+        if audio and not profile.get("audio"):
             codec = _AUDIO_CODEC_MAP.get(str(audio.get("Codec") or "").lower())
             if codec:
                 profile["audio"] = codec
@@ -227,6 +254,8 @@ class LibraryQualityService:
         if size:
             profile["size_mb"] = round(size / 1024 / 1024, 1)
         profile["known"] = bool(profile.get("resolution"))
+        if not profile["known"] and not sources:
+            return None
         return profile
 
     # ------------------------------------------------------------------ 存储
@@ -249,7 +278,7 @@ class LibraryQualityService:
         if self._db is None:
             return
         payload = json.dumps(
-            {"ts": time.time(), "empty": bool(empty), "episodes": episodes},
+            {"ts": time.time(), "v": _PROBE_VERSION, "empty": bool(empty), "episodes": episodes},
             ensure_ascii=False,
         )
         try:

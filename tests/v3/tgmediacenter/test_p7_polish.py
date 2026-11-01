@@ -245,8 +245,10 @@ class NotifyPipelinePlugin:
     def get_database(self):
         return self._db
 
-    def post_message(self, title="", text="", mtype=None) -> None:
-        self.messages.append({"title": title, "text": text, "mtype": mtype})
+    def post_message(self, title="", text="", mtype=None, channel=None) -> None:
+        self.messages.append(
+            {"title": title, "text": text, "mtype": mtype, "channel": channel}
+        )
 
     def get_data(self, key, default=None):
         return self._data.get(key, default)
@@ -267,12 +269,15 @@ def push_env():
 
 def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: str = "青与碧 (2026)",
                chat_id: int = -1004316104321, links: Optional[List[str]] = None,
-               rule_id: str = "r1") -> Dict[str, Any]:
+               rule_id: str = "r1", origin_channel: str = "") -> Dict[str, Any]:
     """往任务表塞一条待推送任务并返回后端视图 dict。"""
     import json
 
     if links is None:
         links = ["https://115.com/s/abc"]
+    payload: Dict[str, Any] = {"links": links, "title": title}
+    if origin_channel:
+        payload["origin_channel"] = origin_channel
     with plugin.get_database().session() as session:
         session.add(TgPushTask(
             id=task_id,
@@ -282,7 +287,7 @@ def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: 
             message_id=2234753,
             destination=destination,
             target_id="",
-            payload=json.dumps({"links": links, "title": title}, ensure_ascii=False),
+            payload=json.dumps(payload, ensure_ascii=False),
             status=STATUS_PENDING,
         ))
         session.commit()
@@ -292,7 +297,7 @@ def _seed_task(plugin, *, task_id: int = 1, destination: str = "pan115", title: 
         "chat_id": chat_id,
         "message_id": 2234753,
         "destination": destination,
-        "payload": {"links": links, "title": title},
+        "payload": payload,
         "retries": 0,
     }
 
@@ -595,6 +600,74 @@ class TestPushNotifications:
         from app.plugins.tgmediacenter.modules.cache import CACHE_SEARCH_RULE_ID
 
         assert pipeline_module._CACHE_SEARCH_RULE_ID == CACHE_SEARCH_RULE_ID
+
+    def test_notification_follows_origin_channel(self, push_env, monkeypatch):
+        """1.13.38：手动回搜在 TG 里点的推送，回执只发回 TG，不广播到微信。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=True, message="115 推送完成：成功 1")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env, origin_channel="Telegram")
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        pipeline._flush_notifications()
+        assert len(push_env.messages) == 1
+        assert push_env.messages[0]["channel"] is not None
+
+    def test_notification_without_channel_stays_broadcast(self, push_env, monkeypatch):
+        """没有发起渠道的任务（监控 / 订阅 / 缓存）仍按广播发。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=True, message="115 推送完成：成功 1")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env)
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        pipeline._flush_notifications()
+        assert len(push_env.messages) == 1
+        assert push_env.messages[0]["channel"] is None
+
+    def test_mixed_channels_split_into_separate_notifications(self, push_env, monkeypatch):
+        """同一轮混了不同来源：分开各发一条，别把 TG 的回执漏到微信。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        target = _Target("pan115", ok=True, message="115 推送完成：成功 1")
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        tg_task = _seed_task(push_env, task_id=1, title="希望 (2026)",
+                             links=["https://115.com/s/aaa"], origin_channel="Telegram")
+        auto_task = _seed_task(push_env, task_id=2, title="伟大的长征 (2025)",
+                               links=["https://115.com/s/bbb"])
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(tg_task)
+        pipeline._execute_push(auto_task)
+        pipeline._flush_notifications()
+        # 两条通知：一条带渠道、一条广播
+        assert len(push_env.messages) == 2
+        channels = sorted(str(message["channel"]) for message in push_env.messages)
+        assert any("None" in value for value in channels)
+        assert any("None" not in value for value in channels)
+        texts = "\n".join(message["text"] for message in push_env.messages)
+        assert "希望 (2026)" in texts
+        assert "伟大的长征 (2025)" in texts
+
+    def test_failed_task_keeps_detail_in_result(self, push_env, monkeypatch):
+        """1.13.38：失败任务要把逐条原因（分享已取消）落到 result，便于排障。"""
+        pipeline = MessagePipeline(push_env, monitor=None, matcher=None)
+        detail = {"results": [
+            {"source": "https://115.com/s/abc", "ok": False, "message": "读取分享失败：分享已取消"},
+        ]}
+        target = _Target("pan115", ok=False, message="推送完成：成功 0，失败 1",
+                         retryable=False, detail=detail)
+        monkeypatch.setattr(pipeline_module, "resolve_destination",
+                            lambda name, plugin, gate=None: target)
+        task = _seed_task(push_env)
+        pipeline._cycle = pipeline._empty_cycle()
+        pipeline._execute_push(task)
+        import json
+        with push_env.get_database().session() as session:
+            row = session.query(TgPushTask).filter(TgPushTask.id == task["id"]).one()
+            result = json.loads(row.result)
+        assert "分享已取消" in json.dumps(result, ensure_ascii=False)
 
     def test_pipeline_records_transfer_ledger_on_done(self, push_env, monkeypatch):
         """1.7.5：115 转存成功要记入已转存台账（缓存回搜任务同样要记），

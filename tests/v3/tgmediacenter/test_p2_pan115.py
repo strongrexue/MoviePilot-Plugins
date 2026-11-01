@@ -449,6 +449,15 @@ def test_push_survives_single_item_pan115_error():
     assert all("分享链接已失效" in str(item.get("message") or "") for item in result["results"])
 
 
+def test_push_message_carries_first_failure_reason():
+    """1.13.38：汇总句要带第一条失败原因，不能只报「成功 0，失败 1」。"""
+    module = _push_module_with_client(_BoomClient(Pan115Error("读取分享失败：分享已取消")))
+    result = module.push(["https://115.com/s/sws2t2l33bm?password=nf29"], cid="123456")
+
+    assert result["failed"] == 1
+    assert "分享已取消" in str(result["message"])
+
+
 def test_batch_size_override_and_guard():
     """单批上限可覆盖，非法值回退默认。"""
     module = Pan115Module(_StubPlugin(config={"pan115_batch_max_size": "abc"}))
@@ -584,4 +593,84 @@ def test_logout_clears_cookie_and_state():
     assert plugin.get_data("pan115_state") is None
     assert plugin.get_data("pan115_qr") is None
     assert status["cookie_configured"] is False
+
+
+# ------------------------------------------- 按集筛选 / 单集体积（1.13.37）
+
+
+class _OfflineRecorder:
+    """只记录 offline_add 的客户端替身（eD2k / 磁力路径）。"""
+
+    def __init__(self) -> None:
+        self.added: list[str] = []
+
+    async def offline_add(self, url, cid):  # noqa: D401 - 替身
+        self.added.append(url)
+        return {"message": "离线任务已提交"}
+
+    async def share_snap(self, *args, **kwargs):  # pragma: no cover - 不走分享
+        raise AssertionError("eD2k 不应调分享接口")
+
+    async def share_receive(self, *args, **kwargs):  # pragma: no cover - 不走分享
+        raise AssertionError("eD2k 不应调分享接口")
+
+
+def _ed2k(name: str, size: int, char: str) -> str:
+    return f"ed2k://|file|{name}|{size}|{char * 32}|/"
+
+
+def test_push_filters_ed2k_by_episodes():
+    """1.13.37 真机事故回归：判定 8 集却把整包 20 条 eD2k 全提交离线。
+
+    尚公主 E01-E20 判定只有 8 集可洗版，``_push_one`` 的 eD2k 分支完全忽略
+    ``episodes``，结果 20 条全提交（115 回「该任务已存在」仍算成功）。
+    """
+    client = _OfflineRecorder()
+    module = _push_module_with_client(client)
+    links = [
+        _ed2k("Show.S01E01.2160p.mkv", 1073741824, "a"),
+        _ed2k("Show.S01E02.2160p.mkv", 2147483648, "b"),
+        _ed2k("Show.S01E03.2160p.mkv", 3221225472, "c"),
+    ]
+    result = module.push(links, cid="123456", episodes=[2])
+    assert len(client.added) == 1
+    assert "S01E02" in client.added[0]
+    assert result["succeeded"] == 1
+    assert result["skipped"] == 2
+
+
+def test_push_keeps_unknown_episode_links():
+    """认不出集号的链接不能被误杀（宁可多转，不可漏转）。"""
+    client = _OfflineRecorder()
+    module = _push_module_with_client(client)
+    links = [
+        _ed2k("Show.S01E02.2160p.mkv", 1073741824, "a"),
+        _ed2k("Show.Complete.Pack.mkv", 2147483648, "b"),
+    ]
+    module.push(links, cid="123456", episodes=[2])
+    assert len(client.added) == 2
+
+
+def test_push_reports_empty_after_episode_filter():
+    """全部被集号筛掉时给出准确文案，而不是「链接暂不支持」。"""
+    client = _OfflineRecorder()
+    module = _push_module_with_client(client)
+    result = module.push([_ed2k("Show.S01E05.2160p.mkv", 1073741824, "a")],
+                         cid="123456", episodes=[2])
+    assert client.added == []
+    assert result["succeeded"] == 0
+    assert "按集号筛选后没有需要转存的链接" in result["message"]
+
+
+def test_link_episode_and_size_helpers():
+    """链接自带的集号与单集体积解析（洗版判定与按集转存共用口径）。"""
+    assert link_utils.episodes_of_name("Show.S01E02-E04.2160p.mkv") == [2, 3, 4]
+    item = link_utils.make_items([_ed2k("Show.S01E02.2160p.mkv", 2147483648, "b")])[0]
+    assert link_utils.item_episodes(item) == [2]
+    assert link_utils.ed2k_size_bytes(item.url) == 2147483648
+    assert link_utils.item_size_mb(item) == 2048.0
+    # 分享链接 / 磁力拿不到体积 → None（体积维度不参与比较）
+    share = link_utils.make_items(["https://115.com/s/swabc?password=1a2b"])[0]
+    assert link_utils.item_size_mb(share) is None
+    assert link_utils.item_episodes(share) == []
 

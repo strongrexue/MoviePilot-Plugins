@@ -401,6 +401,24 @@ class Pan115Module:
         supported = [item for item in items if item.supported]
         skipped_items = [item for item in items if not item.supported]
 
+        # 1.13.37：eD2k / 磁力一条链接就是一个文件，按集号先筛掉不需要的。
+        # 此前只有 115 分享链接走 filter_share_files 按集切分，eD2k/磁力把
+        # 「判定只有 8 集可洗版」的整包 20 条链接全提交了离线（真机事故：
+        # 尚公主 E01-E20 判定 8 集，实际推 20 条）。
+        if episodes:
+            wanted = {int(ep) for ep in episodes
+                      if isinstance(ep, int) or str(ep).strip().isdigit()}
+            if wanted:
+                kept: list = []
+                for item in supported:
+                    if item.kind in ("magnet", "ed2k"):
+                        numbers = link_utils.item_episodes(item)
+                        if numbers and not wanted.intersection(numbers):
+                            skipped_items.append(item)
+                            continue
+                    kept.append(item)
+                supported = kept
+
         result: dict[str, Any] = {
             "total": total,
             "processed": 0,
@@ -427,7 +445,12 @@ class Pan115Module:
             return result
 
         if not supported:
-            result["message"] = "解析到的链接暂不支持推送（支持 115 分享链接、磁力、eD2k）"
+            if skipped_items and episodes:
+                result["message"] = (
+                    f"按集号筛选后没有需要转存的链接（忽略 {len(skipped_items)} 条）"
+                )
+            else:
+                result["message"] = "解析到的链接暂不支持推送（支持 115 分享链接、磁力、eD2k）"
             return result
 
         client = self._client(timeout=20)
@@ -476,6 +499,16 @@ class Pan115Module:
             parts.append(f"忽略 {result['skipped']}")
         if result["remaining"]:
             parts.append(f"剩余 {result['remaining']}（可再次点击继续）")
+        # 1.13.38：把第一条失败原因带进汇总句。此前只报数量，用户看到
+        # 「成功 0，失败 1」却不知道是「分享已取消」还是「提取码错误」。
+        first_error = ""
+        for entry in result["results"]:
+            if not entry.get("ok"):
+                first_error = str(entry.get("message") or "").strip()
+                if first_error:
+                    break
+        if first_error:
+            parts.append(f"原因：{first_error}")
         result["message"] = "推送完成：" + "，".join(parts)
         return result
 

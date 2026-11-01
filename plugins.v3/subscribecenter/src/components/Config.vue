@@ -95,14 +95,14 @@ const autoToggleItems = computed(() => {
   return items.filter((row) => row.action === 'pause' || row.action === 'resume')
 })
 
-/** 库实探的耗时/预算说明（预算为 0 时说明本轮不实探）。 */
-const libraryElapsedText = computed(() => {
+/** 入库情况的来源说明（读宿主的入库记录，不再自己探库）。 */
+const librarySourceText = computed(() => {
   const lib = autoToggle.value?.library
   if (!lib) return ''
-  const budget = Number(lib.budget_seconds ?? 0)
-  if (!budget) return '未实探，沿用上次结果'
-  const elapsed = Number(lib.elapsed ?? 0)
-  return `${elapsed.toFixed(1)}s / 预算 ${budget}s`
+  const known = Number(lib.known ?? 0)
+  const unknown = Number(lib.unknown ?? 0)
+  if (!known && !unknown) return ''
+  return unknown ? `能确定 ${known} 条，其余 ${unknown} 条待宿主核对` : `能确定 ${known} 条`
 })
 
 /** 决策常量 -> 中文标签（与后端 core/constants.py 逐字对应）。 */
@@ -2249,10 +2249,10 @@ onMounted(() => {
 
             <div class="sc-row">
               <div class="sc-row-main">
-                <div class="sc-row-label">用媒体库实探核对已入库</div>
+                <div class="sc-row-label">按 MoviePilot 的入库记录判断</div>
                 <div class="sc-row-hint">
-                  只看媒体服务器实际有什么：订阅记录的「已下载」和宿主下载记录都不算入库
-                  （下完没导入、坏种、被清理都可能）。核对不到的订阅本轮不动，等下一轮。
+                  读 MoviePilot 订阅刷新时算好的「还缺几集」，不再自己逐条问媒体服务器
+                  —— 200 条也不会拖慢一轮。订阅记录的「已下载」和宿主下载记录都不算入库。
                 </div>
               </div>
               <VSwitch
@@ -2263,39 +2263,22 @@ onMounted(() => {
               />
             </div>
 
-            <VRow v-if="form.auto_toggle_library_check" dense class="mt-1">
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.auto_toggle_library_probe_budget_seconds"
-                  label="每轮最多核对多少秒（0 = 不实探）"
-                  type="number"
-                  min="0"
-                  max="3600"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                  hint="到点就停，剩下的下次继续（没核对到的本轮不动）"
-                  persistent-hint
-                />
-              </VCol>
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.auto_toggle_library_probe_interval"
-                  label="每条之间隔几秒"
-                  type="number"
-                  min="0"
-                  max="60"
-                  step="0.5"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                  hint="串行 + 间隔，避免把媒体服务器打满；1.5 秒约 1.7 秒/条"
-                  persistent-hint
-                />
-              </VCol>
-            </VRow>
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">订阅刷新结束后自动跑一轮</div>
+                <div class="sc-row-hint">
+                  只盯宿主的「订阅刷新」任务：它一跑完，等 1 分钟再判一次。
+                  刷新时宿主自己就会核库并更新「还缺几集」，那一刻的账最新；
+                  固定时刻跑有可能跑在刷新之前。30 分钟内不重复触发，可和上面的定时同时开。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.auto_toggle_follow_refresh"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
 
             <VRow dense class="mt-1">
               <VCol cols="12" sm="6">
@@ -2429,20 +2412,7 @@ onMounted(() => {
                   variant="tonal"
                   color="info"
                 >
-                  库核对：沿用 {{ autoToggle.library.cached ?? 0 }} 条 / 实探
-                  {{ autoToggle.library.probed ?? 0 }} 条 / 待核对
-                  {{ autoToggle.library.deferred ?? 0 }} 条（{{ libraryElapsedText }}）
-                </VChip>
-                <VChip
-                  v-if="autoToggle.library && autoToggle.library.failed"
-                  size="x-small"
-                  variant="tonal"
-                  color="warning"
-                  :title="autoToggle.library.error || ''"
-                >
-                  库核对失败 {{ autoToggle.library.failed }} 条：{{
-                  autoToggle.library.error || '问不出结论'
-                  }}
+                  入库情况：{{ librarySourceText }}
                 </VChip>
               </div>
               <div class="sc-row">

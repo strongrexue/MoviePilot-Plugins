@@ -356,25 +356,17 @@ class AutoToggleItem(BaseModel):
 
 
 class AutoToggleLibrary(BaseModel):
-    """自动启停：媒体库实探的本轮统计。
+    """自动启停：入库情况的来源统计。
 
-    「入库」只认媒体服务器实探（用户 2026-10-31 定稿：媒体库不同步，快照是第一次
-    同步时的老数据；``note`` 与宿主下载记录只说明「下过」，坏种/没导入都不算）。
+    不再自己探媒体服务器：直接读宿主维护的 ``Subscribe.lack_episode``（订阅刷新
+    任务本来就在逐集核库，结论就写在那一列），零成本、口径与宿主一致。
     """
 
-    cached: int = Field(default=0, description="沿用上次实探结果的订阅数")
-    cached_at: str = Field(default="", description="上次实探时间")
-    cached_stale: bool = Field(
-        default=False, description="上次实探结果是否已过期（过期会重新核对）"
+    mode: str = Field(default="mp", description="来源：mp=读宿主的入库记录")
+    known: int = Field(default=0, description="能确定入库情况的订阅数")
+    unknown: int = Field(
+        default=0, description="拿不到可信数字、按「还没核对到」处理的订阅数"
     )
-    candidates: int = Field(default=0, description="本轮待核对的订阅数")
-    probed: int = Field(default=0, description="本轮实际核对的订阅数")
-    failed: int = Field(default=0, description="本轮核对失败（问不出结论）的条数")
-    error: str = Field(default="", description="失败原因（首条）")
-    deferred: int = Field(default=0, description="预算用尽、留到下一轮的条数")
-    elapsed: int = Field(default=0, description="本轮核对耗时（秒）")
-    budget_seconds: int = Field(default=0, description="时间预算（0=不实探）")
-    interval: float = Field(default=0.0, description="逐条间隔（秒）")
 
 
 class AutoToggleConfig(BaseModel):
@@ -392,11 +384,8 @@ class AutoToggleConfig(BaseModel):
     max_changes: int = Field(default=0, description="单次改动上限（0=不限）")
     notify: bool = Field(default=False, description="是否通知")
     library_check: bool = Field(default=False, description="是否用媒体库核对已入库")
-    library_probe_budget: int = Field(
-        default=0, description="每轮核对的时间预算（秒，0=只读快照）"
-    )
-    library_probe_interval: float = Field(
-        default=0.0, description="逐条核对间隔（秒）"
+    follow_refresh: bool = Field(
+        default=False, description="订阅刷新跑完后是否自动再跑一轮"
     )
 
 
@@ -466,6 +455,51 @@ class AutoToggleStart(BaseModel):
     started: bool = Field(default=False, description="是否已开始")
     running: bool = Field(default=False, description="后台是否正在跑")
     message: str = Field(default="", description="给用户看的说明")
+
+
+class GapsSearchRequest(BaseModel):
+    """缺集列表：对一部订阅触发宿主「手动搜索（按标题）」的请求。"""
+
+    subscribe_id: int = Field(description="订阅 ID")
+
+
+class GapsEpisode(BaseModel):
+    """一条缺集：播出日 + 集号 + 还剩几天出窗口。"""
+
+    air_date: str = Field(default="", description="播出日 YYYY-MM-DD")
+    episode: int = Field(default=0, description="集号")
+    days_left: int = Field(default=0, description="还剩几天出窗口")
+
+
+class GapsRow(BaseModel):
+    """一部「订阅中但缺了几集」的订阅。"""
+
+    id: int = Field(description="订阅 ID")
+    name: str = Field(default="", description="剧名")
+    year: str = Field(default="")
+    season: int = Field(default=0)
+    state: str = Field(default="")
+    poster: str = Field(default="")
+    media_source: str = Field(default="")
+    media_id: str = Field(default="")
+    gaps: List[GapsEpisode] = Field(default_factory=list, description="缺集清单")
+    min_days_left: int = Field(default=0, description="最早出窗口的缺口还剩几天")
+
+
+class GapsView(BaseModel):
+    """缺集清单（订阅中但缺失、仍在保留窗口内）。"""
+
+    today: str = Field(description="计算日期")
+    keep_days: int = Field(default=3, description="缺集保留天数（窗口）")
+    total: int = Field(default=0)
+    items: List[GapsRow] = Field(default_factory=list)
+
+
+class GapsSearchResult(BaseModel):
+    """对一部订阅触发「手动搜索」的结果。"""
+
+    subscribe_id: int = Field(default=0, description="订阅 ID")
+    message: str = Field(default="", description="宿主返回的说明")
 
 
 class AutoToggleResult(BaseModel):
@@ -607,6 +641,8 @@ API_RESPONSE_MODELS: Dict[str, Any] = {
     "/calendar/day": CalendarView,
     "/auto_toggle": AutoToggleView,
     "/auto_toggle/apply": AutoToggleStart,
+    "/gaps": GapsView,
+    "/gaps/search": GapsSearchResult,
     "/blacklist": BlacklistMeta,
     "/blacklist/test": BlacklistTestResult,
     "/blacklist/audit": TaskState,
@@ -658,6 +694,11 @@ __all__ = [
     "CardThemeRequest",
     "CardThemeResult",
     "HistoryRecord",
+    "GapsSearchRequest",
+    "GapsEpisode",
+    "GapsRow",
+    "GapsView",
+    "GapsSearchResult",
     "MappingCacheView",
     "MappingEntry",
     "MappingFixRequest",

@@ -226,6 +226,51 @@ const calendarItems = computed(() => {
 function switchView(tab) {
   viewTab.value = tab
   if (tab === 'calendar' && !calendar.value) loadCalendar()
+  if (tab === 'gaps' && !gapsLoaded.value) loadGaps()
+}
+
+const gaps = ref({ items: [], keep_days: 3, total: 0, today: '' })
+const gapsLoaded = ref(false)
+const gapsLoading = ref(false)
+const gapsError = ref('')
+const busySubscribeId = ref(0)
+
+/** 拉取缺集清单（GET /gaps）。 */
+async function loadGaps() {
+  gapsLoading.value = true
+  gapsError.value = ''
+  try {
+    const data = unwrap(await getPluginApi(props.api, props.pluginId, 'gaps'))
+    gaps.value = data || { items: [], keep_days: 3, total: 0, today: '' }
+    gapsLoaded.value = true
+  } catch (err) {
+    gapsError.value = err?.message || err?.error_msg || '读取缺集清单失败'
+  } finally {
+    gapsLoading.value = false
+  }
+}
+
+/** 对一部缺集订阅触发宿主「手动搜索（按标题）」，结果落到 MP「搜索结果」页。 */
+async function runGapsSearch(item) {
+  if (busySubscribeId.value) return
+  busySubscribeId.value = item.id
+  try {
+    const data = unwrap(
+      await postPluginApi(props.api, props.pluginId, 'gaps/search', {
+        subscribe_id: item.id,
+      }),
+    )
+    setTip(
+      data?.message ? `《${item.name}》${data.message}` : `已提交《${item.name}》搜索`,
+      true,
+    )
+  } catch (err) {
+    setTip(err?.message || err?.error_msg || '手动搜索失败', false)
+  } finally {
+    busySubscribeId.value = 0
+    // 宿主手动搜索是逐站同步，稍后再刷新一次清单让它反映新状态
+    setTimeout(loadGaps, 2500)
+  }
 }
 
 const history = ref({ items: [], total: 0, page: 1, count: 20 })
@@ -919,6 +964,16 @@ onUnmounted(() => {
       <button
         type="button"
         class="sc-maintab"
+        :class="{ 'sc-maintab-active': viewTab === 'gaps' }"
+        @click="switchView('gaps')"
+      >
+        <VIcon icon="mdi-alert-decagram-outline" size="16" />
+        集数缺口
+        <span v-if="gaps.total > 0" class="sc-gaps-badge">{{ gaps.total }}</span>
+      </button>
+      <button
+        type="button"
+        class="sc-maintab"
         :class="{ 'sc-maintab-active': viewTab === 'history' }"
         @click="switchView('history')"
       >
@@ -1102,6 +1157,62 @@ onUnmounted(() => {
             </template>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 集数缺口：订阅中但缺了几集（保留窗口内未入库） -->
+    <div v-if="viewTab === 'gaps'" class="sc-card">
+      <div class="sc-card-head">
+        <span class="sc-card-title">集数缺口</span>
+        <VChip size="x-small" variant="tonal" class="sc-gaps-window">
+          保留窗口 {{ gaps.keep_days }} 天
+        </VChip>
+        <VBtn size="x-small" variant="text" :loading="gapsLoading" @click="loadGaps">
+          <VIcon icon="mdi-refresh" size="16" />
+          刷新
+        </VBtn>
+      </div>
+      <p class="sc-gaps-hint">
+        「集数缺口」＝仍在用户设定的缺集保留天数内，订阅还是「订阅中」，但个别集
+        当时没抓到（停电 / 站点维护 / RSS 没跟上）。点「去搜索」会按这部订阅的标题
+        触发一次逐站搜索（用 MP 设定的「搜索站点范围」），结果会落到
+        MoviePilot「搜索结果」页，在那里自己看、自己点下载。
+      </p>
+
+      <div v-if="gapsError" class="sc-gaps-error">{{ gapsError }}</div>
+      <div v-else-if="gapsLoading && !gaps.items.length" class="sc-empty sc-gaps-empty">
+        <VIcon icon="mdi-loading mdi-spin" size="26" />
+        正在计算缺集…
+      </div>
+      <div v-else-if="!gaps.items.length" class="sc-empty sc-gaps-empty">
+        <VIcon icon="mdi-check-circle-outline" size="26" />
+        没有实探确认缺了的集（以媒体库实探为准）
+      </div>
+
+      <div v-for="item in gaps.items" :key="item.id" class="sc-gaps-row">
+        <img v-if="item.poster" :src="item.poster" class="sc-gaps-poster" alt="" />
+        <div class="sc-gaps-main">
+          <div class="sc-gaps-name">
+            {{ item.name }}
+            <span v-if="item.season > 0" class="sc-gaps-season">S{{ item.season }}</span>
+            <span v-if="item.year" class="sc-gaps-year">{{ item.year }}</span>
+          </div>
+          <div class="sc-gaps-eps">
+            <span v-for="g in item.gaps" :key="g.episode" class="sc-gaps-ep" :class="{ 'sc-gaps-ep-urgent': g.days_left < 7 }">
+              {{ g.episode }} 集 · {{ g.air_date }} · 剩 {{ g.days_left }} 天
+            </span>
+          </div>
+        </div>
+        <VBtn
+          size="small"
+          variant="tonal"
+          color="primary"
+          :loading="busySubscribeId === item.id"
+          :disabled="busySubscribeId !== 0 && busySubscribeId !== item.id"
+          @click="runGapsSearch(item)"
+        >
+          去搜索
+        </VBtn>
       </div>
     </div>
 
@@ -1826,6 +1937,96 @@ onUnmounted(() => {
 .sc-maintabs-hint {
   margin-left: auto;
   font-size: 11.5px;
+}
+
+/* 集数缺口 tab（订阅中但缺了几集） */
+.sc-gaps-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: rgb(var(--v-theme-error));
+  color: rgb(var(--v-theme-on-error));
+  margin-left: 2px;
+}
+.sc-gaps-window {
+  margin-left: 4px;
+}
+.sc-gaps-hint {
+  font-size: 12.5px;
+  color: rgb(var(--v-theme-on-surface-variant));
+  opacity: 0.85;
+  margin: 4px 0 10px;
+  line-height: 1.6;
+}
+.sc-gaps-error {
+  color: rgb(var(--v-theme-error));
+  font-size: 13px;
+  padding: 10px 2px;
+}
+.sc-gaps-empty {
+  padding: 28px 0;
+}
+.sc-gaps-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px;
+  border-top: 1px dashed rgba(var(--v-border-color), 0.18);
+}
+.sc-gaps-row:first-of-type {
+  border-top: none;
+}
+.sc-gaps-poster {
+  width: 44px;
+  height: 62px;
+  object-fit: cover;
+  border-radius: 5px;
+  flex: 0 0 auto;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+}
+.sc-gaps-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sc-gaps-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-gaps-season,
+.sc-gaps-year {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgb(var(--v-theme-on-surface-variant));
+  opacity: 0.8;
+}
+.sc-gaps-eps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+.sc-gaps-ep {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(110, 150, 220, 0.16);
+  color: rgb(var(--v-theme-on-surface));
+}
+.sc-gaps-ep-urgent {
+  background: rgba(240, 185, 70, 0.18);
+  color: rgb(240, 185, 70);
 }
 
 /* 日历：月历网格（复刻 MoviePilot 日历页） */

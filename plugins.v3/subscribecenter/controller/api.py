@@ -51,6 +51,13 @@ def get_api(plugin) -> List[Dict[str, Any]]:
             ["POST"],
             "立刻执行一次按播出日自动启停",
         ),
+        ("/gaps", plugin.api_gaps, ["GET"], "订阅中但缺了几集（保留窗口内未入库）"),
+        (
+            "/gaps/search",
+            plugin.api_gaps_search,
+            ["POST"],
+            "对一部缺集订阅触发手动搜索（按标题，结果落到搜索结果页）",
+        ),
         ("/blacklist", plugin.api_blacklist, ["GET"], "读取排除规则（类型/题材）"),
         (
             "/blacklist/test",
@@ -399,6 +406,26 @@ async def api_auto_toggle_apply(plugin) -> Any:
         logger.error(f"[SubscribeCenter] 执行自动启停失败：{err}", exc_info=True)
         raise HTTPException(status_code=500, detail="执行自动启停失败") from err
     return schemas.Response(success=True, data=api_schemas.AutoToggleStart(**result))
+
+
+async def api_gaps(plugin) -> Any:
+    """读「订阅中但缺了几集」清单（不清算、不探针）。"""
+    try:
+        data = await plugin.gaps_data()
+        return schemas.Response(success=True, data=api_schemas.GapsView(**data))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 读取缺集清单失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="读取缺集清单失败") from err
+
+
+async def api_gaps_search(plugin, request: api_schemas.GapsSearchRequest) -> Any:
+    """对一部订阅触发宿主「手动搜索（按标题）」并立刻返回（后台执行）。"""
+    try:
+        data = await plugin.gaps_search(subscribe_id=request.subscribe_id)
+        return schemas.Response(success=True, data=api_schemas.GapsSearchResult(**data))
+    except Exception as err:  # noqa: BLE001
+        logger.error(f"[SubscribeCenter] 手动搜索失败：{err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="手动搜索失败") from err
 
 
 async def api_blacklist(plugin) -> Any:

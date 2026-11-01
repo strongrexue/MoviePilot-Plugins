@@ -72,7 +72,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.17.6"
+    plugin_version = "1.18.0"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -379,6 +379,20 @@ class SubscribeCenter(_PluginBase):
         """立刻执行一次自动启停（会写订阅状态）。"""
         return await api_controller.api_auto_toggle_apply(self)
 
+    async def api_gaps(self) -> Any:
+        """读「订阅中但缺了几集」清单（还在保留窗口内、未入库的集）。"""
+        return await api_controller.api_gaps(self)
+
+    async def api_gaps_search(
+        self, request: api_schemas.GapsSearchRequest
+    ) -> Any:
+        """对缺集列表里的一部订阅触发一次宿主「补全搜索」。
+
+        **注解必须写具体模型**：写成 ``Any`` 会让 FastAPI 把 POST body 当查询
+        参数解析（1.14.0 真机踩过），这里必须要 ``request.subscribe_id``。
+        """
+        return await api_controller.api_gaps_search(self, request)
+
     async def api_blacklist(self) -> Any:
         """读取排除规则元数据（内置题材预设 + TMDB 类型名）。"""
         return await api_controller.api_blacklist(self)
@@ -525,25 +539,10 @@ class SubscribeCenter(_PluginBase):
                 365,
             ),
             "library_check": bool(self._config.get("auto_toggle_library_check")),
-            "library_probe_budget": min(
-                max(
-                    self._int_config(
-                        "auto_toggle_library_probe_budget_seconds",
-                        C.DEFAULT_AUTO_TOGGLE_PROBE_BUDGET,
-                    ),
-                    0,
-                ),
-                3600,
-            ),
-            "library_probe_interval": min(
-                max(
-                    self._float_config(
-                        "auto_toggle_library_probe_interval",
-                        C.DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL,
-                    ),
-                    0.0,
-                ),
-                60.0,
+            "follow_refresh": bool(
+                self._config.get(
+                    "auto_toggle_follow_refresh", C.DEFAULT_AUTO_TOGGLE_FOLLOW_REFRESH
+                )
             ),
             "best_mode": self._best_toggle_mode(),
             "max_changes": min(
@@ -752,354 +751,48 @@ class SubscribeCenter(_PluginBase):
         return flags
 
     async def _library_present_index(
-        self,
-        rows: Any,
-        episode_index: Any,
-        today_date: Any,
-        *,
-        probe: bool = False,
-        cached: Optional[Dict[str, Any]] = None,
+        self, rows: Any
     ) -> Tuple[Dict[int, set], Dict[str, Any]]:
-        """媒体库实探确认的集号索引 ``{订阅 ID: {集号}}``，以及一份统计。
+        """按宿主维护的 ``lack_episode`` 推出「库里已入库哪些集」的索引。
 
-        **只有实探算数**。用户 2026-10-31 明确要求：媒体库不同步，快照是第一次
-        同步时的老数据，拿它当「入库」证据等于瞎猜；``note`` 与宿主下载记录也只
-        说明「下过」，下载完没导入、坏种、被清理，库里都查不到。
+        为什么不再自己探库：MoviePilot 的订阅刷新任务本来就在逐集核库，结论写在
+        ``Subscribe.lack_episode`` 上 —— 它等于目标范围里**还没拿到手**的集数。
+        我们照着再问一遍媒体服务器纯属白烧：真机实测每条 1.7 秒，200 条要 6 分钟，
+        并发高了还会把 NAS 打挂。读宿主已经算好的账，零成本，口径也和宿主一致。
 
-        所以证据只有两份，都是媒体服务器亲口说的：
+        只拿到「缺几集」、拿不到「缺哪几集」，所以按**前 N 集已入库**处理 ——
+        与宿主自己顺序追更的假设一致。方向是安全的：``lack_episode`` 偏大（宿主
+        还没核对完、或新建订阅直接置成总集数）只会让我们以为缺得更多 → 继续搜，
+        **不会误暂停**。
 
-        1. **上次实探结果**（免费）：上一轮的结论存在插件数据里，预览直接沿用 ——
-           否则「预览」自己也要发几百个请求，网页早被网关掐断了。过期（默认
-           12 小时）就不再当证据，这条订阅重新成为候选。
-        2. **实时实探**（慢）：仅 ``probe=True``（后台执行 / 定时任务）时才发。
-           按时间预算逐条问宿主 ``DownloadChain().get_no_exists_info``（每条要发
-           两次媒体服务器请求，全量并发正是上一版把 NAS 打挂的原因）。
-
-        没被实探到的订阅在 ``decide`` 里会返回「媒体库还没核对到」并保持搜索，
-        绝不会因为「不知道」就暂停。
-
-        .. important::
-           探针**绝不能**放在 HTTP 请求里：200 条串行核对要好几分钟，网关会
-            直接 502。预览永远只读，慢的那部分留给后台。
-        """
-        cached = cached if isinstance(cached, dict) else {}
-        cfg = self._auto_toggle_config()
-
-        index: Dict[int, set] = {}
-
-        #: 上一轮实探结果只在保质期内沿用。过期就**不并**进 ``index``，这条订阅
-        #: 因此重新成为候选 —— 否则缓存会把缺集永远钉死（1.17.3 及以前的 bug）。
-        #: **空集也要沿用**：核对了、库里确实一集都没有，与「还没核对」是两回事 ——
-        #: 前者该按缺集判定（可能已过期该暂停），后者只能先保持搜索。
-        reused: Dict[int, set] = {}
-        fresh = self._probe_cache_fresh(cached)
-        for key, value in (cached.get("items") or {}).items() if fresh else ():
-            try:
-                sid = int(key)
-            except (TypeError, ValueError):
-                continue
-            if sid <= 0:
-                continue
-            episodes = {int(item) for item in (value or []) if int(item) > 0}
-            reused[sid] = episodes
-            index[sid] = set(episodes)
-
-        stats: Dict[str, Any] = {
-            "cached": len(reused),
-            "cached_at": str(cached.get("at") or ""),
-            "cached_stale": bool(cached) and not fresh,
-            "probed": 0,
-            "failed": 0,
-            "candidates": 0,
-            "budget_seconds": cfg["library_probe_budget"],
-            "interval": cfg["library_probe_interval"],
-            "elapsed": 0,
-            "deferred": 0,
-        }
-        try:
-            candidates = self._probe_candidates(
-                rows, episode_index, today_date, known=index
-            )
-        except Exception as err:  # noqa: BLE001 - 候选算不出来就当没有
-            logger.debug(f"[SubscribeCenter] 媒体库核对候选计算失败：{err}")
-            return index, stats
-        stats["candidates"] = len(candidates)
-
-        if not probe or cfg["library_probe_budget"] <= 0 or not candidates:
-            # 预览 / 预算 0 / 没有待核对 → 一个请求都不发
-            stats["deferred"] = len(candidates)
-            return index, stats
-
-        try:
-            probed, probe_stats = await self._probe_missing_episodes(
-                rows,
-                episode_index,
-                today_date,
-                budget_seconds=cfg["library_probe_budget"],
-                interval=cfg["library_probe_interval"],
-                known=index,
-            )
-        except Exception as err:  # noqa: BLE001 - 探针失败不能让整轮崩
-            logger.warning(f"[SubscribeCenter] 媒体库探针失败：{err}")
-            return index, stats
-
-        for sid, episodes in probed.items():
-            index[sid] = set(index.get(sid) or set()) | set(episodes)
-        stats.update(probe_stats)
-        #: 本轮核对结果交给调用方落盘，供下次预览沿用。
-        #: **空结果也要落盘**：以前只在有命中时写，于是「一条都没核对出来」在
-        #: 插件数据里看不出任何痕迹（真机 ``library_probe.at`` 一直是 None），
-        #: 排查时完全不知道探针到底跑没跑。
-        self.__dict__["_auto_toggle_library_probe"] = {
-            "at": local_now_text(self._tz()),
-            "items": {str(sid): sorted(episodes) for sid, episodes in probed.items()},
-            "stats": dict(stats),
-        }
-        return index, stats
-
-    def _probe_cache_fresh(self, cached: Dict[str, Any]) -> bool:
-        """上一轮核对结果是否还在保质期内（默认 12 小时）。"""
-        from datetime import datetime, timedelta
-
-        from .core.window import get_tz
-
-        text = str((cached or {}).get("at") or "").strip()
-        if not text:
-            return False
-        try:
-            stamp = datetime.fromisoformat(text)
-        except ValueError:
-            return False
-        now = datetime.now(get_tz(self._tz()))
-        if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=now.tzinfo)
-        return now - stamp <= timedelta(hours=int(C.DEFAULT_AUTO_TOGGLE_PROBE_TTL_HOURS))
-
-    def _probe_candidates(
-        self, rows: Any, episode_index: Any, today_date: Any, *, known: Dict[int, set]
-    ) -> List[Any]:
-        """挑出「值得实探」的订阅，返回排好序的 ``(优先级, 最老缺集, row)``。
-
-        口径：**已播的集里，实探还没确认库里有**的那些。订阅记录（``note``）与
-        下载记录不算数 —— 下过不等于入库。没有这种集的问了也白问；洗版订阅问的
-        是「洗到顶没有」，跟库里有没有这一集无关。
-
-        排序把**没有下载记录的排在前面**（缺集纯属推测，最需要核对），同类里
-        「最老的缺集」优先。预算不够时先核这些。
+        拿不到可信数字的订阅（电影、总集数未知、洗版）不进索引，``decide`` 会
+        返回「还没核对到」并保持不动。
         """
         from .core import autotoggle
-        from .core import calendar as calendar_core
 
-        candidates: List[Any] = []
+        index: Dict[int, set] = {}
+        tv_rows = 0
         for row in rows:
             if autotoggle.media_kind(row) != "tv":
                 continue
+            tv_rows += 1
             if autotoggle.is_best_version(row):
                 # 洗版问的是「洗到顶没有」，跟库里有没有这一集无关
                 continue
-            media_id = str(getattr(row, "media_id", "") or "")
-            if not media_id.isdigit():
-                continue
-            season = int(getattr(row, "season", 0) or 0)
-            episodes = episode_index.get(
-                (media_id, season if season > 0 else calendar_core.MOVIE_KEY)
-            )
-            if episodes is None:
-                episodes = episode_index.get((media_id, season))
             sid = int(getattr(row, "id", 0) or 0)
-            covered = known.get(sid) or set()
-            pending = autotoggle.pending_episodes(
-                row, episodes, today_date, confirmed=covered
-            )
-            if not pending:
+            if sid <= 0:
                 continue
-            candidates.append(
-                (
-                    0 if not autotoggle.has_download_record(row) else 1,
-                    min(pair[0] for pair in pending),
-                    row,
-                )
-            )
-
-        candidates.sort(key=lambda item: (item[0], item[1]))
-        return candidates
-
-    async def _probe_missing_episodes(
-        self,
-        rows: Any,
-        episode_index: Any,
-        today_date: Any,
-        *,
-        budget_seconds: int,
-        interval: float,
-        known: Dict[int, set],
-    ) -> Tuple[Dict[int, set], Dict[str, Any]]:
-        """按时间预算逐条向媒体服务器核对，返回新确认的集号。
-
-        候选与排序见 :meth:`_probe_candidates`。串行 + 间隔 + 时间预算，
-        到点就停，剩下的下一轮再来。
-        """
-        import asyncio
-        import time
-
-        candidates = self._probe_candidates(
-            rows, episode_index, today_date, known=known
-        )
+            present = autotoggle.library_present_from_lack(row)
+            if present is None:
+                continue
+            index[sid] = present
 
         stats: Dict[str, Any] = {
-            "candidates": len(candidates),
-            "probed": 0,
-            "elapsed": 0,
-            "deferred": 0,
+            "mode": "mp",
+            "known": len(index),
+            "unknown": max(0, tv_rows - len(index)),
         }
-        if budget_seconds <= 0 or not candidates:
-            # 0 秒 = 只读快照；没有候选也不用空转
-            stats["deferred"] = len(candidates)
-            return {}, stats
-
-        started = time.monotonic()
-        out: Dict[int, set] = {}
-        probed = 0
-        failures: List[str] = []
-        for _, _, row in candidates:
-            if probed:
-                await asyncio.sleep(max(0.0, float(interval)))
-            if time.monotonic() - started >= budget_seconds:
-                break
-            present = await self._probe_one(row)
-            probed += 1
-            if present is not None:
-                sid = int(getattr(row, "id", 0) or 0)
-                if sid > 0:
-                    out[sid] = present
-            else:
-                reason = str(self.__dict__.pop("_probe_last_error", "") or "")
-                if reason:
-                    failures.append(reason)
-
-        stats["probed"] = probed
-        stats["failed"] = len(failures)
-        stats["elapsed"] = int(time.monotonic() - started)
-        stats["deferred"] = max(0, len(candidates) - probed)
-        if failures:
-            #: 以前这里只有 ``logger.debug``，真机上等于没有 —— 探针全军覆没也
-            #: 看不出来（``library_probe.at`` 一直是 None 才被发现）。汇总一条，
-            #: 带上首条原因，够定位又不刷屏。
-            stats["error"] = failures[0]
-            logger.warning(
-                f"[SubscribeCenter] 媒体库核对 {len(failures)}/{probed} 条失败，"
-                f"首条原因：{failures[0]}"
-            )
-        if stats["deferred"]:
-            logger.info(
-                f"[SubscribeCenter] 媒体库核对用满 {stats['elapsed']} 秒预算，"
-                f"本轮核对 {probed} 条，另有 {stats['deferred']} 条留待下一轮"
-            )
-        return out, stats
-
-    async def _probe_one(self, row: Any) -> Optional[set]:
-        """问一次宿主「这部剧这一季库里有哪几集」，失败返回 ``None``。
-
-        为什么自己填 ``mediainfo.seasons``：宿主 ``get_no_exists_info`` 在
-        ``seasons`` 为空时会**同步**再识别一次媒体（多一次 TMDB 请求），而订阅表
-        里已经有季号和集数，直接填进去就能省掉。
-
-        .. warning::
-           宿主会按 ``meta.sea`` 过滤季：该季被过滤掉时返回的 ``no_exists``
-            里没有这一季，看起来跟「全在库」一模一样。所以这里必须确认返回里
-            **确实有这一季**，否则一律按「问不出结论」处理。
-        """
-        import asyncio
-
-        try:
-            from app.chain.download import DownloadChain
-            from app.domain.metainfo import MetaInfo
-            from app.schemas.types import MediaType
-        except Exception as err:  # noqa: BLE001 - 宿主结构变了就安静跳过
-            self.__dict__["_probe_last_error"] = f"导入宿主核对模块失败：{err}"
-            logger.debug(f"[SubscribeCenter] 媒体库核对不可用：{err}")
-            return None
-
-        #: 必须是**宿主核对内部用的那一个** ``MediaInfo``：3.1.9 起它是
-        #: ``app.domain.context.MediaInfo``，而 ``app.schemas.context.MediaInfo``
-        #: 是另一个同名类。传错类不会报错，只会让宿主 ``isinstance`` 判定失败、
-        #: 静默返回 ``(False, {})`` —— 真机 70 条核对全部拿到空结果就是这么来的。
-        try:
-            from app.domain.context import MediaInfo
-        except Exception:  # noqa: BLE001 - 老版本宿主只有 schemas 那一个
-            from app.schemas.context import MediaInfo
-
-        name = str(getattr(row, "name", "") or "").strip()
-        season = int(getattr(row, "season", 0) or 0)
-        total = int(getattr(row, "total_episode", 0) or 0)
-        start = int(getattr(row, "start_episode", 0) or 1)
-        if not name or season <= 0 or total <= 0:
-            return None
-        if start <= 0:
-            start = 1
-
-        media_id = str(getattr(row, "media_id", "") or "")
-        media_source = getattr(row, "media_source", None)
-        try:
-            meta = MetaInfo(name)
-            meta.type = MediaType.TV
-            meta.begin_season = season
-            meta.end_season = None
-            meta.media_source = media_source
-            meta.media_id = media_id
-            media = MediaInfo(
-                type=MediaType.TV,
-                title=name,
-                year=str(getattr(row, "year", "") or "") or None,
-                season=season,
-                media_source=media_source,
-                media_id=media_id,
-                episode_group=getattr(row, "episode_group", None),
-            )
-            media.seasons = {season: list(range(start, start + total))}
-        except Exception as err:  # noqa: BLE001
-            self.__dict__["_probe_last_error"] = f"{name} 构造核对参数失败：{err}"
-            logger.debug(f"[SubscribeCenter] 构造核对参数失败 {name}：{err}")
-            return None
-
-        try:
-            exists, no_exists = await asyncio.to_thread(
-                DownloadChain().get_no_exists_info,
-                meta,
-                media,
-                None,
-                {season: total},
-            )
-        except Exception as err:  # noqa: BLE001 - 单条失败不影响其它
-            self.__dict__["_probe_last_error"] = f"{name} 问媒体服务器失败：{err}"
-            logger.debug(f"[SubscribeCenter] 媒体库核对失败 {name}：{err}")
-            return None
-
-        full = set(range(start, start + total))
-        if exists:
-            return full
-
-        from .core import autotoggle
-
-        missing = autotoggle.missing_from_no_exists(no_exists, season)
-        if missing is None:
-            #: 宿主返回里找不到这一季 —— 以前这里静默 ``return None``，70 条核对
-            #: 全军覆没却一条日志都没有。现在记下结构形状，一眼能看出是键名变了
-            #: 还是返回为空。
-            shape = ""
-            if isinstance(no_exists, dict):
-                shape = "；".join(
-                    f"{key}={sorted(getattr(value, 'keys', lambda: [])())}"
-                    for key, value in list(no_exists.items())[:2]
-                )
-            self.__dict__["_probe_last_error"] = (
-                f"{name} 第 {season} 季核对返回里找不到缺集（{shape or '空返回'}）"
-            )
-            logger.debug(
-                f"[SubscribeCenter] 核对返回无本季 {name} S{season}：{no_exists!r}"
-            )
-            return None
-        return full - missing
+        return index, stats
 
     async def _auto_toggle_rows(self) -> List[Any]:
         """读出「本功能管得着」的订阅（``R`` / ``P`` / ``S``）。
@@ -1150,18 +843,11 @@ class SubscribeCenter(_PluginBase):
         )
         state = self._auto_toggle_state()
         owned = state.get("owned")
-        # 媒体库核对：上一轮实探结果免费沿用；实时探针只在 probe=True 时发
+        # 入库情况：直接读宿主维护的 lack_episode，不再自己问媒体服务器
         library_index: Dict[int, set] = {}
         library_stats: Dict[str, Any] = {}
         if cfg["library_check"]:
-            cached = state.get("library_probe")
-            library_index, library_stats = await self._library_present_index(
-                rows,
-                index,
-                today_date,
-                probe=probe,
-                cached=cached if isinstance(cached, dict) else None,
-            )
+            library_index, library_stats = await self._library_present_index(rows)
         data = autotoggle.plan(
             rows,
             index,
@@ -1185,6 +871,135 @@ class SubscribeCenter(_PluginBase):
             [item for item in (owned or {}).values() if isinstance(item, dict)]
         )
         return data
+
+    async def gaps_data(self) -> Dict[str, Any]:
+        """「订阅中但缺了几集」清单（不写库、不探针）。
+
+        只复用**已缓存**的媒体库实探结果；不开实时探针 —— 列表页是一次普通
+        GET，串行核对几百条会被网关 502 掐断。缺集口径与自动启停一致：只在
+        ``keep_days`` 保留窗口内、且被实探确认**不在库**的集才算缺口；**没有
+        实探证据的订阅一律不列**（宁可漏报不误报，真缺的等自动启停下一轮
+        实探补上）。
+        """
+        from .core import autotoggle
+        from .core import calendar as calendar_core
+
+        cfg = self._auto_toggle_config()
+        today_date = today(self._tz())
+        today_text = today_date.isoformat()
+        rows = await self._auto_toggle_rows()
+        index = await self._episode_air_index(rows, today_text)
+
+        # 入库情况：读宿主维护的 lack_episode（与自动启停预览同口径）
+        confirmed: Dict[int, set] = {}
+        if cfg["library_check"]:
+            confirmed, _ = await self._library_present_index(rows)
+
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            media_id = str(getattr(row, "media_id", "") or "")
+            season = int(getattr(row, "season", 0) or 0)
+            if not media_id.isdigit():
+                continue
+            episodes = index.get((media_id, season if season > 0 else calendar_core.MOVIE_KEY))
+            if episodes is None:
+                episodes = index.get((media_id, season))
+            if not episodes:
+                continue
+            gaps = autotoggle.in_window_gaps(
+                row,
+                episodes,
+                today_date,
+                keep_days=cfg["keep_days"],
+                confirmed=confirmed.get(int(getattr(row, "id", 0) or 0)),
+            )
+            if not gaps:
+                continue
+            items.append(
+                {
+                    "id": int(getattr(row, "id", 0) or 0),
+                    "name": str(getattr(row, "name", "") or ""),
+                    "year": str(getattr(row, "year", "") or ""),
+                    "season": season,
+                    "state": str(getattr(row, "state", "") or ""),
+                    "poster": str(getattr(row, "poster", "") or ""),
+                    "media_source": str(getattr(row, "media_source", "") or ""),
+                    "media_id": media_id,
+                    "gaps": [
+                        {"air_date": day, "episode": number, "days_left": left}
+                        for day, number, left in gaps
+                    ],
+                    # 整部剧最早出窗口的那个缺口：排序/界面「还剩几天」用
+                    "min_days_left": min(left for _, _, left in gaps),
+                }
+            )
+        items.sort(key=lambda item: (item["min_days_left"], item["name"]))
+        return {
+            "today": today_text,
+            "keep_days": cfg["keep_days"],
+            "total": len(items),
+            "items": items,
+        }
+
+    async def gaps_search(self, *, subscribe_id: int) -> Dict[str, Any]:
+        """对一部订阅触发一次宿主「手动搜索（按标题）」。
+
+        不再走 ``SubscribeChain().search``（订阅搜索是队列式后台执行、吃订阅站点范围
+        RssSites、且一次太久）；改为调宿主「搜索结果页」同款的手动模糊搜索
+        ``SearchChain().async_search_by_title``：
+        - ``sites`` 不传 → 自然用 MP 设定里的**搜索站点范围（IndexerSites）**；
+        - ``cache_local=True`` → 结果自动落到 MP 的**「搜索结果」页**，用户在
+          界面自己看、自己点下载，站点速度也看得见；
+        - 只搜这一部（用订阅自己的标题），不连搜多部，避免覆盖缓存、顶爆站点流控。
+        """
+        from app.db import async_session_scope
+        from app.db.models.subscribe import Subscribe
+        from sqlalchemy import select
+
+        from .core import autotoggle
+
+        # 取这一部订阅的标题和类型（不含就退出，给个明确提示）
+        async with async_session_scope() as session:
+            row = (
+                await session.execute(
+                    select(Subscribe).where(Subscribe.id == subscribe_id)
+                )
+            ).scalar_one_or_none()
+        title = str(getattr(row, "name", "") or "").strip()
+        if not title:
+            return {
+                "subscribe_id": subscribe_id,
+                "message": "没有可用的标题，无法手动搜索",
+            }
+        kind = autotoggle.media_kind(row)
+        mtype = None
+        if kind == "movie":
+            from app.schemas.types import MediaType
+
+            mtype = MediaType.MOVIE
+        elif kind == "tv":
+            from app.schemas.types import MediaType
+
+            mtype = MediaType.TV
+
+        from app.chain.search.facade import SearchChain
+
+        chain = SearchChain()
+        results = await chain.async_search_by_title(
+            title=title,
+            page=0,
+            sites=None,  # 不传 → 用搜索站点范围 IndexerSites
+            cache_local=True,  # 落到 MP「搜索结果」页
+            mtype=mtype,
+        )
+        count = len(results)
+        return {
+            "subscribe_id": subscribe_id,
+            "message": (
+                f"已按《{title}》在搜索站点范围逐站搜索，找到 {count} 个资源，"
+                "请到 MoviePilot「搜索结果」页查看并手动下载"
+            ),
+        }
 
     async def auto_toggle_run(self, *, reason: str = "manual") -> Dict[str, Any]:
         """执行一次自动启停：先算计划，再逐条写状态，最后更新接管表。
@@ -1237,8 +1052,8 @@ class SubscribeCenter(_PluginBase):
 
         probe_cache = self.__dict__.pop("_auto_toggle_library_probe", None)
         if isinstance(probe_cache, dict):
-            #: 空结果也落盘：否则「一条都没核对出来」在插件数据里毫无痕迹。
-            state["library_probe"] = probe_cache
+            #: 兼容旧数据：以前这里存实探缓存，现在不再产生，遇到就顺手清掉。
+            state.pop("library_probe", None)
         owned = autotoggle.next_owned(
             state.get("owned"),
             planned,
@@ -1293,6 +1108,22 @@ class SubscribeCenter(_PluginBase):
             "reasons": planned.get("reasons") or {},
             "owned": len(owned),
             "last_run": state["last_run"],
+            #: 逐条通知用的明细：只留**真正改成功**的那几条
+            "changed": [
+                {
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "season": item.get("season"),
+                    "action": item.get("action"),
+                    "reason_label": item.get("reason_label"),
+                    "detail": item.get("detail"),
+                    "poster": item.get("poster"),
+                    "kind": item.get("kind"),
+                }
+                for item in changes
+                if int(item.get("id") or 0) in applied_ids
+                and item.get("action") in (autotoggle.ACTION_PAUSE, autotoggle.ACTION_RESUME)
+            ],
         }
         logger.info(
             f"[SubscribeCenter] 播出日自动启停（{reason}）："
@@ -1430,22 +1261,82 @@ class SubscribeCenter(_PluginBase):
                 applied.append(sid)
 
     def _notify_auto_toggle(self, result: Dict[str, Any]) -> None:
-        """发送自动启停通知（只在真有改动时发）。"""
-        lines = [
-            f"恢复订阅：{result.get('resumed', 0)} 条",
-            f"暂停订阅：{result.get('paused', 0)} 条",
-        ]
-        if result.get("truncated"):
-            lines.append(
-                f"已达单次上限（计划 {result.get('planned', 0)} 条），剩余下次再改"
-            )
-        if result.get("failed"):
-            lines.append(f"失败：{len(result['failed'])} 条")
-        lines.append(f"当前接管中：{result.get('owned', 0)} 条")
+        """发送自动启停通知：**一部一条**，带海报、原因、处理、后续。
+
+        以前只报「暂停 N 条 / 恢复 N 条」，看不出是哪几部、为什么，等于没说。
+        现在按订阅逐条发：标题写清「剧名 S1 原因」，正文写原因/处理/后续，
+        带上海报并链接到订阅页，点开就能看到那一部。
+        """
+        items = [item for item in (result.get("changed") or []) if isinstance(item, dict)]
+        for item in items:
+            try:
+                self.post_message(
+                    mtype=self._notify_type_subscribe(),
+                    title=self._auto_toggle_title(item),
+                    text=self._auto_toggle_text(item),
+                    image=str(item.get("poster") or "") or None,
+                    link=self._auto_toggle_link(item),
+                )
+            except Exception as err:  # noqa: BLE001 - 通知失败不影响主流程
+                logger.warning(f"[SubscribeCenter] 发送自动启停通知失败：{err}")
+        failed = result.get("failed") or []
+        if failed:
+            lines = [f"· {self._failed_label(row)}" for row in failed[:10]]
+            if len(failed) > 10:
+                lines.append(f"…等 {len(failed)} 条")
+            try:
+                self.post_message(
+                    title="胖虎订阅中心 播出日自动启停（有失败）",
+                    text="\n".join(lines),
+                )
+            except Exception as err:  # noqa: BLE001 - 通知失败不影响主流程
+                logger.warning(f"[SubscribeCenter] 发送自动启停失败通知失败：{err}")
+
+    @staticmethod
+    def _notify_type_subscribe():
+        """宿主通知类型 ``订阅``（取不到就退回默认，别因为枚举变化丢了通知）。"""
         try:
-            self.post_message(title="胖虎订阅中心 播出日自动启停", text="\n".join(lines))
-        except Exception as err:  # noqa: BLE001 - 通知失败不影响主流程
-            logger.warning(f"[SubscribeCenter] 发送自动启停通知失败：{err}")
+            from app.schemas import NotificationType
+
+            return NotificationType.Subscribe
+        except Exception:  # noqa: BLE001 - 老版本可能没有这个枚举
+            return None
+
+    @staticmethod
+    def _auto_toggle_title(item: Dict[str, Any]) -> str:
+        """``朱色假面 S1 已播集全部入库`` 这样的标题。"""
+        name = str(item.get("name") or "未知订阅")
+        season = int(item.get("season") or 0)
+        label = str(item.get("reason_label") or "")
+        season_text = f" S{season}" if season > 0 else ""
+        return f"{name}{season_text} {label}".strip()
+
+    @staticmethod
+    def _auto_toggle_text(item: Dict[str, Any]) -> str:
+        """正文：原因 / 处理 / 后续，一眼看完。"""
+        paused = str(item.get("action") or "") == "pause"
+        lines = [
+            f"原因：{item.get('reason_label') or '—'}",
+            f"说明：{item.get('detail') or '—'}",
+            f"处理：{'已暂停订阅' if paused else '已恢复订阅'}",
+            f"后续：{'条件不再满足时会自动恢复' if paused else '条件再次满足时仍会自动暂停'}",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _auto_toggle_link(item: Dict[str, Any]) -> str:
+        """跳到 MP 订阅页对应的 tab。"""
+        page = "movie" if str(item.get("kind") or "") == "movie" else "tv"
+        return f"#/subscribe/{page}?tab=mysub"
+
+    @staticmethod
+    def _failed_label(row: Any) -> str:
+        """失败条目的一句话（``name`` 可能带 ``season``）。"""
+        if not isinstance(row, dict):
+            return str(row)
+        name = str(row.get("name") or row.get("id") or "未知")
+        error = str(row.get("error") or row.get("message") or "写入失败")
+        return f"{name}：{error}"
 
     def _auto_toggle_running(self) -> Dict[str, Any]:
         """后台是否正在跑（崩溃残留的牌子按 30 分钟过期）。"""
@@ -1531,6 +1422,111 @@ class SubscribeCenter(_PluginBase):
             return
         if result is None:
             logger.info("[SubscribeCenter] 自动启停：已有任务在跑，本次跳过")
+
+    # ---------------- 跟随订阅刷新
+    def _refresh_progress(self) -> tuple:
+        """读宿主「订阅刷新」任务的最近完成时间，以及它是否正在跑。
+
+        只认订阅刷新：RSS 模式的 job id 是 ``subscribe_refresh``，spider 模式是
+        ``subscribe_refresh|HH:MM`` 共 32 个。其余任务一概不看。
+
+        为什么走调度器而不是自己探库：宿主刷新时 ``refresh_subscribe_progress``
+        已经探过库、把结果写进 ``lack_episode``，刷新结束那一刻这个账最新。
+        """
+        try:
+            #: 宿主自己的接口层（``app/api/endpoints/dashboard.py``）就是从
+            #: ``app.application.scheduling`` 取调度器的；``app.scheduler`` 包里
+            #: 没有 ``get_scheduler``（真机踩过：ImportError，静默失败）。
+            from app.application.scheduling import get_scheduler
+
+            scheduler = get_scheduler()
+        except Exception as err:  # noqa: BLE001 - 调度器不可用时静默跳过
+            logger.debug(f"[SubscribeCenter] 读取调度器失败：{err}")
+            return None, False
+        if scheduler is None:
+            return None, False
+        job_ids = ["subscribe_refresh"]
+        try:
+            for info in scheduler.list() or []:
+                job_id = str(self._field(info, "id") or "")
+                if job_id.startswith("subscribe_refresh"):
+                    job_ids.append(job_id)
+        except Exception as err:  # noqa: BLE001 - 拿不到任务列表就只问默认那个
+            logger.debug(f"[SubscribeCenter] 列出调度任务失败：{err}")
+        latest = None
+        running = False
+        for job_id in dict.fromkeys(job_ids):
+            try:
+                progress = scheduler.get_progress(job_id)
+            except Exception as err:  # noqa: BLE001
+                logger.debug(f"[SubscribeCenter] 读取任务进度失败（{job_id}）：{err}")
+                continue
+            if progress is None:
+                continue
+            status = str(self._field(progress, "status") or "")
+            #: ``get_progress`` 的状态是英文（running/success/failed），但不同版本
+            #: / 列表接口会混进中文（正在运行/等待），两种都认。
+            if status in ("running", "waiting", "正在运行", "等待"):
+                running = True
+                continue
+            finished = self._field(progress, "finished_at")
+            if finished:
+                text = str(finished)
+                if latest is None or text > latest:
+                    latest = text
+        return latest, running
+
+    def auto_toggle_follow_tick(self) -> None:
+        """**同步**入口：每分钟看一眼宿主订阅刷新有没有跑完。
+
+        两段式：先记下「看到刷新完成了」，下一次心跳（约 1 分钟后）才真正跑，
+        让宿主的库事务落完。30 分钟内已经跑过就不再跑 —— spider 模式一天刷
+        32 次，不去抖会跟着跑 32 轮。
+        """
+        import time
+
+        cfg = self._auto_toggle_config()
+        if not cfg["enabled"] or not cfg["follow_refresh"]:
+            return
+        finished, running = self._refresh_progress()
+        if not finished or running:
+            return
+        state = self._auto_toggle_state()
+        seen = state.get("refresh_follow")
+        seen = dict(seen) if isinstance(seen, dict) else {}
+        if str(seen.get("finished_at") or "") != finished:
+            state["refresh_follow"] = {"finished_at": finished, "seen_at": time.time()}
+            self._save_auto_toggle_state(state)
+            logger.info(
+                f"[SubscribeCenter] 订阅刷新已完成（{finished}），下一分钟跑自动启停"
+            )
+            return
+        seen_at = seen.get("seen_at")
+        if not isinstance(seen_at, (int, float)):
+            return
+        if time.time() - float(seen_at) < C.FOLLOW_REFRESH_SETTLE_SECONDS:
+            return
+        ran_at = seen.get("ran_at")
+        if isinstance(ran_at, (int, float)):
+            if time.time() - float(ran_at) < C.FOLLOW_REFRESH_DEBOUNCE_MINUTES * 60:
+                return
+        if self._auto_toggle_running()["running"]:
+            logger.info("[SubscribeCenter] 自动启停：上一轮还在跑，跟随刷新跳过")
+            return
+        # 先记下「这次要跑了」再执行：万一执行体中途崩掉，也不会在下一分钟
+        # 立刻再跑一遍。
+        seen["ran_at"] = time.time()
+        state["refresh_follow"] = seen
+        self._save_auto_toggle_state(state)
+        try:
+            result = self._bridge.run(
+                lambda: self.auto_toggle_run(reason="refresh"), timeout=1800
+            )
+        except Exception as err:  # noqa: BLE001 - 定时任务不能把异常抛给调度器
+            logger.error(f"[SubscribeCenter] 跟随订阅刷新失败：{err}", exc_info=True)
+            return
+        if result is None:
+            logger.info("[SubscribeCenter] 自动启停：已有任务在跑，跟随刷新跳过")
 
     @staticmethod
     def _field(obj: Any, name: str, default: Any = None) -> Any:
@@ -1809,6 +1805,21 @@ class SubscribeCenter(_PluginBase):
                 )
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[SubscribeCenter] 自动启停定时注册失败：{err}")
+
+        # 跟随订阅刷新：只盯宿主「订阅刷新」任务，它一跑完就补一轮自动启停。
+        # 每分钟只读一次调度器内存里的进度，不发任何网络请求。
+        if auto_cfg["enabled"] and auto_cfg["follow_refresh"]:
+            try:
+                services.append(
+                    {
+                        "id": "subscribecenter_autotoggle_follow",
+                        "name": "胖虎订阅中心 跟随订阅刷新",
+                        "trigger": CronTrigger(minute="*"),
+                        "func": self.auto_toggle_follow_tick,
+                    }
+                )
+            except Exception as err:  # pragma: no cover
+                logger.warning(f"[SubscribeCenter] 跟随刷新任务注册失败：{err}")
 
         # 每源独立定时：留空表示该源跟随全局任务，不单独调度
         for key, source, label in self._per_source_cron_jobs():

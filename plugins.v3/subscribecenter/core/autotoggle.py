@@ -372,6 +372,41 @@ def missing_from_no_exists(no_exists: Any, season: int) -> Optional[set]:
     return None
 
 
+def library_present_from_lack(row: Any) -> Optional[set]:
+    """按宿主自己维护的 ``lack_episode`` 推算「库里已经有哪些集」。
+
+    为什么不再自己探库：MoviePilot 的订阅刷新任务本来就在核库（``compute_lack_episode``
+    逐集问媒体服务器），把结果写在 ``lack_episode`` 上 —— 它等于目标范围里
+    **还没拿到手**的集数。我们照着再探一遍纯属白烧：真机实测每条 1.7 秒，
+    200 条要 6 分钟。读宿主的账，零成本。
+
+    只拿到「缺几集」、拿不到「缺哪几集」，所以按**前 N 集已入库**处理 ——
+    与宿主自己的假设一致（顺序追更）。这个方向是安全的：``lack_episode`` 偏大
+    （宿主还没核对完、或新建订阅直接置成总集数）只会让我们以为缺得更多 →
+    继续搜，**不会误暂停**。
+
+    返回 ``None`` = 拿不到可信数字（总集数未知、缺集数缺失或非法），调用方按
+    「还没核对到」处理，保持不动。
+    """
+    total = _int(_get(row, "total_episode"), 0)
+    lack = _get(row, "lack_episode")
+    if total <= 0 or lack is None:
+        return None
+    missing = _int(lack, -1)
+    if missing < 0:
+        return None
+    start = _int(_get(row, "start_episode"), 1)
+    if start <= 0:
+        start = 1
+    #: 目标范围是 start..total（含两端），共 span 集；缺 missing 集则前
+    #: span - missing 集视为已在库。
+    span = total - start + 1
+    if span <= 0:
+        return None
+    present = max(0, span - min(missing, span))
+    return set(range(start, start + present))
+
+
 def pending_episodes(
     row: Any,
     episodes: Optional[Iterable[Any]],
@@ -408,6 +443,64 @@ def pending_episodes(
         ],
         key=lambda pair: (pair[1], pair[0]),
     )
+
+
+def in_window_gaps(
+    row: Any,
+    episodes: Optional[Iterable[Any]],
+    today: date,
+    *,
+    keep_days: int = 3,
+    start_episode: Optional[int] = None,
+    confirmed: Optional[Iterable[Any]] = None,
+) -> List[Tuple[str, int, int]]:
+    """「订阅中但缺了几集」的清单 —— ``[(播出日, 集号, 还剩几天出窗口), ...]``。
+
+    与缺失集保留天数（``keep_days`` 窗口）同一口径：只有播出后仍落在窗口内、
+    且未被确认入库的集才叫「缺口」。供缺集列表页使用；不参与启停判定。
+
+    :param confirmed: 媒体库**实探**确认入库的集号。**只认实探**：传了就以它为
+        唯一准绳（预订评 / 下载记录都不算）；**不传（``None``）就是没有实探
+        证据，一律不报缺** —— 插口页宁可漏报也不误报，真缺的等自动启停下一轮
+        实探补上。切不能让 ``note`` 兜底去猜（note 往往只记最后一集）。
+    :return: 每条 ``(air_date, episode_number, days_left)``，播出越早（越接近
+        出窗口）越靠前；``days_left`` 为负表示已出窗口（正常不会出现在这里）。
+        今天（`air_date == today`）播的集**只有在同一部订阅已有旧缺口时**才一并
+        列出；光今天第一次播、没有任何旧缺的剧整部不列。
+    """
+    air = [pair for pair in (_episode_pair(item) for item in (episodes or [])) if pair]
+    today_text = today.isoformat()
+    #: 只认实探。``confirmed`` 是媒体库实探确认在库的集号；没有实探证据
+    #: （``None``）就什么都不报 —— 宁可漏报，绝不用 ``note`` / 下载记录去猜
+    #: （note 往往只记最后一集，会把 1..N-1 全误报成缺口，见 1.17.6 《大主宰》）。
+    if confirmed is None:
+        return []
+    downloaded = {_int(item, -1) for item in confirmed}
+    downloaded.discard(-1)
+    start = _int(_get(row, "start_episode"), 1) if start_episode is None else start_episode
+    out: List[Tuple[str, int, int]] = []
+    today_candidates: List[Tuple[str, int, int]] = []
+    for day, number in air:
+        if day > today_text:
+            continue  # 还没播的不算缺口
+        if number < start or number in downloaded:
+            continue
+        gap = (today - (parse_date(day) or today)).days
+        days_left = max(0, keep_days) - gap
+        if days_left < 0:
+            continue
+        if day == today_text:
+            #: 今天播的集先不急着拍板：只有这部订阅**本来就有旧缺口**才把它
+            #: 一起列出（直观）；光今天第一次播、没有任何旧缺的剧不列 —— 那等于
+            #: 「今天才播，还没到补搜的时候」，不该被拖进缺集列表。
+            today_candidates.append((day, number, days_left))
+        else:
+            out.append((day, number, days_left))
+    if out:
+        # 已有旧缺口 → 今天播的集（若未入库）也一并列出
+        out.extend(today_candidates)
+    out.sort(key=lambda pair: (pair[2], pair[1]))
+    return out
 
 
 def _release_pair(item: Any) -> Optional[Tuple[str, int]]:
@@ -561,6 +654,10 @@ class Decision:
     assumed: bool = False
     #: 其中有多少集是媒体库实探确认为已入库的
     library_confirmed: int = 0
+    #: 海报地址（订阅记录里本来就有，通知卡片直接用）
+    poster: str = ""
+    #: ``tv`` / ``movie`` / ``""``（通知里决定跳哪个订阅页）
+    kind: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         """转成可直接 JSON 化的字典。"""
@@ -584,6 +681,8 @@ class Decision:
             "basis_kind": self.basis_kind,
             "assumed": self.assumed,
             "library_confirmed": self.library_confirmed,
+            "poster": self.poster,
+            "kind": self.kind,
         }
 
 
@@ -626,6 +725,8 @@ def _decision(
         basis_kind=basis_kind,
         assumed=assumed,
         library_confirmed=library_confirmed,
+        poster=_text(_get(row, "poster")),
+        kind=media_kind(row),
     )
 
 
@@ -1186,8 +1287,10 @@ __all__ = [
     "decide",
     "episode_numbers",
     "has_download_record",
+    "in_window_gaps",
     "is_best_version",
     "media_kind",
+    "library_present_from_lack",
     "missing_from_no_exists",
     "movie_basis",
     "movie_basis_ex",

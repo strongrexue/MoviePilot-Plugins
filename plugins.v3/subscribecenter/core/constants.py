@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.17.6"
+PLUGIN_VERSION = "1.18.0"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -50,25 +50,6 @@ DEFAULT_AUTO_TOGGLE_CRON = "5 0 * * *"
 #: 还没等到更好的版本，要么站点没有、要么过滤规则卡住了，再空搜也没用。
 DEFAULT_AUTO_TOGGLE_BEST_KEEP = 90
 
-#: 媒体库核对的时间预算（秒）与逐条间隔（秒）。
-#:
-#: 宿主 ``DownloadChain().get_no_exists_info`` 每核对一条订阅要发两次媒体服务器
-#: HTTP 请求（``get_iteminfo`` + ``Shows/{id}/Episodes``），200 条一次性并发会把
-#: NAS 打挂（1.13.6 之前的真实事故）。所以这里改成「串行 + 间隔 + 时间预算」：
-#: 预算用完就停，剩下的留到下一轮，宁可分几天轮完也不打崩媒体服务器。
-#:
-#: 实测（Emby 局域网）每条约 1.7 秒：1.5 秒间隔 + 0.2 秒请求，200 条约 340 秒。
-#: 默认 600 秒 = 一轮能把 200 条全核完，还留一倍余量；稳态下要核的通常只有
-#: 几十条，走不满。预算设 0 = 不实探（只沿用上一轮结果）。
-DEFAULT_AUTO_TOGGLE_PROBE_BUDGET = 600
-DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL = 1.5
-#: 上一轮核对结果的保质期（小时）。过期就不再当作「已入库」证据，让这条订阅
-#: 重新进入候选、下一轮再问一次媒体服务器。
-#:
-#: 为什么必须有保质期：以前缓存被无条件并进「已入库」集合，一旦某部剧被核对
-#: 过一次，它的缺集就永远被缓存覆盖，再也不会重新核对 —— 新集入库了也看不见。
-#: 真机表现：该暂停的订阅一直保持「订阅中」。
-DEFAULT_AUTO_TOGGLE_PROBE_TTL_HOURS = 12
 #: 电影「刚上映也算数」的宽限天数。数字版上线之后站点上才有资源，卡死
 #: 「必须在未来」等于永远订不到刚上线的片子（真机：《空枪》数字发行当天
 #: 被「已过去」拒掉）。7 天足够覆盖出种延迟，又不至于把老片捞进来。
@@ -82,6 +63,23 @@ DEFAULT_MOVIE_RELEASE_GRACE = 7
 #: 会标注「估算」。TMDB 补上真实数字/实体发行日期后自动改用真实日期。
 #: 设 0 = 不估算（旧行为，直接用影院上映日）。
 DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS = 90
+
+#: 跟随订阅刷新：刷新任务跑完之后再跑一轮自动启停。
+#:
+#: 为什么值得这么做：宿主的订阅刷新在 ``refresh_subscribe_progress`` 里自己
+#: 会探媒体库并把结果写进 ``lack_episode``，刷新刚结束那一刻这个账最新。固定
+#: 时刻跑（默认 00:05）很可能跑在刷新之前，读到的就是上一轮的旧账。
+DEFAULT_AUTO_TOGGLE_FOLLOW_REFRESH = False
+
+#: 跟随刷新的轮询间隔（分钟）。只读调度器内存里的进度，不发任何网络请求。
+FOLLOW_REFRESH_POLL_MINUTES = 1
+
+#: 发现刷新结束后，等多久再跑（秒）—— 让宿主的库事务落完。
+FOLLOW_REFRESH_SETTLE_SECONDS = 60
+
+#: 两次跟随触发之间的最小间隔（分钟）。spider 模式一天刷 32 次，不去抖会跟着
+#: 跑 32 轮（虽然一轮只要 1~3 秒，但没必要）。
+FOLLOW_REFRESH_DEBOUNCE_MINUTES = 30
 DEFAULT_MIN_RATING = 6.0
 #: 最低关注度（TMDB popularity 分位参考：观众级大片 100+、院线片 10~50、
 #: 冷门/影展片 <5）。未来档期的片子几乎都没评分，popularity 是唯一可用的
@@ -532,10 +530,14 @@ def default_config() -> Dict[str, Any]:
         #: 打开后：在下面的时间预算内逐条向媒体服务器核对，**只有实探结果算入库**；
         #: 订阅记录与宿主下载记录都不算（下过不等于导入）。核对不到的订阅本轮不动。
         "auto_toggle_library_check": False,
+        #: 跟随订阅刷新：宿主刷新任务一跑完，等一分钟再自动跑一轮。
+        #:
+        #: 宿主刷新时自己就会探库并更新 ``lack_episode``，刷新结束那一刻的账
+        #: 最新；固定时刻跑很可能跑在刷新之前。只监控订阅刷新任务，其余任务
+        #: 一概不看。与定时任务可同时开，30 分钟内不重复触发。
+        "auto_toggle_follow_refresh": DEFAULT_AUTO_TOGGLE_FOLLOW_REFRESH,
         #: 每轮媒体库实探的时间预算（秒，0 = 不实探，只沿用上一轮结果）。
-        "auto_toggle_library_probe_budget_seconds": DEFAULT_AUTO_TOGGLE_PROBE_BUDGET,
         #: 逐条核对之间的间隔（秒）。越小越快，也越容易把媒体服务器压住。
-        "auto_toggle_library_probe_interval": DEFAULT_AUTO_TOGGLE_PROBE_INTERVAL,
         # ---------------- 调度与通知
         #: 每源独立定时（五位 cron，留空 = 跟随上面的全局 cron）
         "cron_tmdb": "",

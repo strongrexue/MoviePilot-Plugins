@@ -758,8 +758,11 @@ class MessagePipeline:
                                      title=self._media_label(meta),
                                      extra=self._wash_extra(wash_verdict))
         if task_id:
+            reason = ""
+            if wash_verdict:
+                reason = f"；{str(wash_verdict.get('reason') or '画质判定通过').strip()}"
             self._record(rule, chat_id, message_id, meta, DECISION_HIT,
-                         f"已入推送队列 #{task_id}{keyword_note}", destination, links)
+                         f"已入推送队列 #{task_id}{reason}{keyword_note}", destination, links)
             self._stats["hit"] += 1
             if wash_verdict:
                 self._remember_wash_baseline(wash_verdict)

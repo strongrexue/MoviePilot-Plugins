@@ -3,7 +3,7 @@
         "name": "胖虎媒体中心",
         "description": "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。",
         "labels": "工具,媒体",
-        "version": "1.13.35",
+        "version": "1.13.36",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -11,6 +11,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.13.36": "命中流水可观测性 + 重启后 TG 自动重连（1.13.36）：\n1. 命中推送的流水「说明」现在带上洗版判定原因（复用画质比较的中文结论，如「分辨率更优（2160p > 1080p）」「首次推送（无基线）」「2/5 集可推（…）」），配合已有的 rule_name 列可一眼看出这条为什么被推——此前命中只写「已入推送队列 #N」，拦截与缓存回搜路径早已带原因，唯独实时监控命中不带，用户无法从流水判断推得对不对。\n2. 修复「容器重启后 TG 客户端不自动重连」：宿主调度器在插件加载早期尚未接受一次性任务提交（add_plugin_once_job 返回 False），连接任务被静默丢弃，TG 永远不自愈。现在注册失败就退回守护线程做同样的延迟连接（30 秒内去抖，只起一次），确保重启后定时与实时回搜的监听都能自动恢复。\n改动：core/pipeline.py（命中 detail 拼 reason）、__init__.py（_schedule_connect 失败回退 _spawn_connect_thread）、版本号六处同步。",
             "v1.13.35": "洗版并入监控单链路（1.13.35）：\n1. 「仅缺失时推送」整块下线，订阅门禁 + 洗版门成为唯一判定路径；监控规则不再做媒体库缺失判断。\n2. 洗版规则默认开启（可在「洗版规则」板块临时关闭 = 跳过画质比较）；删除「同集每轮最多推几条（TopN）」。\n3. 维度缺失规则：分辨率是必备维（解析不出不推），其余维度解析不出就跳过该维比较。\n4. 整季包逐集比较：至少一集升级（或无基线）就推，推送时只转存真正更好的集（115 按文件名 SxxExx 挑 file_id）；分享根目录是文件夹时整包转存，交给整理工具。\n5. 新增媒体库画质表 library_quality（宿主演示器 MediaSources，7 天 TTL + 否定缓存，失败按无基线放行），洗版基线三源（已推送 / 下载历史 / 媒体库）默认全开。\n6. 订阅优先：订阅类规则先判定，已做过画质判定的消息不再被关键词规则重复推送。\n7. 删除订阅回搜链路（run_subscription_search / 防抖 timer / 订阅反查）与其配置项；移除 P9 的 skipped_pt_* 决策。\n改动：services/quality.py（必备维 + episode_keys + 默认开）、新增 services/wash_gate.py 与 services/library_quality.py、新增 model/library_quality.py、core/pipeline.py（洗版门与订阅优先）、core/pan115_client.py（快照文件名 + 按集筛选）、modules/pan115.py、destinations/pan115.py、modules/monitor.py / controller/schemas.py 去 only_if_missing；前端 ConfigMonitorPane 去「仅缺失」、ConfigWashPane 去 TopN。测试 471 passed。",
             "v1.13.34": "设置页改为六大板块 + 洗版规则独立板块（并清退一批已下线功能）：\n1. 左侧导航固定六项：TG 凭证 / 115 网盘 / 订阅监控（原「资源监控」）/ 消息缓存 / 洗版规则 / 通用转发；「重复获取治理」整块下线。\n2. 洗版规则升为一级板块：启用洗版开关、七维资源权重（质量锁定第 1，其余可拖拽）、判定与收口、并新增「判定示例」表（把七维字典序的判定结果直接摊开给人看）。\n3. 消息缓存瘦身：删除「订阅兜底检查」与「存量补扫」两张卡，删除「新增订阅回搜」「跳过原生首次全站搜索」两个开关；推送节流（每批条数 / 批间隔）迁到「TG 凭证 · 推送节流」卡。\n4. 订阅监控运行状态新增「订阅 N」chip（原缺失判断徽章），其余统计块不变。\n5. 洗版唯一触发路径改为实时回搜：频道新消息入库 → 按订阅回搜缓存 → 洗版七维比较 → 更优才推 115（2 秒防抖合并连续消息）。\n6. 后端一并清退：first_search_guard / pt_guard / p9_gate 三个模块与 P9 判定、订阅兜底与存量补扫的 cron、API、配置项、数据模型全部删除；forward_gate 只保留下载历史查询（洗版规则的「下载历史(PT)」基线用）。\n改动：__init__.py（配置项与 cron）、controller/api.py（4 条路由）、controller/schemas.py、core/pipeline.py（P9 闸门 + 洗版触发）、modules/cache.py（新增 run_subscription_search / request_wash_search）、services/forward_gate.py（瘦身）、services/quality.py（enabled 字段）；前端 Config.vue 六板块 + 新增 ConfigWashPane.vue + Cache/Tg/Monitor 三个 pane 同步；测试 483 passed。",
             "v1.13.33": "洗版规则页可用性修复：\n1. 「启用洗版规则（洗版回搜）」开关直接放进洗版规则页顶部，改完随「保存配置」一起生效；关闭时规则仍可编辑保存，只是不参与判定（此前关闭状态下整页不显示规则，看着像没生效）。\n2. 规则编辑器改为常显；收口区（未在排列里的值 / 同集每轮最多推几条 / 体积容差）改成三栏网格，不再和「文件体积」那行挤在一起。\n3. chip 尺寸放大到 24px / 12px，与效果图一致。\n改动：ConfigCachePane.vue（模板 + 样式）。测试基线 575 passed。",

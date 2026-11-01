@@ -562,11 +562,16 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
   整季包逐集比较、只转存真正更好的集；洗版基线三源（已推送 / 下载历史 / 媒体库）默认全开，
   新增媒体库画质表 `library_quality`（MediaSources + 7 天 TTL + 失败按无基线放行）；
   订阅类规则优先判定，已判定的消息不再被关键词规则重复推。
+- **命中流水可观测性 + 重启自动重连**（`1.13.36`）：命中推送的流水「说明」带上洗版判定原因
+  （如「分辨率更优（2160p > 1080p）」「首次推送（无基线）」，复用画质比较的中文结论），
+  配合已有的 `rule_name` 列一眼看出这条为什么被推；修复「容器重启后 TG 客户端不自动重连」——
+  宿主调度器未就绪时一次性连接任务被静默丢弃，现注册失败即退回守护线程延迟连接
+  （30 秒内去抖，只起一次），确保重启后定时与实时回搜的监听都能自动恢复。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.35`。版本号需六处同步：`__init__.py` 的 `plugin_version`、
+当前 `1.13.36`。版本号需六处同步：`__init__.py`  的 `plugin_version`、
 `package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
 前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
 `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本

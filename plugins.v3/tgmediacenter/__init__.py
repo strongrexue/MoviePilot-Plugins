@@ -41,7 +41,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.35"
+    plugin_version = "1.13.36"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -160,21 +160,55 @@ class TgMediaCenter(_PluginBase):
             self._schedule_connect()
 
     def _schedule_connect(self, delay_seconds: int = 5) -> None:
-        """让宿主调度器在稍后建立 TG 连接。"""
+        """让宿主调度器在稍后建立 TG 连接。
+
+        宿主调度器在插件加载早期可能尚未接受一次性任务提交
+        （``add_plugin_once_job`` 此时返回 False，见宿主 ``oncejob.py``），
+        连接任务会被静默丢弃，导致容器重启后 TG 客户端永远不自愈。
+        一旦注册失败，就退回守护线程做同样的延迟连接，确保重启后必连。
+        """
         add_once = getattr(scheduler_sdk, "add_plugin_once_job", None) if scheduler_sdk else None
         if add_once is None:
-            logger.info("[TgMediaCenter] 调度接口不可用，TG 连接改为首次调用时建立")
+            logger.info("[TgMediaCenter] 调度接口不可用，TG 连接改为守护线程建立")
+            self._spawn_connect_thread(delay_seconds)
             return
+        registered = False
         try:
-            add_once(
-                self.__class__.__name__,
-                "telegram_connect",
-                self._ensure_telegram_runtime,
-                "胖虎媒体中心 TG 客户端连接",
-                delay_seconds=delay_seconds,
+            registered = bool(
+                add_once(
+                    self.__class__.__name__,
+                    "telegram_connect",
+                    self._ensure_telegram_runtime,
+                    "胖虎媒体中心 TG 客户端连接",
+                    delay_seconds=delay_seconds,
+                )
             )
         except Exception as err:  # pragma: no cover - 调度失败不影响其余能力
             logger.warning(f"[TgMediaCenter] 安排 TG 连接任务失败：{err}")
+        if not registered:
+            logger.info("[TgMediaCenter] 宿主调度器暂时不可用，TG 连接改用守护线程建立")
+            self._spawn_connect_thread(delay_seconds)
+
+    def _spawn_connect_thread(self, delay_seconds: float) -> None:
+        """起一个守护线程延迟连接（调度器未就绪时的自愈兜底）。
+
+        线程是 daemon 的，宿主进程退出不会因它阻塞；去抖 30 秒内只起一次，
+        避免反复保存配置时同时拉起多条连接线程互相抢出口。
+        """
+        import threading
+
+        now = time.time()
+        requested_at = float(getattr(self, "_connect_requested_at", 0.0) or 0.0)
+        if now - requested_at < 30:
+            return
+        self._connect_requested_at = now
+
+        def _worker() -> None:
+            time.sleep(max(0.0, float(delay_seconds)))
+            self._ensure_telegram_runtime()
+
+        thread = threading.Thread(target=_worker, name="tgmc.connect.bootstrap", daemon=True)
+        thread.start()
 
     def ensure_background_connect(self) -> None:
         """在后台安排一次 TG 连接（去抖：30 秒内只调度一次）。

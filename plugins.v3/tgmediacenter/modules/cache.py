@@ -5,15 +5,17 @@
 缓存的频道集合与监控规则的 ``source_ids`` **完全独立**：可以在「只缓存不监控」
 的频道上归档消息，也可以两者重叠。事件入口把它们并集处理后分别投递。
 
-订阅回搜
---------
+订阅回搜（新增订阅，1.13.39 起纯事件驱动）
+------------------------------------------
 ```
-定时/手动 → 读取订阅快照 → 与上次快照对比出「新增订阅」
+宿主广播 subscribe.added（新增订阅）→ 防抖 8 秒合并批量添加
+  → 从事件 mediainfo（缺片名时回查订阅表）取片名 / 年份 / 类型
   → 缓存库按标题检索（归一标题匹配）
-  → 逐条判缺失（is_missing + 订阅门禁）→ 过滤无链接 / 已推送
-  → 入推送队列（destination 取 cache_destination）→ 通知结果
+  → 过滤无链接 / 频道关键词过滤 / 已推送过
+  → 洗版判定（cache_wash_rules 关闭时全放行）→ 入推送队列 → 通知结果
 ```
-首次运行只建立基线（不把已有订阅全部当成新增，避免一次推几百条）。
+不注册定时任务、不比对订阅快照：只处理「这一刻新增的订阅」，插件离线期间新增的
+订阅不会补发（这是刻意的取舍——用户要的是「新订阅马上回搜」，不是全量巡检）。
 """
 from __future__ import annotations
 
@@ -62,6 +64,9 @@ _WASH_BASELINE_LIMIT = 500
 # push_batch_size / push_batch_interval），队列不会被瞬间灌满；重复入队由命中流水挡住。
 # 定时任务默认 cron（5 段：分 时 日 月 周）
 DEFAULT_SYNC_CRON = "0 */6 * * *"
+# 新增订阅回搜的防抖窗口（1.13.39）：宿主保存订阅后会立刻广播事件，批量添加时
+# 会连发多条——合并成一次回搜，避免同一部剧被连搜十几遍。
+_EVENT_DEBOUNCE_SECONDS = 8.0
 
 
 class CacheModule:
@@ -72,6 +77,12 @@ class CacheModule:
         self._history = HistoryCacheService(plugin)
         self._matcher = MediaMatcher()
         self._lock = threading.Lock()
+        # 新增订阅事件（1.13.39）：防抖定时器 + 待处理事件队列
+        self._evt_lock = threading.Lock()
+        self._evt_timer: Optional[threading.Timer] = None
+        self._pending_events: List[dict] = []
+        self._listener_installed = False
+        self._event_runs = 0
         self._state: Dict[str, Any] = {
             "last_check_at": "",
             "last_check_new": 0,
@@ -169,6 +180,7 @@ class CacheModule:
             "wash_rules": self.wash_rules(),
             "push_batch_size": self.push_batch_size(),
             "push_batch_interval": self.push_batch_interval(),
+            "subscribe_enabled": self.subscribe_enabled(),
             "cron": self.cron(),
             "destinations": [
                 {"value": str(item.get("value")), "title": str(item.get("title"))}
@@ -214,6 +226,8 @@ class CacheModule:
                 data.get("push_batch_interval"))
         if "cron" in data:
             patch["cache_cron"] = _normalize_cron(data.get("cron"), DEFAULT_SYNC_CRON)
+        if "subscribe_enabled" in data:
+            patch["cache_subscribe_enabled"] = bool(data.get("subscribe_enabled"))
         if patch:
             self._plugin.save_config(**patch)
         return self.settings()
@@ -654,6 +668,12 @@ class CacheModule:
                 "subscriptions": int(matcher_status.get("subscriptions") or 0),
             },
             "settings": self.settings(),
+            # 新增订阅回搜（1.13.39）运行态：监听是否挂上、累计触发次数
+            "subscribe": {
+                "enabled": self.subscribe_enabled(),
+                "listener": self.event_listener_installed,
+                "runs": self.event_runs,
+            },
         }
 
     def dialog_names(self) -> Dict[int, str]:
@@ -694,6 +714,250 @@ class CacheModule:
         else:
             logger.info(f"[{self._plugin_id()}] 缓存定时同步未启动：{result.get('message')}")
 
+    # ------------------------------------------------------ 新增订阅回搜（1.13.39）
+
+    def subscribe_enabled(self) -> bool:
+        """「新增订阅回搜」开关（``cache_subscribe_enabled``，默认开）。
+
+        只管宿主「新增订阅」事件这条实时路径；与洗版回搜、定时增量同步互不影响。
+        """
+        return bool(self._cfg("cache_subscribe_enabled", True))
+
+    def mark_event_listener(self, installed: bool) -> None:
+        """登记事件监听状态（注册动作在插件主类，宿主只解析插件实例方法）。"""
+        self._listener_installed = bool(installed)
+        if installed:
+            logger.info(
+                f"[{self._plugin_id()}] 已监听宿主新增订阅事件：新增订阅后 "
+                f"{_EVENT_DEBOUNCE_SECONDS:.0f} 秒内回搜缓存"
+            )
+
+    @property
+    def event_listener_installed(self) -> bool:
+        return self._listener_installed
+
+    @property
+    def event_runs(self) -> int:
+        """事件触发的回搜已执行次数（可观测性 / 测试用）。"""
+        with self._lock:
+            return int(self._event_runs)
+
+    def on_subscribe_event(self, event: Any = None) -> None:
+        """宿主新增订阅事件入口：收集订阅信息并防抖触发回搜。
+
+        与定时快照对比不同，事件路径**按订阅精准回搜**——删除后重新添加的订阅
+        同样会回搜，重复推送由命中流水挡掉。
+        """
+        if not (self.enabled() and self.subscribe_enabled()):
+            return
+        payload = _event_payload(event)
+        info = payload.get("mediainfo")
+        info = info if isinstance(info, dict) else {}
+        sid = _as_int(payload.get("subscribe_id"))
+        if not sid and not info:
+            logger.debug(f"[{self._plugin_id()}] 订阅事件缺少 subscribe_id 与 mediainfo，忽略")
+            return
+        with self._lock:
+            self._pending_events.append({"id": sid, "info": info})
+        logger.info(
+            f"[{self._plugin_id()}] 收到新增订阅事件"
+            f"（subscribe_id={sid if sid else '未提供'}），"
+            f"{_EVENT_DEBOUNCE_SECONDS:.0f} 秒后回搜缓存"
+        )
+        self._schedule_event_check()
+
+    def _schedule_event_check(self) -> None:
+        """重置防抖定时器：批量添加订阅合并为一次回搜。"""
+        with self._evt_lock:
+            self._cancel_event_timer(locked=True)
+            timer = threading.Timer(_EVENT_DEBOUNCE_SECONDS, self._run_pending_search)
+            timer.daemon = True
+            self._evt_timer = timer
+            timer.start()
+
+    def _cancel_event_timer(self, locked: bool = False) -> None:
+        if not locked:
+            with self._evt_lock:
+                self._cancel_event_timer(locked=True)
+                return
+        timer = self._evt_timer
+        self._evt_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def cancel_event_timer(self) -> None:
+        """取消待执行的防抖回搜（插件停止时调用）。"""
+        self._cancel_event_timer()
+
+    def _run_pending_search(self) -> None:
+        """防抖到点：对事件带来的订阅逐个回搜。"""
+        try:
+            with self._lock:
+                events = list(self._pending_events)
+                self._pending_events.clear()
+            if events:
+                self._search_event_subscriptions(events)
+        except Exception as err:  # pragma: no cover - 后台线程不能把异常抛出去
+            logger.warning(f"[{self._plugin_id()}] 订阅事件回搜失败：{err}")
+
+    def _search_event_subscriptions(self, events: List[dict]) -> dict:
+        """按事件里的媒体信息回搜缓存并推送（每条订阅独立判定）。"""
+        with self._lock:
+            self._event_runs += 1
+        details: List[dict] = []
+        for event in events:
+            info = event.get("info") if isinstance(event.get("info"), dict) else {}
+            sid = _as_int(event.get("id"))
+            meta = _meta_from_mediainfo(info)
+            if not meta.get("title") and sid:
+                meta = self._meta_from_subscription(sid)
+            if not str(meta.get("title") or "").strip():
+                logger.info(f"[{self._plugin_id()}] 订阅事件回搜：订阅 {sid or '未知'} 无可用片名，跳过")
+                continue
+            try:
+                details.append(self.search_subscription(meta, trigger="新增订阅"))
+            except Exception as err:  # pragma: no cover - 单条失败不影响其它订阅
+                logger.warning(
+                    f"[{self._plugin_id()}] 订阅事件回搜「{meta.get('title')}」失败：{err}"
+                )
+        pushed = sum(int(item.get("pushed") or 0) for item in details)
+        if details:
+            try:
+                self._notify_search_result(pushed, details)
+            except Exception as err:  # pragma: no cover - 通知失败不影响回搜
+                logger.debug(f"[{self._plugin_id()}] 订阅回搜通知失败：{err}")
+        return {"checked": True, "new": len(details), "pushed": pushed}
+
+    def _meta_from_subscription(self, subscribe_id: int) -> dict:
+        """订阅事件只带 id 时，从宿主订阅表补片名/年份/类型。"""
+        try:
+            for item in matcher_service.iter_subscriptions():
+                if _as_int(getattr(item, "id", None)) == int(subscribe_id):
+                    return _meta_from_subscription_item(item)
+        except Exception as err:  # pragma: no cover - 订阅源不可用时不拦
+            logger.debug(f"[{self._plugin_id()}] 读取订阅 {subscribe_id} 失败：{err}")
+        return {}
+
+    def search_subscription(self, meta: dict, *, trigger: str = "新增订阅") -> dict:
+        """对一条订阅在缓存里回搜并推送（洗版门禁口径与监控一致）。
+
+        流程：按片名检索缓存 → 排除无链接 / 频道关键词过滤 / 已推送 →
+        洗版判定（``cache_wash_rules`` 关闭时全放行）→ 入推送队列 → 记流水。
+        """
+        title = str(meta.get("title") or "").strip()
+        if not title:
+            return {"name": "", "candidates": 0, "pushed": 0}
+        year = str(meta.get("year") or "")
+        media_type = str(meta.get("media_type") or "")
+        season = meta.get("season")
+        candidates = self.search_by_title(title, limit=200)
+        logger.info(
+            f"[{self._plugin_id()}] {trigger}回搜：「{title}」命中候选 {len(candidates)} 条"
+        )
+        pushed = 0
+        skipped = 0
+        reasons: Dict[str, int] = {}
+        pushed_items: List[dict] = []
+        rules = self.wash_rules()
+        pipeline = self._pipeline()
+        for item in candidates:
+            links = [str(link) for link in (item.get("links") or []) if str(link).strip()]
+            if not links:
+                skipped += 1
+                _count_reason(reasons, "无可用链接")
+                continue
+            chat_id = int(item.get("chat_id") or 0)
+            message_id = int(item.get("message_id") or 0)
+            filter_reason = self.rule_filter_reason(chat_id, str(item.get("text") or ""))
+            if filter_reason:
+                skipped += 1
+                _count_reason(reasons, filter_reason)
+                continue
+            if self._hit_exists(chat_id, message_id):
+                skipped += 1
+                _count_reason(reasons, "已推送过")
+                continue
+            item_meta = {
+                "title": str(item.get("title") or title),
+                "year": str(item.get("year") or year),
+                "media_type": str(item.get("media_type") or media_type),
+                "season": item.get("season") if item.get("season") is not None else season,
+                "episode": item.get("episode"),
+                "episode_end": item.get("episode_end"),
+            }
+            wash_extra = None
+            reason_note = ""
+            if rules.get("enabled") and pipeline is not None:
+                try:
+                    verdict = pipeline._evaluate_wash(
+                        meta=item_meta, text=str(item.get("text") or ""),
+                        rules=rules, links=links,
+                    )
+                except Exception as err:  # pragma: no cover - 判定异常按放行处理
+                    logger.debug(f"[{self._plugin_id()}] 订阅回搜洗版判定失败（放行）：{err}")
+                    verdict = None
+                if verdict is not None:
+                    if verdict.get("state") != "push":
+                        skipped += 1
+                        _count_reason(reasons, str(verdict.get("reason") or "画质不达标"))
+                        continue
+                    wash_extra = pipeline._wash_extra(verdict)
+                    reason_note = str(verdict.get("reason") or "").strip()
+            task_id = None
+            if pipeline is not None:
+                task_id = pipeline._enqueue_push(
+                    rule={"id": CACHE_SEARCH_RULE_ID},
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=str(item.get("text") or ""),
+                    links=links,
+                    destination=self.destination(),
+                    title=str(item.get("title") or title),
+                    extra=wash_extra,
+                )
+            if task_id:
+                self._record_hit(item, title, {"reason": reason_note or "订阅回搜"}, task_id)
+                pushed += 1
+                pushed_items.append({
+                    "title": str(item.get("title") or title),
+                    "year": str(item.get("year") or year),
+                    "season": item.get("season"),
+                    "episode": item.get("episode"),
+                    "episode_end": item.get("episode_end"),
+                    "links": links,
+                    "chat_id": chat_id,
+                })
+            else:
+                skipped += 1
+                _count_reason(reasons, "入队失败")
+        reason_text = _reason_text(reasons)
+        logger.info(
+            f"[{self._plugin_id()}] {trigger}回搜结果：「{title}」候选 {len(candidates)} 条，"
+            f"推送 {pushed} 条，跳过 {skipped} 条"
+            + (f"（{reason_text}）" if reason_text else "")
+        )
+        return {
+            "name": title,
+            "year": year,
+            "candidates": len(candidates),
+            "pushed": pushed,
+            "pushed_items": pushed_items,
+            "skipped": skipped,
+            "reasons": reasons,
+            "reason_text": reason_text,
+        }
+
+    def _pipeline(self):
+        """监控流水线（缓存写入与推送队列都在它身上；未启动时懒建）。"""
+        monitor = getattr(self._plugin, "_monitor", None)
+        if monitor is None:
+            return None
+        try:
+            return monitor._ensure_pipeline()
+        except Exception as err:  # pragma: no cover - 流水线不可用时回搜降级为仅统计
+            logger.debug(f"[{self._plugin_id()}] 取推送流水线失败：{err}")
+            return None
+
 
 def _normalize_cron(raw: Any, fallback: str) -> str:
     """只接受 5 段式 cron；非法值退回默认。
@@ -710,6 +974,64 @@ def _normalize_cron(raw: Any, fallback: str) -> str:
 
 
 
+
+
+def _as_int(value: Any) -> int:
+    """宽松转 int（订阅 ID / 集号来自宿主事件，类型不保证）。"""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def _event_payload(event: Any) -> dict:
+    """把宿主事件对象摊成字典（``event.event_data`` / dict / 带 ``data`` 属性）。"""
+    if event is None:
+        return {}
+    if isinstance(event, dict):
+        return event
+    for name in ("event_data", "data"):
+        value = getattr(event, name, None)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _meta_from_mediainfo(info: dict) -> dict:
+    """宿主事件里的 ``mediainfo``（``MediaInfo.to_dict()``）→ 回搜用的识别结果。"""
+    if not isinstance(info, dict):
+        return {}
+    title = str(info.get("title") or info.get("name") or "").strip()
+    if not title:
+        return {}
+    meta: Dict[str, Any] = {
+        "title": title,
+        "year": str(info.get("year") or "").strip(),
+        "media_type": str(info.get("type") or info.get("media_type") or "").strip(),
+    }
+    season = info.get("season")
+    if season is not None:
+        meta["season"] = season
+    begin = info.get("begin_season")
+    if season is None and begin is not None:
+        meta["season"] = begin
+    return meta
+
+
+def _meta_from_subscription_item(item: Any) -> dict:
+    """宿主订阅对象 → 回搜用的识别结果（事件只带 ID 时的兜底）。"""
+    title = str(getattr(item, "name", "") or "").strip()
+    if not title:
+        return {}
+    meta: Dict[str, Any] = {
+        "title": title,
+        "year": str(getattr(item, "year", "") or "").strip(),
+        "media_type": str(getattr(item, "type", "") or "").strip(),
+    }
+    season = getattr(item, "season", None)
+    if season is not None:
+        meta["season"] = season
+    return meta
 
 
 def _count_reason(bucket: Dict[str, int], label: str) -> None:

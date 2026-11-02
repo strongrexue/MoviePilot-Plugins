@@ -586,6 +586,15 @@ class TestSettingsAndStatus:
         validated = api_schemas.CacheStatusData.model_validate(payload)
         assert validated.channels[0].chat_id == CHAT_A
         assert validated.settings.wash_rules is not None
+        # 1.13.39：订阅回搜状态必须能穿过响应模型（否则前端 chip 恒显示「监听未挂载」）
+        assert payload["subscribe"]["enabled"] is True
+        assert validated.subscribe.listener is False
+        assert validated.subscribe.runs == 0
+
+    def test_status_keeps_subscribe_listener_flag(self, plugin, cache):
+        cache.mark_event_listener(True)
+        validated = api_schemas.CacheStatusData.model_validate(cache.status())
+        assert validated.subscribe.listener is True
 
     def test_sync_without_channels_reports(self, plugin):
         plugin.save_config(cache_enabled=True, cache_chat_ids=[])

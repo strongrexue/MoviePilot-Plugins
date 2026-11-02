@@ -438,6 +438,7 @@ class CacheSettingsData(BaseModel):
     wash_rules: dict = Field(default_factory=dict)
     push_batch_size: int = 10
     push_batch_interval: int = 15
+    subscribe_enabled: bool = True
     cron: str = "0 */6 * * *"
     destinations: List[OptionItem] = Field(default_factory=list)
     sync_modes: List[OptionItem] = Field(default_factory=list)
@@ -461,6 +462,9 @@ class CacheSettingsRequest(BaseModel):
     push_batch_interval: Optional[int] = Field(
         default=None, description="推送批间隔秒数（5~3600）"
     )
+    subscribe_enabled: Optional[bool] = Field(
+        default=None, description="新增订阅回搜：宿主新增订阅后秒级回搜缓存"
+    )
     cron: Optional[str] = Field(default=None, description="增量同步 cron（5 段）")
 
 
@@ -471,6 +475,14 @@ class CacheMatcherStatus(BaseModel):
     mediaserver_available: bool = False
     mediaserver: str = ""
     subscriptions: int = 0
+
+
+class CacheSubscribeStatus(BaseModel):
+    """新增订阅回搜状态（1.13.39：事件驱动，无定时任务）。"""
+
+    enabled: bool = True
+    listener: bool = False
+    runs: int = 0
 
 
 class CacheStatusData(BaseModel):
@@ -485,6 +497,7 @@ class CacheStatusData(BaseModel):
     sync: CacheSyncState = Field(default_factory=CacheSyncState)
     matcher: CacheMatcherStatus = Field(default_factory=CacheMatcherStatus)
     settings: CacheSettingsData = Field(default_factory=CacheSettingsData)
+    subscribe: CacheSubscribeStatus = Field(default_factory=CacheSubscribeStatus)
 
 
 class CacheSyncRequest(BaseModel):

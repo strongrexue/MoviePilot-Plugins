@@ -24,6 +24,7 @@ from .model.migration import ensure_schema
 from .modules.cache import CacheModule
 from .modules.credentials import CredentialsModule
 from .modules.forward import ForwardModule
+from .modules import first_search_guard
 from .modules.interactive import InteractiveModule
 from .modules.manual_search import ManualSearchModule
 from .modules import manual_search as manual_search_module
@@ -43,7 +44,7 @@ class TgMediaCenter(_PluginBase):
     plugin_desc = "Telegram 资源监控、历史消息缓存、115 网盘转存与 TG 通用转发。"
     plugin_icon = "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/tgmediacenter.png"
     plugin_color = "#229ED9"
-    plugin_version = "1.13.38"
+    plugin_version = "1.13.39"
     plugin_author = "strongrexue"
     author_url = "https://github.com/strongrexue"
     plugin_config_prefix = "tgmediacenter_"
@@ -130,6 +131,13 @@ class TgMediaCenter(_PluginBase):
         self._install_user_message_listener()
         self._install_message_action_listener()
         self._install_plugin_action_listener()
+        # ⑩ 新增订阅回搜（1.13.39）：监听宿主「新增订阅」广播，秒级回搜缓存
+        self._install_subscribe_listener()
+        # ⑪ 跳过宿主「新增订阅首次全站搜索」（1.13.39，独立开关，默认关）
+        try:
+            first_search_guard.install(self)
+        except Exception as err:  # pragma: no cover - 守卫失败绝不阻断插件加载
+            logger.warning(f"[TgMediaCenter] 安装「跳过首次搜索」守卫失败：{err}")
         # ⑥ 转发模块与 ④ 监控模块共用同一条事件流水线（后者持有流水线生命周期）
         self._forward = ForwardModule(self)
         self._monitor = MonitorModule(self)
@@ -322,6 +330,12 @@ class TgMediaCenter(_PluginBase):
             # cache_push_batch_size 条、批间隔 cache_push_batch_interval 秒。
             "cache_push_batch_size": 10,
             "cache_push_batch_interval": 15,
+            # 新增订阅回搜（1.13.39）：宿主广播「新增订阅」后秒级回搜缓存并推送。
+            # 纯事件驱动（防抖 8 秒合并批量添加），不注册定时任务，不影响其它链路。
+            "cache_subscribe_enabled": True,
+            # 跳过宿主「新增订阅首次全站搜索」（1.13.39）：默认关，打开后新订阅
+            # 只置为订阅中（state N→R），不再排 60 秒后的全站搜索。
+            "skip_first_search_enabled": False,
             # ⑥ TG 通用转发
             "forward_enabled": False,
             "forward_rules": [],
@@ -602,6 +616,21 @@ class TgMediaCenter(_PluginBase):
         except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
             logger.warning(f"[TgMediaCenter] 处理插件命令失败：{err}")
 
+    def on_subscribe_added(self, event) -> None:
+        """宿主「新增订阅」广播事件：交给缓存模块做防抖精准回搜（1.13.39）。
+
+        处理器**必须定义在插件主类上**：宿主事件分发只通过插件实例解析器
+        （``plugin_id = owner_class.__name__``）绑定运行实例；定义在普通模块类上的
+        同名方法不会被调用到。
+        """
+        cache = getattr(self, "_cache", None)
+        if cache is None:
+            return
+        try:
+            cache.on_subscribe_event(event)
+        except Exception as err:  # pragma: no cover - 事件回调不能抛回宿主
+            logger.warning(f"[TgMediaCenter] 处理新增订阅事件失败：{err}")
+
     def _install_user_message_listener(self) -> bool:
         """注册宿主用户消息事件监听（宿主无该事件时静默降级）。"""
         try:
@@ -702,6 +731,48 @@ class TgMediaCenter(_PluginBase):
             except Exception as err:  # pragma: no cover
                 logger.debug(f"[TgMediaCenter] 移除插件动作监听失败：{err}")
 
+    def _install_subscribe_listener(self) -> bool:
+        """注册宿主「新增订阅」事件监听（旧宿主无事件总线时静默降级）。"""
+        try:
+            from app.schemas.types import EventType
+            from app.sdk.events import eventmanager
+        except Exception as err:  # pragma: no cover - 宿主未提供事件总线
+            logger.debug(f"[TgMediaCenter] 宿主事件总线不可用，新增订阅回搜不启用：{err}")
+            return False
+        event_type = getattr(EventType, "SubscribeAdded", None)
+        if event_type is None:  # pragma: no cover - 旧宿主无此事件
+            logger.debug("[TgMediaCenter] 宿主未提供 SubscribeAdded 事件，新增订阅回搜不启用")
+            return False
+        try:
+            eventmanager.add_event_listener(event_type, self.on_subscribe_added)
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] 注册新增订阅监听失败：{err}")
+            return False
+        self._subscribe_eventmanager = eventmanager
+        self._subscribe_event_type = event_type
+        cache = getattr(self, "_cache", None)
+        if cache is not None:
+            cache.mark_event_listener(True)
+        return True
+
+    def _uninstall_subscribe_listener(self) -> None:
+        """移除宿主「新增订阅」事件监听并取消待执行的防抖回搜。"""
+        manager = getattr(self, "_subscribe_eventmanager", None)
+        event_type = getattr(self, "_subscribe_event_type", None)
+        self._subscribe_eventmanager = None
+        self._subscribe_event_type = None
+        if manager is not None and event_type is not None:
+            try:
+                manager.remove_event_listener(event_type, self.on_subscribe_added)
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"[TgMediaCenter] 移除新增订阅监听失败：{err}")
+        cache = getattr(self, "_cache", None)
+        if cache is not None:
+            try:
+                cache.cancel_event_timer()
+            except Exception as err:  # pragma: no cover
+                logger.debug(f"[TgMediaCenter] 取消订阅防抖回搜失败：{err}")
+
     # ------------------------------------------------------------------ 其它扩展点
 
     def get_database_models(self) -> Optional[List[type]]:
@@ -763,7 +834,8 @@ class TgMediaCenter(_PluginBase):
                 logger.warning(f"[TgMediaCenter] 停止资源监控流水线失败：{err}")
         # 转发模块无自有线程（复用监控流水线），仅清引用，必须在流水线停止之后
         self._forward = None
-        # 先摘事件监听，再释放缓存模块
+        # 先摘事件监听（其中会取消防抖回搜），再释放缓存模块
+        self._uninstall_subscribe_listener()
         self._uninstall_user_message_listener()
         self._uninstall_message_action_listener()
         self._interactive = None
@@ -781,6 +853,11 @@ class TgMediaCenter(_PluginBase):
                 credentials.stop()
             except Exception as err:  # pragma: no cover
                 logger.warning(f"[TgMediaCenter] 停止 TG 运行时失败：{err}")
+        # 还原宿主入队方法（跳过首次全站搜索的补丁绝不留到插件停用之后）
+        try:
+            first_search_guard.uninstall()
+        except Exception as err:  # pragma: no cover
+            logger.warning(f"[TgMediaCenter] 还原「跳过首次搜索」守卫失败：{err}")
         # 115 模块为无状态 HTTP 客户端，无需释放连接，仅清引用
         self._pan115 = None
         # 冷却门只是内存状态（间隔 + FloodWait 截止时刻），清引用即可

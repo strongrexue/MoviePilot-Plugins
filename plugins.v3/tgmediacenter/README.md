@@ -269,12 +269,14 @@ FloodWait 退避；命中入队后由内置 worker 线程按目标分派执行�
 - **回溯补齐**：按增量位点或时间范围分批拉取（`cache_sync_mode`：`relative` 近 N 天 / `absolute` 指定区间 / `all` 全量），
   批次之间会 sleep 并处理 FloodWait，中断后从位点继续；
 - **检索**：`/cache/search` 支持按关键词检索缓存消息；
-- **订阅回搜**：宿主新增订阅时（事件触发，定时任务兜底）按标题回搜缓存 → 逐条判缺失
-  （媒体库逐集比对为准）→ 过滤无链接 / 已推送 → 入推送队列 → 结果通知。
+- **订阅回搜**（1.13.39，`cache_subscribe_enabled` 默认开）：宿主广播「新增订阅」后
+  防抖 8 秒（一次加多个订阅会合并成一次）按片名回搜缓存 → 过滤无链接 / 频道关键词过滤 /
+  已推送过 → 洗版判定（`cache_wash_rules` 关闭时全放行）→ 入推送队列 → 结果通知。
+  **纯事件驱动，不注册任何定时任务**，也不比对订阅快照。
 
 已知边界：
 
-- 首次运行只建立订阅基线，不会把已有订阅全部回搜（避免一次性推爆）；
+- 只处理事件发生那一刻新增的订阅，插件离线期间新增的订阅不会补发（要补历史用「洗版回搜」）；
 - 缓存频道与监控规则的监听频道互相独立，可以只缓存不监控。
 
 ### 洗版回搜（1.13.24，独立开关）
@@ -350,13 +352,13 @@ FloodWait 退避；命中入队后由内置 worker 线程按目标分派执行�
 }
 ```
 
-### 跳过宿主的「新增订阅首次全站搜索」（1.13.8，独立开关）
+### 跳过宿主的「新增订阅首次全站搜索」（1.13.8 引入，1.13.34 下线，1.13.39 回归）
 
 宿主保存订阅后会把这条订阅排进一次全站搜索（`source=new`，约 60 秒后自动开始）。
 本插件的订阅回搜已经从 TG 频道缓存里找同一部作品，两边都跑等于重复抓取。
 
-配置页 **「重复获取治理」→「新增订阅首搜（反向闸门 R1）」** 是**独立开关**
-`skip_first_search_enabled`（默认关，与「订阅回搜」开关互不依赖）。打开后：
+配置页 **「消息缓存」→「订阅回搜」卡** 里的 `skip_first_search_enabled`（默认关）
+是**独立开关**，与上面的「新增订阅回搜」互不依赖。打开后：
 
 - 插件在**宿主入队之前**把新订阅直接置为「订阅中」（`state` N→R），
   这次全站搜索不再发生，订阅活动里也不会出现「已安排搜索」记录；
@@ -452,7 +454,7 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
 - **telethon** 不全局打桩，而是由用例声明 `telethon_available` fixture（它同时修正 `runtime.TELETHON_AVAILABLE`），
   涉及凭证就绪、`_register_handler` 注册形状的断言因此不再随机器变化。
 
-结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境结果一致（1.13.37 在宿主 venv 实测 **484 passed**；1.13.38 实测 **555 passed**）。
+结果是：裸 venv（无 telethon / apscheduler）、装了依赖的 venv、宿主 venv 三种环境结果一致（1.13.37 在宿主 venv 实测 **484 passed**；1.13.38 实测 **555 passed**；1.13.39 实测 **592 passed**）。
 在宿主 venv（`D:\projects\MoviePilot\.venv`，另两个插件的依赖也齐）里还可以直接
 `python -m pytest tests\v3` 一次跑完三个插件——本目录有 `__init__.py`
 （另两个插件没有），用来消除与 `tests/v3/embycovercenter/test_plugin.py` 的同名冲突。
@@ -531,8 +533,8 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
 - **P8 消息交互**（`1.7.0`）：监听宿主用户消息事件，私聊机器人发 115 分享链接 / 磁力 / eD2k
   即转存到 115 并回执（新转存 / 已转存过 / 失败原因分开说清）；单条消息限量 5 条链接与 40 秒预算。
   - 配置页「115 网盘」面板底部新增开关「允许私聊机器人发链接直接转存 115」（默认开启）。
-- **⑪ 反向闸门 R1**（`1.13.8`）：新增订阅时跳过宿主的「首次全站搜索」——
-  独立开关 `skip_first_search_enabled`（默认关，配置页「重复获取治理」分区），
+- **⑪ 反向闸门 R1**（`1.13.8`，`1.13.34` 下线、`1.13.39` 回归）：新增订阅时跳过宿主的「首次全站搜索」——
+  独立开关 `skip_first_search_enabled`（默认关，1.13.39 起位于配置页「消息缓存 · 订阅回搜」卡），
   在宿主入队前拦截（置订阅状态 N→R），与「订阅回搜」开关互不依赖。详见上方「⑤ 历史消息缓存」一节。
 - **洗版回搜**（`1.13.24`）：订阅兜底新增独立开关 `cache_reshuffle_enabled`（默认关）——
   开启后定时兜底跳过媒体库判定、遍历全部订阅回搜缓存，频道后来进了更高质量的资源也能捞出来洗版；
@@ -583,11 +585,17 @@ D:\projects\MoviePilot\.venv\Scripts\python.exe -m pytest tests\v3\tgmediacenter
   三者叠加使洗版与手动回搜永远判「无基线」，库里已有 4K 也显示「可升级」。现改为统一类型判定
   （`quality.is_series`）、电影按 `Ids` 补查明细、分辨率优先取文件名（`.strm` 的 `Height` 常失真，
   实测 2160p 报 1608）、缓存加探测版本号让旧空结果自动失效。
+- **新增订阅回搜回归 + 跳过首次全站搜索回归**（`1.13.39`）：1.13.34 砍掉的两个「一次性事件」功能加回来。
+  新增订阅回搜改为**纯事件驱动**：宿主广播 `subscribe.added` → 防抖 8 秒（批量添加合并成一次）
+  → 按片名回搜缓存 → 过滤无链接 / 频道关键词 / 已推送 → 洗版判定 → 入队 → 结果通知；
+  不注册任何定时任务，也不再比对订阅快照（`cache_subscribe_cron` 与订阅兜底检查不回归）。
+  开关 `cache_subscribe_enabled`（默认开）在「消息缓存 · 订阅回搜」卡；同卡回归
+  `skip_first_search_enabled`（默认关，跳过宿主新增订阅的首次全站搜索，实现见 `modules/first_search_guard.py`）。
 - 自定义豆瓣源（原 P3）已取消，订阅请用「豆瓣中心」插件。
 
 ## 版本
 
-当前 `1.13.38`。版本号需六处同步：`__init__.py`  的 `plugin_version`、
+当前 `1.13.39`。版本号需六处同步：`__init__.py`  的 `plugin_version`、
 `package.json` 的 `version`、`package.v3.json` 的 `version` 与 `history` 最新键、
 前端 `src/components/version.js` 的 `FRONTEND_VERSION`、以及
 `tests/v3/tgmediacenter/test_plugin.py` 里的版本断言——门禁脚本

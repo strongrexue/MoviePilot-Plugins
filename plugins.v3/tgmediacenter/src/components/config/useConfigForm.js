@@ -45,6 +45,12 @@ export const configDefaults = {
   cache_push_batch_size: 10,
   cache_push_batch_interval: 15,
   cache_cron: '0 */6 * * *',
+  // 新增订阅回搜（1.13.39）：监听宿主「新增订阅」广播，防抖 8 秒后秒级回搜缓存。
+  // 纯事件驱动、不注册定时任务，默认开。
+  cache_subscribe_enabled: true,
+  // 跳过宿主「新增订阅首次全站搜索」（1.13.39）：打开后新订阅只置为订阅中
+  // （state N→R），不再排 60 秒后的全站搜索。默认关。
+  skip_first_search_enabled: false,
 
 
   // ⑥ TG 通用转发（规则结构见 /forward/rules 接口返回；id 由后端补缺，f 前缀）

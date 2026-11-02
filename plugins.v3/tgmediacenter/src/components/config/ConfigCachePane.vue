@@ -173,6 +173,52 @@
       </VCardText>
     </VCard>
 
+    <!-- 订阅回搜（1.13.39）：两个一次性事件开关，纯事件驱动、不注册定时任务 -->
+    <VCard flat class="cache-card">
+      <VCardItem>
+        <VCardTitle class="text-subtitle-2">订阅回搜</VCardTitle>
+        <template #append>
+          <div class="cache-head-actions">
+            <VChip
+              size="small"
+              variant="tonal"
+              :color="status?.subscribe?.listener ? 'success' : 'default'"
+              label
+            >
+              监听{{ status?.subscribe?.listener ? '已挂载' : '未挂载' }}
+            </VChip>
+            <VChip size="small" variant="tonal" label>
+              已触发 {{ status?.subscribe?.runs ?? 0 }} 次
+            </VChip>
+          </div>
+        </template>
+      </VCardItem>
+      <VCardText class="cache-body">
+        <div class="cache-switches">
+          <div class="cache-switch">
+            <VSwitch v-model="form.cache_subscribe_enabled" color="primary" hide-details inset />
+            <div class="cache-switch-text">
+              <div class="cache-switch-title">新增订阅回搜</div>
+              <div class="cache-switch-desc">
+                宿主新增订阅后（多个一起加会合并成一次，防抖 8 秒）立刻按片名回搜缓存，
+                命中缺失资源就按洗版规则推送 115。只在事件发生时干活，不注册定时任务。
+              </div>
+            </div>
+          </div>
+          <div class="cache-switch">
+            <VSwitch v-model="form.skip_first_search_enabled" color="primary" hide-details inset />
+            <div class="cache-switch-text">
+              <div class="cache-switch-title">跳过新增订阅的首次全站搜索</div>
+              <div class="cache-switch-desc">
+                打开后，新订阅不再让宿主排一次全站搜索（省掉一次大范围爬取），
+                改由上面的「新增订阅回搜」直接在缓存里找。默认关闭。
+              </div>
+            </div>
+          </div>
+        </div>
+      </VCardText>
+    </VCard>
+
     <!-- 缓存检索 -->
     <VCard flat class="cache-card">
       <VCardItem>
@@ -734,6 +780,16 @@ onUnmounted(() => {
 /* 订阅回搜 / 跳过首次搜索：并排两列面板，窄屏一列 */
 @media (max-width: 600px) {
   .cache-toggles { grid-template-columns: 1fr; }
+}
+/* 订阅回搜两个开关（1.13.39）：开关 + 标题/说明两段，纵向 8px */
+.cache-switches { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cache-switch { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.cache-switch-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 2px; }
+.cache-switch-title { font-size: 13px; line-height: 1.5; }
+.cache-switch-desc {
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(var(--v-theme-on-surface), 0.6);
 }
 .cache-switch-row .cache-hint { flex: 1 1 260px; min-width: 0; }
 /* 按钮行里的 cron 输入：约 200px 宽、垂直居中；窄屏换行时独占一行而不是被压扁 */

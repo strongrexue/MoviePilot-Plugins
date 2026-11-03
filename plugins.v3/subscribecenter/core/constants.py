@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.18.0"
+PLUGIN_VERSION = "1.18.1"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -489,12 +489,14 @@ def default_config() -> Dict[str, Any]:
         #: 超过窗口还没入库的，按「等资源等太久」暂停（下载器里已有任务时
         #: 宿主自己会继续追，不依赖订阅状态）。
         "auto_toggle_keep_days": 3,
-        #: 洗版订阅（``best_version=1``）的保留窗口，默认 90 天。
+        #: 电视剧洗版订阅（``best_version=1`` 的剧集）的保留窗口，默认 90 天。
         #:
         #: 见 ``DEFAULT_AUTO_TOGGLE_BEST_KEEP``：洗版等的是「更好的版本」，
         #: 不是「缺集」，用 3 天窗口会在季终后立刻把它停掉。设 0 表示跟随上面
         #: 的 ``auto_toggle_keep_days``。
-        "auto_toggle_best_version_keep_days": DEFAULT_AUTO_TOGGLE_BEST_KEEP,
+        "auto_toggle_best_version_keep_days_tv": DEFAULT_AUTO_TOGGLE_BEST_KEEP,
+        #: 电影洗版订阅的保留窗口，默认 90 天（与电视剧分开设置）。
+        "auto_toggle_best_version_keep_days_movie": DEFAULT_AUTO_TOGGLE_BEST_KEEP,
         #: 洗版判定模式：什么时候把「没洗到顶」当成「还要继续搜」。
         #:
         #: - ``after_finale``（默认）：只在**本季已完结**后才按洗版算。播出期
@@ -517,10 +519,6 @@ def default_config() -> Dict[str, Any]:
         "auto_toggle_movie_theatrical_offset_days": (
             DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS
         ),
-        #: 单次最多改多少条（0 = 不限）。防止第一次打开时一口气暂停两百条把
-        #: 人吓到；超出时**先保恢复、后保暂停**（少暂停只是多搜一次，漏恢复
-        #: 会让该搜的订阅一整天不搜）。
-        "auto_toggle_max_changes": 0,
         #: 每次自动启停后是否发通知（消息里带暂停/恢复条数）。
         "auto_toggle_notify": False,
         #: 用媒体库实探核对「已入库」。``Subscribe.note`` 只由宿主的完成流程写入，

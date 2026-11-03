@@ -99,7 +99,7 @@
         "name": "胖虎订阅中心",
         "description": "全自动开播 / 定档发现与订阅：从 TMDB、AniList（番剧 + 国漫）、豆瓣 RSS 发现即将开播与近期定档内容，三层去重后写入 MoviePilot 订阅。番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。豆瓣 Routes 支持每条榜单独立配置（开关 / 条数 / 窗口 / 想看）。",
         "labels": "订阅,工具",
-        "version": "1.18.0",
+        "version": "1.18.1",
         "icon": "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png",
         "author": "strongrexue",
         "author_url": "https://github.com/strongrexue",
@@ -107,6 +107,7 @@
         "system_version": ">=3.0.0",
         "release": true,
         "history": {
+            "v1.18.1": "自动启停：电视剧与电影的洗版保留天数拆成两个独立设置；移除「单次改动上限」，不再限制单轮改动条数",
             "v1.18.0": "自动启停：通知改成一部一条卡片（带海报、原因、处理、后续）；入库改读宿主的还缺几集；新增跟随订阅刷新自动跑一轮；新增集数缺口页",
             "v1.17.6": "自动启停：已入库只认媒体库实探（订阅记录与下载记录都不算），核对不到的订阅本轮不动",
             "v1.17.5": "电影：只有影院上映日期时按 +90 天估算数字发行（可配），不再拿上映日开窗",

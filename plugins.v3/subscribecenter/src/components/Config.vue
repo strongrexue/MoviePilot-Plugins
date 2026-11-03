@@ -2321,8 +2321,21 @@ onMounted(() => {
               </VCol>
               <VCol cols="12" sm="6">
                 <VTextField
-                  v-model.number="form.auto_toggle_best_version_keep_days"
-                  label="洗版保留天数（等更好的版本）"
+                  v-model.number="form.auto_toggle_best_version_keep_days_tv"
+                  label="电视剧洗版保留天数"
+                  type="number"
+                  min="0"
+                  max="365"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_best_version_keep_days_movie"
+                  label="电影洗版保留天数"
                   type="number"
                   min="0"
                   max="365"
@@ -2337,19 +2350,6 @@ onMounted(() => {
                   v-model="form.auto_toggle_best_version_mode"
                   :items="BEST_MODE_OPTIONS"
                   label="洗版判定时机"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  class="mb-2"
-                />
-              </VCol>
-              <VCol cols="12" sm="6">
-                <VTextField
-                  v-model.number="form.auto_toggle_max_changes"
-                  label="单次改动上限（0 = 不限）"
-                  type="number"
-                  min="0"
-                  max="2000"
                   density="compact"
                   hide-details
                   variant="outlined"

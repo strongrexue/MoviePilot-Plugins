@@ -21,6 +21,7 @@
     preview 的「会订」只统计 added / skipped_dry_run
 """
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "plugins.v3"))
 from subscribecenter.core import constants as C  # noqa: E402
 from subscribecenter.core.model import DiscoveredItem, ResolvedIdentity  # noqa: E402
 from subscribecenter.core.pipeline import RunSummary, SourceResult  # noqa: E402
+from subscribecenter.core.window import today  # noqa: E402
 from subscribecenter.core.writer import (  # noqa: E402
     SubscriptionWriter,
     WriteOutcome,
@@ -39,14 +41,20 @@ from subscribecenter.core.writer import (  # noqa: E402
 
 
 def item(index, **overrides):
-    """构造条目。"""
+    """构造条目。
+
+    定档日期必须取**相对未来**：写成固定日期会随时间过期，写入器那道
+    「定档已过」自检会把条目判成 ``skipped_not_future``，这些用例就变成在测
+    另一件事（2026-11-03 踩到）。
+    """
+    future = (today() + timedelta(days=30)).isoformat()
     data = {
         "source": C.SOURCE_TMDB,
         "source_id": str(index),
         "title": f"片{index}",
         "media_type": C.MEDIA_TYPE_MOVIE,
-        "year": "2026",
-        "release_date": "2026-11-01",
+        "year": future[:4],
+        "release_date": future,
         "resolved": ResolvedIdentity("themoviedb", str(1000 + index)),
     }
     data.update(overrides)

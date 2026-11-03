@@ -178,7 +178,10 @@ def test_best_version_ignores_note_and_keeps_searching():
         lack_episode=0,
     )
     eps = [("2026-10-%02d" % (7 + ep), ep) for ep in range(1, 13)]
-    result = autotoggle.decide(row, eps, TODAY, keep_days=3, best_keep_days=90)
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
+    )
     assert result.target == autotoggle.STATE_RUN
     assert result.action == autotoggle.ACTION_KEEP
     assert result.reason == autotoggle.REASON_BEST_PENDING
@@ -191,7 +194,8 @@ def test_best_version_pauses_after_wash_window():
     """洗版窗口也过了（90 天没等到更好版本）→ 先暂停，别永远搜。"""
     row = _row(best_version=1, note=[1], episode_priority={"1": 60})
     result = autotoggle.decide(
-        row, _eps(("2026-06-01", 1)), TODAY, keep_days=3, best_keep_days=90
+        row, _eps(("2026-06-01", 1)), TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
     )
     assert result.target == autotoggle.STATE_PAUSED
     assert result.action == autotoggle.ACTION_PAUSE
@@ -213,7 +217,10 @@ def test_best_version_during_airing_uses_note_unless_always():
     eps = [("2026-10-%02d" % (7 + ep), ep) for ep in range(1, 13)]
     eps.append(("2026-10-21", 13))
 
-    result = autotoggle.decide(row, eps, TODAY, keep_days=3, best_keep_days=90)
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
+    )
     assert result.action == autotoggle.ACTION_PAUSE
     assert result.reason == autotoggle.REASON_ALL_DONE
 
@@ -222,7 +229,7 @@ def test_best_version_during_airing_uses_note_unless_always():
         eps,
         TODAY,
         keep_days=3,
-        best_keep_days=90,
+        best_keep_days_tv=90, best_keep_days_movie=90,
         best_mode=autotoggle.BEST_MODE_ALWAYS,
     )
     assert always.target == autotoggle.STATE_RUN
@@ -237,7 +244,10 @@ def test_best_version_after_finale_enters_wash_window():
         episode_priority={str(ep): 60 for ep in range(1, 13)},
     )
     eps = [("2026-10-%02d" % (7 + ep), ep) for ep in range(1, 13)]
-    result = autotoggle.decide(row, eps, TODAY, keep_days=3, best_keep_days=90)
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
+    )
     assert result.target == autotoggle.STATE_RUN
     assert result.action == autotoggle.ACTION_KEEP
     assert result.reason == autotoggle.REASON_BEST_PENDING
@@ -254,7 +264,10 @@ def test_plan_passes_best_mode():
     eps.append(("2026-10-21", 13))
     index = {("1234", 1): eps}
 
-    default = autotoggle.plan([row], index, TODAY, keep_days=3, best_keep_days=90)
+    default = autotoggle.plan(
+        [row], index, TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
+    )
     assert default["paused"] == 1
 
     always = autotoggle.plan(
@@ -262,7 +275,7 @@ def test_plan_passes_best_mode():
         index,
         TODAY,
         keep_days=3,
-        best_keep_days=90,
+        best_keep_days_tv=90, best_keep_days_movie=90,
         best_mode=autotoggle.BEST_MODE_ALWAYS,
     )
     assert always["paused"] == 0
@@ -272,7 +285,8 @@ def test_best_version_completed_when_priority_reaches_100():
     """``episode_priority`` 全到 100 = 洗到头 → 按「已播剧集全部入库」暂停。"""
     row = _row(best_version=1, note=[1, 2], episode_priority={"1": 100, "2": 100})
     result = autotoggle.decide(
-        row, _eps(("2026-10-18", 1), ("2026-10-19", 2)), TODAY, best_keep_days=90
+        row, _eps(("2026-10-18", 1), ("2026-10-19", 2)), TODAY,
+        best_keep_days_tv=90, best_keep_days_movie=90,
     )
     assert result.downloaded == 2
     assert result.target == autotoggle.STATE_PAUSED
@@ -385,7 +399,7 @@ def test_best_version_movie_waits_for_physical():
     normal = autotoggle.decide(_movie_row(best_version=0), [], TODAY, keep_days=3,
                                releases=releases)
     best = autotoggle.decide(_movie_row(best_version=1), [], TODAY, keep_days=3,
-                             best_keep_days=90, releases=releases)
+                             best_keep_days_movie=90, releases=releases)
 
     # 普通订阅：数字发行 9/1，窗口 3 天，早过了 → 暂停
     assert normal.reason == autotoggle.REASON_MOVIE_OVERDUE
@@ -696,12 +710,12 @@ def test_plan_truncates_but_keeps_resumes():
         _row(id=3, state="R", name="b", note=[1, 2]),  # pause
     ]
     index = {("1234", 1): _eps(("2026-10-19", 1))}
-    data = autotoggle.plan(rows, index, TODAY, owned={"1": {"state": "S"}}, max_changes=1)
-    assert data["truncated"] is True
-    assert data["planned"] == 1
-    assert [item["id"] for item in data["changes"]] == [1]
+    data = autotoggle.plan(rows, index, TODAY, owned={"1": {"state": "S"}})
+    assert data["truncated"] is False
+    assert data["planned"] == 3
+    assert {item["id"] for item in data["changes"]} == {1, 2, 3}
     assert data["resumed"] == 1
-    assert data["paused"] == 0
+    assert data["paused"] == 2
 
 
 # --------------------------------------------------------------------- 接管表
@@ -799,7 +813,8 @@ def test_config_is_clamped(plugin_cls):
             "auto_toggle_cron": "不是 cron",
             "auto_toggle_lookahead_days": -5,
             "auto_toggle_keep_days": 3650,
-            "auto_toggle_max_changes": 99999,
+            "auto_toggle_best_version_keep_days_tv": 99999,
+            "auto_toggle_best_version_keep_days_movie": 99999,
             "auto_toggle_notify": True,
         }
     )
@@ -808,7 +823,8 @@ def test_config_is_clamped(plugin_cls):
     assert cfg["cron"] == "5 0 * * *", "非法 cron 回落到默认"
     assert cfg["lookahead_days"] == 0, "负数收敛到 0"
     assert cfg["keep_days"] == 90, "上限 90 天"
-    assert cfg["max_changes"] == 2000, "上限 2000 条"
+    assert cfg["best_keep_days_tv"] == 365, "上限 365 天"
+    assert cfg["best_keep_days_movie"] == 365, "上限 365 天"
     assert cfg["notify"] is True
 
 
@@ -1364,7 +1380,8 @@ def test_library_present_ignored_for_best_version():
         row,
         _eps(("2026-10-19", 1)),
         TODAY,
-        best_keep_days=90,
+        best_keep_days_tv=90,
+        best_keep_days_movie=90,
         best_mode=autotoggle.BEST_MODE_ALWAYS,
         library_present={1},
         library_check=True,

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-D8NtcrKM.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, a as getPluginConfig, p as postPluginApi, s as savePluginConfig } from './_plugin-vue_export-helper-C_GozZin.js';
 
 /**
  * 插件默认配置（前端快照）。
@@ -104,16 +104,16 @@ const configDefaults = {
   auto_toggle_lookahead_days: 0,
   //: 已播但还没入库时再多留几天 R（等 PT 出种）
   auto_toggle_keep_days: 3,
-  //: 洗版订阅的保留窗口（等更好的版本，默认三个月）
-  auto_toggle_best_version_keep_days: 90,
+  //: 电视剧洗版订阅的保留窗口（等更好的版本，默认三个月）
+  auto_toggle_best_version_keep_days_tv: 90,
+  //: 电影洗版订阅的保留窗口（与电视剧分开设置，默认三个月）
+  auto_toggle_best_version_keep_days_movie: 90,
   //: 洗版判定模式（after_finale = 季终后才按洗版算，always = 播出期也算）
   auto_toggle_best_version_mode: 'after_finale',
   //: 是否连电影订阅一起管（按 TMDB 发行日判，默认开）
   auto_toggle_movie_enabled: true,
   //: 只有影院上映日期时，按上映日往后推几天估算数字发行（0 = 不估算）
   auto_toggle_movie_theatrical_offset_days: 90,
-  //: 单次最多改多少条（0 = 不限）
-  auto_toggle_max_changes: 0,
   //: 每次自动启停后是否发通知
   auto_toggle_notify: false,
   //: 用媒体库核对真正入库了多少集（默认关：要连媒体服务器，有开销）
@@ -1834,7 +1834,7 @@ return (_ctx, _cache) => {
                           : _createCommentVNode("", true)
                       ], 2))
                     }), 128)),
-                    _cache[107] || (_cache[107] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-1d7cd2ac><b data-v-1d7cd2ac>电影上映类</b>（<code data-v-1d7cd2ac>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-1d7cd2ac><b data-v-1d7cd2ac>剧集类</b>（<code data-v-1d7cd2ac>/douban/tv/coming</code>、<code data-v-1d7cd2ac>/douban/list/tv_*</code>、 <code data-v-1d7cd2ac>/douban/list/show_domestic</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-1d7cd2ac><b data-v-1d7cd2ac>电影榜单类</b>没有日期，会被跳过。<code data-v-1d7cd2ac>ustop250</code> 与 <code data-v-1d7cd2ac>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
+                    _cache[107] || (_cache[107] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-a98bfa29><b data-v-a98bfa29>电影上映类</b>（<code data-v-a98bfa29>/douban/movie/coming</code>）带精确上映日期，按窗口过滤，最准。<br data-v-a98bfa29><b data-v-a98bfa29>剧集类</b>（<code data-v-a98bfa29>/douban/tv/coming</code>、<code data-v-a98bfa29>/douban/list/tv_*</code>、 <code data-v-a98bfa29>/douban/list/show_domestic</code>）没有日期，按「TMDB 还有没有未播集」判断，等效追番。<br data-v-a98bfa29><b data-v-a98bfa29>电影榜单类</b>没有日期，会被跳过。<code data-v-a98bfa29>ustop250</code> 与 <code data-v-a98bfa29>/douban/movie/new</code> 在新版 RSSHub 已 404。 </div>", 1))
                   ]))
                 : _createCommentVNode("", true)
             ], 64))
@@ -2657,7 +2657,7 @@ return (_ctx, _cache) => {
                     color: "primary"
                   }, null, 8, ["modelValue"])
                 ]),
-                _cache[141] || (_cache[141] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-1d7cd2ac><b data-v-1d7cd2ac>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-1d7cd2ac>BL</code> 不会命中 <code data-v-1d7cd2ac>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-1d7cd2ac>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-1d7cd2ac>regex:</code> 用正则；行首加 <code data-v-1d7cd2ac>case:</code> 区分大小写；空行与 <code data-v-1d7cd2ac>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-1d7cd2ac><b data-v-1d7cd2ac>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-1d7cd2ac>试一下</div>", 3)),
+                _cache[141] || (_cache[141] = _createStaticVNode("<div class=\"sc-hint mt-2\" data-v-a98bfa29><b data-v-a98bfa29>写法</b>：中文按「包含」匹配（「同性」能命中「同性恋」）；英文按「整词」（<code data-v-a98bfa29>BL</code> 不会命中 <code data-v-a98bfa29>BLADE</code>）； 一行里写多个词用空格分隔 = 同时包含（<code data-v-a98bfa29>韩国 同性</code> 只拦韩国同性题材）； 行首加 <code data-v-a98bfa29>regex:</code> 用正则；行首加 <code data-v-a98bfa29>case:</code> 区分大小写；空行与 <code data-v-a98bfa29>#</code> 开头的行忽略。 全部留空 = 不排除任何内容。 </div><div class=\"sc-hint mt-2\" data-v-a98bfa29><b data-v-a98bfa29>词表参考</b>（只是提示，不会自动生效）： 同性 / 耽美 / BL / boys love / shounen ai / yaoi / 百合 / GL / girls love / yuri / lgbt / gay / lesbian / bisexual / transgender / queer / 综艺 / 真人秀 / 脱口秀 / 访谈 / 短剧 / 微短剧。 地区词也能组合：「泰国 同性」「韩国 同性」。 </div><div class=\"sc-card-title mt-3\" data-v-a98bfa29>试一下</div>", 3)),
                 _createVNode(_component_VRow, { dense: "" }, {
                   default: _withCtx(() => [
                     _createVNode(_component_VCol, {
@@ -3229,10 +3229,31 @@ return (_ctx, _cache) => {
                   }, {
                     default: _withCtx(() => [
                       _createVNode(_component_VTextField, {
-                        modelValue: form.value.auto_toggle_best_version_keep_days,
-                        "onUpdate:modelValue": _cache[77] || (_cache[77] = $event => ((form.value.auto_toggle_best_version_keep_days) = $event)),
+                        modelValue: form.value.auto_toggle_best_version_keep_days_tv,
+                        "onUpdate:modelValue": _cache[77] || (_cache[77] = $event => ((form.value.auto_toggle_best_version_keep_days_tv) = $event)),
                         modelModifiers: { number: true },
-                        label: "洗版保留天数（等更好的版本）",
+                        label: "电视剧洗版保留天数",
+                        type: "number",
+                        min: "0",
+                        max: "365",
+                        density: "compact",
+                        "hide-details": "",
+                        variant: "outlined",
+                        class: "mb-2"
+                      }, null, 8, ["modelValue"])
+                    ]),
+                    _: 1
+                  }),
+                  _createVNode(_component_VCol, {
+                    cols: "12",
+                    sm: "6"
+                  }, {
+                    default: _withCtx(() => [
+                      _createVNode(_component_VTextField, {
+                        modelValue: form.value.auto_toggle_best_version_keep_days_movie,
+                        "onUpdate:modelValue": _cache[78] || (_cache[78] = $event => ((form.value.auto_toggle_best_version_keep_days_movie) = $event)),
+                        modelModifiers: { number: true },
+                        label: "电影洗版保留天数",
                         type: "number",
                         min: "0",
                         max: "365",
@@ -3251,30 +3272,9 @@ return (_ctx, _cache) => {
                     default: _withCtx(() => [
                       _createVNode(_component_VSelect, {
                         modelValue: form.value.auto_toggle_best_version_mode,
-                        "onUpdate:modelValue": _cache[78] || (_cache[78] = $event => ((form.value.auto_toggle_best_version_mode) = $event)),
+                        "onUpdate:modelValue": _cache[79] || (_cache[79] = $event => ((form.value.auto_toggle_best_version_mode) = $event)),
                         items: BEST_MODE_OPTIONS,
                         label: "洗版判定时机",
-                        density: "compact",
-                        "hide-details": "",
-                        variant: "outlined",
-                        class: "mb-2"
-                      }, null, 8, ["modelValue"])
-                    ]),
-                    _: 1
-                  }),
-                  _createVNode(_component_VCol, {
-                    cols: "12",
-                    sm: "6"
-                  }, {
-                    default: _withCtx(() => [
-                      _createVNode(_component_VTextField, {
-                        modelValue: form.value.auto_toggle_max_changes,
-                        "onUpdate:modelValue": _cache[79] || (_cache[79] = $event => ((form.value.auto_toggle_max_changes) = $event)),
-                        modelModifiers: { number: true },
-                        label: "单次改动上限（0 = 不限）",
-                        type: "number",
-                        min: "0",
-                        max: "2000",
                         density: "compact",
                         "hide-details": "",
                         variant: "outlined",
@@ -3618,6 +3618,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1d7cd2ac"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a98bfa29"]]);
 
 export { Config as default };

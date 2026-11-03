@@ -72,7 +72,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.18.0"
+    plugin_version = "1.18.1"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -517,10 +517,20 @@ class SubscribeCenter(_PluginBase):
                 max(self._int_config("auto_toggle_lookahead_days", 0), 0), 30
             ),
             "keep_days": min(max(self._int_config("auto_toggle_keep_days", 3), 0), 90),
-            "best_keep_days": min(
+            "best_keep_days_tv": min(
                 max(
                     self._int_config(
-                        "auto_toggle_best_version_keep_days",
+                        "auto_toggle_best_version_keep_days_tv",
+                        C.DEFAULT_AUTO_TOGGLE_BEST_KEEP,
+                    ),
+                    0,
+                ),
+                365,
+            ),
+            "best_keep_days_movie": min(
+                max(
+                    self._int_config(
+                        "auto_toggle_best_version_keep_days_movie",
                         C.DEFAULT_AUTO_TOGGLE_BEST_KEEP,
                     ),
                     0,
@@ -545,9 +555,6 @@ class SubscribeCenter(_PluginBase):
                 )
             ),
             "best_mode": self._best_toggle_mode(),
-            "max_changes": min(
-                max(self._int_config("auto_toggle_max_changes", 0), 0), 2000
-            ),
             "notify": bool(self._config.get("auto_toggle_notify")),
         }
 
@@ -854,10 +861,10 @@ class SubscribeCenter(_PluginBase):
             today_date,
             lookahead_days=cfg["lookahead_days"],
             keep_days=cfg["keep_days"],
-            best_keep_days=cfg["best_keep_days"],
+            best_keep_days_tv=cfg["best_keep_days_tv"],
+            best_keep_days_movie=cfg["best_keep_days_movie"],
             best_mode=cfg["best_mode"],
             owned=owned if isinstance(owned, dict) else None,
-            max_changes=cfg["max_changes"],
             release_index=release_index,
             movie_enabled=cfg["movie_enabled"],
             movie_theatrical_offset_days=cfg["movie_theatrical_offset_days"],

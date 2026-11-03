@@ -633,12 +633,17 @@ def test_recorded_keys_survive_decision_changes(plugin):
     `skipped_recorded`，而流水同一作品只留最新一条 → `added` 那条被替换掉。
     用户删掉订阅后再跑，去重证据已经没了，于是被重新自动订阅（1.14.5 修）。
     """
-    plugin._append_history([_outcome("7", 1, C.DECISION_ADDED)], run_at="2026-10-01 05:00:00")
+    from core.window import local_now_text
+
+    #: 时间戳必须用「现在」：流水按天保留（默认 30 天），写过期日期会被
+    #: ``_prune_history`` 当场清掉，这条用例就变成在测空表（2026-11-03 踩到）。
+    run_at = local_now_text(plugin._tz())
+    plugin._append_history([_outcome("7", 1, C.DECISION_ADDED)], run_at=run_at)
     assert "themoviedb:7:1" in plugin._recorded_keys()
 
     # 之后的运行把它记成「流水已记录」，流水里只剩这一条
     plugin._append_history(
-        [_outcome("7", 1, C.DECISION_SKIPPED_RECORDED)], run_at="2026-10-02 05:00:00"
+        [_outcome("7", 1, C.DECISION_SKIPPED_RECORDED)], run_at=run_at
     )
     assert plugin.history_page().total == 1
     assert plugin._recorded_keys() >= {"themoviedb:7:1"}
@@ -646,7 +651,11 @@ def test_recorded_keys_survive_decision_changes(plugin):
 
 def test_recorded_keys_ignores_history_truncation(plugin):
     """流水被 MAX_HISTORY 截断也不能丢「订过」的证据。"""
-    plugin._append_history([_outcome("8", 2, C.DECISION_ADDED)], run_at="2026-10-01 05:00:00")
+    from core.window import local_now_text
+
+    plugin._append_history(
+        [_outcome("8", 2, C.DECISION_ADDED)], run_at=local_now_text(plugin._tz())
+    )
     # 模拟流水被后来的记录挤掉
     plugin.save_data("run_history", [])
     assert "themoviedb:8:2" in plugin._recorded_keys()

@@ -871,7 +871,8 @@ def decide(
     *,
     lookahead_days: int = 0,
     keep_days: int = 3,
-    best_keep_days: int = 0,
+    best_keep_days_tv: int = 0,
+    best_keep_days_movie: int = 0,
     best_mode: str = BEST_MODE_AFTER_FINALE,
     owned: Optional[Mapping[Any, Any]] = None,
     releases: Optional[Iterable[Any]] = None,
@@ -887,7 +888,8 @@ def decide(
     :param today: 插件时区下的「今天」
     :param lookahead_days: 提前几天开启（0 = 只在播出当天开启）
     :param keep_days: 已播未入库的集最多保留几天继续搜索
-    :param best_keep_days: 洗版订阅的保留窗口（0 = 跟随 ``keep_days``）
+    :param best_keep_days_tv: 电视剧洗版订阅的保留窗口（0 = 跟随 ``keep_days``）
+    :param best_keep_days_movie: 电影洗版订阅的保留窗口（0 = 跟随 ``keep_days``）
     :param best_mode: 洗版判定模式，见 ``BEST_MODE_AFTER_FINALE`` /
         ``BEST_MODE_ALWAYS``
     :param owned: 本插件的接管表 ``{订阅 ID: {"state": 我们写入的状态, ...}}``；
@@ -944,6 +946,7 @@ def decide(
 
     #: 保留窗口（电影用；剧集的窗口要等知道「是否已完结」后再定）
     window = max(0, keep_days)
+    best_keep_days = best_keep_days_tv if kind == "tv" else best_keep_days_movie
     if best and best_keep_days and best_keep_days > 0:
         window = max(0, best_keep_days)
 
@@ -1116,10 +1119,10 @@ def plan(
     *,
     lookahead_days: int = 0,
     keep_days: int = 3,
-    best_keep_days: int = 0,
+    best_keep_days_tv: int = 0,
+    best_keep_days_movie: int = 0,
     best_mode: str = BEST_MODE_AFTER_FINALE,
     owned: Optional[Mapping[Any, Any]] = None,
-    max_changes: int = 0,
     release_index: Optional[Mapping[str, Any]] = None,
     movie_enabled: bool = True,
     movie_theatrical_offset_days: int = 0,
@@ -1131,8 +1134,6 @@ def plan(
     索引键与插件日历一致：``(media_id, season)``，没有季号时是
     ``(media_id, "movie")``（见 ``core/calendar.py`` 的 ``MOVIE_KEY``）。
 
-    :param max_changes: 单次改动上限（0 = 不限）。超出时**先保恢复、后保暂停**
-        —— 少暂停几条只是多搜一次，漏恢复会让该搜的订阅一整天不搜。
     :param release_index: 电影的发行记录索引 ``{media_id: [(date, type), ...]}``
     :param movie_enabled: 是否连电影订阅一起管
     :param movie_theatrical_offset_days: 只有影院日期时按上映日往后推几天估算数字发行（0=不估算）
@@ -1158,7 +1159,8 @@ def plan(
                 today,
                 lookahead_days=lookahead_days,
                 keep_days=keep_days,
-                best_keep_days=best_keep_days,
+                best_keep_days_tv=best_keep_days_tv,
+                best_keep_days_movie=best_keep_days_movie,
                 best_mode=best_mode,
                 owned=owned,
                 releases=(release_index or {}).get(media_id),
@@ -1173,11 +1175,6 @@ def plan(
 
     changes = [item for item in decisions if item.action in WRITE_ACTIONS]
     truncated = False
-    if max_changes and len(changes) > max_changes:
-        # 恢复优先：pauses 排在后面被截掉
-        changes.sort(key=lambda item: (item.action != ACTION_RESUME, item.name))
-        changes = changes[:max_changes]
-        truncated = True
 
     reasons: Dict[str, int] = {}
     for item in decisions:

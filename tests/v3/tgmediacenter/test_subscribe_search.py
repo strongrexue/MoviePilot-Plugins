@@ -85,7 +85,7 @@ def _candidate(**overrides):
 
 def _prepare(module, items, *, pipeline=None):
     """把回搜链路上的外部依赖换成替身，返回记录容器。"""
-    module.search_by_title = lambda title, limit=200: list(items)
+    module.search_by_title = lambda title, year="", limit=200: list(items)
     module.rule_filter_reason = lambda chat_id, text: ""
     module._hit_exists = lambda chat_id, message_id: False
     module._pipeline = lambda: pipeline

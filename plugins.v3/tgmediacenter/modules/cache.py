@@ -324,9 +324,11 @@ class CacheModule:
     def search(self, keyword: str, *, limit: int = 50) -> List[dict]:
         return self._history.search(keyword, limit=limit, chat_ids=self.chat_ids() or None)
 
-    def search_by_title(self, title: str, *, limit: int = 200) -> List[dict]:
-        """按片名检索（归一标题包含匹配，1.13.38 手动回搜用）。"""
-        return self._history.search_by_title(title, limit=limit, chat_ids=self.chat_ids() or None)
+    def search_by_title(self, title: str, *, year: str = "",
+                        limit: int = 200) -> List[dict]:
+        """按片名检索（先精确后包含；``year`` 用于同名不同剧收敛）。"""
+        return self._history.search_by_title(
+            title, year=year, limit=limit, chat_ids=self.chat_ids() or None)
 
     # ------------------------------------------------------------------ 订阅回搜
 
@@ -850,7 +852,7 @@ class CacheModule:
         year = str(meta.get("year") or "")
         media_type = str(meta.get("media_type") or "")
         season = meta.get("season")
-        candidates = self.search_by_title(title, limit=200)
+        candidates = self.search_by_title(title, year=year, limit=200)
         logger.info(
             f"[{self._plugin_id()}] {trigger}回搜：「{title}」命中候选 {len(candidates)} 条"
         )

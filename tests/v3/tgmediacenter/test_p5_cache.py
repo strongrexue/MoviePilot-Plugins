@@ -348,6 +348,33 @@ class TestSearch:
         hits = service.search_by_title("青与碧")
         assert [item["message_id"] for item in hits] == [2003]
 
+    def test_search_by_title_prefers_exact_over_contains(self, plugin, service, fake_metavideo):
+        # 精确同名优先：两字通用片名不能把「XX谎言」全捞进来
+        service.record(CHAT_A, 2005, _text("谎言 (2026) S01E01"))
+        service.record(CHAT_A, 2006, _text("百日谎言 (2026) S01E02"))
+        service.record(CHAT_A, 2007, _text("大小谎言 (2017) S01E01"))
+        hits = service.search_by_title("谎言")
+        assert [item["message_id"] for item in hits] == [2005]
+
+    def test_search_by_title_falls_back_when_no_exact(self, plugin, service, fake_metavideo):
+        # 没有精确同名时才退回包含匹配（兜住脏标题）
+        service.record(CHAT_A, 2008, _text("深海遗梦 (2026) S01E01"))
+        hits = service.search_by_title("遗梦")
+        assert [item["message_id"] for item in hits] == [2008]
+
+    def test_search_by_title_narrows_by_year(self, plugin, service, fake_metavideo):
+        # 同名不同年份：给了年份就只留同年的
+        service.record(CHAT_A, 2009, _text("重逢 (2026) S01E01"))
+        service.record(CHAT_A, 2010, _text("重逢 (2018) S01E01"))
+        hits = service.search_by_title("重逢", year="2026")
+        assert [item["message_id"] for item in hits] == [2009]
+
+    def test_search_by_title_keeps_yearless_rows(self, plugin, service, fake_metavideo):
+        # 缓存里年份为空的记录不该被年份收敛误杀
+        service.record(CHAT_A, 2011, _text("无年份剧集 S01E03"))
+        hits = service.search_by_title("无年份剧集", year="2026")
+        assert [item["message_id"] for item in hits] == [2011]
+
     def test_search_returns_empty_for_unknown(self, plugin, service, fake_metavideo):
         service.record(CHAT_A, 2004, _text("青与碧 (2026) S01E04"))
         assert service.search("不存在的片名") == []

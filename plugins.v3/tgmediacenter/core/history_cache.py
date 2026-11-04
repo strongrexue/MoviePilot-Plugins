@@ -519,28 +519,60 @@ class HistoryCacheService:
 
     def search_by_title(self, title: str, *, year: str = "", limit: int = 200,
                         chat_ids: Optional[List[int]] = None) -> List[dict]:
-        """订阅回搜专用：归一标题包含匹配（"玉簟秋" 命中 "玉簟秋 S01E03" 这类）。"""
+        """订阅回搜专用：**先精确、后包含**的两段检索。
+
+        精确段取 ``title_norm`` 完全相等的记录；只有精确段为空时才退回包含匹配，
+        用于兜住"识别不出集数/带脏前后缀"的脏标题。
+
+        历史教训：只用包含匹配会让短通用片名失控——订阅「谎言」会捞出
+        「大小谎言」「百日谎言」「亲爱的丈夫 完美妻子的谎言」等 55 条无关资源，
+        精确匹配则只有 2 条。片名越通用，包含匹配的误伤越严重。
+
+        ``year`` 非空时做二次收敛：同名但年份明显不同的记录（重拍版/同名不同剧）
+        会被剔除；缓存里年份为空的记录保留（识别不出年份的消息不该被误杀）。
+        """
         keyword = str(title or "").strip()
         if not keyword:
             return []
         norm = normalize_title(keyword)
+        if not norm:
+            return []
         db = self._db()
         if db is None:
             return []
+        want_year = str(year or "").strip()
+
+        def _narrow(rows: List[dict]) -> List[dict]:
+            """按年份收敛；收敛后为空则原样返回（宁可多给，不可漏掉）。"""
+            if not want_year or not rows:
+                return rows
+            kept = [r for r in rows
+                    if not str(r.get("year") or "").strip()
+                    or str(r.get("year")).strip() == want_year]
+            return kept or rows
+
         try:
             from sqlalchemy import select
 
-            filters = [TgMessageCache.plugin_id == self._plugin_id()]
+            base = [TgMessageCache.plugin_id == self._plugin_id()]
             if chat_ids:
-                filters.append(TgMessageCache.chat_id.in_([int(item) for item in chat_ids]))
-            with db.session() as session:
-                rows = list(session.execute(
-                    select(TgMessageCache)
-                    .where(*filters, TgMessageCache.title_norm.like(f"%{norm}%"))
-                    .order_by(TgMessageCache.message_id.desc())
-                    .limit(int(limit))
-                ).scalars().all())
-            return [self._search_view(row) for row in rows]
+                base.append(TgMessageCache.chat_id.in_([int(item) for item in chat_ids]))
+
+            def _query(condition) -> List[dict]:
+                with db.session() as session:
+                    rows = list(session.execute(
+                        select(TgMessageCache)
+                        .where(*base, condition)
+                        .order_by(TgMessageCache.message_id.desc())
+                        .limit(int(limit))
+                    ).scalars().all())
+                return [self._search_view(row) for row in rows]
+
+            hits = _narrow(_query(TgMessageCache.title_norm == norm))
+            if hits:
+                return hits
+            # 精确段空 → 才允许包含匹配兜底（"玉簟秋" 命中 "玉簟秋S01E03" 这类脏标题）
+            return _narrow(_query(TgMessageCache.title_norm.like(f"%{norm}%")))
         except Exception as err:
             logger.warning(f"按标题检索消息缓存失败：{err}")
             return []

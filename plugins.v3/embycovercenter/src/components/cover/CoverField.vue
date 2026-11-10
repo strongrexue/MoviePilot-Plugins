@@ -38,7 +38,9 @@ function onFilePicked(event) {
 
 /** 删除当前选中的底图文件（由上层弹确认框后执行）。 */
 function onFileDelete() {
-  const name = config[item.key]
+  // script setup 里 props 不是顶层变量，必须经 props 访问；直接写 config[item.key]
+  // 会在运行时抛 ReferenceError，导致删除按钮点了没反应。
+  const name = props.config[props.item.key]
   if (name) emit('delete', name)
 }
 </script>

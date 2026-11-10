@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-C-2OeJ3C.js';
+import { F as FRONTEND_VERSION } from './version-CjlgOfXS.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3} = await importShared('vue');
 
@@ -66,7 +66,9 @@ function onFilePicked(event) {
 
 /** 删除当前选中的底图文件（由上层弹确认框后执行）。 */
 function onFileDelete() {
-  const name = config[item.key];
+  // script setup 里 props 不是顶层变量，必须经 props 访问；直接写 config[item.key]
+  // 会在运行时抛 ReferenceError，导致删除按钮点了没反应。
+  const name = props.config[props.item.key];
   if (name) emit('delete', name);
 }
 
@@ -209,7 +211,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverField = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-21a4b415"]]);
+const CoverField = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-8fd4bd44"]]);
 
 /**
  * 封面设计器的前端状态与动作。

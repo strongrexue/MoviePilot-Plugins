@@ -1,6 +1,6 @@
 # 胖虎封面中心
 
-MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / 极影视（极空间 ZSpace）/ Jellyfin，提供：
+MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / Jellyfin，提供：
 
 1. **媒体库封面生成**：读取媒体库素材（背景图 / 海报），用模板 + 字体 + 布局合成封面，
    生成后可应用到媒体库封面，也支持直接上传本地成品图替换。
@@ -17,21 +17,7 @@ MoviePilot V3 插件（`EmbyCoverCenter`），面向 Emby / 极影视（极空�
   由宿主模块替换），不维护独立凭据、不复制宿主模块实例。封面写入固定使用 base64 body。
 - **宿主透传不提供 DELETE**：任务中心的「停止任务」用 `RequestUtils.delete_res` 补齐；
   服务器地址与密钥仍取自宿主 `MediaServerHelper.get_configs()`，不另存凭据。
-- **路径前缀按类型区分**：Emby / 极影视用 `emby/…`，Jellyfin 用根路径（宿主模块同款约定）。
-- **极影视（极空间 ZSpace）接入**：宿主的 `zspace` 模块是 Emby 4.7 兼容层，
-  `get_data` / `post_data` 与 Emby 模块一样支持 `[HOST]` / `[APIKEY]` / `[USER]` 占位符
-  （`[APIKEY]` 实际替换为登录得到的 AccessToken），所以读媒体库、取素材、拼图片 URL
-  与 Emby 走同一套透传，只需把 `zspace` 并入类型白名单与 `emby/` 前缀分支。两处差异：
-  ① 它没有静态 `apikey` 配置，`resolve()` 从运行时 `instance._apikey` 回落，用于拼
-  `real_url()`（每次现取，避免重连换 token 后失效）；② 它没实现 `Users` 全量列表
-  （实测 404），`admin_user_id()` 直接回落到 `instance.user`（宿主登录后写入，其自身
-  `__get_library_views()` 也是这么拼 `Users/{uid}/Views`），`Library/VirtualFolders`
-  等缺失端点只记 warning、不阻断列表（媒体库从 `Users/{uid}/Views` 取）。
-- **封面写入在极影视上未真机验证**：`POST Items/{id}/Images/Primary` 的 base64 body
-  是参考 [wio-ki/mediacovergenerator](https://github.com/wio-ki/MoviePilot-Plugins)
-  v1.8.2 按 Emby 兼容接口盲写的（作者自述无极影视设备实测）。若上传失败，插件会给出
-  带 HTTP 状态码的明确提示：可先「生成预览」，再到媒体服务器里手动把图片设为媒体库封面；
-  同时欢迎把状态码与日志反馈给作者，以便确认该兼容层是否支持写入。
+- **路径前缀按类型区分**：Emby 用 `emby/…`，Jellyfin 用根路径（宿主模块同款约定）。
 - **不声明额外依赖（无 `pyproject.toml`）**：只使用宿主环境自带的 `Pillow`；这样在**离线/无外网**
   的 MoviePilot 主机上更新插件时不会被"安装依赖"环节卡住（若声明依赖，MP 会尝试联网安装，
   失败会清理插件目录导致更新失败）。荣耀视界的透视变换已用纯 Python 高斯消元实现，不依赖 numpy。

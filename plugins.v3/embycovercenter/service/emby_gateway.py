@@ -1,12 +1,7 @@
-"""Emby 系媒体服务器访问网关：复用宿主媒体服务器模块的通用 HTTP 透传。
+"""Emby 访问网关：复用宿主媒体服务器模块的通用 HTTP 透传。
 
 - GET / POST 一律走模块实例的 ``get_data`` / ``post_data``（URL 内的 ``[HOST]`` /
   ``[APIKEY]`` 由宿主模块替换），插件不维护独立凭据、不复制模块实例；
-- ``emby`` / ``zspace``（极影视，宿主按 Emby 4.7 兼容层实现，URL 同样带 ``emby/``
-  前缀）走同一套 URL 与透传；``jellyfin`` 用根路径；
-- 极影视没有静态 ``apikey`` 配置：登录后的 AccessToken 只存在于运行时的
-  ``instance._apikey``，故 ``resolve()`` 在配置缺 apikey 时从实例回落（供
-  ``real_url()`` / ``delete()`` 拼真实 URL，透传本身仍用占位符）；
 - 宿主模块未提供 DELETE 透传，任务中心的「停止任务」用 ``RequestUtils.delete_res``
   补齐——服务器地址与密钥仍取自宿主 ``MediaServerHelper.get_configs()``，不另存凭据。
 """
@@ -19,13 +14,11 @@ from urllib.parse import urlencode
 
 from app.sdk.logging import logger
 
-# 支持的媒体服务器类型（Emby / 极影视走 emby/ 前缀，Jellyfin 用根路径）。
-# 极影视 = 宿主的 zspace 模块，按 Emby 4.7 兼容层实现：System/Info 返回
-# ServerVersion=4.7.0.0，认证用用户名密码换 AccessToken，get_data/post_data
-# 与 Emby 模块一样支持 [HOST]/[APIKEY]/[USER] 占位符（参考 wio-ki 插件 v1.8.2）。
-SUPPORTED_TYPES = ("emby", "zspace", "jellyfin")
-# 与 Emby 同协议的服务器类型（决定 emby/ 前缀，以及运行时凭据/用户 ID 的回落策略）。
-EMBY_COMPATIBLE_TYPES = ("emby", "zspace")
+# 支持的媒体服务器类型（Emby 走 emby/ 前缀，Jellyfin 用根路径）。
+# 极影视（zspace）不在此列：其 Emby 兼容层未提供封面写入端点
+# （POST Items/{id}/Images/Primary 实测 404），产品也无手动设置媒体库封面入口，
+# 保留只读接入只会带来「能预览却无法应用」的半残体验，故 1.6.34 回退移除。
+SUPPORTED_TYPES = ("emby", "jellyfin")
 
 
 class GatewayError(RuntimeError):
@@ -109,26 +102,19 @@ def resolve(server_name: str = "") -> ServerRef:
     conf_data = getattr(conf, "config", None)
     if not isinstance(conf_data, dict):
         conf_data = {}
-    # 极影视（zspace）配置里没有静态 apikey：登录得到的 AccessToken 只保存在
-    # 运行时实例上（zspace.py 的 reconnect() 写入 self._apikey）。透传 URL 用
-    # [APIKEY] 占位符由宿主替换，不受影响；但 real_url()/delete() 需要拼真实
-    # URL，这里从实例回落。每次 resolve() 都现取，避免重连换 token 后用到旧值。
-    apikey = str(conf_data.get("apikey") or "")
-    if not apikey:
-        apikey = str(getattr(instance, "_apikey", "") or "")
     return ServerRef(
         name=str(name),
         type=server_type,
         instance=instance,
         host=str(conf_data.get("host") or ""),
-        apikey=apikey,
+        apikey=str(conf_data.get("apikey") or ""),
     )
 
 
 def _relative_path(server_type: str, path: str) -> str:
-    """按服务器类型拼接 API 相对路径（极影视与 Emby 同带 emby/ 前缀）。"""
+    """按服务器类型拼接 API 相对路径。"""
     suffix = str(path or "").lstrip("/")
-    return f"emby/{suffix}" if server_type in EMBY_COMPATIBLE_TYPES else suffix
+    return f"emby/{suffix}" if server_type == "emby" else suffix
 
 
 def _placeholder_url(ref: ServerRef, path: str, query: Optional[dict] = None) -> str:
@@ -192,13 +178,7 @@ def post_json(ref: ServerRef, path: str, payload: Any = None, query: Optional[di
 
 
 def post_raw(ref: ServerRef, path: str, data: Any, content_type: str, query: Optional[dict] = None) -> None:
-    """POST 原始字符串 body（用于封面 base64 上传等非 JSON 场景）。
-
-    极影视（zspace）的 Emby 兼容层没有真机验证过 ``Items/{id}/Images/Primary``
-    写入：wio-ki/mediacovergenerator v1.8.2 也是按 Emby 兼容接口盲写的，作者明确
-    说明「没有极影视的设备实测」。这里对 zspace 的失败补一段可操作的指引，避免
-    用户只看到一句 HTTP 状态码而不知所措；其余类型的报错文案保持原样。
-    """
+    """POST 原始字符串 body（用于封面 base64 上传等非 JSON 场景）。"""
     res = ref.instance.post_data(
         url=_placeholder_url(ref, path, query),
         data=data,
@@ -206,14 +186,7 @@ def post_raw(ref: ServerRef, path: str, data: Any, content_type: str, query: Opt
     )
     status = getattr(res, "status_code", 0)
     if not res or status not in (200, 204):
-        message = f"POST {path} 失败：HTTP {status or '无响应'}"
-        if ref.type == "zspace" and path.endswith("/Images/Primary"):
-            message += (
-                "（极影视的 Emby 兼容层可能未实现封面写入；可先「生成预览」后"
-                "在媒体服务器里手动把图片设为媒体库封面。若你的设备支持写入，"
-                "请把此 HTTP 状态码与插件日志反馈给作者）"
-            )
-        raise GatewayError(message)
+        raise GatewayError(f"POST {path} 失败：HTTP {status or '无响应'}")
 
 
 def delete(ref: ServerRef, path: str, query: Optional[dict] = None) -> None:

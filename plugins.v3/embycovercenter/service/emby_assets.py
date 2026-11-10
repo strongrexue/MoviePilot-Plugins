@@ -41,24 +41,10 @@ def image_url(ref: emby_gateway.ServerRef, path: str, query: Optional[dict] = No
 
 
 def admin_user_id(ref: emby_gateway.ServerRef) -> Optional[str]:
-    """返回管理员用户 ID（Emby 的部分查询需要用户上下文）；按服务器缓存。
-
-    极影视（zspace）没有实现 ``Users`` 全量列表端点（实测 404），但宿主登录后
-    已把当前用户 ID 放在 ``instance.user`` 上（zspace.py 的 reconnect() 写入，
-    is_inactive() 会刷新）——它自己的 ``__get_library_views()`` 也正是用这个
-    ID 拼 ``Users/{uid}/Views``。所以 zspace 直接回落实例上的用户 ID，
-    不去撞那个必然 404 的端点。
-    """
+    """返回管理员用户 ID（Emby 的部分查询需要用户上下文）；按服务器缓存。"""
     cached = _ADMIN_USER_CACHE.get(ref.name)
     if cached:
         return cached
-    if getattr(ref, "type", "") == "zspace":
-        uid = getattr(ref.instance, "user", None)
-        if uid:
-            _ADMIN_USER_CACHE[ref.name] = str(uid)
-            return str(uid)
-        logger.warning("[EmbyCoverCenter] 极影视实例缺少登录用户 ID，无法读取媒体库")
-        return None
     try:
         users = emby_gateway.get_json(ref, "Users")
     except emby_gateway.GatewayError as error:

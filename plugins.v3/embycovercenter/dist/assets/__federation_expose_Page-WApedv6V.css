@@ -1,40 +1,40 @@
 
-.ec-slider[data-v-21a4b415] {
+.ec-slider[data-v-8fd4bd44] {
   grid-column: 1 / -1;
 }
-.ec-slider-head[data-v-21a4b415] {
+.ec-slider-head[data-v-8fd4bd44] {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
   margin-bottom: 2px;
   opacity: 0.85;
 }
-.ec-color[data-v-21a4b415] {
+.ec-color[data-v-8fd4bd44] {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
 }
-.ec-file[data-v-21a4b415] {
+.ec-file[data-v-8fd4bd44] {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
 }
-.ec-file-btn[data-v-21a4b415] {
+.ec-file-btn[data-v-8fd4bd44] {
   height: 40px;
 }
 /* 隐藏原生 input：只让 label 触发文件选择（同 CoverDesignPane 的处理）。 */
-.ec-file-input[data-v-21a4b415] {
+.ec-file-input[data-v-8fd4bd44] {
   position: absolute;
   width: 1px;
   height: 1px;
   opacity: 0;
   pointer-events: none;
 }
-.ec-color-swatch[data-v-21a4b415] {
+.ec-color-swatch[data-v-8fd4bd44] {
   width: 36px;
   height: 36px;
   border-radius: 6px;
@@ -43,7 +43,7 @@
   cursor: pointer;
   display: block;
 }
-.ec-color-input[data-v-21a4b415] {
+.ec-color-input[data-v-8fd4bd44] {
   width: 100%;
   height: 100%;
   border: none;

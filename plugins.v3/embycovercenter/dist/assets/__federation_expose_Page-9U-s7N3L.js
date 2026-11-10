@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-CjlgOfXS.js';
+import { F as FRONTEND_VERSION } from './version-Gnr8knLD.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3} = await importShared('vue');
 
@@ -588,47 +588,6 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 应用已生成的预览图（避免重复渲染）。 */
-  async function applyPreviewImage() {
-    if (!previewImage.value || applying.value) return
-    applying.value = true;
-    try {
-      const data = unwrap(
-        await postPluginApi(api(), pluginId(), 'apply', {
-          ...requestBody(),
-          image_data: previewImage.value,
-        }),
-      ) || {};
-      if (data.uploaded) saveScheme();
-      report(data.uploaded ? '预览图已设为封面' : '应用未生效', !!data.uploaded);
-    } catch (error) {
-      report(error?.message || '应用失败', false);
-    } finally {
-      applying.value = false;
-    }
-  }
-
-  /** 直接上传本地成品图替换封面（不经过生成器）。 */
-  async function applyLocalImage(file) {
-    if (!file || applying.value) return
-    applying.value = true;
-    try {
-      const imageData = await readFileAsDataUrl(file);
-      const data = unwrap(
-        await postPluginApi(api(), pluginId(), 'apply', {
-          ...requestBody(),
-          image_data: imageData,
-        }),
-      ) || {};
-      if (data.uploaded) saveScheme();
-      report(data.uploaded ? '成品图已设为封面' : '应用未生效', !!data.uploaded);
-    } catch (error) {
-      report(error?.message || '上传失败', false);
-    } finally {
-      applying.value = false;
-    }
-  }
-
   async function uploadFont(file) {
     if (!file) return
     try {
@@ -779,8 +738,6 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     onSubtitleEdited,
     previewCover,
     applyCover,
-    applyPreviewImage,
-    applyLocalImage,
     uploadFont,
     deleteFont,
     saveTemplate,
@@ -829,28 +786,26 @@ const _hoisted_18 = {
 };
 const _hoisted_19 = {
   key: 3,
-  class: "ec-row-wrap"
+  class: "ec-fonts"
 };
-const _hoisted_20 = {
-  key: 4,
-  class: "ec-chips"
-};
+const _hoisted_20 = { class: "ec-row-wrap mt-2" };
 const _hoisted_21 = {
   key: 0,
-  class: "text-caption text-medium-emphasis"
+  class: "text-caption text-medium-emphasis mt-1"
 };
 
 const {computed: computed$2,onMounted: onMounted$2,reactive: reactive$1,ref: ref$1} = await importShared('vue');
 
 /**
- * 封面设计面板（单列 / 对齐 ChillPoster）。
+ * 封面设计面板（宽屏左右两列 / 对齐 ChillPoster）。
  *
  * 自上而下全部占满宽度：
  * - 顶部工具条：刷新 / 生成预览 / 渲染并应用；
  * - 预览横版：合成结果占满整行，关键参数摘要压成图下一行小字；
  * - 模板预设横版：点卡片即载入；
- * - 可折叠分组（点击展开/收起，头部右侧带一行关键值摘要）：
- *   目标对象 → 布局分组 → 文字内容 → 其余布局分组 → 引擎通用 → 封面上传 → 字体。
+ * - 可折叠分组（点击展开/收起，头部右侧带一行关键值摘要）：宽屏两列 grid，
+ *   第 1 行固定「目标对象」（左）+「文字内容」（右）且都默认展开；其余分组默认折叠，
+ *   并按预估展开高度交错配到两列，尽量让手动展开后左右两列高度接近。
  *
  * 主/副标题属于「文字内容」（跟随媒体库 / 用户输入），载入模板只套用风格参数。
  */
@@ -888,12 +843,19 @@ const askDeleteTemplate = template =>
     `确定删除「${template.name || template.filename}」吗？内置模板重启插件后会自动补回，自行上传的不会。`,
     () => designer.deleteTemplate(template.filename),
   );
-const askDeleteFont = name =>
+/** 字体改成「下拉勾选 + 批量删除」：一次删掉所有勾选的字体。 */
+function askDeleteFonts() {
+  const names = [...fontSelection.value];
+  if (!names.length) return
   askDelete(
     '删除字体',
-    `确定删除字体「${name}」吗？正在使用该字体的封面会回退为内置字体。`,
-    () => designer.deleteFont(name),
+    `确定删除选中的 ${names.length} 个字体吗？正在使用这些字体的封面会回退为内置字体。`,
+    async () => {
+      for (const name of names) await designer.deleteFont(name);
+      fontSelection.value = [];
+    },
   );
+}
 function confirmOk() {
   const action = confirm.action;
   confirm.show = false;
@@ -915,8 +877,11 @@ const modeItems = [
 
 const templateName = ref$1('');
 
-/** 默认只展开 1-2 组：目标对象 + 第一个布局分组（无布局分组时只展开目标对象）。 */
-const openSections = ref$1(['target', 'style-0']);
+/** 字体分组：下拉里勾选的字体名，点「删除选中」后批量删除。 */
+const fontSelection = ref$1([]);
+
+/** 默认只展开第 1 行的两块：目标对象 + 文字内容；其余分组一律折叠。 */
+const openSections = ref$1(['target', 'content']);
 
 function onFontPicked(event) {
   const file = event.target.files?.[0];
@@ -928,12 +893,6 @@ function onTemplatePicked(event) {
   const file = event.target.files?.[0];
   event.target.value = '';
   if (file) designer.uploadTemplate(file);
-}
-
-function onLocalImagePicked(event) {
-  const file = event.target.files?.[0];
-  event.target.value = '';
-  if (file) designer.applyLocalImage(file);
 }
 
 /** 字段内的文件上传（主视觉）：上传成功后把文件名写回该字段。 */
@@ -986,46 +945,76 @@ function summarize(items) {
   return parts.join(' · ') || '—'
 }
 
-/** 折叠分组清单：目标对象 → 布局分组 → 文字内容 → 其余布局分组 → 引擎通用 → 封面上传 → 字体。 */
-const blocks = computed$2(() => {
+/** 预估一个分组「展开后」占的高度（像素），只用于两列配重，不参与渲染。
+ *  range / color / file 在 .ec-fields 里整行铺满，其余字段两列并排（每行两个）。 */
+function estimateHeight(block) {
+  let fullRows = 0;
+  let halfFields = 0;
+  for (const item of block.items || []) {
+    if (['range', 'color', 'file'].includes(item && item.type)) fullRows += 1;
+    else halfFields += 1;
+  }
+  const rows = fullRows + Math.ceil(halfFields / 2);
+  return 44 + rows * 44 + 12
+}
+
+/** 其余分组按预估展开高度贪心分到「当前较矮」的一列，再按行交错输出：
+ *  grid 每行两格，先按高度降序、逐个塞进较矮列，最后左右各取第 i 个拼成一行。
+ *  这样手动展开后左右两列累计高度尽量接近、每行两格高度也接近。
+ *  折叠态每格只有 44px 标题行，天然整齐。 */
+function balanceColumns(rest) {
+  const left = [];
+  const right = [];
+  let leftHeight = 0;
+  let rightHeight = 0;
+  for (const block of [...rest].sort((a, b) => estimateHeight(b) - estimateHeight(a))) {
+    const height = estimateHeight(block);
+    if (leftHeight <= rightHeight) {
+      left.push(block);
+      leftHeight += height;
+    } else {
+      right.push(block);
+      rightHeight += height;
+    }
+  }
   const list = [];
-  list.push({
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    if (left[i]) list.push(left[i]);
+    if (right[i]) list.push(right[i]);
+  }
+  return list
+}
+
+/** 折叠分组清单：第 1 行固定「目标对象」+「文字内容」（都默认展开），
+ *  其余分组（布局参数 / 引擎通用 / 字体）默认折叠并交错配到两列。 */
+const blocks = computed$2(() => {
+  const target = {
     id: 'target',
     kind: 'target',
     icon: 'mdi-crosshairs-gps',
     title: '目标对象',
     summary: `${form.server || '未选服务器'} · ${currentLibraryName.value} · ${currentLayoutLabel.value}`,
-  });
-  const styles = styleGroups.value.filter(group => group.items.length);
-  if (styles.length) {
-    list.push({
-      id: 'style-0',
-      kind: 'style',
-      icon: 'mdi-image-multiple-outline',
-      title: styles[0].group,
-      summary: summarize(styles[0].items),
-      items: styles[0].items,
-    });
-  }
-  list.push({
+  };
+  const content = {
     id: 'content',
     kind: 'content',
     icon: 'mdi-format-text',
     title: '文字内容',
     summary: `${form.config.title || '—'} / ${form.config.subtitle || '—'}`,
-  });
-  styles.slice(1).forEach((group, index) => {
-    list.push({
-      id: `style-${index + 1}`,
+  };
+  const rest = [];
+  styleGroups.value.filter(group => group.items.length).forEach((group, index) => {
+    rest.push({
+      id: `style-${index}`,
       kind: 'style',
-      icon: 'mdi-tune-variant',
+      icon: index === 0 ? 'mdi-image-multiple-outline' : 'mdi-tune-variant',
       title: group.group,
       summary: summarize(group.items),
       items: group.items,
     });
   });
   if (engineGroup.value) {
-    list.push({
+    rest.push({
       id: 'engine',
       kind: 'engine',
       icon: 'mdi-cog-outline',
@@ -1034,15 +1023,14 @@ const blocks = computed$2(() => {
       items: engineGroup.value.items,
     });
   }
-  list.push({ id: 'upload', kind: 'upload', icon: 'mdi-image-plus', title: '封面上传', summary: '成品图替换 / 应用当前预览' });
-  list.push({
+  rest.push({
     id: 'fonts',
     kind: 'fonts',
     icon: 'mdi-format-font',
     title: `字体（${designer.fonts.value.length}）`,
-    summary: '点击已装字体右侧 × 可删除',
+    summary: '下拉勾选后可批量删除 / 上传',
   });
-  return list
+  return [target, content, ...balanceColumns(rest)]
 });
 
 onMounted$2(designer.loadAll);
@@ -1059,7 +1047,6 @@ return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent$2("VIcon");
   const _component_VTextField = _resolveComponent$2("VTextField");
   const _component_VSelect = _resolveComponent$2("VSelect");
-  const _component_VChip = _resolveComponent$2("VChip");
   const _component_VExpansionPanel = _resolveComponent$2("VExpansionPanel");
   const _component_VExpansionPanels = _resolveComponent$2("VExpansionPanels");
   const _component_VSpacer = _resolveComponent$2("VSpacer");
@@ -1068,7 +1055,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$2(), _createElementBlock$2("div", _hoisted_1$2, [
     _createElementVNode$2("div", _hoisted_2$2, [
-      _cache[14] || (_cache[14] = _createElementVNode$2("div", { class: "ec-toolbar-head" }, [
+      _cache[15] || (_cache[15] = _createElementVNode$2("div", { class: "ec-toolbar-head" }, [
         _createElementVNode$2("div", { class: "ec-h" }, "封面设计"),
         _createElementVNode$2("div", { class: "ec-sub" }, "选媒体库 → 调风格 → 生成预览 → 应用到媒体库封面")
       ], -1)),
@@ -1079,7 +1066,7 @@ return (_ctx, _cache) => {
           loading: _unref$2(designer).loading.value,
           onClick: _unref$2(designer).loadAll
         }, {
-          default: _withCtx$2(() => [...(_cache[11] || (_cache[11] = [
+          default: _withCtx$2(() => [...(_cache[12] || (_cache[12] = [
             _createTextVNode$2("刷新", -1)
           ]))]),
           _: 1
@@ -1091,7 +1078,7 @@ return (_ctx, _cache) => {
           loading: _unref$2(designer).previewing.value,
           onClick: _unref$2(designer).previewCover
         }, {
-          default: _withCtx$2(() => [...(_cache[12] || (_cache[12] = [
+          default: _withCtx$2(() => [...(_cache[13] || (_cache[13] = [
             _createTextVNode$2(" 生成预览 ", -1)
           ]))]),
           _: 1
@@ -1104,7 +1091,7 @@ return (_ctx, _cache) => {
           loading: _unref$2(designer).applying.value,
           onClick: _unref$2(designer).applyCover
         }, {
-          default: _withCtx$2(() => [...(_cache[13] || (_cache[13] = [
+          default: _withCtx$2(() => [...(_cache[14] || (_cache[14] = [
             _createTextVNode$2(" 渲染并应用 ", -1)
           ]))]),
           _: 1
@@ -1138,7 +1125,7 @@ return (_ctx, _cache) => {
               loading: _unref$2(designer).previewing.value,
               onClick: _unref$2(designer).previewCover
             }, {
-              default: _withCtx$2(() => [...(_cache[17] || (_cache[17] = [
+              default: _withCtx$2(() => [...(_cache[18] || (_cache[18] = [
                 _createTextVNode$2(" 生成 ", -1)
               ]))]),
               _: 1
@@ -1146,13 +1133,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$2(() => [
             _createVNode$2(_component_VCardTitle, { class: "text-subtitle-1" }, {
-              default: _withCtx$2(() => [...(_cache[15] || (_cache[15] = [
+              default: _withCtx$2(() => [...(_cache[16] || (_cache[16] = [
                 _createTextVNode$2("预览", -1)
               ]))]),
               _: 1
             }),
             _createVNode$2(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$2(() => [...(_cache[16] || (_cache[16] = [
+              default: _withCtx$2(() => [...(_cache[17] || (_cache[17] = [
                 _createTextVNode$2("横版占满 · 生成后可一键应用为当前媒体库封面", -1)
               ]))]),
               _: 1
@@ -1207,7 +1194,7 @@ return (_ctx, _cache) => {
               variant: "text",
               "prepend-icon": "mdi-upload"
             }, {
-              default: _withCtx$2(() => [...(_cache[19] || (_cache[19] = [
+              default: _withCtx$2(() => [...(_cache[20] || (_cache[20] = [
                 _createTextVNode$2(" 上传 ", -1)
               ]))]),
               _: 1
@@ -1221,7 +1208,7 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createVNode$2(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$2(() => [...(_cache[18] || (_cache[18] = [
+              default: _withCtx$2(() => [...(_cache[19] || (_cache[19] = [
                 _createTextVNode$2("横版占满 · 点击卡片即载入（仅套用风格参数，不改标题/副标题）", -1)
               ]))]),
               _: 1
@@ -1285,7 +1272,7 @@ return (_ctx, _cache) => {
                 disabled: !templateName.value,
                 onClick: _cache[1] || (_cache[1] = $event => (_unref$2(designer).saveTemplate(templateName.value)))
               }, {
-                default: _withCtx$2(() => [...(_cache[20] || (_cache[20] = [
+                default: _withCtx$2(() => [...(_cache[21] || (_cache[21] = [
                   _createTextVNode$2(" 保存当前 ", -1)
                 ]))]),
                 _: 1
@@ -1299,7 +1286,7 @@ return (_ctx, _cache) => {
     }),
     _createVNode$2(_component_VExpansionPanels, {
       modelValue: openSections.value,
-      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((openSections).value = $event)),
+      "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((openSections).value = $event)),
       variant: "accordion",
       flat: "",
       multiple: "",
@@ -1390,7 +1377,7 @@ return (_ctx, _cache) => {
                         variant: "outlined",
                         "hide-details": ""
                       }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                      _cache[21] || (_cache[21] = _createElementVNode$2("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题默认取媒体库英文名（手填即记住该库），载入模板不会改它们。 ", -1))
+                      _cache[22] || (_cache[22] = _createElementVNode$2("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题默认取媒体库英文名（手填即记住该库），载入模板不会改它们。 ", -1))
                     ]))
                   : (block.kind === 'style' || block.kind === 'engine')
                     ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_18, [
@@ -1406,54 +1393,34 @@ return (_ctx, _cache) => {
                           }, null, 8, ["item", "config", "fonts", "files", "onUpload", "onDelete"]))
                         }), 128))
                       ]))
-                    : (block.kind === 'upload')
+                    : (block.kind === 'fonts')
                       ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_19, [
-                          _createVNode$2(_component_VBtn, {
-                            tag: "label",
-                            for: "ec-upload-local-image",
-                            size: "small",
-                            variant: "tonal",
-                            "prepend-icon": "mdi-image",
-                            loading: _unref$2(designer).applying.value
-                          }, {
-                            default: _withCtx$2(() => [...(_cache[22] || (_cache[22] = [
-                              _createTextVNode$2(" 选择本地封面（直接替换） ", -1)
-                            ]))]),
-                            _: 1
-                          }, 8, ["loading"]),
-                          _createVNode$2(_component_VBtn, {
-                            size: "small",
-                            variant: "tonal",
-                            "prepend-icon": "mdi-content-save-check",
-                            disabled: !_unref$2(previewImage),
-                            loading: _unref$2(designer).applying.value,
-                            onClick: _unref$2(designer).applyPreviewImage
-                          }, {
-                            default: _withCtx$2(() => [...(_cache[23] || (_cache[23] = [
-                              _createTextVNode$2(" 应用当前预览图 ", -1)
-                            ]))]),
-                            _: 1
-                          }, 8, ["disabled", "loading", "onClick"])
-                        ]))
-                      : (block.kind === 'fonts')
-                        ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_20, [
-                            (_openBlock$2(true), _createElementBlock$2(_Fragment$1, null, _renderList$1(_unref$2(designer).fonts.value, (name) => {
-                              return (_openBlock$2(), _createBlock$2(_component_VChip, {
-                                key: name,
-                                size: "small",
-                                variant: "tonal",
-                                closable: "",
-                                "onClick:close": $event => (askDeleteFont(name))
-                              }, {
-                                default: _withCtx$2(() => [
-                                  _createTextVNode$2(_toDisplayString$2(name), 1)
-                                ]),
-                                _: 2
-                              }, 1032, ["onClick:close"]))
-                            }), 128)),
-                            (!_unref$2(designer).fonts.value.length)
-                              ? (_openBlock$2(), _createElementBlock$2("span", _hoisted_21, " 未上传字体（中文会回退为方块），请先上传 .ttf/.otf "))
-                              : _createCommentVNode$2("", true),
+                          _createVNode$2(_component_VSelect, {
+                            modelValue: fontSelection.value,
+                            "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((fontSelection).value = $event)),
+                            items: _unref$2(designer).fonts.value,
+                            label: "已装字体（下拉勾选，可批量删除）",
+                            multiple: "",
+                            chips: "",
+                            density: "compact",
+                            variant: "outlined",
+                            "hide-details": "",
+                            disabled: !_unref$2(designer).fonts.value.length
+                          }, null, 8, ["modelValue", "items", "disabled"]),
+                          _createElementVNode$2("div", _hoisted_20, [
+                            _createVNode$2(_component_VBtn, {
+                              size: "small",
+                              variant: "tonal",
+                              color: "error",
+                              "prepend-icon": "mdi-delete",
+                              disabled: !fontSelection.value.length,
+                              onClick: askDeleteFonts
+                            }, {
+                              default: _withCtx$2(() => [
+                                _createTextVNode$2(" 删除选中（" + _toDisplayString$2(fontSelection.value.length) + "） ", 1)
+                              ]),
+                              _: 1
+                            }, 8, ["disabled"]),
                             _createVNode$2(_component_VBtn, {
                               tag: "label",
                               for: "ec-upload-font",
@@ -1461,13 +1428,17 @@ return (_ctx, _cache) => {
                               variant: "text",
                               "prepend-icon": "mdi-upload"
                             }, {
-                              default: _withCtx$2(() => [...(_cache[24] || (_cache[24] = [
+                              default: _withCtx$2(() => [...(_cache[23] || (_cache[23] = [
                                 _createTextVNode$2(" 上传字体 ", -1)
                               ]))]),
                               _: 1
                             })
-                          ]))
-                        : _createCommentVNode$2("", true)
+                          ]),
+                          (!_unref$2(designer).fonts.value.length)
+                            ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_21, " 未上传字体（中文会回退为方块），请先上传 .ttf/.otf "))
+                            : _createCommentVNode$2("", true)
+                        ]))
+                      : _createCommentVNode$2("", true)
             ]),
             _: 2
           }, 1032, ["value"]))
@@ -1489,16 +1460,9 @@ return (_ctx, _cache) => {
       class: "ec-file-input",
       onChange: onTemplatePicked
     }, null, 32),
-    _createElementVNode$2("input", {
-      id: "ec-upload-local-image",
-      type: "file",
-      accept: "image/*",
-      class: "ec-file-input",
-      onChange: onLocalImagePicked
-    }, null, 32),
     _createVNode$2(_component_VDialog, {
       modelValue: confirm.show,
-      "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((confirm.show) = $event)),
+      "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((confirm.show) = $event)),
       "max-width": "400"
     }, {
       default: _withCtx$2(() => [
@@ -1526,9 +1490,9 @@ return (_ctx, _cache) => {
                 _createVNode$2(_component_VSpacer),
                 _createVNode$2(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[9] || (_cache[9] = $event => (confirm.show = false))
+                  onClick: _cache[10] || (_cache[10] = $event => (confirm.show = false))
                 }, {
-                  default: _withCtx$2(() => [...(_cache[25] || (_cache[25] = [
+                  default: _withCtx$2(() => [...(_cache[24] || (_cache[24] = [
                     _createTextVNode$2("取消", -1)
                   ]))]),
                   _: 1
@@ -1538,7 +1502,7 @@ return (_ctx, _cache) => {
                   variant: "flat",
                   onClick: confirmOk
                 }, {
-                  default: _withCtx$2(() => [...(_cache[26] || (_cache[26] = [
+                  default: _withCtx$2(() => [...(_cache[25] || (_cache[25] = [
                     _createTextVNode$2("删除", -1)
                   ]))]),
                   _: 1
@@ -1557,7 +1521,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-8fac52c3"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-74b7de8e"]]);
 
 /**
  * Emby 计划任务中心的前端状态与动作。

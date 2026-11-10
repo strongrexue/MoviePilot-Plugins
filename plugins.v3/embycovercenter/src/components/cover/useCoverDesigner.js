@@ -374,47 +374,6 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 应用已生成的预览图（避免重复渲染）。 */
-  async function applyPreviewImage() {
-    if (!previewImage.value || applying.value) return
-    applying.value = true
-    try {
-      const data = unwrap(
-        await postPluginApi(api(), pluginId(), 'apply', {
-          ...requestBody(),
-          image_data: previewImage.value,
-        }),
-      ) || {}
-      if (data.uploaded) saveScheme()
-      report(data.uploaded ? '预览图已设为封面' : '应用未生效', !!data.uploaded)
-    } catch (error) {
-      report(error?.message || '应用失败', false)
-    } finally {
-      applying.value = false
-    }
-  }
-
-  /** 直接上传本地成品图替换封面（不经过生成器）。 */
-  async function applyLocalImage(file) {
-    if (!file || applying.value) return
-    applying.value = true
-    try {
-      const imageData = await readFileAsDataUrl(file)
-      const data = unwrap(
-        await postPluginApi(api(), pluginId(), 'apply', {
-          ...requestBody(),
-          image_data: imageData,
-        }),
-      ) || {}
-      if (data.uploaded) saveScheme()
-      report(data.uploaded ? '成品图已设为封面' : '应用未生效', !!data.uploaded)
-    } catch (error) {
-      report(error?.message || '上传失败', false)
-    } finally {
-      applying.value = false
-    }
-  }
-
   async function uploadFont(file) {
     if (!file) return
     try {
@@ -565,8 +524,6 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     onSubtitleEdited,
     previewCover,
     applyCover,
-    applyPreviewImage,
-    applyLocalImage,
     uploadFont,
     deleteFont,
     saveTemplate,

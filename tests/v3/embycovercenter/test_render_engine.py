@@ -145,20 +145,95 @@ def test_fix_known_template_bugs(tmp_path):
         "config": {"badge_bg_color": "#ffffff", "badge_text_color": "#ffffff", "title": "x"},
     }
     (templates / "旋转默认.json").write_text(json.dumps(stale, ensure_ascii=False), encoding="utf-8")
-    # 用户自定义 → 不动
+    # 用户自定义（无修正规则的文件）→ 不动
     custom = {
-        "name": "动态平铺",
+        "name": "我的模板",
         "config": {"font_title": "我的字体.ttf"},
     }
-    (templates / "动态平铺.json").write_text(json.dumps(custom, ensure_ascii=False), encoding="utf-8")
+    (templates / "我的模板.json").write_text(json.dumps(custom, ensure_ascii=False), encoding="utf-8")
 
     fixed = assets_meta.fix_known_template_bugs(plugin)
     assert fixed == 1
     patched = json.loads((templates / "旋转默认.json").read_text(encoding="utf-8"))
     assert patched["config"]["badge_text_color"] == "#0f172a"
     assert patched["config"]["title"] == "x"  # 其余字段不丢
-    untouched = json.loads((templates / "动态平铺.json").read_text(encoding="utf-8"))
+    untouched = json.loads((templates / "我的模板.json").read_text(encoding="utf-8"))
     assert untouched["config"]["font_title"] == "我的字体.ttf"
+
+
+def test_retire_dynamic_tiling_preset(tmp_path):
+    """「动态平铺」预设下线：随包不再分发，老装机的数据目录副本按两个历史指纹回收；
+    用户改过的副本保留，布局模块本身仍在（用户自建模板可继续用）。"""
+    # 1. 随包文件已移除（含缩略图）
+    assert not (PACKAGE / "defaults" / "templates" / "动态平铺.json").exists()
+    assert not (PACKAGE / "defaults" / "templates" / "动态平铺.jpg").exists()
+
+    plugin = _FakePlugin(tmp_path)
+    assets_meta.ensure_dirs(plugin)
+    target = assets_meta.templates_dir(plugin)
+    path = target / "动态平铺.json"
+    preview = target / "动态平铺.jpg"
+
+    # 2. 两个历史发行版（字体修正前 / 后）都命中回收；缩略图一并删除。
+    #    用随包历史文件的完整 config 构造，保证指纹与 RETIRED_TEMPLATES 登记值一致
+    #    （_template_digest 覆盖 name/layout/config 全部键，缺键会算不出同一个指纹）。
+    base = {
+        "name": "动态平铺",
+        "layout": "经典平铺(动态)",
+        "config": {
+            "engine": "经典平铺(动态)",
+            "badge_style": "none",
+            "badge_font": "default.ttf",
+            "badge_size": 40,
+            "badge_bg_color": "#0f172a",
+            "badge_text_color": "#ffffff",
+            "badge_opacity": 255,
+            "title": "热播国产剧",
+            "subtitle": "Trending Chinese TV Series",
+            "font_title": "字魂白鸽天行体.ttf",
+            "font_subtitle": "优设标题黑.ttf",
+            "enable_animation": True,
+            "anim_direction": 1,
+            "anim_frames": "200",
+            "anim_duration": "50",
+            "poster_count": 8,
+            "backdrop_count": 1,
+            "poster_scale": 0.55,
+            "layout_start_x": 0,
+            "poster_y_percent": "85",
+            "poster_spacing": 20,
+            "poster_corner_radius": 12,
+            "poster_brightness": 1,
+            "poster_shadow_opacity": 140,
+            "blur_radius": "0",
+            "mask_opacity": 200,
+            "text_left_percent": 5,
+            "text_top_percent": "21",
+            "text_gap": 20,
+            "title_size": "130",
+            "subtitle_size": "80",
+        },
+    }
+    for font in ("字魂白鸽天行体.ttf", "字魂白鸽天行体(商用需授权).ttf"):
+        data = json.loads(json.dumps(base))
+        data["config"]["font_title"] = font
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        preview.write_bytes(b"preview")
+        assert assets_meta.retire_legacy_templates(plugin) >= 1
+        assert not path.exists(), f"字体修正版本 {font} 应被回收"
+        assert not preview.exists()
+
+    # 3. 用户改过配置的副本（指纹不匹配）原样保留
+    edited = {"name": "我的动态平铺", "layout": "经典平铺(动态)", "config": {"title_size": 200}}
+    path.write_text(json.dumps(edited, ensure_ascii=False), encoding="utf-8")
+    preview.write_bytes(b"preview")
+    assets_meta.retire_legacy_templates(plugin)
+    assert path.exists() and preview.exists()
+
+    # 4. 布局模块仍可被发现、仍能渲染（只删预设，不删布局引擎）
+    engine = _make_engine(tmp_path)
+    assert "经典平铺(动态)" in engine.layout_modules
+    engine.close()
 
 
 def test_rename_legacy_template_names(tmp_path):
@@ -198,14 +273,17 @@ def test_default_template_display_names_have_no_suffix(tmp_path):
         "聚焦",
         "荣耀视界",
         "极简",
-        "动态平铺",
         "分类横幅",
     } <= names
-    # 1.6.26 起「暗场右文」预设下线（布局模块仍在，用户自建模板可用）
+    # 1.6.26 起「暗场右文」、本次起「动态平铺」预设下线（布局模块仍在，用户自建模板可用）
     assert "暗场右文" not in names
+    assert "动态平铺" not in names
     assert not [name for name in names if name.endswith(("默认", "预设"))]
     # 文件名保持原样：auto_cover_template 存的是它，老配置不能失效
     filenames = {item["filename"] for item in templates}
+    # 下线后预设应恰好 11 套（12 → 11）
+    assert len(names) == 11
+    assert len(filenames) == 11
     assert "旋转默认.json" in filenames and "旋转堆叠预设.json" in filenames
     # 迁移表里的文件名必须都还在包里（只改显示名、不改文件名的约定）
     shipped = {path.name for path in (PACKAGE / "defaults" / "templates").glob("*.json")}

@@ -82,16 +82,11 @@ def seed_default_templates(plugin) -> int:
 
 
 # 内置模板的历史错误字段（仅当用户端文件仍是旧错误值时才修正，不动用户自定义内容）：
-# - 旋转默认：角标白底白字，数字不可见；
-# - 动态平铺：引用了不存在的字体文件名（内置字体无 "(商用需授权)" 后缀）。
+# - 旋转默认：角标白底白字，数字不可见。
 TEMPLATE_FIELD_FIXES = {
     "旋转默认.json": (
         {"badge_bg_color": "#ffffff", "badge_text_color": "#ffffff"},
         {"badge_text_color": "#0f172a"},
-    ),
-    "动态平铺.json": (
-        {"font_title": "字魂白鸽天行体(商用需授权).ttf"},
-        {"font_title": "字魂白鸽天行体.ttf"},
     ),
 }
 
@@ -178,6 +173,8 @@ def _template_digest(data: Dict[str, Any]) -> str:
 # 1.6.23 一次性铺开的 6 套「分类横幅」预设，1.6.24 收成单套；老用户数据目录里
 # 已经拷过这些文件，只靠「补缺失」清不掉，所以按内容指纹精确回收。
 # 1.6.26 起「暗场右文」预设也下线（布局模块保留，用户自建模板仍可用它）。
+# 「动态平铺」预设下线：它历史上有两个发行版（内置字体文件名修正前 / 后），
+# 两个指纹都登记，确保任何老装机的数据目录副本都能一次回收。
 RETIRED_TEMPLATES = {
     "分类横幅-暖金.json": "49ad552d4d9372e6ce8af67b1b0506d8a7cc6fcdd365cac288db9885901431d9",
     "分类横幅-冷蓝.json": "7e1c97d3ccd29d3aada0f142b8eecd4abda32430e422d417daaae74cd705e460",
@@ -186,6 +183,10 @@ RETIRED_TEMPLATES = {
     "分类横幅-海报阵列.json": "1bc3e53879e8ca44be9be95c652208f8ee6ebbc10d53cc9d16201f1dd98b4607",
     "分类横幅-无压暗全幅.json": "7c5c746cc87cbe9f1ea149a50513b3aa745a8855e1f41160b5db4abdede61107",
     "暗场右文.json": "aef05ccba607e529845cfafeef4335ebc5cc931027782848787e29dc53be3e97",
+    "动态平铺.json": {
+        "86460e81b4e39e5d3d90799769c4e9d71076dfbfffb17c9d652f78d0b3289192",  # 字体修正后
+        "36dd56719fb83f965f64fac2b3b3ec4bd86bd3eb8a2f1d4be8c70a7ee03a7dea",  # 字体修正前
+    },
 }
 
 
@@ -193,17 +194,22 @@ def retire_legacy_templates(plugin) -> int:
     """回收已下线的内置预设（连同缩略图）；返回删除的模板数。
 
     只在内容指纹仍等于发行时那一版时才删：用户改过配置或改过名就原样保留，
-    不碰自定义模板。
+    不碰自定义模板。映射值可为单个指纹字符串，或多个历史发行版指纹的集合
+    （如「动态平铺」有字体修正前后两版）。
     """
     target = templates_dir(plugin)
     removed = 0
-    for filename, digest in RETIRED_TEMPLATES.items():
+    for filename, digests in RETIRED_TEMPLATES.items():
         path = target / filename
         if not path.exists():
             continue
+        if isinstance(digests, str):
+            digests = {digests}
+        else:
+            digests = set(digests)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or _template_digest(data) != digest:
+            if not isinstance(data, dict) or _template_digest(data) not in digests:
                 continue  # 用户已自定义，跳过
             path.unlink()
             preview = path.with_suffix(PREVIEW_EXTENSION)

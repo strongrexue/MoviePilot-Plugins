@@ -4,14 +4,15 @@ import CoverField from './CoverField.vue'
 import { useCoverDesigner } from './useCoverDesigner'
 
 /**
- * 封面设计面板（单列 / 对齐 ChillPoster）。
+ * 封面设计面板（宽屏左右两列 / 对齐 ChillPoster）。
  *
  * 自上而下全部占满宽度：
  * - 顶部工具条：刷新 / 生成预览 / 渲染并应用；
  * - 预览横版：合成结果占满整行，关键参数摘要压成图下一行小字；
  * - 模板预设横版：点卡片即载入；
- * - 可折叠分组（点击展开/收起，头部右侧带一行关键值摘要）：
- *   目标对象 → 布局分组 → 文字内容 → 其余布局分组 → 引擎通用 → 封面上传 → 字体。
+ * - 可折叠分组（点击展开/收起，头部右侧带一行关键值摘要）：宽屏两列 grid，
+ *   第 1 行固定「目标对象」（左）+「文字内容」（右）且都默认展开；其余分组默认折叠，
+ *   并按预估展开高度交错配到两列，尽量让手动展开后左右两列高度接近。
  *
  * 主/副标题属于「文字内容」（跟随媒体库 / 用户输入），载入模板只套用风格参数。
  */
@@ -43,12 +44,19 @@ const askDeleteTemplate = template =>
     `确定删除「${template.name || template.filename}」吗？内置模板重启插件后会自动补回，自行上传的不会。`,
     () => designer.deleteTemplate(template.filename),
   )
-const askDeleteFont = name =>
+/** 字体改成「下拉勾选 + 批量删除」：一次删掉所有勾选的字体。 */
+function askDeleteFonts() {
+  const names = [...fontSelection.value]
+  if (!names.length) return
   askDelete(
     '删除字体',
-    `确定删除字体「${name}」吗？正在使用该字体的封面会回退为内置字体。`,
-    () => designer.deleteFont(name),
+    `确定删除选中的 ${names.length} 个字体吗？正在使用这些字体的封面会回退为内置字体。`,
+    async () => {
+      for (const name of names) await designer.deleteFont(name)
+      fontSelection.value = []
+    },
   )
+}
 function confirmOk() {
   const action = confirm.action
   confirm.show = false
@@ -70,8 +78,11 @@ const modeItems = [
 
 const templateName = ref('')
 
-/** 默认只展开 1-2 组：目标对象 + 第一个布局分组（无布局分组时只展开目标对象）。 */
-const openSections = ref(['target', 'style-0'])
+/** 字体分组：下拉里勾选的字体名，点「删除选中」后批量删除。 */
+const fontSelection = ref([])
+
+/** 默认只展开第 1 行的两块：目标对象 + 文字内容；其余分组一律折叠。 */
+const openSections = ref(['target', 'content'])
 
 function onFontPicked(event) {
   const file = event.target.files?.[0]
@@ -83,12 +94,6 @@ function onTemplatePicked(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (file) designer.uploadTemplate(file)
-}
-
-function onLocalImagePicked(event) {
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (file) designer.applyLocalImage(file)
 }
 
 /** 字段内的文件上传（主视觉）：上传成功后把文件名写回该字段。 */
@@ -141,46 +146,76 @@ function summarize(items) {
   return parts.join(' · ') || '—'
 }
 
-/** 折叠分组清单：目标对象 → 布局分组 → 文字内容 → 其余布局分组 → 引擎通用 → 封面上传 → 字体。 */
-const blocks = computed(() => {
+/** 预估一个分组「展开后」占的高度（像素），只用于两列配重，不参与渲染。
+ *  range / color / file 在 .ec-fields 里整行铺满，其余字段两列并排（每行两个）。 */
+function estimateHeight(block) {
+  let fullRows = 0
+  let halfFields = 0
+  for (const item of block.items || []) {
+    if (['range', 'color', 'file'].includes(item && item.type)) fullRows += 1
+    else halfFields += 1
+  }
+  const rows = fullRows + Math.ceil(halfFields / 2)
+  return 44 + rows * 44 + 12
+}
+
+/** 其余分组按预估展开高度贪心分到「当前较矮」的一列，再按行交错输出：
+ *  grid 每行两格，先按高度降序、逐个塞进较矮列，最后左右各取第 i 个拼成一行。
+ *  这样手动展开后左右两列累计高度尽量接近、每行两格高度也接近。
+ *  折叠态每格只有 44px 标题行，天然整齐。 */
+function balanceColumns(rest) {
+  const left = []
+  const right = []
+  let leftHeight = 0
+  let rightHeight = 0
+  for (const block of [...rest].sort((a, b) => estimateHeight(b) - estimateHeight(a))) {
+    const height = estimateHeight(block)
+    if (leftHeight <= rightHeight) {
+      left.push(block)
+      leftHeight += height
+    } else {
+      right.push(block)
+      rightHeight += height
+    }
+  }
   const list = []
-  list.push({
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    if (left[i]) list.push(left[i])
+    if (right[i]) list.push(right[i])
+  }
+  return list
+}
+
+/** 折叠分组清单：第 1 行固定「目标对象」+「文字内容」（都默认展开），
+ *  其余分组（布局参数 / 引擎通用 / 字体）默认折叠并交错配到两列。 */
+const blocks = computed(() => {
+  const target = {
     id: 'target',
     kind: 'target',
     icon: 'mdi-crosshairs-gps',
     title: '目标对象',
     summary: `${form.server || '未选服务器'} · ${currentLibraryName.value} · ${currentLayoutLabel.value}`,
-  })
-  const styles = styleGroups.value.filter(group => group.items.length)
-  if (styles.length) {
-    list.push({
-      id: 'style-0',
-      kind: 'style',
-      icon: 'mdi-image-multiple-outline',
-      title: styles[0].group,
-      summary: summarize(styles[0].items),
-      items: styles[0].items,
-    })
   }
-  list.push({
+  const content = {
     id: 'content',
     kind: 'content',
     icon: 'mdi-format-text',
     title: '文字内容',
     summary: `${form.config.title || '—'} / ${form.config.subtitle || '—'}`,
-  })
-  styles.slice(1).forEach((group, index) => {
-    list.push({
-      id: `style-${index + 1}`,
+  }
+  const rest = []
+  styleGroups.value.filter(group => group.items.length).forEach((group, index) => {
+    rest.push({
+      id: `style-${index}`,
       kind: 'style',
-      icon: 'mdi-tune-variant',
+      icon: index === 0 ? 'mdi-image-multiple-outline' : 'mdi-tune-variant',
       title: group.group,
       summary: summarize(group.items),
       items: group.items,
     })
   })
   if (engineGroup.value) {
-    list.push({
+    rest.push({
       id: 'engine',
       kind: 'engine',
       icon: 'mdi-cog-outline',
@@ -189,15 +224,14 @@ const blocks = computed(() => {
       items: engineGroup.value.items,
     })
   }
-  list.push({ id: 'upload', kind: 'upload', icon: 'mdi-image-plus', title: '封面上传', summary: '成品图替换 / 应用当前预览' })
-  list.push({
+  rest.push({
     id: 'fonts',
     kind: 'fonts',
     icon: 'mdi-format-font',
     title: `字体（${designer.fonts.value.length}）`,
-    summary: '点击已装字体右侧 × 可删除',
+    summary: '下拉勾选后可批量删除 / 上传',
   })
-  return list
+  return [target, content, ...balanceColumns(rest)]
 })
 
 onMounted(designer.loadAll)
@@ -410,46 +444,36 @@ onMounted(designer.loadAll)
             />
           </div>
 
-          <div v-else-if="block.kind === 'upload'" class="ec-row-wrap">
-            <VBtn
-              tag="label"
-              for="ec-upload-local-image"
-              size="small"
-              variant="tonal"
-              prepend-icon="mdi-image"
-              :loading="designer.applying.value"
-            >
-              选择本地封面（直接替换）
-            </VBtn>
-            <VBtn
-              size="small"
-              variant="tonal"
-              prepend-icon="mdi-content-save-check"
-              :disabled="!previewImage"
-              :loading="designer.applying.value"
-              @click="designer.applyPreviewImage"
-            >
-              应用当前预览图
-            </VBtn>
-          </div>
-
-          <div v-else-if="block.kind === 'fonts'" class="ec-chips">
-            <VChip
-              v-for="name in designer.fonts.value"
-              :key="name"
-              size="small"
-              variant="tonal"
-              closable
-              @click:close="askDeleteFont(name)"
-            >
-              {{ name }}
-            </VChip>
-            <span v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis">
+          <div v-else-if="block.kind === 'fonts'" class="ec-fonts">
+            <VSelect
+              v-model="fontSelection"
+              :items="designer.fonts.value"
+              label="已装字体（下拉勾选，可批量删除）"
+              multiple
+              chips
+              density="compact"
+              variant="outlined"
+              hide-details
+              :disabled="!designer.fonts.value.length"
+            />
+            <div class="ec-row-wrap mt-2">
+              <VBtn
+                size="small"
+                variant="tonal"
+                color="error"
+                prepend-icon="mdi-delete"
+                :disabled="!fontSelection.length"
+                @click="askDeleteFonts"
+              >
+                删除选中（{{ fontSelection.length }}）
+              </VBtn>
+              <VBtn tag="label" for="ec-upload-font" size="small" variant="text" prepend-icon="mdi-upload">
+                上传字体
+              </VBtn>
+            </div>
+            <div v-if="!designer.fonts.value.length" class="text-caption text-medium-emphasis mt-1">
               未上传字体（中文会回退为方块），请先上传 .ttf/.otf
-            </span>
-            <VBtn tag="label" for="ec-upload-font" size="small" variant="text" prepend-icon="mdi-upload">
-              上传字体
-            </VBtn>
+            </div>
           </div>
         </template>
       </VExpansionPanel>
@@ -457,7 +481,6 @@ onMounted(designer.loadAll)
 
     <input id="ec-upload-font" type="file" accept=".ttf,.otf,.ttc" class="ec-file-input" @change="onFontPicked" />
     <input id="ec-upload-template" type="file" accept=".json" class="ec-file-input" @change="onTemplatePicked" />
-    <input id="ec-upload-local-image" type="file" accept="image/*" class="ec-file-input" @change="onLocalImagePicked" />
 
     <VDialog v-model="confirm.show" max-width="400">
       <VCard>
@@ -581,11 +604,11 @@ onMounted(designer.loadAll)
   align-items: center;
   gap: 8px;
 }
-.ec-chips {
+.ec-fonts {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .ec-templates {
   display: grid;

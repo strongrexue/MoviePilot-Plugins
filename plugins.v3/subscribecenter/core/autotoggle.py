@@ -11,6 +11,7 @@
 
 - 有已播未入库的集，且在 ``keep_days`` 窗口内 → 需要搜索（``R``）
 - 有 ``lookahead_days`` 天内将要播出的集 → 需要搜索（``R``）
+- 洗版订阅季终后过了洗版窗口仍没洗到顶 → **标记洗版完成**（不暂停）
 - 其余情况（已下全 / 首集还没播 / 缺集超过窗口）→ 不必搜索（``S``）
 
 宿主状态语义（MoviePilot v3.1.6 已逐行核验，**与常见误传相反**）：
@@ -74,9 +75,39 @@ ACTION_PAUSE = "pause"
 ACTION_RESUME = "resume"
 ACTION_KEEP = "keep"
 ACTION_SKIP = "skip"
+#: 洗版超期：给宿主写「洗版完成」。**不暂停、不删除** —— 宿主
+#: ``priority.py:is_best_version_complete`` 认的就是这个优先级，
+#: 写完它自己会走完成流程（``completion.py``），订阅从「洗版中」归档。
+#: 这是订阅助手（增强版）``mark_full_best_version_complete`` 的同一口径。
+ACTION_MARK_COMPLETE = "mark_complete"
+#: 季终前开洗版：给普通订阅补上 ``best_version``（**只写这一个字段**）。
+#:
+#: 宿主的完成判定（``completion.py:163``）分两条路：没开洗版的订阅在
+#: 「已播全入库」时**直接写历史并删除**；开了洗版的走 ``priority.py`` 的
+#: 洗版完成判定，``current_priority != 100`` 就不删。所以赶在最后一集下完
+#: 之前把洗版打开，等于给这条订阅上了保险 —— 最后一集下完只是进入「洗版中」，
+#: 后面几天还能继续蹲 2160/REMUX。
+#:
+#: **不写 ``best_version_full``**（1.18.5 按用户要求改）：只写 ``best_version``
+#: 走的是「分集洗版」，宿主按 ``episode_priority`` 逐集判完成 —— 已经洗到顶的集
+#: 写 100、没到顶的集留着继续搜，逐集收工，不会因为一集 4K 没出就整季卡在洗版里。
+#: 写了 ``best_version_full`` 就变成「整季包一次性判完成」，任何一集到不了 100
+#: 这条订阅就永远不完成，反而更难收尾。
+ACTION_SET_BEST = "set_best"
+#: 超期收工：写完成历史后删订阅（保留一条「已完成」记录）
+ACTION_COMPLETE = "complete"
+#: 超期收工：直接删订阅（不留记录）
+ACTION_DELETE = "delete"
 
 #: 真正会写库的动作
-WRITE_ACTIONS = (ACTION_PAUSE, ACTION_RESUME)
+WRITE_ACTIONS = (
+    ACTION_PAUSE,
+    ACTION_RESUME,
+    ACTION_MARK_COMPLETE,
+    ACTION_SET_BEST,
+    ACTION_COMPLETE,
+    ACTION_DELETE,
+)
 
 # --------------------------------------------------------------------- 原因码
 
@@ -92,8 +123,14 @@ REASON_MISSING_OVERDUE = "missing_overdue"
 REASON_LIBRARY_UNKNOWN = "library_unknown"
 #: 洗版订阅：已入库但还没洗到顶（priority < 100），在洗版窗口内继续等
 REASON_BEST_PENDING = "best_pending"
-#: 洗版订阅：超过洗版窗口仍未洗到顶，先暂停（别永远搜）
+#: 洗版订阅：本季还在播，整季保持搜索（播出期不暂停，等每集的高码版本）
+REASON_BEST_AIRING = "best_airing"
+#: 洗版订阅：超过洗版窗口仍未洗到顶 → 标记洗版完成（不暂停）
 REASON_BEST_OVERDUE = "best_overdue"
+#: 洗版订阅：季终后目标集全部洗到顶（宿主会自己收尾，不写库）
+REASON_BEST_DONE = "best_done"
+#: 普通订阅：最后一集就要播了，本轮给它开洗版
+REASON_BEST_PREOPEN = "best_preopen"
 #: 首集还没播出
 REASON_PREMIERE = "premiere"
 #: 拿不到播出表（TMDB 失败 / 该季无 air_date）
@@ -128,7 +165,10 @@ REASON_LABELS: Dict[str, str] = {
     REASON_MISSING_OVERDUE: "缺集超过保留窗口",
     REASON_LIBRARY_UNKNOWN: "媒体库还没核对到",
     REASON_BEST_PENDING: "洗版中，等更好的版本",
-    REASON_BEST_OVERDUE: "洗版超过保留窗口",
+    REASON_BEST_AIRING: "洗版订阅，本季播出期保持搜索",
+    REASON_BEST_OVERDUE: "洗版超期，标记完成",
+    REASON_BEST_DONE: "已洗到顶，等宿主收尾",
+    REASON_BEST_PREOPEN: "季终在即，已开洗版",
     REASON_PREMIERE: "首集尚未播出",
     REASON_NO_SCHEDULE: "取不到播出表",
     REASON_MOVIE: "非剧集",
@@ -139,7 +179,7 @@ REASON_LABELS: Dict[str, str] = {
     REASON_RELEASE: "手动全部恢复",
     REASON_MOVIE_WAIT: "还没到发行日",
     REASON_MOVIE_WINDOW: "发行窗口内",
-    REASON_MOVIE_OVERDUE: "超过发行窗口仍未入库",
+    REASON_MOVIE_OVERDUE: "超过发行窗口，收工归档",
     REASON_NO_RELEASE: "取不到发行日期",
 }
 
@@ -320,6 +360,28 @@ def best_version_done(row: Any) -> set:
 def is_best_version(row: Any) -> bool:
     """该订阅是不是洗版订阅（``best_version=1``）。"""
     return bool(_int(_get(row, "best_version"), 0))
+
+
+def is_full_best_version(row: Any) -> bool:
+    """洗版订阅是不是「只洗全集整包」（``best_version_full=1``）。
+
+    与宿主 ``priority.py:is_full_best_version_enabled`` 同口径：**只有剧集**
+    有这个概念；全集洗版完成看 ``current_priority``，分集洗版要看每个目标集
+    的 ``episode_priority``。标记完成时必须分开写，否则分集洗版写了
+    ``current_priority`` 也不会被宿主认成完成。
+    """
+    if media_kind(row) != "tv":
+        return False
+    return bool(is_best_version(row)) and bool(_int(_get(row, "best_version_full"), 0))
+
+
+def best_version_targets(row: Any) -> set:
+    """分集洗版的目标集号集合（宿主 ``get_best_version_target_episodes`` 同口径）。"""
+    total = _int(_get(row, "total_episode"))
+    start = _int(_get(row, "start_episode"), 1) or 1
+    if total >= start > 0:
+        return set(range(start, total + 1))
+    return set()
 
 
 def has_download_record(row: Any) -> bool:
@@ -658,6 +720,15 @@ class Decision:
     poster: str = ""
     #: ``tv`` / ``movie`` / ``""``（通知里决定跳哪个订阅页）
     kind: str = ""
+    #: 洗版订阅是否「只洗全集整包」（``best_version_full=1``）。
+    #: 标记完成时全集写 ``current_priority``，分集写 ``episode_priority``。
+    best_full: bool = False
+    #: 标记完成时要写成 100 的集号（分集洗版；全集/电影为空）
+    target_episodes: Tuple[int, ...] = ()
+    #: 本季是否已判定为「播完了」（季终信号；界面用来解释为什么开始洗版）
+    finale: bool = False
+    #: 距本季最后一集的播出还有几天（只有开了「季终前开洗版」时才给）
+    days_to_finale: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """转成可直接 JSON 化的字典。"""
@@ -683,6 +754,10 @@ class Decision:
             "library_confirmed": self.library_confirmed,
             "poster": self.poster,
             "kind": self.kind,
+            "best_full": self.best_full,
+            "target_episodes": list(self.target_episodes),
+            "finale": self.finale,
+            "days_to_finale": self.days_to_finale,
         }
 
 
@@ -704,8 +779,14 @@ def _decision(
     basis_kind: str = "",
     assumed: bool = False,
     library_confirmed: int = 0,
+    best_full: Optional[bool] = None,
+    target_episodes: Sequence[int] = (),
+    finale: bool = False,
+    days_to_finale: int = 0,
 ) -> Decision:
     """构造一条结论（统一走这里，避免字段漏填）。"""
+    kind = media_kind(row)
+    full = is_full_best_version(row) if best_full is None else bool(best_full)
     return Decision(
         subscribe_id=_int(_get(row, "id")),
         name=_text(_get(row, "name")),
@@ -726,7 +807,11 @@ def _decision(
         assumed=assumed,
         library_confirmed=library_confirmed,
         poster=_text(_get(row, "poster")),
-        kind=media_kind(row),
+        kind=kind,
+        best_full=full,
+        target_episodes=tuple(target_episodes),
+        finale=finale,
+        days_to_finale=days_to_finale,
     )
 
 
@@ -743,9 +828,23 @@ def _describe(reason: str, **values: Any) -> str:
     if reason == REASON_LIBRARY_UNKNOWN:
         return "媒体库还没核对到这一部，本轮不动（下一轮实探）".format(**values)
     if reason == REASON_BEST_PENDING:
-        return "第 {ep} 集 {air} 已入库但未洗到顶（{days} 天，窗口 {keep} 天）".format(**values)
+        return "第 {ep} 集 {air} 未洗到顶（季终已 {days} 天，窗口 {keep} 天）".format(
+            **values
+        )
+    if reason == REASON_BEST_AIRING:
+        return "洗版订阅，本季还在播（已播 {aired} 集，下一集 {next_air}），整季保持搜索".format(
+            **values
+        )
     if reason == REASON_BEST_OVERDUE:
-        return "第 {ep} 集 {air} 超过 {keep} 天仍未洗到顶".format(**values)
+        return "季终已 {days} 天仍未洗到顶（窗口 {keep} 天），标记洗版完成".format(
+            **values
+        )
+    if reason == REASON_BEST_DONE:
+        return "已播 {aired} 集全部洗到顶，等宿主自己收尾".format(**values)
+    if reason == REASON_BEST_PREOPEN:
+        return "最后一集 {air} 还剩 {days} 天播出，已给它开洗版（逐集洗，不收全集）".format(
+            **values
+        )
     if reason == REASON_PREMIERE:
         return "首集 {air} 才播出".format(**values)
     if reason == REASON_NO_SCHEDULE:
@@ -817,6 +916,7 @@ def _decide_movie(
     start = basis_day - timedelta(days=max(0, lookahead_days))
     end = basis_day + timedelta(days=max(0, window))
     aired = 1 if today >= basis_day else 0
+
     if today < start:
         target, reason = STATE_PAUSED, REASON_MOVIE_WAIT
         detail = _describe(
@@ -835,6 +935,18 @@ def _decide_movie(
         detail = _describe(
             REASON_MOVIE_OVERDUE, label=label, basis=basis, days=(today - end).days
         )
+        if best:
+            # 洗版电影超期 → 标记洗版完成（写 current_priority=100）。
+            # 宿主 ``priority.py:377-386`` 就是这么判完成的：写完之后它自己
+            # 走 ``completion.py`` 归档，订阅不会一直留在 R 上白搜。
+            detail += "，已标记洗版完成"
+        else:
+            # 普通电影没得洗：窗口过了还一条没下到，就再也不会下到了。
+            # 宿主的「标记完成」只对洗版订阅有效（``priority.py`` 只在
+            # ``best_version`` 分支里看 ``current_priority``），普通订阅写了
+            # 没人认，会永远留在 R 上白搜 —— 所以这里走「写完成历史后删除」：
+            # 订阅列表里清掉，历史里留一条「已完成」，以后也不会再搜。
+            detail += "，窗口已过，写完成历史后删除订阅"
     if estimated:
         detail += "（影院上映 {raw} + {days} 天估算）".format(
             raw=raw_basis, days=int(theatrical_offset_days)
@@ -845,6 +957,17 @@ def _decide_movie(
         action = ACTION_RESUME
     elif target == STATE_PAUSED and state != STATE_PAUSED:
         action = ACTION_PAUSE
+    if best and reason == REASON_MOVIE_OVERDUE:
+        # 洗版电影超期：不暂停，直接标记洗版完成。
+        # 目标状态取 R：走完这一步订阅要能被宿主的完成流程接手归档，
+        # 留在 S 的话它不会进刷新队列，标记完成等于没生效。
+        action = ACTION_MARK_COMPLETE
+        target = STATE_RUN
+    elif not best and reason == REASON_MOVIE_OVERDUE:
+        # 普通电影超期：写完成历史后删订阅（理由见上面的 detail 注释）。
+        # 目标状态无所谓 —— 删掉之后不存在状态了。
+        action = ACTION_COMPLETE
+        target = STATE_RUN
 
     return _decision(
         row,
@@ -873,6 +996,8 @@ def decide(
     keep_days: int = 3,
     best_keep_days_tv: int = 0,
     best_keep_days_movie: int = 0,
+    best_preopen_days: int = 0,
+    best_preopen_enabled: bool = False,
     best_mode: str = BEST_MODE_AFTER_FINALE,
     owned: Optional[Mapping[Any, Any]] = None,
     releases: Optional[Iterable[Any]] = None,
@@ -880,6 +1005,7 @@ def decide(
     movie_theatrical_offset_days: int = 0,
     library_present: Optional[Iterable[Any]] = None,
     library_check: bool = False,
+    season: Optional[Mapping[str, Any]] = None,
 ) -> Decision:
     """对**一条**订阅给出结论。
 
@@ -890,6 +1016,14 @@ def decide(
     :param keep_days: 已播未入库的集最多保留几天继续搜索
     :param best_keep_days_tv: 电视剧洗版订阅的保留窗口（0 = 跟随 ``keep_days``）
     :param best_keep_days_movie: 电影洗版订阅的保留窗口（0 = 跟随 ``keep_days``）
+    :param best_preopen_days: 「季终前开洗版」的提前天数（**0 = 当天**）。普通剧集
+        订阅在最后一集播出前这么多天自动补上 ``best_version`` —— 宿主的完成判定
+        在没开洗版时是「已播全入库就写历史并删除」（``completion.py:163``），
+        最后一集下完就没了；提前开洗版就改走洗版分支，最后一集只是「洗到顶」，
+        后面还能继续蹲高码版本。
+    :param best_preopen_enabled: 是否启用「季终前开洗版」。**关闭靠这个开关**，
+        不再用 ``best_preopen_days=0`` 表示关闭 —— 那样「当天开」就没法表达了
+        （1.18.5 用户要求：0 应当表示「季终当天」）。
     :param best_mode: 洗版判定模式，见 ``BEST_MODE_AFTER_FINALE`` /
         ``BEST_MODE_ALWAYS``
     :param owned: 本插件的接管表 ``{订阅 ID: {"state": 我们写入的状态, ...}}``；
@@ -901,6 +1035,11 @@ def decide(
     :param library_check: 是否开了媒体库实探。开了以后「已入库」只认实探结果：
         ``Subscribe.note`` 与宿主下载记录都只是「下过」，下载完没导入、坏种、
         被清理都不算入库（1.17.6 真机：第 4 集刚下完就被判「已播全部入库」）。
+    :param season: 该订阅所属季的补充信息（``core/calendar`` 之外由插件侧
+        现取）：``{"total": 集总数, "extra": 无播出日的集号, "finale_episode":
+        最后一集带 finale 标记, "mid_season": 最后一集是季中休更, "status":
+        TMDB 的 ``Ended``/``Canceled``/``Returning Series``}``。用来判断「本季
+        到底播完没有」—— 只看播出表会把延期、集数没追满、季中休更全当成季终。
     """
     owned = owned or {}
     subscribe_id = _int(_get(row, "id"))
@@ -941,7 +1080,14 @@ def decide(
         # 我们暂停过，但现在是别的状态 → 用户手动改回来了，放弃接管。
         # 不能「按规矩再暂停一次」：那会跟用户的手动操作来回打架。
         return skip(REASON_MANUAL)
-    if state == STATE_PAUSED and not is_owned:
+    if state == STATE_PAUSED and not is_owned and not best:
+        # 普通订阅：用户手动暂停的一律不碰（也永不自动恢复）。
+        #
+        # 洗版订阅例外（1.18.5）：暂停 = 宿主不再搜索 = 永远洗不到顶。
+        # 真机 1.18.4：116/57/70/241 四条洗版订阅被暂停（不在接管表里），此后
+        # 每轮都命中这条「用户手动暂停」跳走，洗版永久死锁 —— 用户看到的
+        # 现象是「明明开了洗版，集数一直不动」。所以洗版订阅放行到下面的
+        # 正常判定：该搜就恢复，季终后窗口到期就标记完成，收工只走这条路。
         return skip(REASON_USER_PAUSED)
 
     #: 保留窗口（电影用；剧集的窗口要等知道「是否已完结」后再定）
@@ -971,9 +1117,52 @@ def decide(
 
     air.sort(key=lambda pair: (pair[0], pair[1]))
     today_text = today.isoformat()
+    # ---- 4.1 本季到底播完没有
+    # 只看「播出表里还有没有晚于今天的日期」会把三种情况误判成季终，而季终一
+    # 误判，洗版窗口就会提前开始计时 → 过了窗口直接标记完成、宿主归档删除：
+    #   ① 最后一集**延期**：TMDB 把那一集的 air_date 删了，它就整个从播出表
+    #      里消失，看起来像「播完了」；
+    #   ② **集数没追满**：total_episode 是 40，播出表只到 25；
+    #   ③ **季中休更**：最后一集带 mid_season 标记。
+    # 所以用三层兜底把「还没播完」捞回来，只有确凿播完才算季终。
+    info = season or {}
+    total_episodes = max(0, _int(info.get("total"), 0))
+    extra_numbers = {
+        number for number in (_int(item, -1) for item in (info.get("extra") or ())) if number > 0
+    }
+    known_numbers = {number for _, number in air} | extra_numbers
+    max_number = max(known_numbers) if known_numbers else 0
+    max_aired_number = max(
+        (number for day, number in air if day <= today_text), default=0
+    )
+    status = _text(info.get("status")).strip().lower()
+    season_ended = status in ("ended", "canceled")
+    mid_season = bool(info.get("mid_season"))
+
     #: 索引里还有晚于今天的集 = 本季还在播（TMDb 会给出已排期的下一集）
     still_airing = any(day > today_text for day, _ in air)
-    #: 是否按洗版口味判定：播出期是「找新集」，季终后才是「洗版」
+    if not still_airing and mid_season:
+        # 季中休更：这一集播完还有下半季，不能当季终
+        still_airing = True
+    if not still_airing and any(number > max_aired_number for number in extra_numbers):
+        # 有集号在最后已播集之后、只是没有播出日（延期 / 未排期）
+        still_airing = True
+    if not still_airing and total_episodes and max_number < total_episodes:
+        # 集数没追满（TMDB 说这一季有 N 集，播出表只到 M 集）
+        still_airing = True
+    #: 本季是否确凿播完（季终信号）
+    if season_ended and not any(day > today_text for day, _ in air):
+        # TMDB 已标 Ended/Canceled = 权威结论：不会再有新集了，就算集数没追满
+        # （TMDB 的集数常年对不上）也按播完处理。
+        still_airing = False
+    finale = not still_airing and (bool(air) or season_ended)
+    #: 距最后一集播出还有几天（0 = 今天播 / 已播完）
+    finale_day = air[-1][0]
+    days_to_finale = 0
+    if finale_day > today_text:
+        parsed_finale = parse_date(finale_day)
+        if parsed_finale:
+            days_to_finale = max(0, (parsed_finale - today).days)
     wash = bool(best) and (best_mode == BEST_MODE_ALWAYS or not still_airing)
     #: 洗版窗口只在洗版模式下生效，播出期仍用缺集窗口
     if wash and best_keep_days and best_keep_days > 0:
@@ -1015,6 +1204,7 @@ def decide(
         # 没开实探：只能按订阅记录算，缺集是推测（界面上会标出来）
         downloaded = episode_numbers(row)
         assumed = not has_download_record(row)
+
     start_episode = _int(_get(row, "start_episode"), 1)
 
     aired = [(day, number) for day, number in air if day <= today_text]
@@ -1033,18 +1223,25 @@ def decide(
     ]
     next_air = next((day for day, _ in air if day > today_text), "")
     last_air = aired[-1][0] if aired else ""
+
     common = {
         "pending": [number for _, number in pending],
         "next_air": next_air,
         "last_air": last_air,
         "aired": len(aired),
         "downloaded": len(downloaded),
+        "finale": finale,
+        "days_to_finale": days_to_finale,
     }
 
     # ---- 4. 决策
     if pending:
         day, number = pending[-1]
-        gap = (today - (parse_date(day) or today)).days
+        #: 洗版窗口的起算点：**本季最后一集播出日**（季终），不是「最后一集
+        #: 没洗到顶的集」的播出日。1.18.2 修正：早期集没洗到顶时，用那一集
+        #: 算窗口，季终一到就立刻超期 → 等于完全没给洗版期。
+        anchor = (last_air or day) if wash else day
+        gap = (today - (parse_date(anchor) or today)).days
         if gap <= window:
             # 洗版订阅的 pending 是「还没洗到顶」的集，不是「缺集」：
             # 已经下过 1080 也算 pending，只是还在等更高优先级的版本。
@@ -1061,8 +1258,10 @@ def decide(
             target, reason = STATE_RUN, REASON_UPCOMING
             detail = _describe(REASON_UPCOMING, ep=number2, air=day2)
         elif wash:
-            target, reason = STATE_PAUSED, REASON_BEST_OVERDUE
-            detail = _describe(REASON_BEST_OVERDUE, ep=number, air=day, keep=window)
+            # 洗版超期 → **标记洗版完成**，不暂停。暂停会让它永远卡在 S 上，
+            # 宿主的完成流程也不会再碰它；写 100 才是宿主认的「洗版结束」。
+            target, reason = STATE_RUN, REASON_BEST_OVERDUE
+            detail = _describe(REASON_BEST_OVERDUE, ep=number, air=day, days=gap, keep=window)
         else:
             target, reason = STATE_PAUSED, REASON_MISSING_OVERDUE
             detail = _describe(
@@ -1080,11 +1279,68 @@ def decide(
         target, reason = STATE_PAUSED, REASON_ALL_DONE
         detail = _describe(REASON_ALL_DONE, aired=len(aired))
 
+    # ---- 5. 动作结算
     action = ACTION_KEEP
+    target_episodes: Tuple[int, ...] = ()
+
+    if best and target == STATE_PAUSED:
+        # 洗版订阅**一律不主动暂停**：
+        #   · 播出期：新一集下完入库 → pending 空 → 会被判成「已播全部入库」
+        #     直接暂停；可 1080 先出、2160 往往几十分钟后才出，一暂停宿主就
+        #     不再搜索，当天再好的版本也抓不到。
+        #   · 季终后全集洗完：宿主的完成流程只处理搜索态（``S`` 不在刷新队列
+        #     里，写 100 也不生效），停成 ``S`` 等于永远卡住。
+        # 所以整季保持搜索，季终后进洗版窗口，窗口到期标记完成 —— 收工只有
+        # 一条路。
+        target = STATE_RUN
+        if not wash:
+            reason = REASON_BEST_AIRING
+            detail = _describe(
+                REASON_BEST_AIRING, aired=len(aired), next_air=next_air or "-"
+            )
+        elif reason == REASON_ALL_DONE:
+            # 洗版订阅按「洗到顶」算已播集全部达标：不要再显示成「全部入库」，
+            # 那是普通订阅的口径，用户会以为库里没货了。
+            reason = REASON_BEST_DONE
+            detail = _describe(REASON_BEST_DONE, aired=len(aired))
+
     if target == STATE_RUN and state != STATE_RUN:
         action = ACTION_RESUME
     elif target == STATE_PAUSED and state != STATE_PAUSED:
         action = ACTION_PAUSE
+
+    if wash and reason == REASON_BEST_OVERDUE:
+        # 洗版超期：写「洗版完成」而不是暂停。目标状态保持 R —— 宿主只有在
+        # 订阅处于搜索态时才会走到 ``is_best_version_complete`` 那条完成判定；
+        # 停在 S 上它不会进刷新队列，写了 100 也等于没生效。
+        action = ACTION_MARK_COMPLETE
+        target = STATE_RUN
+        if not is_full_best_version(row):
+            # 分集洗版：把还没到 100 的目标集全写进去（宿主逐集判完成）
+            target_episodes = tuple(
+                sorted(best_version_targets(row) - best_version_done(row))
+            )
+        else:
+            target_episodes = ()
+    elif (
+        not best
+        and best_preopen_enabled
+        and finale_day >= today_text
+        and days_to_finale <= best_preopen_days
+    ):
+        # 季终前开洗版：普通订阅在最后一集播出前 N 天补上 ``best_version``，
+        # 让它改走宿主的洗版完成分支，最后一集下完不会被「写历史 + 删除」。
+        # 只在最后一集**还没播**时动手（``finale_day >= today_text``）：季终已过
+        # 的存量订阅一律不碰，否则会把几百条老剧全改成洗版订阅。
+        # ``best_preopen_days=0`` 表示**季终当天**就开（不是关闭），关掉请用
+        # ``best_preopen_enabled=False``；``days_to_finale=0`` 正好命中当天。
+        # 状态不动，只写字段。
+        action = ACTION_SET_BEST
+        target = state
+        reason = REASON_BEST_PREOPEN
+        detail = _describe(
+            REASON_BEST_PREOPEN, air=finale_day, days=days_to_finale
+        )
 
     if assumed:
         # 没有入库记录时，「缺集」是从播出表倒推出来的，必须说清楚，
@@ -1104,12 +1360,22 @@ def decide(
         owned=is_owned,
         assumed=assumed,
         library_confirmed=library_confirmed,
+        target_episodes=target_episodes,
         **common,
     )
 
 
 #: 界面排序权重：先看会变动的，再看跳过的
-_ACTION_RANK = {ACTION_RESUME: 0, ACTION_PAUSE: 1, ACTION_KEEP: 2, ACTION_SKIP: 3}
+_ACTION_RANK = {
+    ACTION_SET_BEST: 0,
+    ACTION_RESUME: 1,
+    ACTION_PAUSE: 2,
+    ACTION_MARK_COMPLETE: 3,
+    ACTION_COMPLETE: 4,
+    ACTION_DELETE: 5,
+    ACTION_KEEP: 6,
+    ACTION_SKIP: 7,
+}
 
 
 def plan(
@@ -1121,6 +1387,8 @@ def plan(
     keep_days: int = 3,
     best_keep_days_tv: int = 0,
     best_keep_days_movie: int = 0,
+    best_preopen_days: int = 0,
+    best_preopen_enabled: bool = False,
     best_mode: str = BEST_MODE_AFTER_FINALE,
     owned: Optional[Mapping[Any, Any]] = None,
     release_index: Optional[Mapping[str, Any]] = None,
@@ -1128,6 +1396,7 @@ def plan(
     movie_theatrical_offset_days: int = 0,
     library_index: Optional[Mapping[Any, Any]] = None,
     library_check: bool = False,
+    season_index: Optional[Mapping[Any, Any]] = None,
 ) -> Dict[str, Any]:
     """对全部订阅做一次决策，返回「计划」。
 
@@ -1140,8 +1409,13 @@ def plan(
     :param library_index: 媒体库**实探**确认存在的集号 ``{订阅 ID: {集号, ...}}``
         （只来自实探；键是**订阅 ID**，不是 media_id）
     :param library_check: 是否开了媒体库实探；开了就只认实探结果当「已入库」
-    :return: ``{"today", "items", "changes", "paused", "resumed", "kept",
-        "skipped", "reasons", "truncated"}``
+    :param best_preopen_days: 季终前提前几天给普通订阅开洗版（**0 = 当天**）
+    :param best_preopen_enabled: 是否启用「季终前开洗版」开关
+    :param season_index: 每季的补充信息 ``{(media_id, season): {...}}``，用来
+        判断本季是否真的播完（见 ``decide`` 的 ``season`` 参数）
+    :return: ``{"today", "items", "changes", "paused", "resumed", "marked",
+        "completed", "deleted", "opened", "kept", "skipped", "reasons",
+        "truncated"}``
     """
     decisions: List[Decision] = []
     for row in rows:
@@ -1152,6 +1426,7 @@ def plan(
         episodes = episode_index.get((media_id, season if season > 0 else MOVIE_KEY))
         if episodes is None:
             episodes = episode_index.get((media_id, season))
+        season_info = (season_index or {}).get((media_id, season))
         decisions.append(
             decide(
                 row,
@@ -1161,6 +1436,8 @@ def plan(
                 keep_days=keep_days,
                 best_keep_days_tv=best_keep_days_tv,
                 best_keep_days_movie=best_keep_days_movie,
+                best_preopen_days=best_preopen_days,
+                best_preopen_enabled=best_preopen_enabled,
                 best_mode=best_mode,
                 owned=owned,
                 releases=(release_index or {}).get(media_id),
@@ -1168,6 +1445,7 @@ def plan(
                 movie_theatrical_offset_days=movie_theatrical_offset_days,
                 library_present=(library_index or {}).get(_int(_get(row, "id"))),
                 library_check=library_check,
+                season=season_info,
             )
         )
 
@@ -1188,6 +1466,12 @@ def plan(
         "changes": [item.to_dict() for item in changes if item.subscribe_id in keep_ids],
         "paused": len([item for item in changes if item.action == ACTION_PAUSE]),
         "resumed": len([item for item in changes if item.action == ACTION_RESUME]),
+        "marked": len(
+            [item for item in changes if item.action == ACTION_MARK_COMPLETE]
+        ),
+        "opened": len([item for item in changes if item.action == ACTION_SET_BEST]),
+        "completed": len([item for item in changes if item.action == ACTION_COMPLETE]),
+        "deleted": len([item for item in changes if item.action == ACTION_DELETE]),
         "kept": len([item for item in decisions if item.action == ACTION_KEEP]),
         "skipped": len([item for item in decisions if item.action == ACTION_SKIP]),
         "planned": len(changes),
@@ -1241,23 +1525,145 @@ def next_owned(
                 "since": today_text,
                 "name": item.get("name"),
             }
-        elif action == ACTION_RESUME:
+        elif action in (ACTION_RESUME, ACTION_MARK_COMPLETE, ACTION_SET_BEST):
+            # 恢复 / 标记洗版完成 / 开洗版 → 都不再是「我们暂停的」
+            result.pop(str(sid), None)
+        elif action in (ACTION_COMPLETE, ACTION_DELETE):
+            # 完成或删除后订阅要么进了历史、要么不存在了，接管记录没有意义
             result.pop(str(sid), None)
     return result
 
 
+def backfill_candidates(
+    rows: Iterable[Any],
+    *,
+    today_text: str,
+    cooldown_at: Optional[Mapping[Any, Any]] = None,
+    limit: int = 10,
+    cooldown_days: int = 7,
+) -> List[Dict[str, Any]]:
+    """挑出本轮值得做「集数修正」的洗版订阅。
+
+    背景：宿主的缺集数（``lack_episode``，也就是订阅页上显示的「N/M 集」）
+    对洗版订阅只认 ``note`` 与 ``episode_priority`` 里**订阅自己下过**的集；
+    库里早就存在的老集（比如手动拖进媒体库的 1~25 集）它不看。于是观众视角
+    就是「明明有 25 集，页面只写 2 集」，还反复变动。修正 = 把库里确实存在、
+    已经播出、又不在 ``note`` 里的集号补写进 ``note``（用宿主自己的
+    ``backfill_existing_episodes``，写完它自己会重算 ``lack_episode``）。
+
+    筛选条件（全部满足才进候选）：
+
+    - 剧集 + ``best_version=1``（普通订阅的账宿主自己算得对，不用我们插手）
+    - ``best_version_targets`` 非空（总集数已知，否则写了也没用）
+    - 距上次探测超过 ``cooldown_days`` 天（表里没有 = 从没探过，优先探）
+    - ``last_update`` 最旧的排前面 —— 那正是最久没人管的账
+    - 每轮最多 ``limit`` 条：这是零成本读缓存之外唯一碰媒体服务器的地方，
+      必须节流。
+
+    :param cooldown_at: ``{订阅ID字符串: 上次探测日 YYYY-MM-DD}``，来自接管表
+    :return: ``[{"id", "name", "season", "media_id"}, ...]``（已排序、已截断）
+    """
+    today = parse_date(today_text)
+    if today is None:
+        return []
+    marks = cooldown_at or {}
+    picked: List[Any] = []
+    for row in rows:
+        if media_kind(row) != "tv" or not is_best_version(row):
+            continue
+        sid = _int(_get(row, "id"), 0)
+        if sid <= 0:
+            continue
+        if not best_version_targets(row):
+            continue
+        last = parse_date(marks.get(str(sid)))
+        if last is not None and (today - last).days < max(0, int(cooldown_days)):
+            continue
+        picked.append(row)
+
+    def sort_key(row: Any) -> tuple:
+        stamp = _get(row, "last_update")
+        return (_text(stamp), _int(_get(row, "id"), 0))
+
+    picked.sort(key=sort_key)
+    if limit > 0:
+        picked = picked[:limit]
+    return [
+        {
+            "id": _int(_get(row, "id"), 0),
+            "name": _text(_get(row, "name")),
+            "season": _int(_get(row, "season")),
+            "media_id": _text(_get(row, "media_id")),
+        }
+        for row in picked
+    ]
+
+
+def backfill_episodes(
+    row: Any,
+    air_pairs: Optional[Iterable[Any]],
+    *,
+    today_text: str,
+    present: Optional[Iterable[int]],
+) -> List[int]:
+    """算出「库里确实有、已播出、在目标范围内、但 ``note`` 里还没有」的集号。
+
+    四层交集，一层都不多写：
+
+    - ``present``：媒体服务器说库里有（``None`` = 没探到 → 空结果，什么都不写）
+    - ``air_pairs`` 里 ``day <= today_text`` 的集号：**只补已播出的**。未来集
+      哪怕库里莫名有（先导SP被误命名），也不进订阅的账，避免把缺集算负。
+    - ``best_version_targets(row)``：越界集号宿主反正也会忽略，这里先对齐口径。
+    - 减去 ``note`` 已有的集号：宿主会按 duplicate 忽略，但提前减掉能让
+      「本轮真的补了账」的计数不被重复轮次灌水。
+
+    :return: 升序集号列表（可能为空）
+    """
+    if present is None:
+        return []
+    have = {_int(item, -1) for item in present}
+    have.discard(-1)
+    if not have:
+        return []
+    targets = best_version_targets(row)
+    if not targets:
+        return []
+    aired = set()
+    for pair in air_pairs or []:
+        normalized = _episode_pair(pair)
+        if normalized and normalized[0] <= today_text:
+            if normalized[1] > 0:
+                aired.add(normalized[1])
+    if not aired:
+        # 播出表不可用时宁可不动：unknown 不等于「全都播完了」
+        return []
+    note = _get(row, "note")
+    known = set()
+    if isinstance(note, (list, tuple, set)):
+        known = {_int(item, -1) for item in note}
+        known.discard(-1)
+    return sorted((have & aired & targets) - known)
+
+
 __all__ = [
+    "ACTION_COMPLETE",
+    "ACTION_DELETE",
     "ACTION_KEEP",
+    "ACTION_MARK_COMPLETE",
     "ACTION_PAUSE",
     "ACTION_RESUME",
+    "ACTION_SET_BEST",
     "ACTION_SKIP",
     "BEST_MODES",
     "BEST_MODE_AFTER_FINALE",
     "BEST_MODE_ALWAYS",
     "Decision",
     "REASON_ALL_DONE",
+    "REASON_BEST_AIRING",
+    "REASON_BEST_DONE",
     "REASON_BEST_OVERDUE",
     "REASON_BEST_PENDING",
+    "REASON_BEST_PREOPEN",
     "REASON_LABELS",
     "REASON_MANUAL",
     "REASON_MISSING_OVERDUE",
@@ -1280,12 +1686,16 @@ __all__ = [
     "STATE_RUN",
     "WRITABLE_STATES",
     "WRITE_ACTIONS",
+    "backfill_candidates",
+    "backfill_episodes",
     "best_version_done",
     "decide",
     "episode_numbers",
     "has_download_record",
     "in_window_gaps",
     "is_best_version",
+    "is_full_best_version",
+    "best_version_targets",
     "media_kind",
     "library_present_from_lack",
     "missing_from_no_exists",

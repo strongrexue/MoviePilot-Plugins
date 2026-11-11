@@ -87,6 +87,8 @@ export const configDefaults = {
   douban_min_want: 0,
   resolve_concurrency: 8,
   prefer_episode_group: true,
+  //: 未播集离今天超过这么多天就先不订（0 = 不限制）。防《蓝眼武士 S2》那种明年才播的
+  upcoming_max_days: 30,
   //: 发现流水里记着「订过」的就不再自动订回来（删掉订阅也拦，清空流水才解锁）
   dedupe_by_history: true,
   // ---------------- Simkl
@@ -107,6 +109,10 @@ export const configDefaults = {
   auto_toggle_best_version_keep_days_movie: 90,
   //: 洗版判定模式（after_finale = 季终后才按洗版算，always = 播出期也算）
   auto_toggle_best_version_mode: 'after_finale',
+  //: 季终前提前几天把普通订阅改成洗版订阅（默认 1 天，0 = 季终当天，关闭用下面的开关）
+  auto_toggle_best_preopen_days: 1,
+  //: 「季终前自动开洗版」总开关（默认开）。关掉后不再自动转洗版
+  auto_toggle_best_preopen: true,
   //: 是否连电影订阅一起管（按 TMDB 发行日判，默认开）
   auto_toggle_movie_enabled: true,
   //: 只有影院上映日期时，按上映日往后推几天估算数字发行（0 = 不估算）
@@ -117,6 +123,8 @@ export const configDefaults = {
   auto_toggle_library_check: false,
   //: 跟随订阅刷新：宿主刷新跑完后再补一轮（只盯订阅刷新任务）
   auto_toggle_follow_refresh: false,
+  //: 洗版订阅「N/M 集」只算订阅下过的集：自动实探媒体库把库里老集补回记账
+  auto_toggle_backfill_notes: true,
   //: 每轮实探最多花多少秒（0 = 不实探，只沿用上一轮结果）
   //: 每条之间等几秒（串行，别把 NAS 打满）
   // ---------------- 调度与通知

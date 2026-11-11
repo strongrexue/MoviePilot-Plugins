@@ -60,12 +60,20 @@ const autoToggleShowAll = ref(false)
 const ACTION_LABELS = {
   pause: '暂停',
   resume: '恢复',
+  set_best: '开洗版',
+  mark_complete: '标记洗版完成',
+  complete: '完成并删除',
+  delete: '删除',
   keep: '保持',
   skip: '跳过',
 }
 const ACTION_COLORS = {
   pause: 'warning',
   resume: 'success',
+  set_best: 'deep-purple',
+  mark_complete: 'purple',
+  complete: 'error',
+  delete: 'error',
   keep: 'info',
   skip: 'default',
 }
@@ -87,12 +95,15 @@ const BEST_MODE_OPTIONS = [
   { title: '播出期也算未洗到顶', value: 'always' },
 ]
 
+/** 预览表默认只列会写库的动作，1.18.4 起多了「开洗版」与三种收尾动作。 */
+const WRITE_ACTIONS = ['pause', 'resume', 'set_best', 'mark_complete', 'complete', 'delete']
+
 const autoToggleItems = computed(() => {
   const data = autoToggle.value
   if (!data) return []
   const items = Array.isArray(data.items) ? data.items : []
   if (autoToggleShowAll.value) return items
-  return items.filter((row) => row.action === 'pause' || row.action === 'resume')
+  return items.filter((row) => WRITE_ACTIONS.includes(row.action))
 })
 
 /** 入库情况的来源说明（读宿主的入库记录，不再自己探库）。 */
@@ -113,6 +124,7 @@ const DECISION_LABELS = {
   skipped_special: '特别篇',
   skipped_finished: '已播完',
   skipped_no_date: '无日期',
+  skipped_unverified: '未播集未确认',
   skipped_want: '想看不足',
   skipped_rating: '评分不足',
   skipped_popularity: '关注度不足',
@@ -623,7 +635,11 @@ async function loadAutoToggle() {
     autoToggle.value = data || null
     setTip(
       `预览完成（未改动任何订阅）：待暂停 ${data?.paused ?? 0} 条 / `
-        + `待恢复 ${data?.resumed ?? 0} 条 / 保持不动 ${data?.kept ?? 0} 条`,
+        + `待恢复 ${data?.resumed ?? 0} 条 / `
+        + `待开洗版 ${data?.opened ?? 0} 条 / `
+        + `待标记洗版完成 ${data?.marked ?? 0} 条 / `
+        + `待完成 ${data?.completed ?? 0} 条 / 待删除 ${data?.deleted ?? 0} 条 / `
+        + `保持不动 ${data?.kept ?? 0} 条`,
     )
   } catch (error) {
     setTip(error?.message || '预览失败', false)
@@ -657,7 +673,10 @@ async function applyAutoToggle() {
     const last = data?.last_run || {}
     const failed = Number(last.failed || 0)
     setTip(
-      `已执行：暂停 ${last.paused ?? 0} 条 / 恢复 ${last.resumed ?? 0} 条`
+      `已执行：暂停 ${last.paused ?? 0} 条 / 恢复 ${last.resumed ?? 0} 条 / `
+        + `开洗版 ${last.opened ?? 0} 条 / `
+        + `标记洗版完成 ${last.marked ?? 0} 条 / 完成 ${last.completed ?? 0} 条 / `
+        + `删除 ${last.deleted ?? 0} 条`
         + (failed ? ` / 失败 ${failed} 条（详见运行日志）` : ''),
       !failed,
     )
@@ -1181,6 +1200,28 @@ onMounted(() => {
                 color="primary"
               />
             </div>
+            <VRow dense class="mt-1">
+              <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.upcoming_max_days"
+                  label="未播集太远就先不订（0 = 不限制）"
+                  type="number"
+                  min="0"
+                  max="365"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  suffix="天"
+                />
+              </VCol>
+              <VCol cols="12" sm="6" class="d-flex align-center">
+                <div class="text-caption text-medium-emphasis">
+                  新一季首集离今天超过这么多天就不建订阅（默认 30）。防《蓝眼武士 S2》那种
+                  播到明年 1 月、现在订进来只会白搜一整季的情况。填 0 = 不管多久都订。
+                </div>
+              </VCol>
+            </VRow>
           </div>
           </template>
 
@@ -2280,6 +2321,42 @@ onMounted(() => {
               />
             </div>
 
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">自动修正洗版订阅的集数显示</div>
+                <div class="sc-row-hint">
+                  洗版订阅页面上的「N/M 集」只算<b>订阅自己下载过</b>的集，媒体库里
+                  早就存在的老集不记账 —— 开着它，每轮自动启停会挑几条洗版剧集订阅
+                  （每轮最多 10 条、同一条 7 天内不重复）实探一次媒体库，把「库里有、
+                  已播出、但账上没记」的集号补回记录，数字就跟库里对齐了。
+                  每条只问一次局域网内的媒体服务器，比一次订阅搜索轻得多。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.auto_toggle_backfill_notes"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+
+            <div class="sc-row">
+              <div class="sc-row-main">
+                <div class="sc-row-label">季终前自动开洗版</div>
+                <div class="sc-row-hint">
+                  最后一集播出前，把普通剧集订阅自动改成<b>逐集洗版</b>（只勾洗版、不勾全集），
+                  这样最后一集下完宿主不会立刻当成「看完归档」删掉，还能继续等 2160 的版本。
+                  关掉后下面那个天数框失效，不再自动转。
+                </div>
+              </div>
+              <VSwitch
+                v-model="form.auto_toggle_best_preopen"
+                density="compact"
+                hide-details
+                color="primary"
+              />
+            </div>
+
             <VRow dense class="mt-1">
               <VCol cols="12" sm="6">
                 <VTextField
@@ -2346,6 +2423,20 @@ onMounted(() => {
                 />
               </VCol>
               <VCol cols="12" sm="6">
+                <VTextField
+                  v-model.number="form.auto_toggle_best_preopen_days"
+                  label="季终前提前开洗版（天）"
+                  type="number"
+                  min="0"
+                  max="14"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  class="mb-2"
+                  :disabled="!form.auto_toggle_best_preopen"
+                />
+              </VCol>
+              <VCol cols="12" sm="6">
                 <VSelect
                   v-model="form.auto_toggle_best_version_mode"
                   :items="BEST_MODE_OPTIONS"
@@ -2360,6 +2451,16 @@ onMounted(() => {
             <div class="sc-hint">
               缺集保留 = 已播出但还没下到的集，从这个日期起算几天内仍继续搜（PT 出种常有延迟）。
               判定时间建议早于「订阅刷新」，默认 00:05；改 cron 后要重新保存配置才会重建任务。
+            </div>
+            <div class="sc-hint">
+              季终前提前开洗版 = 普通剧集订阅在最后一集播出前这么多天，自动改成<b>逐集洗版订阅</b>
+              （只勾洗版、不勾「全集洗版」），这样最后一集下完宿主不会立刻把它当成
+              「看完归档」删掉，还能继续等 2160 的版本。默认 1 天，填 <b>0 = 季终当天才转</b>；
+              想彻底关掉就关上面的开关。
+            </div>
+            <div class="sc-hint">
+              洗版订阅在本季还在播时一律保持搜索（不会因为「这集已经下到」而暂停），
+              季终后进入洗版保留期；保留期一过就标记完成交给宿主收尾。填 0 = 不按洗版判，一律用上面的缺集保留天数。
             </div>
 
             <VDivider class="my-3" />
@@ -2401,6 +2502,10 @@ onMounted(() => {
                 <VChip size="x-small" variant="flat" color="info">基准日 {{ autoToggle.today }}</VChip>
                 <VChip size="x-small" variant="flat" color="warning">待暂停 {{ autoToggle.paused ?? 0 }}</VChip>
                 <VChip size="x-small" variant="flat" color="success">待恢复 {{ autoToggle.resumed ?? 0 }}</VChip>
+                <VChip size="x-small" variant="flat" color="deep-purple">待开洗版 {{ autoToggle.opened ?? 0 }}</VChip>
+                <VChip size="x-small" variant="flat" color="purple">待标记洗版完成 {{ autoToggle.marked ?? 0 }}</VChip>
+                <VChip size="x-small" variant="flat" color="error">待完成 {{ autoToggle.completed ?? 0 }}</VChip>
+                <VChip size="x-small" variant="flat" color="error">待删除 {{ autoToggle.deleted ?? 0 }}</VChip>
                 <VChip size="x-small" variant="tonal">保持不动 {{ autoToggle.kept ?? 0 }}</VChip>
                 <VChip size="x-small" variant="tonal">跳过 {{ autoToggle.skipped ?? 0 }}</VChip>
                 <VChip v-if="autoToggle.truncated" size="x-small" variant="flat" color="error">

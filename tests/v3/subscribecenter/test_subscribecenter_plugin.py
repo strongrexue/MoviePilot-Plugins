@@ -1180,3 +1180,49 @@ def test_gaps_search_without_title_returns_hint(plugin, monkeypatch):
     result = asyncio.run(plugin.gaps_search(subscribe_id=99))
     assert result["subscribe_id"] == 99
     assert "没有可用的标题" in result["message"]
+
+
+# ------------------------------------------------- 自动启停：写库内容的动作映射
+
+
+def test_auto_toggle_payload_set_best_only_sets_best_version(plugin):
+    """「开洗版」只写 ``best_version``，**不勾全集洗版**。
+
+    勾了 ``best_version_full`` 就变成整季包：宿主
+    ``app/application/subscription/priority.py:377-393 is_best_version_complete``
+    对全集模式只看 ``current_priority == 100``，等于要求整季一次收到顶，实际几乎不可能，
+    洗版会永远挂着；不勾则按**分集**判完成，每集各自洗到顶就收工。
+    """
+    payload = plugin._auto_toggle_payload({"id": 1, "target": "S"}, "set_best")
+    assert payload == {"best_version": 1}
+    assert "best_version_full" not in payload
+
+
+def test_auto_toggle_payload_pause_and_resume_only_touch_state(plugin):
+    """暂停/恢复只写 ``state``，不碰洗版字段与优先级。"""
+    assert plugin._auto_toggle_payload({"id": 1, "target": "S"}, "pause") == {
+        "state": "S"
+    }
+    assert plugin._auto_toggle_payload({"id": 1, "target": "R"}, "resume") == {
+        "state": "R"
+    }
+
+
+def test_auto_toggle_payload_mark_complete_full_writes_priority_only(plugin):
+    """全集洗版标完成只写 ``current_priority=100``，不动 ``episode_priority``。"""
+    payload = plugin._auto_toggle_payload(
+        {"id": 1, "best_full": True, "target_episodes": []}, "mark_complete"
+    )
+    assert payload == {"current_priority": 100}
+
+
+def test_auto_toggle_payload_mark_complete_episodes_merges_priority(plugin):
+    """分集洗版标完成要**合并**已洗好的集号，不能整份覆盖清零。"""
+    row = _types.SimpleNamespace(episode_priority={"7": 100, "8": 92})
+    payload = plugin._auto_toggle_payload(
+        {"id": 1, "best_full": False, "target_episodes": [8, 9]}, "mark_complete", row
+    )
+    assert payload == {
+        "current_priority": 100,
+        "episode_priority": {"7": 100, "8": 100, "9": 100},
+    }

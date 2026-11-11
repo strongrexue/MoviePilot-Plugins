@@ -331,7 +331,9 @@ class AutoToggleItem(BaseModel):
     season: int = Field(default=0, description="季")
     state: str = Field(default="", description="当前状态")
     target: str = Field(default="", description="判定后应处的状态")
-    action: str = Field(description="pause / resume / keep / skip")
+    action: str = Field(
+        description="pause / resume / mark_complete / complete / delete / keep / skip"
+    )
     reason: str = Field(description="原因码")
     reason_label: str = Field(default="", description="原因中文名")
     detail: str = Field(default="", description="一句中文说明")
@@ -353,6 +355,13 @@ class AutoToggleItem(BaseModel):
     library_confirmed: int = Field(
         default=0, description="其中由媒体库确认已入库的集数"
     )
+    #: 洗版容器判定要用的三个附加信息：是否整季包、待洗集号、季终判定
+    best_full: bool = Field(default=False, description="是否为整季包洗版（best_version_full）")
+    target_episodes: List[int] = Field(
+        default_factory=list, description="洗版要标的集号（分集洗版才非空）"
+    )
+    finale: bool = Field(default=False, description="本季是否已判定播完")
+    days_to_finale: int = Field(default=0, description="距最后一集播出还有几天")
 
 
 class AutoToggleLibrary(BaseModel):
@@ -378,6 +387,12 @@ class AutoToggleConfig(BaseModel):
     keep_days: int = Field(default=0, description="已播未入库的保留天数")
     best_keep_days_tv: int = Field(default=0, description="电视剧洗版订阅的保留天数")
     best_keep_days_movie: int = Field(default=0, description="电影洗版订阅的保留天数")
+    best_preopen_days: int = Field(
+        default=1, description="最后一集播出前多少天给普通订阅开洗版（0=季终当天）"
+    )
+    best_preopen_enabled: bool = Field(
+        default=True, description="季终前自动开洗版的总开关"
+    )
     movie_enabled: bool = Field(default=True, description="是否连电影一起管")
     movie_theatrical_offset_days: int = Field(
         default=90, description="只有影院日期时按上映日往后推几天估算数字发行"
@@ -386,6 +401,14 @@ class AutoToggleConfig(BaseModel):
     library_check: bool = Field(default=False, description="是否用媒体库核对已入库")
     follow_refresh: bool = Field(
         default=False, description="订阅刷新跑完后是否自动再跑一轮"
+    )
+    backfill_notes: bool = Field(
+        default=True,
+        description="是否把洗版订阅库里已有但没记账的集补回「N/M 集」显示",
+    )
+    #: 洗版模式 —— 少一个前端就读不到，界面会显示成空
+    best_mode: str = Field(
+        default="after_finale", description="洗版口径：after_finale / always"
     )
 
 
@@ -401,7 +424,13 @@ class AutoToggleLastRun(BaseModel):
     applied: int = Field(default=0, description="实际成功条数")
     paused: int = Field(default=0, description="暂停条数")
     resumed: int = Field(default=0, description="恢复条数")
+    opened: int = Field(default=0, description="开洗版（改成洗版订阅）的条数")
+    marked: int = Field(default=0, description="标记洗版完成的条数")
+    completed: int = Field(default=0, description="写完成历史并删除的条数")
+    deleted: int = Field(default=0, description="直接删除的条数")
     failed: int = Field(default=0, description="失败条数")
+    backfilled: int = Field(default=0, description="集数修正（补记账）的条数")
+    backfill_failed: int = Field(default=0, description="集数修正失败的条数")
     truncated: bool = Field(default=False, description="是否被单次上限截断")
 
 
@@ -414,6 +443,10 @@ class AutoToggleView(BaseModel):
     planned: int = Field(default=0, description="计划改动条数")
     paused: int = Field(default=0, description="计划暂停条数")
     resumed: int = Field(default=0, description="计划恢复条数")
+    opened: int = Field(default=0, description="计划开洗版的条数")
+    marked: int = Field(default=0, description="计划标记洗版完成的条数")
+    completed: int = Field(default=0, description="计划完成并删除的条数")
+    deleted: int = Field(default=0, description="计划删除的条数")
     kept: int = Field(default=0, description="保持不动的条数")
     skipped: int = Field(default=0, description="跳过（不归本功能管）的条数")
     reasons: Dict[str, int] = Field(default_factory=dict, description="各原因条数")
@@ -511,9 +544,15 @@ class AutoToggleResult(BaseModel):
     applied: int = Field(default=0, description="成功条数")
     paused: int = Field(default=0, description="暂停条数")
     resumed: int = Field(default=0, description="恢复条数")
+    opened: int = Field(default=0, description="开洗版（改成洗版订阅）的条数")
+    marked: int = Field(default=0, description="标记洗版完成的条数")
+    completed: int = Field(default=0, description="写完成历史并删除的条数")
+    deleted: int = Field(default=0, description="直接删除的条数")
     failed: List[Dict[str, Any]] = Field(
         default_factory=list, description="失败明细（id/name/error）"
     )
+    backfilled: int = Field(default=0, description="集数修正（补记账）的条数")
+    backfill_failed: int = Field(default=0, description="集数修正失败的条数")
     truncated: bool = Field(default=False, description="是否被单次上限截断")
     kept: int = Field(default=0)
     skipped: int = Field(default=0)

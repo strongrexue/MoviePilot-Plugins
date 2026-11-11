@@ -24,7 +24,7 @@ from app.sdk.plugin import _PluginBase
 
 from .controller import api as api_controller
 from .controller import schemas as api_schemas
-from .core import card_theme
+from .core import autotoggle, card_theme
 from .core import constants as C
 from .core.bridge import PipelineBridge
 from .core.cache import MappingCacheStore
@@ -52,6 +52,72 @@ DATA_KEY_AUTO_TOGGLE = "auto_toggle"
 #: 「流水里明明记过，删掉订阅后又被自动订回来」（1.14.5 修的就是这个）。
 DATA_KEY_RECORDED = "recorded_keys"
 
+#: 「按播出日自动启停」里**只改字段/状态**的动作：走宿主订阅写入口（发事件）。
+_AUTO_TOGGLE_MUTABLE_ACTIONS = (
+    "pause",
+    "resume",
+    "mark_complete",
+    "set_best",
+)
+#: 「按播出日自动启停」里**会删订阅**的动作：走宿主删除命令，且不可回滚。
+_AUTO_TOGGLE_DESTRUCTIVE_ACTIONS = (
+    "complete",
+    "delete",
+)
+
+#: 「无下载处理」选「完成」时要写进订阅历史表的列。
+#:
+#: 宿主的删除命令**不写历史**（``app/application/subscription/delete.py`` 只
+#: stage_delete），所以选「完成」必须由插件先补一条，否则订阅是「订过又消失」，
+#: 在历史页面上查不到。这里只列 ``SubscribeHistory`` 真有的列，写的时候还要
+#: 再过一遍 ``hasattr``，避免宿主升级删列时整条写失败。
+_AUTO_TOGGLE_HISTORY_FIELDS = (
+    "activity_key",
+    "name",
+    "year",
+    "type",
+    "search_interval",
+    "keyword",
+    "media_source",
+    "media_id",
+    "music_type",
+    "total_tracks",
+    "season",
+    "poster",
+    "backdrop",
+    "vote",
+    "description",
+    "filter",
+    "include",
+    "exclude",
+    "quality",
+    "resolution",
+    "effect",
+    "audio_quality",
+    "audio_format",
+    "min_bitrate",
+    "min_bit_depth",
+    "min_sample_rate",
+    "total_episode",
+    "start_episode",
+    "username",
+    "sites",
+    "best_version",
+    "best_version_full",
+    "current_priority",
+    "episode_priority",
+    "save_path",
+    "search_imdbid",
+    "custom_words",
+    "media_category_id",
+    "media_category",
+    "classification_rule_id",
+    "classification_policy_revision",
+    "classification_source",
+    "filter_groups",
+    "episode_group",
+)
+
 #: 流水**按天**保留：只留最近 N 天的记录（1.17.0 起不再用固定条数截断）。
 #:
 #: 固定 500 条的问题：豆瓣全榜一天 300+ 条，两三天就把一周前的新增挤掉，
@@ -72,7 +138,7 @@ class SubscribeCenter(_PluginBase):
     #: 必须是**类级字符串字面量** —— 发布门禁 ``check_plugin_versions.py``
     #: 用 AST 提取它并与 ``package.v3.json`` 的 ``version`` 比对，
     #: 写成 ``C.PLUGIN_VERSION`` 这类引用会让门禁取不到值。
-    plugin_version = "1.18.1"
+    plugin_version = "1.18.7"
     plugin_author = C.PLUGIN_AUTHOR
     author_url = C.AUTHOR_URL
     plugin_config_prefix = C.PLUGIN_CONFIG_PREFIX
@@ -151,6 +217,10 @@ class SubscribeCenter(_PluginBase):
             # 默认不采用跨源换算回来的季号（国产动画多为 TMDB 单季多集）
             use_converted_season=bool(self._config.get("bangumi_split_season")),
             prefer_episode_group=bool(self._config.get("prefer_episode_group", True)),
+            # 未播集太远就不订（见 DEFAULT_UPCOMING_MAX_DAYS 的说明）
+            upcoming_max_days=self._int_config(
+                "upcoming_max_days", C.DEFAULT_UPCOMING_MAX_DAYS
+            ),
         )
         daily_limit = self._int_config("daily_limit", C.DEFAULT_DAILY_LIMIT)
         self._writer = SubscriptionWriter(
@@ -537,6 +607,22 @@ class SubscribeCenter(_PluginBase):
                 ),
                 365,
             ),
+            "best_preopen_days": min(
+                max(
+                    self._int_config(
+                        "auto_toggle_best_preopen_days",
+                        C.DEFAULT_BEST_PREOPEN_DAYS,
+                    ),
+                    0,
+                ),
+                14,
+            ),
+            "best_preopen_enabled": bool(
+                self._config.get(
+                    "auto_toggle_best_preopen",
+                    C.DEFAULT_AUTO_TOGGLE_BEST_PREOPEN,
+                )
+            ),
             "movie_enabled": bool(self._config.get("auto_toggle_movie_enabled", True)),
             "movie_theatrical_offset_days": min(
                 max(
@@ -549,6 +635,12 @@ class SubscribeCenter(_PluginBase):
                 365,
             ),
             "library_check": bool(self._config.get("auto_toggle_library_check")),
+            "backfill_notes": bool(
+                self._config.get(
+                    "auto_toggle_backfill_notes",
+                    C.DEFAULT_AUTO_TOGGLE_BACKFILL_NOTES,
+                )
+            ),
             "follow_refresh": bool(
                 self._config.get(
                     "auto_toggle_follow_refresh", C.DEFAULT_AUTO_TOGGLE_FOLLOW_REFRESH
@@ -636,14 +728,18 @@ class SubscribeCenter(_PluginBase):
                     return int(media_id)
                 try:
                     from app.chain.media import MediaChain
-                    from app.schemas.types import MediaInfo, MediaType
+                    from app.schemas.types import MediaType
 
+                    #: 这里**不能**构造 MediaInfo 当第一个参数：宿主
+                    #: ``async_recognize_media(meta=...)`` 的 meta 要的是
+                    #: MetaInfo（解析出来的元信息，有 ``name`` 字段），传错对象
+                    #: 会在 TMDB 模块里踩 ``meta.name`` AttributeError。正确做法
+                    #: 是把来源与 ID 作关键字参交给宿主自己换算（与
+                    #: ``_movie_tmdb_id`` 一致）。
                     media = await MediaChain().async_recognize_media(
-                        MediaInfo(
-                            media_source=media_source,
-                            media_id=media_id,
-                            type=MediaType.MOVIE,
-                        )
+                        mtype=MediaType.MOVIE,
+                        media_source=media_source,
+                        media_id=media_id,
                     )
                     tmdb_id = self._field(media, "tmdb_id")
                     return int(tmdb_id) if tmdb_id else None
@@ -686,12 +782,13 @@ class SubscribeCenter(_PluginBase):
 
         try:
             from app.chain.media import MediaChain
-            from app.schemas.types import MediaInfo, MediaType
+            from app.schemas.types import MediaType
 
+            #: 同 ``resolve_tmdb_id``：meta 位置不接受 MediaInfo，用关键字参。
             media = await MediaChain().async_recognize_media(
-                MediaInfo(
-                    media_source=media_source, media_id=media_id, type=MediaType.MOVIE
-                )
+                mtype=MediaType.MOVIE,
+                media_source=media_source,
+                media_id=media_id,
             )
             release = str(self._field(media, "release_date") or "")[:10]
             if release:
@@ -772,8 +869,17 @@ class SubscribeCenter(_PluginBase):
         还没核对完、或新建订阅直接置成总集数）只会让我们以为缺得更多 → 继续搜，
         **不会误暂停**。
 
-        拿不到可信数字的订阅（电影、总集数未知、洗版）不进索引，``decide`` 会
-        返回「还没核对到」并保持不动。
+        拿不到可信数字的订阅（电影、总集数未知）不进索引，``decide`` 会返回
+        「还没核对到」并保持不动。
+
+        .. important::
+           洗版订阅**必须**进索引。早期这里把 ``best_version=1`` 的订阅 ``continue``
+           掉了（注释写「洗版跟库里有没有这一集无关」），结果 ``decide`` 在播出期
+           拿不到 ``library_present`` → 一律返回 ``library_unknown`` 保持不动，
+           自动启停对全部洗版订阅失效（真机：尚公主第 25 集下完不暂停）。
+           「洗到顶没有」是另一回事，由 ``best_version_done`` 看
+           ``episode_priority``，与这里不冲突 —— 洗版订阅的 ``lack_episode``
+           本来就是按「有没有下到任一版本」算的（宿主 ``compute_lack_episode``）。
         """
         from .core import autotoggle
 
@@ -783,9 +889,6 @@ class SubscribeCenter(_PluginBase):
             if autotoggle.media_kind(row) != "tv":
                 continue
             tv_rows += 1
-            if autotoggle.is_best_version(row):
-                # 洗版问的是「洗到顶没有」，跟库里有没有这一集无关
-                continue
             sid = int(getattr(row, "id", 0) or 0)
             if sid <= 0:
                 continue
@@ -863,6 +966,8 @@ class SubscribeCenter(_PluginBase):
             keep_days=cfg["keep_days"],
             best_keep_days_tv=cfg["best_keep_days_tv"],
             best_keep_days_movie=cfg["best_keep_days_movie"],
+            best_preopen_days=cfg["best_preopen_days"],
+            best_preopen_enabled=cfg["best_preopen_enabled"],
             best_mode=cfg["best_mode"],
             owned=owned if isinstance(owned, dict) else None,
             release_index=release_index,
@@ -870,6 +975,7 @@ class SubscribeCenter(_PluginBase):
             movie_theatrical_offset_days=cfg["movie_theatrical_offset_days"],
             library_index=library_index,
             library_check=cfg["library_check"],
+            season_index=self.__dict__.get("_season_info_cache") or {},
         )
         data["config"] = cfg
         data["library"] = library_stats
@@ -1068,23 +1174,32 @@ class SubscribeCenter(_PluginBase):
             applied_ids=applied,
         )
         applied_ids = set(applied)
-        paused = len(
-            [
-                item
-                for item in changes
-                if item.get("action") == autotoggle.ACTION_PAUSE
-                and int(item.get("id") or 0) in applied_ids
-            ]
-        )
-        resumed = len(
-            [
-                item
-                for item in changes
-                if item.get("action") == autotoggle.ACTION_RESUME
-                and int(item.get("id") or 0) in applied_ids
-            ]
-        )
+
+        def _count(action: str) -> int:
+            return len(
+                [
+                    item
+                    for item in changes
+                    if item.get("action") == action
+                    and int(item.get("id") or 0) in applied_ids
+                ]
+            )
+
+        paused = _count(autotoggle.ACTION_PAUSE)
+        resumed = _count(autotoggle.ACTION_RESUME)
+        opened = _count(autotoggle.ACTION_SET_BEST)
+        marked = _count(autotoggle.ACTION_MARK_COMPLETE)
+        completed = _count(autotoggle.ACTION_COMPLETE)
+        deleted = _count(autotoggle.ACTION_DELETE)
         run_at = local_now_text(self._tz())
+
+        #: 集数修正（backfill）：洗版订阅页面「N/M 集」只算订阅自己下过的集，
+        #: 库里早就存在的老集不记账 → 显示成「明明有 25 集只写 2 集」。这里在
+        #: 每轮自动启停末尾顺带把账修平。单独计数，不进 changes/通知。
+        backfilled, backfill_failed = await self._backfill_note_episodes(
+            cfg, state, planned
+        )
+
         state["owned"] = owned
         state["last_run"] = {
             "at": run_at,
@@ -1096,7 +1211,13 @@ class SubscribeCenter(_PluginBase):
             "applied": len(applied),
             "paused": paused,
             "resumed": resumed,
+            "opened": opened,
+            "marked": marked,
+            "completed": completed,
+            "deleted": deleted,
             "failed": len(failed),
+            "backfilled": backfilled,
+            "backfill_failed": backfill_failed,
             "truncated": bool(planned.get("truncated")),
         }
         self._save_auto_toggle_state(state)
@@ -1108,7 +1229,13 @@ class SubscribeCenter(_PluginBase):
             "applied": len(applied),
             "paused": paused,
             "resumed": resumed,
+            "opened": opened,
+            "marked": marked,
+            "completed": completed,
+            "deleted": deleted,
             "failed": failed,
+            "backfilled": backfilled,
+            "backfill_failed": backfill_failed,
             "truncated": bool(planned.get("truncated")),
             "kept": planned.get("kept", 0),
             "skipped": planned.get("skipped", 0),
@@ -1129,17 +1256,192 @@ class SubscribeCenter(_PluginBase):
                 }
                 for item in changes
                 if int(item.get("id") or 0) in applied_ids
-                and item.get("action") in (autotoggle.ACTION_PAUSE, autotoggle.ACTION_RESUME)
+                and item.get("action") in autotoggle.WRITE_ACTIONS
             ],
         }
         logger.info(
             f"[SubscribeCenter] 播出日自动启停（{reason}）："
             f"计划 {result['planned']} 条，暂停 {paused}，恢复 {resumed}，"
-            f"失败 {len(failed)}，接管中 {len(owned)}"
+            f"开洗版 {opened}，标记洗版完成 {marked}，完成 {completed}，删除 {deleted}，"
+            f"失败 {len(failed)}，集数修正 {backfilled}，接管中 {len(owned)}"
         )
-        if cfg["notify"] and (paused or resumed or failed):
+        if cfg["notify"] and (
+            paused or resumed or opened or marked or completed or deleted or failed
+        ):
             self._notify_auto_toggle(result)
         return result
+
+    async def _backfill_note_episodes(
+        self,
+        cfg: Dict[str, Any],
+        state: Dict[str, Any],
+        planned: Dict[str, Any],
+    ) -> Tuple[int, int]:
+        """集数修正：把洗版订阅「库里有但没记账」的集补进 ``note``。
+
+        洗版订阅页面「N/M 集」的数字只算订阅**自己下过**的集（宿主
+        ``compute_lack_episode`` 对洗版只看 ``note`` ∪ ``episode_priority``，
+        不看媒体库），媒体库里早就存在的老集不记账 → 用户看到的就是
+        「明明有 25 集只写 2 集」。这里每轮挑最多 ``C.BACKFILL_LIMIT`` 条
+        洗版电视剧订阅（同一订阅 ``C.BACKFILL_COOLDOWN_DAYS`` 天内不重复
+        探测，``last_update`` 最旧优先），逐条向媒体服务器实探一次，把
+        「库里有 ∧ 已播出 ∧ 在目标集范围 ∧ note 还没有」的集号交给宿主自己的
+        ``SubscribeChain.backfill_existing_episodes`` 写入 —— 宿主写完会顺带
+        重算 ``lack_episode``，显示与库对齐。
+
+        成本：每条订阅 = 1 次局域网媒体服务器调用（毫秒~秒级），远小于一次
+        订阅搜索；全程静默，不发通知（``changed`` 明细不含它）。
+
+        :return: ``(补账成功条数, 失败条数)``
+        """
+        from .core import autotoggle
+
+        if not cfg.get("backfill_notes"):
+            return 0, 0
+
+        #: 全程 best-effort：任何一步炸了（查表失败/宿主 API 变更）都不能
+        #: 拖垮整轮自动启停，静默记一条 debug 即可。
+        backfilled = 0
+        failed = 0
+        #: 冷却表先取出来：即使整段中途炸掉，收尾也能原样写回，不至于
+        #: 引用一个从未绑定的局部变量。
+        cooldown = state.get("backfill_at")
+        if not isinstance(cooldown, dict):
+            cooldown = {}
+        try:
+            today_text = str(
+                planned.get("today") or today(self._tz()).isoformat()
+            )
+            rows = await self._auto_toggle_rows()
+            candidates = autotoggle.backfill_candidates(
+                rows,
+                today_text=today_text,
+                cooldown_at=cooldown,
+                limit=C.BACKFILL_LIMIT,
+                cooldown_days=C.BACKFILL_COOLDOWN_DAYS,
+            )
+            if not candidates:
+                state["backfill_at"] = cooldown
+                return 0, 0
+
+            #: 已播集号来自本轮刚填过的播出表缓存（``_episode_air_index`` 在
+            #: ``auto_toggle_plan`` 里已经为全部行拉过 TMDB 数据），不再二次请求。
+            cache = self.__dict__.get("_season_cache") or {}
+
+            for target in candidates:
+                sid = int(target.get("id") or 0)
+                media_id = str(target.get("media_id") or "")
+                season = int(target.get("season") or 0)
+                row = next(
+                    (item for item in rows if int(getattr(item, "id", 0) or 0) == sid),
+                    None,
+                )
+                if row is None or not media_id.isdigit():
+                    continue
+                #: 缓存键与 ``_episode_air_index`` 完全一致：带剧集组时是
+                #: ``(media_id, "g:组名")``，否则 ``(media_id, 季号)``。查不到
+                #: 播出表时 ``air_pairs=None`` → ``backfill_episodes`` 直接不写，
+                #: 宁可不修也不乱修。
+                group = str(getattr(row, "episode_group", "") or "").strip()
+                entry = cache.get((media_id, f"g:{group}" if group else season))
+                air_pairs = entry[1] if entry and len(entry) > 1 else None
+                #: 先记探测日再探库：探失败（媒体服务器没接/识别不出）的订阅
+                #: 也没必要每一轮（一天几十次）都重探一遍。
+                cooldown[str(sid)] = today_text
+                try:
+                    present = await self._backfill_probe_library(row)
+                except Exception as err:  # noqa: BLE001 - 单条失败不影响整轮
+                    logger.debug(
+                        f"[SubscribeCenter] 集数修正探库失败 {target.get('name')}："
+                        f"{err}"
+                    )
+                    failed += 1
+                    continue
+                episodes = autotoggle.backfill_episodes(
+                    row, air_pairs, today_text=today_text, present=present
+                )
+                if not episodes:
+                    continue
+                try:
+                    updated = await self._backfill_apply_note(sid, episodes)
+                except Exception as err:  # noqa: BLE001
+                    logger.debug(
+                        f"[SubscribeCenter] 集数修正写账失败 {target.get('name')}："
+                        f"{err}"
+                    )
+                    failed += 1
+                    continue
+                if updated:
+                    backfilled += 1
+                    logger.info(
+                        f"[SubscribeCenter] 集数修正：{target.get('name')} "
+                        f"S{season} 补记 {len(episodes)} 集（{episodes[0]}"
+                        f"{'-' if len(episodes) > 1 else ''}{episodes[-1] if len(episodes) > 1 else ''}）"
+                    )
+        except Exception as err:  # noqa: BLE001 - 整段是 best-effort
+            logger.debug(f"[SubscribeCenter] 集数修正中断：{err}")
+        state["backfill_at"] = cooldown
+        return backfilled, failed
+
+    async def _backfill_probe_library(self, row: Any) -> Optional[List[int]]:
+        """实探单条订阅：媒体库里本季实际存在哪些集号。
+
+        :return: 集号列表（可能为空 = 库里一集都没有，也是有效答案）；
+            ``None`` = 探不到（识别失败/没有媒体服务器），调用方不写账。
+        """
+        from app.application.subscription.contract import build_subscribe_meta
+        from app.chain.media import MediaChain
+        from app.chain.subscribe import SubscribeChain
+        from app.chain.subscribe.identity import subscribe_recognize_kwargs
+
+        def _probe() -> Optional[List[int]]:
+            try:
+                meta = build_subscribe_meta(row)
+            except ValueError:
+                return None
+            mediainfo = MediaChain().recognize_media(
+                meta=meta,
+                mtype=meta.type,
+                **subscribe_recognize_kwargs(row),
+                episode_group=getattr(row, "episode_group", None),
+                cache=False,
+            )
+            if not mediainfo:
+                return None
+            exists = SubscribeChain().media_exists(mediainfo=mediainfo)
+            if not exists:
+                return None
+            season = getattr(row, "season", None)
+            season_number = int(season) if season is not None else 1
+            return list((exists.seasons or {}).get(season_number) or [])
+
+        return await asyncio.to_thread(_probe)
+
+    async def _backfill_apply_note(self, sid: int, episodes: List[int]) -> bool:
+        """把补账集号交给宿主写入并让它重算缺集数（宿主自带事务+事件）。"""
+        from app.application.subscription.mutation import SubscriptionActor
+        from app.chain.subscribe import SubscribeChain
+        from app.startup.composition.subscription import (
+            subscription_mutation_scope,
+        )
+
+        actor = SubscriptionActor(name="SubscribeCenter", is_superuser=True)
+
+        async with subscription_mutation_scope() as service:
+            snapshot = await service.get_accessible(sid, actor)
+        if snapshot is None:
+            return False
+        #: ``backfill_existing_episodes`` 是同步方法且内部自开
+        #: ``sync_subscription_mutation_scope`` 写库（含 outbox 事件），
+        #: 放线程里跑，不阻塞事件循环，也不和上面的 async scope 嵌套。
+        summary = await asyncio.to_thread(
+            SubscribeChain().backfill_existing_episodes,
+            snapshot,
+            list(episodes),
+            None,
+            "subscribecenter",
+        )
+        return bool(summary and summary.get("accepted"))
 
     async def _apply_auto_toggle(
         self, changes: List[Dict[str, Any]]
@@ -1154,6 +1456,20 @@ class SubscribeCenter(_PluginBase):
         """
         applied: List[int] = []
         failed: List[Dict[str, Any]] = []
+        #: 改字段/改状态的走宿主订阅写入口；删除类（写历史后删、直接删）
+        #: 走宿主的删除命令，两者事务边界不同，必须分开。
+        mutable = [
+            item
+            for item in changes
+            if str(item.get("action") or "") in _AUTO_TOGGLE_MUTABLE_ACTIONS
+        ]
+        destructive = [
+            item
+            for item in changes
+            if str(item.get("action") or "") in _AUTO_TOGGLE_DESTRUCTIVE_ACTIONS
+        ]
+        if not mutable and not destructive:
+            return applied, failed
 
         actor = None
         try:
@@ -1178,7 +1494,7 @@ class SubscribeCenter(_PluginBase):
 
         if scope is not None and actor is not None:
             try:
-                await self._apply_with_scope(scope, actor, changes, applied, failed)
+                await self._apply_with_scope(scope, actor, mutable, applied, failed)
             except Exception as err:  # noqa: BLE001 - 提交失败 = 整批回滚
                 logger.error(f"[SubscribeCenter] 自动启停提交失败，整批回滚：{err}")
                 # 事务已回滚 → 一条都没落地，接管表按「全失败」处理，
@@ -1191,25 +1507,33 @@ class SubscribeCenter(_PluginBase):
                     }
                     for item in changes
                 ]
+            #: 删除类不走 mutation scope（事务边界不同），单独逐条执行
+            await self._apply_auto_toggle_destructive(destructive, applied, failed)
             return applied, failed
 
         # ---- 降级路径：每条一个短事务，状态照改，但没有 outbox 事件
         from app.db import async_session_scope
         from app.db.oper.subscribe import SubscribeOper
 
-        for item in changes:
+        for item in mutable:
             sid = int(item.get("id") or 0)
-            target = str(item.get("target") or "")
-            if not sid or target not in ("R", "S"):
+            action = str(item.get("action") or "")
+            payload = self._auto_toggle_payload(item, action)
+            if not sid or not payload:
                 failed.append(
-                    {"id": sid, "name": item.get("name"), "error": f"目标状态非法：{target!r}"}
+                    {"id": sid, "name": item.get("name"), "error": "目标状态非法：无法构造写入内容"}
                 )
                 continue
             try:
                 async with async_session_scope() as session:
-                    updated = await SubscribeOper(session).async_stage_update(
-                        sid, {"state": target}
-                    )
+                    oper = SubscribeOper(session)
+                    if action == autotoggle.ACTION_MARK_COMPLETE:
+                        #: 降级路径同样要「合并」分集优先级，不能整份覆盖
+                        row = await oper.async_get(sid)
+                        merged = self._auto_toggle_payload(item, action, row)
+                        if merged:
+                            payload = merged
+                    updated = await oper.async_stage_update(sid, payload)
                     await session.commit()
                 if updated is None:
                     failed.append(
@@ -1223,7 +1547,166 @@ class SubscribeCenter(_PluginBase):
                 applied.append(sid)
             except Exception as err:  # noqa: BLE001
                 failed.append({"id": sid, "name": item.get("name"), "error": str(err)})
+        await self._apply_auto_toggle_destructive(destructive, applied, failed)
         return applied, failed
+
+    @staticmethod
+    def _auto_toggle_episode_priority(row: Any, episodes: List[int]) -> Dict[str, int]:
+        """把「要标记为完成」的集号并进现有的 ``episode_priority``。
+
+        宿主的分集洗版完成判定是 ``all(episode_priority[str(ep)] == 100)``
+        （``app/application/subscription/priority.py:377-393``），所以只写 100
+        就是替它按下「这些集洗完了」。**必须合并而不是整份覆盖** —— 覆盖会把
+        之前已经洗到顶的集号清零，反而让它重新去搜。
+        """
+        current = getattr(row, "episode_priority", None) if row is not None else None
+        merged = dict(current) if isinstance(current, dict) else {}
+        for episode in episodes:
+            merged[str(episode)] = 100
+        return merged
+
+    def _auto_toggle_payload(
+        self, item: Dict[str, Any], action: str, row: Any = None
+    ) -> Dict[str, Any]:
+        """按动作构造写库内容（``{}`` 表示这个动作不用写字段）。
+
+        - ``pause`` / ``resume``：只改 ``state``，与以前完全一致；
+        - ``set_best``：把普通订阅改成洗版订阅。**只写 ``best_version``，不写
+          ``best_version_full``**（1.18.5 用户要求「转洗版的时候不要勾选全集洗版」）。
+          只写 ``best_version`` 走的是「分集洗版」：宿主 ``is_best_version_complete``
+          按 ``episode_priority`` 逐集判，洗完的集写 100、没洗到的集留着继续搜，
+          逐集收工。勾了全集洗版反而更糟 —— 目标是整季包一次性判完成，只要有一集
+          到不了 100，这条订阅就永远卡在洗版里不结束。
+        - ``mark_complete``：写宿主认的「洗版已完成」标记。全集洗版只写
+          ``current_priority=100``；分集洗版把计划里列出的集号写进
+          ``episode_priority``，并**顺带**写 ``current_priority=100``（宿主
+          判断分集完成只看 ``episode_priority``，但把这个字段也置满能避免
+          某些版本在「按优先级比较」时又把订阅捞回搜索队列）。
+        """
+        if action in ("pause", "resume"):
+            target = str(item.get("target") or "")
+            return {"state": target} if target in ("R", "S") else {}
+        if action == autotoggle.ACTION_SET_BEST:
+            # 只开分集洗版：不写 best_version_full（见上面的说明）
+            return {"best_version": 1}
+        if action != autotoggle.ACTION_MARK_COMPLETE:
+            return {}
+        if bool(item.get("best_full")):
+            return {"current_priority": 100}
+        episodes = [
+            int(number)
+            for number in (item.get("target_episodes") or [])
+            if str(number).strip().lstrip("-").isdigit()
+        ]
+        if not episodes:
+            return {"current_priority": 100}
+        return {
+            "current_priority": 100,
+            "episode_priority": self._auto_toggle_episode_priority(row, episodes),
+        }
+
+    async def _apply_auto_toggle_destructive(
+        self,
+        items: List[Dict[str, Any]],
+        applied: List[int],
+        failed: List[Dict[str, Any]],
+    ) -> None:
+        """执行「写完成历史后删」「直接删」两条不可回滚的动作。
+
+        删除走宿主的 ``delete_subscribe_scope`` + ``DeleteSubscribeCommand``：
+        它在一个事务里暂存删除与 outbox 事件，并负责通知宿主侧统计。
+        ``complete`` 在删之前先用 ``SubscribeHistoryOper`` 补一条完成历史 ——
+        宿主的删除命令**不会**替你写历史，不补就等于「订过又消失」，
+        而我们的「订过就不再订」正是靠历史与 ``recorded_keys`` 记的。
+        """
+        if not items:
+            return
+        delete_scope = None
+        try:
+            from app.startup.composition.subscription import delete_subscribe_scope
+
+            delete_scope = delete_subscribe_scope
+        except Exception as err:  # noqa: BLE001 - 老宿主没有这层，走降级
+            logger.warning(
+                f"[SubscribeCenter] 未找到 delete_subscribe_scope，降级为直删库：{err}"
+            )
+
+        for item in items:
+            sid = int(item.get("id") or 0)
+            action = str(item.get("action") or "")
+            if not sid:
+                failed.append(
+                    {"id": sid, "name": item.get("name"), "error": "订阅 ID 无效"}
+                )
+                continue
+            try:
+                if action == autotoggle.ACTION_COMPLETE:
+                    await self._stage_auto_toggle_history(sid)
+                deleted = await self._delete_auto_toggle_row(sid, delete_scope)
+            except Exception as err:  # noqa: BLE001 - 单条失败不影响其余
+                failed.append({"id": sid, "name": item.get("name"), "error": str(err)})
+                continue
+            if not deleted:
+                failed.append(
+                    {
+                        "id": sid,
+                        "name": item.get("name"),
+                        "error": "宿主未找到该订阅（可能已被删除）",
+                    }
+                )
+                continue
+            applied.append(sid)
+
+    async def _stage_auto_toggle_history(self, sid: int) -> None:
+        """在删除订阅前补一条「已完成」历史，供宿主历史页查看。
+
+        为什么不直接调 ``SubscribeHistoryOper.add()``：它内部走
+        ``_stage_create`` → ``_execute_sync_write``，而我们手上是
+        ``AsyncSession``，那条路会**另开一个同步事务**，与这里的读不在同一
+        快照里。``stage_add`` 又硬要求同步 Session。所以这里只用它的
+        ``_persistable``（列过滤 + 强制把 ``date`` 写成当前时间），模型自己
+        ``add`` 进当前异步会话。
+        """
+        from app.db import async_session_scope
+        from app.db.models.subscribehistory import SubscribeHistory
+        from app.db.oper.subscribe import SubscribeOper
+        from app.db.oper.subscribehistory import SubscribeHistoryOper
+
+        async with async_session_scope() as session:
+            row = await SubscribeOper(session).async_get(sid)
+            if row is None:
+                return
+            payload = {
+                key: getattr(row, key)
+                for key in _AUTO_TOGGLE_HISTORY_FIELDS
+                if hasattr(row, key)
+            }
+            values = SubscribeHistoryOper._persistable(payload)
+            session.add(SubscribeHistory(**values))
+            await session.commit()
+
+    async def _delete_auto_toggle_row(self, sid: int, delete_scope: Any) -> bool:
+        """删一条订阅；宿主命令拿不到时降级为直删库。"""
+        if delete_scope is not None:
+            from app.application.subscription.delete import SubscribeDeletionActor
+
+            actor = SubscribeDeletionActor(
+                username="SubscribeCenter", is_superuser=True
+            )
+            async with delete_scope() as command:
+                status = await command.execute_with_status(sid, actor)
+            return str(status) == "deleted"
+        from app.db import async_session_scope
+        from app.db.oper.subscribe import SubscribeOper
+
+        async with async_session_scope() as session:
+            oper = SubscribeOper(session)
+            row = await oper.async_get(sid)
+            if row is None:
+                return False
+            await oper.async_delete(sid)
+            await session.commit()
+        return True
 
     async def _apply_with_scope(
         self,
@@ -1233,7 +1716,10 @@ class SubscribeCenter(_PluginBase):
         applied: List[int],
         failed: List[Dict[str, Any]],
     ) -> None:
-        """走宿主的 ``subscription_mutation_scope`` 逐条改状态。
+        """走宿主的 ``subscription_mutation_scope`` 逐条写订阅。
+
+        暂停/恢复只改状态；「标记洗版完成」写宿主认的完成标记。两者都走
+        ``update``，才能在同一事务里发出 ``SubscribeModified`` 事件。
 
         单条失败只记错，不影响其余；但**提交**失败会抛出，由调用方按整批
         回滚处理（``applied`` 里此时记的都不算数）。
@@ -1241,18 +1727,30 @@ class SubscribeCenter(_PluginBase):
         async with scope() as service:
             for item in changes:
                 sid = int(item.get("id") or 0)
-                target = str(item.get("target") or "")
-                if not sid or target not in ("R", "S"):
+                action = str(item.get("action") or "")
+                payload = self._auto_toggle_payload(item, action)
+                if not sid or not payload:
                     failed.append(
                         {
                             "id": sid,
                             "name": item.get("name"),
-                            "error": f"目标状态非法：{target!r}",
+                            "error": f"目标状态非法：{action!r}",
                         }
                     )
                     continue
                 try:
-                    mutation = await service.update_status(sid, target, actor)
+                    if action == autotoggle.ACTION_MARK_COMPLETE and not bool(
+                        item.get("best_full")
+                    ):
+                        #: 分集洗版要先读现有优先级再合并，否则会覆盖掉已完成的集。
+                        #: ``get_accessible`` 返回的就是订阅快照本身（不是包一层的
+                        #: 结果对象），直接把它交给 payload 构造函数取
+                        #: ``episode_priority`` 即可。
+                        existing = await service.get_accessible(sid, actor)
+                        merged = self._auto_toggle_payload(item, action, existing)
+                        if merged:
+                            payload = merged
+                    mutation = await service.update(sid, payload, actor)
                 except Exception as err:  # noqa: BLE001 - 单条失败不影响其余
                     failed.append({"id": sid, "name": item.get("name"), "error": str(err)})
                     continue
@@ -1321,12 +1819,42 @@ class SubscribeCenter(_PluginBase):
     @staticmethod
     def _auto_toggle_text(item: Dict[str, Any]) -> str:
         """正文：原因 / 处理 / 后续，一眼看完。"""
-        paused = str(item.get("action") or "") == "pause"
+        action = str(item.get("action") or "")
+        #: 三种动作各有一句话，别再用「是暂停吗」这种二选一，
+        #: 否则「已标记洗版完成」会被写成「已恢复订阅」，看着像状态被改了。
+        handling = {
+            "pause": (
+                "已暂停订阅",
+                "条件不再满足时会自动恢复",
+            ),
+            "resume": (
+                "已恢复订阅",
+                "条件再次满足时仍会自动暂停",
+            ),
+            "set_best": (
+                # 1.18.5 起转洗版**不勾全集**（用户要求逐集洗），文案别再写「全集」。
+                "已改为洗版订阅（逐集，不收全集）",
+                "最后一集下完也只会继续等更高码版本，不会被当成普通订阅提前归档",
+            ),
+            "mark_complete": (
+                "已标记洗版完成（不暂停、不删除）",
+                "宿主的完成流程接手后不再重复搜索这几个集",
+            ),
+            "complete": (
+                "已写入完成历史并删除订阅",
+                "去「订阅历史」里能看到它，之后不会再被自动订阅",
+            ),
+            "delete": (
+                "已删除订阅（未写完成历史）",
+                "之后仍可能被重新发现并订阅",
+            ),
+        }
+        handle, follow = handling.get(action, ("未做处理", "—"))
         lines = [
             f"原因：{item.get('reason_label') or '—'}",
             f"说明：{item.get('detail') or '—'}",
-            f"处理：{'已暂停订阅' if paused else '已恢复订阅'}",
-            f"后续：{'条件不再满足时会自动恢复' if paused else '条件再次满足时仍会自动暂停'}",
+            f"处理：{handle}",
+            f"后续：{follow}",
         ]
         return "\n".join(lines)
 
@@ -1548,6 +2076,35 @@ class SubscribeCenter(_PluginBase):
             return obj.get(name, default)
         return getattr(obj, name, default)
 
+    async def _tmdb_tv_status(self, media_id: str, now: float, ttl: float) -> str:
+        """取整部剧的完结状态（``Ended`` / ``Canceled`` / ``Returning Series``）。
+
+        为什么要单独问一次：``TmdbEpisode`` / ``TmdbSeason`` 两个模型里**都没有**
+        ``status`` 字段（见宿主 ``app/schemas/tmdb.py``），只有整部剧的详情里有。
+        它只在「本季播出表里已经没有未来集」时才有意义，所以调用方按需触发，
+        并行不浪费请求。
+
+        取不到就返回空串 —— 判定侧把空串当「不知道」，回落到其它两个兜底条件，
+        不会因为一次请求失败就把还在播的剧判成季终。
+        """
+        cache = self.__dict__.setdefault("_tv_status_cache", {})
+        key = str(media_id)
+        hit = cache.get(key)
+        if hit and now - hit[0] < ttl:
+            return hit[1]
+        status = ""
+        try:
+            from app.modules.themoviedb.tmdbapi import TmdbApi
+            from app.schemas.types import MediaType
+
+            info = await TmdbApi().async_get_info(mtype=MediaType.TV, tmdbid=int(key))
+            if isinstance(info, dict):
+                status = str(info.get("status") or "").strip()
+        except Exception as err:  # noqa: BLE001 - 取不到按「不知道」处理
+            logger.debug(f"[SubscribeCenter] 取剧集状态失败 {key}：{err}")
+        cache[key] = (now, status)
+        return status
+
     async def _episode_air_index(self, rows: Any, date_text: str) -> Dict[Any, List[Any]]:
         """按 TMDB 每季的 ``episodes[].air_date`` 建「播出索引」。
 
@@ -1618,36 +2175,36 @@ class SubscribeCenter(_PluginBase):
                     basis = await self._movie_legacy_release(media_source, media_id)
                     kind = ""
                 if basis:
-                    cache[key] = (now, [(basis, 0)])
+                    cache[key] = (now, [(basis, 0)], {})
                     self._note_movie_kind(media_id, kind)
                 return
 
             # ---- 剧集 / 剧集组 ----
             async with semaphore:
-                episodes: List[tuple] = []
+                raw_list: List[Any] = []
                 try:
                     from app.chain.tmdb import TmdbChain
 
                     if isinstance(season_key, str) and season_key.startswith("g:"):
-                        raw = await TmdbChain().async_tmdb_episodes(
-                            tmdbid=int(media_id), season=0, episode_group=season_key[2:]
+                        raw_list = list(
+                            await TmdbChain().async_tmdb_episodes(
+                                tmdbid=int(media_id),
+                                season=0,
+                                episode_group=season_key[2:],
+                            )
+                            or []
                         )
                     else:
-                        raw = await TmdbChain().async_tmdb_episodes(
-                            tmdbid=int(media_id), season=int(season_key)
+                        raw_list = list(
+                            await TmdbChain().async_tmdb_episodes(
+                                tmdbid=int(media_id), season=int(season_key)
+                            )
+                            or []
                         )
-                    episodes = [
-                        (
-                            str(self._field(ep, "air_date") or "")[:10],
-                            int(self._field(ep, "episode_number") or 0),
-                        )
-                        for ep in raw or []
-                        if self._field(ep, "air_date")
-                    ]
                 except Exception as err:  # noqa: BLE001 - 链不可用时回退
                     logger.debug(f"[SubscribeCenter] 链取季失败 {key}：{err}")
 
-                if not episodes:
+                if not raw_list:
                     try:
                         #: 回退走模块层：这里必须自己建 ``TmdbApi`` ——
                         #: 同名变量早先只存在于循环外的局部作用域，漏了就
@@ -1660,36 +2217,71 @@ class SubscribeCenter(_PluginBase):
                                 tmdb.get_tv_group_seasons, season_key[2:]
                             )
                             for season_item in group_seasons or []:
-                                episodes.extend(
-                                    (
-                                        str(self._field(ep, "air_date") or "")[:10],
-                                        int(self._field(ep, "episode_number") or 0),
+                                raw_list.extend(
+                                    list(
+                                        self._field(season_item, "episodes", []) or []
                                     )
-                                    for ep in self._field(season_item, "episodes", []) or []
-                                    if self._field(ep, "air_date")
                                 )
                         else:
                             detail = await asyncio.to_thread(
-                                tmdb.get_tv_season_detail, int(media_id), int(season_key)
+                                tmdb.get_tv_season_detail,
+                                int(media_id),
+                                int(season_key),
                             )
-                            episodes = [
-                                (
-                                    str(self._field(ep, "air_date") or "")[:10],
-                                    int(self._field(ep, "episode_number") or 0),
-                                )
-                                for ep in self._field(detail, "episodes", []) or []
-                                if self._field(ep, "air_date")
-                            ]
+                            raw_list = list(self._field(detail, "episodes", []) or [])
                     except Exception as err:  # noqa: BLE001
                         logger.debug(f"[SubscribeCenter] 回退取季失败 {key}：{err}")
 
-                if episodes:
-                    cache[key] = (now, episodes)
+                if not raw_list:
+                    return
+
+                episodes: List[tuple] = []
+                extra: set = set()
+                numbers: set = set()
+                for item in raw_list:
+                    number = int(self._field(item, "episode_number") or 0)
+                    if number <= 0:
+                        continue
+                    numbers.add(number)
+                    day = str(self._field(item, "air_date") or "")[:10]
+                    if day:
+                        episodes.append((day, number))
+                    else:
+                        #: TMDB 常见「最后一集先建条目、日期还空着」：以前这里
+                        #: 直接丢掉，播出表看起来就是「已播完」，季终判定跟着错。
+                        #: 集号大于最后已播集的，本质就是「还没播的未来集」。
+                        extra.add(number)
+                if not episodes:
+                    return
+                episodes.sort()
+                last_number = max(numbers) if numbers else 0
+                last_aired = max(number for _, number in episodes)
+                last_type = ""
+                for item in raw_list:
+                    if int(self._field(item, "episode_number") or 0) == last_aired:
+                        last_type = str(self._field(item, "episode_type") or "")
+                        break
+                info = {
+                    "total": last_number,
+                    "extra": sorted(number for number in extra if number > last_aired),
+                    #: 季中休更标记：最后一集是「mid_season」说明本季没真完
+                    "mid_season": last_type == "mid_season",
+                    "finale_episode": last_type == "finale",
+                    "status": "",
+                }
+                if not any(day > date_text for day, _ in episodes):
+                    #: 表里已经没有未来集了，才值得花一次请求问「这部剧完结了没」。
+                    #: 反过来只要还有未来集就一定没完结，不必问。
+                    info["status"] = await self._tmdb_tv_status(media_id, now, ttl)
+                cache[key] = (now, episodes, info)
 
         if targets:
             await asyncio.gather(*(fetch(key) for key in targets))
 
         index: Dict[Any, List[Any]] = {}
+        season_info: Dict[Any, Dict[str, Any]] = self.__dict__.setdefault(
+            "_season_info_cache", {}
+        )
         for row in rows:
             media_id = str(getattr(row, "media_id", "") or "")
             group = str(getattr(row, "episode_group", "") or "").strip()
@@ -1697,7 +2289,11 @@ class SubscribeCenter(_PluginBase):
             # build_today 用 (media_id, season) 查索引：这里统一按 season 再登记一份
             legacy_key = (media_id, int(getattr(row, "season", 0) or 0))
             if key in cache:
-                index[legacy_key] = cache[key][1]
+                entry = cache[key]
+                index[legacy_key] = entry[1]
+                info = entry[2] if len(entry) > 2 else {}
+                if info:
+                    season_info[legacy_key] = info
         return index
 
     async def api_calendar_day(self, date: str = "") -> Any:
@@ -3646,6 +4242,7 @@ _DECISION_RANK = {
     "skipped_already_subscribed": 1,
     "skipped_already_completed": 1,
     "skipped_finished": 2,
+    "skipped_unverified": 2,
     "skipped_out_of_window": 3,
     "skipped_popularity": 3,
     "skipped_rating": 3,

@@ -132,6 +132,12 @@ class DiscoveredItem:
     #: 原始载荷（排查用，落流水时可截断）
     raw: Dict[str, Any] = field(default_factory=dict)
     discovered_at: str = ""
+    #: 「TMDB 还有没有未播集」这道守门**是否真的跑成**（1.18.7）。
+    #:
+    #: 默认 True：手工构造的条目（手动补订阅、测试替身）没经过守门也不该被
+    #: 误伤；只有 IdentityResolver 在守门 fail-open 时才显式置 False。
+    #: writer 对「来源没给开播日期」的剧集据此拒写，避免守门失守时老片漏进。
+    season_verified: bool = True
 
     # ------------------------------------------------------------------ 只读属性
 

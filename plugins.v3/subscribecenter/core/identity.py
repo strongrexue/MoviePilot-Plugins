@@ -727,6 +727,7 @@ class IdentityResolver:
         review_threshold: float = DEFAULT_REVIEW_THRESHOLD,
         use_converted_season: bool = False,
         prefer_episode_group: bool = True,
+        upcoming_max_days: int = 0,
     ) -> None:
         self._tmdb = tmdb
         self._cache = cache
@@ -735,6 +736,9 @@ class IdentityResolver:
         self._use_converted_season = use_converted_season
         #: 是否用 TMDB episode group 精确订阅被压成单季的番剧
         self._prefer_episode_group = prefer_episode_group
+        #: 未播集离今天超过这么多天就不订（0 = 不限）。
+        #: 真机《蓝眼武士 S2》：整季都是 2027-01-19，提前一年多就写进订阅。
+        self._upcoming_max_days = int(upcoming_max_days or 0)
         #: tmdb_id -> poster_path。流水页要显示封面，但海报只在候选里出现过；
         #: 这里顺手记下来，成功解析后回填到 item.raw["poster"]。
         self._poster_index: Dict[str, str] = {}
@@ -1286,8 +1290,25 @@ class IdentityResolver:
                 item.media_type,
                 extract_season_hint(item.title),
                 prefer_episode_group=self._prefer_episode_group,
+                upcoming_max_days=self._upcoming_max_days,
             )
+        except TypeError:
+            # 旧版适配器（测试替身）可能没有 ``upcoming_max_days`` 关键字，
+            # 退回不传它的老调用，避免整条解析被兼容性卡死。
+            try:
+                verdict = await resolver(
+                    item.resolved.media_id,
+                    item.media_type,
+                    extract_season_hint(item.title),
+                    prefer_episode_group=self._prefer_episode_group,
+                )
+            except Exception:  # noqa: BLE001 - 校验失败 fail-open
+                # 守门没跑成：标记「未确认」，交给 writer 拒写无日期剧集
+                item.season_verified = False
+                await self._attach_poster(item)
+                return
         except Exception:  # noqa: BLE001 - 校验失败 fail-open
+            item.season_verified = False
             await self._attach_poster(item)
             return
         # 海报必须在**裁决之后**取：宿主裁决季号时会拉 TMDB 详情，
@@ -1301,6 +1322,13 @@ class IdentityResolver:
         if not writable:
             item.finished = True
             return
+        # 宿主正常的可订裁决必定给出**具体季号或剧集组**；只有 fail-open
+        # （季详情异常 / 拿不到季列表）才会返回 (True, None, None)。
+        # 1.18.7 真机：全局信号量跨事件循环报错，整轮裁决全 fail-open，
+        # 2016 年《一禅小和尚》、无播出信息的《重庆号》被当成「即将开播」订进来。
+        # 把这种「守门没真跑成」记下来，writer 据此拒写来源无日期的剧集。
+        if season is None and not episode_group:
+            item.season_verified = False
         if _is_donghua(item):
             # 国漫的季号处理分两种情况 —— 真机教训：
             #

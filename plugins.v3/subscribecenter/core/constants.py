@@ -16,7 +16,7 @@ PLUGIN_DESCRIPTION = (
     "番剧支持两条通道：新番按开播日、连载按下一集播出时间（国漫靠这条才抓得到）。"
     "版本控制、洗版与下载优先级由宿主规则接管。"
 )
-PLUGIN_VERSION = "1.18.1"
+PLUGIN_VERSION = "1.18.7"
 PLUGIN_DESC = "全自动开播/定档发现与订阅：发现 → 去重 → 写订阅。"
 PLUGIN_ICON = (
     "https://raw.githubusercontent.com/strongrexue/MoviePilot-Plugins/main/icons/subscribecenter.png"
@@ -50,6 +50,32 @@ DEFAULT_AUTO_TOGGLE_CRON = "5 0 * * *"
 #: 还没等到更好的版本，要么站点没有、要么过滤规则卡住了，再空搜也没用。
 DEFAULT_AUTO_TOGGLE_BEST_KEEP = 90
 
+#: 季终前「提前开洗版」的天数。
+#:
+#: 宿主的完成判定分两条路（``app/chain/subscribe/completion.py:163``）：没开洗版
+#: 的订阅在「已播集全部入库」时直接写完成历史并删除订阅；开了洗版的订阅改走
+#: ``priority.py`` 的 ``is_best_version_complete``，``current_priority`` 没到 100
+#: 就不删。所以最后一集下完那一刻，订阅有没有洗版标记，决定了它当场消失还是
+#: 留下来继续等更高码率。
+#:
+#: 这里让普通订阅在最后一集播出前 N 天自动补上洗版标记（**只写 ``best_version``**，
+#: 不写 ``best_version_full`` —— 分集洗版逐集收工，全集洗版一集不到位就永不完成）。
+#: 默认 1 天：判据是季终日，提前一天足够覆盖「播出当天 TMDB 才补齐日期」的情况。
+#: 天数填 0 = **季终当天**开（1.18.5 起），关闭请用下面的开关。
+DEFAULT_BEST_PREOPEN_DAYS = 1
+
+#: 「季终前自动开洗版」总开关。关闭后才不会自动给普通订阅补洗版标记；
+#: 天数不再兼任开关（0 现在表示「季终当天」，不是「关闭」）。
+DEFAULT_AUTO_TOGGLE_BEST_PREOPEN = True
+
+#: 未播集离今天超过这么多天就不建订阅（0 = 不限，按老行为一律可订）。
+#:
+#: 真机《蓝眼武士 S2》：TMDB 225180 第 2 季 6 集全是 2027-01-19，而原来的判定
+#: 只看「有没有 air_date >= 今天」，从不问差多远 —— 于是 2026-11-04 就把订阅
+#: 写了进去，当天当然搜不到，第二天又被自动启停按首集日期暂停，纯粹是垃圾订阅。
+#: 30 天足够覆盖「下周开播」这类正常发现；太远的等它真快播了再说。
+DEFAULT_UPCOMING_MAX_DAYS = 30
+
 #: 电影「刚上映也算数」的宽限天数。数字版上线之后站点上才有资源，卡死
 #: 「必须在未来」等于永远订不到刚上线的片子（真机：《空枪》数字发行当天
 #: 被「已过去」拒掉）。7 天足够覆盖出种延迟，又不至于把老片捞进来。
@@ -70,6 +96,21 @@ DEFAULT_MOVIE_THEATRICAL_OFFSET_DAYS = 90
 #: 会探媒体库并把结果写进 ``lack_episode``，刷新刚结束那一刻这个账最新。固定
 #: 时刻跑（默认 00:05）很可能跑在刷新之前，读到的就是上一轮的旧账。
 DEFAULT_AUTO_TOGGLE_FOLLOW_REFRESH = False
+
+
+#: 集数修正（backfill）：洗版订阅的「N/M 集」里 M/L 只算订阅自己下过的集，
+#: 库里早就有的老集不记账，页面就会显示成「明明有 25 集只写 2 集」。开启后
+#: 每天自动启停轮顺带把**库里确实存在、已播出、note 里还没有**的集号补进
+#: note（调宿主自己的 ``backfill_existing_episodes``，它写完会重算缺集数）。
+#: 每轮最多探 ``BACKFILL_LIMIT`` 条、同一订阅 ``BACKFILL_COOLDOWN_DAYS``
+#: 天内不重复探，对媒体服务器几乎无感。
+DEFAULT_AUTO_TOGGLE_BACKFILL_NOTES = True
+
+#: 集数修正每轮最多探测的订阅条数。
+BACKFILL_LIMIT = 10
+
+#: 集数修正同一订阅两次探测的最小间隔（天）。
+BACKFILL_COOLDOWN_DAYS = 7
 
 #: 跟随刷新的轮询间隔（分钟）。只读调度器内存里的进度，不发任何网络请求。
 FOLLOW_REFRESH_POLL_MINUTES = 1
@@ -118,6 +159,12 @@ DECISION_SKIPPED_SPECIAL = "skipped_special"
 DECISION_SKIPPED_FINISHED = "skipped_finished"
 #: 来源没有定档日期，且是电影 —— 无从判断是否即将上映
 DECISION_SKIPPED_NO_DATE = "skipped_no_date"
+#: 无开播日期的剧集，且「TMDB 还有没有未播集」这道裁决没跑成（1.18.7）
+#:
+#: 剧集没有「上映日」是常态，能不能订全靠未播集裁决。那道裁决 fail-open
+#: （网络异常 / 限流 / 全局锁跨事件循环）时，老片会被当成「即将开播」订进来。
+#: 记为「未确认」而不是「已播完」：下一轮裁决恢复后仍会重新判定。
+DECISION_SKIPPED_UNVERIFIED = "skipped_unverified"
 #: 豆瓣想看人数不足
 DECISION_SKIPPED_WANT = "skipped_want"
 DECISION_SKIPPED_SOURCE_DISABLED = "skipped_source_disabled"
@@ -452,6 +499,11 @@ def default_config() -> Dict[str, Any]:
         #: 第 3 季），但 episode group 里 Season 3 = 12 集。带 group 订阅后
         #: 宿主只追这 12 集，不会去补前 48 集旧番。关掉则按单季整体订阅。
         "prefer_episode_group": True,
+        #: 未播集离今天超过多少天就不订（默认 30，0 = 不限）。
+        #:
+        #: 真机《蓝眼武士 S2》整季都是 2027-01-19 却被订了进来；见
+        #: ``DEFAULT_UPCOMING_MAX_DAYS`` 的说明。
+        "upcoming_max_days": DEFAULT_UPCOMING_MAX_DAYS,
         # 注：曾经有过 ``resubscribe_completed``（已完成过的订阅是否允许重订）。
         # 1.17.2 起**移除**：真机出现「加了→宿主立刻判完成→下一轮又加」的死循环
         # （《新手上路》6 次、《怪物：丽兹·波顿的故事》2 次）。现在写入前一律
@@ -497,6 +549,17 @@ def default_config() -> Dict[str, Any]:
         "auto_toggle_best_version_keep_days_tv": DEFAULT_AUTO_TOGGLE_BEST_KEEP,
         #: 电影洗版订阅的保留窗口，默认 90 天（与电视剧分开设置）。
         "auto_toggle_best_version_keep_days_movie": DEFAULT_AUTO_TOGGLE_BEST_KEEP,
+        #: 季终前提前几天给普通订阅开洗版（默认 1 天，0 = 季终当天）。
+        #:
+        #: 见 ``DEFAULT_BEST_PREOPEN_DAYS``：最后一集播出前 N 天给普通订阅补上
+        #: ``best_version``（**不写 ``best_version_full``**），让它按分集逐集洗。
+        #: 想关掉请用下面的 ``auto_toggle_best_preopen`` 开关。
+        "auto_toggle_best_preopen_days": DEFAULT_BEST_PREOPEN_DAYS,
+        #: 「季终前自动开洗版」总开关（默认开）。
+        #:
+        #: 关掉后不会再自动给普通订阅补洗版标记，也不接管已暂停的洗版订阅；
+        #: 手动开的洗版订阅仍按季终窗口判定与收尾。
+        "auto_toggle_best_preopen": DEFAULT_AUTO_TOGGLE_BEST_PREOPEN,
         #: 洗版判定模式：什么时候把「没洗到顶」当成「还要继续搜」。
         #:
         #: - ``after_finale``（默认）：只在**本季已完结**后才按洗版算。播出期
@@ -534,6 +597,10 @@ def default_config() -> Dict[str, Any]:
         #: 最新；固定时刻跑很可能跑在刷新之前。只监控订阅刷新任务，其余任务
         #: 一概不看。与定时任务可同时开，30 分钟内不重复触发。
         "auto_toggle_follow_refresh": DEFAULT_AUTO_TOGGLE_FOLLOW_REFRESH,
+        #: 集数修正：洗版订阅的「N/M 集」把库里早就存在的老集补进 note，
+        #: 让页面数字与媒体库一致（详见 ``DEFAULT_AUTO_TOGGLE_BACKFILL_NOTES``）。
+        #: 每轮最多探 10 条、同一订阅 7 天内不重复探，几乎无感。
+        "auto_toggle_backfill_notes": DEFAULT_AUTO_TOGGLE_BACKFILL_NOTES,
         #: 每轮媒体库实探的时间预算（秒，0 = 不实探，只沿用上一轮结果）。
         #: 逐条核对之间的间隔（秒）。越小越快，也越容易把媒体服务器压住。
         # ---------------- 调度与通知

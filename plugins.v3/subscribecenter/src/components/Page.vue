@@ -306,6 +306,7 @@ const DECISION_LABELS = {
   skipped_special: '特别篇（不处理）',
   skipped_finished: '已播完（跳过）',
   skipped_no_date: '无日期（跳过）',
+  skipped_unverified: '未播集未确认（跳过）',
   skipped_want: '想看不足（跳过）',
   skipped_source_disabled: '源未启用',
 }

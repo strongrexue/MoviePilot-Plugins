@@ -19,6 +19,9 @@
 """
 import asyncio
 import re
+import threading
+import weakref
+from datetime import timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.constants import MEDIA_TYPE_MOVIE, MEDIA_TYPE_TV
@@ -32,20 +35,52 @@ except Exception:  # noqa: BLE001  # pragma: no cover
 
     logger = logging.getLogger("SubscribeCenter")
 
-#: 宿主 TMDB 的季详情查询并发上限。
+#: 宿主查询的并发上限（季详情 / 豆瓣 / 海报）。
 #:
-#: 真机教训：一次运行几百部剧、身份解析 8 路并发，每部剧还要查「最多 6 季」
-#: 的详情 —— TMDB 很容易限流/超时。一旦异常，``resolve_target_season`` 的
-#: fail-open 会把季号变成 ``None``，宿主按默认第 1 季订阅（「续作全订成 S1」）。
-_SEASON_SEMAPHORE: Optional[Any] = None
+#: 真机教训（1.18.7）：这三个信号量原先都是**模块级全局单例**
+#: ``asyncio.Semaphore`` —— 第一次在哪个事件循环里 acquire 就绑死到那个
+#: loop。MoviePilot 的定时任务与 API 请求跑在不同 loop 里，跨 loop 复用会抛
+#: ``RuntimeError: <Semaphore ...> is bound to a different event loop``；
+#: 而 ``resolve_target_season`` 对异常是 fail-open（可订 + 默认季），结果整轮
+#: 季号/未播集裁决形同没上班，2016 年的《一禅小和尚》、无播出信息的《重庆号》
+#: 全被当成「即将开播」订了进来。
+#:
+#: 改为按**当前事件循环**分池：每个 loop 各自一份，彼此绝不串用；
+#: ``WeakKeyDictionary`` 让 loop 被回收后自动清理，既不泄漏也不留旧锁。
+_SEMAPHORE_LIMITS = {"season": 4, "douban": 2, "poster": 4}
+_LOOP_SEMAPHORES = weakref.WeakKeyDictionary()
+_SEMAPHORE_LOCK = threading.Lock()
+
+
+def _semaphore(kind: str) -> asyncio.Semaphore:
+    """取**当前事件循环专属**的信号量（跨 loop 自动隔离，绝不复用旧锁）。"""
+    loop = asyncio.get_running_loop()
+    with _SEMAPHORE_LOCK:
+        bucket = _LOOP_SEMAPHORES.get(loop)
+        if bucket is None:
+            bucket = {}
+            _LOOP_SEMAPHORES[loop] = bucket
+        sem = bucket.get(kind)
+        if sem is None:
+            sem = asyncio.Semaphore(_SEMAPHORE_LIMITS[kind])
+            bucket[kind] = sem
+        return sem
 
 
 def _season_semaphore() -> Any:
-    """懒加载季详情查询信号量（在事件循环内创建）。"""
-    global _SEASON_SEMAPHORE
-    if _SEASON_SEMAPHORE is None:
-        _SEASON_SEMAPHORE = asyncio.Semaphore(4)
-    return _SEASON_SEMAPHORE
+    """季详情查询并发上限（当前事件循环专属）。"""
+    return _semaphore("season")
+
+
+def _douban_semaphore() -> Any:
+    """豆瓣 API 并发上限（真机：不限制会被限流，别名大量返回空）。"""
+    return _semaphore("douban")
+
+
+def _poster_semaphore() -> Any:
+    """海报抓取并发上限（日历页一次 30~40 张，全并发会被 TMDB 限流）。"""
+    return _semaphore("poster")
+
 
 #: 单次查询的分页大小（宿主无参查询只返回第一页，必须显式翻页）
 QUERY_PAGE_SIZE = 200
@@ -79,38 +114,12 @@ def media_source_enum(value: Any) -> Any:
 #: Bangumi 搜索接口的 UA（Bangumi 会拒绝默认 UA）
 BANGUMI_SEARCH_USER_AGENT = "SubscribeCenter/1.0.0 (MoviePilot plugin; +https://github.com/strongrexue)"
 
-#: 豆瓣 API 的并发上限（真机：不限制会被限流，别名大量返回空）
-_DOUBAN_SEMAPHORE: Optional[Any] = None
-
-
-def _douban_semaphore() -> Any:
-    """懒加载一个模块级信号量（在事件循环里创建，避免跨循环复用）。"""
-    global _DOUBAN_SEMAPHORE
-    if _DOUBAN_SEMAPHORE is None:
-        _DOUBAN_SEMAPHORE = asyncio.Semaphore(2)
-    return _DOUBAN_SEMAPHORE
-
-
 #: 抓海报时的 UA（图片 CDN 会拒绝空 UA）
 IMAGE_USER_AGENT = "MoviePilot/SubscribeCenter"
 
 #: 海报图片缓存（path -> (bytes, content_type)）。海报是不可变资源，可长期复用。
 _IMAGE_CACHE: Dict[str, Any] = {}
 _IMAGE_CACHE_LIMIT = 400
-
-#: 同时最多拉几张图（日历页一次会请求 30~40 张，全并发会被 TMDB 限流）
-_POSTER_SEMAPHORE: Any = None
-
-
-def _poster_semaphore() -> Any:
-    """按需创建信号量（必须在事件循环里创建，不能在 import 期）。"""
-    global _POSTER_SEMAPHORE
-    if _POSTER_SEMAPHORE is None:
-        import asyncio
-
-        _POSTER_SEMAPHORE = asyncio.Semaphore(4)
-    return _POSTER_SEMAPHORE
-
 
 #: 从 TMDB 图片 URL 里抠出图片路径（``/t/p/original/abc.jpg`` -> ``/abc.jpg``）
 _TMDB_IMAGE_RE = re.compile(r"/t/p/[^/]+(/[^\s]+)$")
@@ -572,6 +581,7 @@ class HostTmdbResolver:
         tz_name: Optional[str] = None,
         *,
         prefer_episode_group: bool = True,
+        upcoming_max_days: int = 0,
     ) -> Tuple[bool, Optional[int], Optional[str]]:
         """确定该订阅**哪一季**（以及是否要用 episode group）。
 
@@ -601,6 +611,12 @@ class HostTmdbResolver:
            已经播完的第 1 季再订一遍）；
         5. 剧集被压成单季且提示季更大 -> 去 episode group 找同序号的季。
 
+        ``upcoming_max_days``（1.18.5）：只把**距今天 N 天以内**的未播集算数，
+        0 = 不限。真机《蓝眼武士 S2》：TMDB 第 2 季 6 集全是 2027-01-19，
+        而原来的判定只要「有 air_date >= 今天」就算可订 —— 于是提前一年多
+        就把订阅写进去，当天搜不到、第二天又被自动启停暂停，纯属垃圾订阅。
+        加了这道闸之后，离得太远的季直接判「不可订」，等真的快播了再说。
+
         **失败时 fail-open**（可订 + 默认季 + 无 group）。
         """
         if media_type != MEDIA_TYPE_TV:
@@ -627,6 +643,7 @@ class HostTmdbResolver:
                 return (True, None, None)
 
             start = today(tz_name)
+            limit = start + timedelta(days=int(upcoming_max_days)) if upcoming_max_days > 0 else None
             # 只查「提示季 + 最新两季」：原来 numbers[:6]，每部剧最多 6 次 TMDB
             # 请求，几百部剧 8 路并发很容易触发限流 → 异常 → fail-open → 订成 S1。
             probed = list(numbers[:2])
@@ -636,7 +653,9 @@ class HostTmdbResolver:
             upcoming: List[int] = []
             async with _season_semaphore():
                 for number in probed:
-                    if await self._season_has_upcoming(api, int(tmdb_id), number, start):
+                    if await self._season_has_upcoming(
+                        api, int(tmdb_id), number, start, limit
+                    ):
                         upcoming.append(number)
                     if season_hint is not None and season_hint in upcoming:
                         break
@@ -648,7 +667,9 @@ class HostTmdbResolver:
 
             # 被压成单季的番剧：去 episode group 里找真实季
             if prefer_episode_group and season_hint and len(numbers) == 1:
-                group_id = await self._find_season_group(int(tmdb_id), season_hint, start)
+                group_id = await self._find_season_group(
+                    int(tmdb_id), season_hint, start, limit
+                )
                 if group_id:
                     return (True, season_hint, group_id)
 
@@ -714,8 +735,14 @@ class HostTmdbResolver:
         return None
 
     @staticmethod
-    async def _season_has_upcoming(api: Any, tmdb_id: int, season: int, start: Any) -> bool:
-        """该季是否还有未播集。
+    async def _season_has_upcoming(
+        api: Any,
+        tmdb_id: int,
+        season: int,
+        start: Any,
+        limit: Any = None,
+    ) -> bool:
+        """该季是否还有未播集（``limit`` 非空时只算 ``limit`` 之前播的）。
 
         .. danger::
            **必须带 `@staticmethod`。** 1.0.1 的一次编辑把它弄丢了，而签名第一个
@@ -746,12 +773,16 @@ class HostTmdbResolver:
             if not isinstance(episode, dict):
                 continue
             air = parse_date(episode.get("air_date"))
-            if air and air >= start:
-                return True
+            if not air or air < start:
+                continue
+            if limit is not None and air > limit:
+                # 1.18.5：太远的未播集不算「即将播出」（蓝眼武士 S2 案例）
+                continue
+            return True
         return False
 
     async def _find_season_group(
-        self, tmdb_id: int, season_hint: int, start: Any
+        self, tmdb_id: int, season_hint: int, start: Any, limit: Any = None
     ) -> Optional[str]:
         """在被压成单季的剧里找出「第 N 季」的 episode group id。
 
@@ -775,8 +806,11 @@ class HostTmdbResolver:
                 continue
             for episode in group.get("episodes") or []:
                 air = parse_date(episode.get("air_date"))
-                if air and air >= start:
-                    return str(group_id)
+                if not air or air < start:
+                    continue
+                if limit is not None and air > limit:
+                    continue
+                return str(group_id)
             return None
         return None
 

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C_GozZin.js';
+import { _ as _export_sfc, F as FRONTEND_VERSION, u as unwrap, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-DnjeIcpI.js';
 
 const {resolveComponent:_resolveComponent,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,unref:_unref,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,vModelText:_vModelText,withDirectives:_withDirectives,normalizeClass:_normalizeClass,withKeys:_withKeys} = await importShared('vue');
 
@@ -483,6 +483,7 @@ const DECISION_LABELS = {
   skipped_special: '特别篇（不处理）',
   skipped_finished: '已播完（跳过）',
   skipped_no_date: '无日期（跳过）',
+  skipped_unverified: '未播集未确认（跳过）',
   skipped_want: '想看不足（跳过）',
   skipped_source_disabled: '源未启用',
 };
@@ -1912,6 +1913,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-fb5fc133"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9a109e20"]]);
 
 export { Page as default };

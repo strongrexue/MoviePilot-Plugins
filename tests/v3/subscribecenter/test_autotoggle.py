@@ -190,24 +190,86 @@ def test_best_version_ignores_note_and_keeps_searching():
     assert "洗到顶" in result.detail
 
 
-def test_best_version_pauses_after_wash_window():
-    """洗版窗口也过了（90 天没等到更好版本）→ 先暂停，别永远搜。"""
-    row = _row(best_version=1, note=[1], episode_priority={"1": 60})
+def test_best_version_marks_complete_after_wash_window():
+    """洗版窗口也过了（90 天没等到更好版本）→ **标记洗版完成**，不暂停。
+
+    暂停会让它永远卡在 ``S``：宿主的完成判定只在搜索态跑，停在暂停上等于
+    「既不洗也不收尾」，用户还得手动清。写 100 才是宿主认的「洗版结束」。
+    """
+    row = _row(best_version=1, note=[1], episode_priority={"1": 60}, total_episode=1)
     result = autotoggle.decide(
         row, _eps(("2026-06-01", 1)), TODAY, keep_days=3,
         best_keep_days_tv=90, best_keep_days_movie=90,
     )
-    assert result.target == autotoggle.STATE_PAUSED
-    assert result.action == autotoggle.ACTION_PAUSE
+    assert result.action == autotoggle.ACTION_MARK_COMPLETE
+    assert result.reason == autotoggle.REASON_BEST_OVERDUE
+    # 必须是 R：停在 S 上宿主不会进完成判定，写 100 也等于没生效
+    assert result.target == autotoggle.STATE_RUN
+    assert result.best_full is False
+    # 分集洗版要给出「还没到 100、需要补写」的集号
+    assert result.target_episodes == (1,)
+
+
+def test_best_version_marks_complete_full_season():
+    """全集洗版超期只写 ``current_priority``，不需要逐集集号。"""
+    row = _row(
+        best_version=1, best_version_full=1,
+        note=[1], episode_priority={"1": 60}, total_episode=1,
+    )
+    result = autotoggle.decide(
+        row, _eps(("2026-06-01", 1)), TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
+    )
+    assert result.action == autotoggle.ACTION_MARK_COMPLETE
+    assert result.best_full is True
+    assert result.target_episodes == ()
+
+
+def test_best_version_wash_window_starts_from_finale():
+    """洗版窗口从**季终**（最后一集播出日）起算，不是最后一集没洗到顶的那天。
+
+    第 1 集拖了 80 天没洗到顶、第 12 集昨天刚播完 —— 按旧算法（锚点取
+    ``pending[-1]``，这里恰好也是第 1 集）会判超期；按季终起算只过了 1 天，
+    仍在 90 天窗口内，必须保持 R，给它留够洗版期。
+    """
+    row = _row(
+        best_version=1,
+        note=list(range(1, 13)),
+        episode_priority={"1": 60},
+        lack_episode=0,
+    )
+    eps = [("2026-08-01", 1)] + [("2026-10-%02d" % (1 + ep), ep) for ep in range(2, 13)]
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
+    )
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.reason == autotoggle.REASON_BEST_PENDING
+
+
+def test_best_version_wash_window_after_finale_overdue():
+    """季终已过 91 天仍没洗到顶 → 标记完成。"""
+    row = _row(
+        best_version=1,
+        note=list(range(1, 13)),
+        episode_priority={"1": 60},
+        lack_episode=0,
+    )
+    eps = [("2026-06-01", ep) for ep in range(1, 13)]
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3,
+        best_keep_days_tv=90, best_keep_days_movie=90,
+    )
+    assert result.action == autotoggle.ACTION_MARK_COMPLETE
     assert result.reason == autotoggle.REASON_BEST_OVERDUE
 
 
-def test_best_version_during_airing_uses_note_unless_always():
-    """播出期（索引里还有未来集）默认按普通订阅判：全部下完就先暂停。
+def test_best_version_during_airing_always_keeps_searching():
+    """洗版订阅在播出期**一律保持 R**，不再按「入库即暂停」判。
 
-    宿主在播出期只下「首个可用版本」，真正的洗版（原盘/REMUX）是季终之后
-    才陆续有资源。播出期就按洗版判，等于所有洗版订阅长期 ``R``，正好抵消
-    「按播出日暂停」。``best_mode="always"`` 是留给想全程蹲洗版的人。
+    1.18.3 试过「每集最近 N 天保持搜索」，结果日更剧天天命中、几乎不暂停；
+    1.18.4 改成整季都保持搜索：宿主在播出期只下首个可用版本，1080 先出、
+    2160 常隔几十分钟才出，一暂停就再也抓不到。收工路径只有季终后那一条。
     """
     row = _row(
         best_version=1,
@@ -221,8 +283,10 @@ def test_best_version_during_airing_uses_note_unless_always():
         row, eps, TODAY, keep_days=3,
         best_keep_days_tv=90, best_keep_days_movie=90,
     )
-    assert result.action == autotoggle.ACTION_PAUSE
-    assert result.reason == autotoggle.REASON_ALL_DONE
+    assert result.target == autotoggle.STATE_RUN
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.reason == autotoggle.REASON_BEST_AIRING
+    assert "2026-10-21" in result.detail
 
     always = autotoggle.decide(
         row,
@@ -234,6 +298,157 @@ def test_best_version_during_airing_uses_note_unless_always():
     )
     assert always.target == autotoggle.STATE_RUN
     assert always.reason == autotoggle.REASON_BEST_PENDING
+
+
+# ------------------------------------------------------------------ 季终前开洗版
+# 宿主 ``app/chain/subscribe/completion.py:163`` 分两条路：没开洗版 → 已播全入库
+# 就写历史并**删除订阅**；开了洗版 → 走优先级判定，没洗到 100 就不删。所以普通
+# 订阅必须在最后一集**播出之前**补上 ``best_version``，等于给结局上保险。
+
+
+def test_best_preopen_sets_best_version_before_finale():
+    """最后一集明天就播、配置 1 天 → 本轮给它开洗版。"""
+    row = _row(note=list(range(1, 11)), lack_episode=1, best_version=0)
+    eps = [("2026-10-%02d" % (9 + ep), ep) for ep in range(1, 11)]
+    eps.append(("2026-10-21", 11))
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3, best_preopen_days=1,
+        best_preopen_enabled=True,
+    )
+    assert result.action == autotoggle.ACTION_SET_BEST
+    assert result.reason == autotoggle.REASON_BEST_PREOPEN
+    # 状态不动：只写 best_version 字段，不暂停也不恢复
+    assert result.target == row["state"]
+    assert result.days_to_finale == 1
+    assert "2026-10-21" in result.detail
+
+
+def test_best_preopen_off_by_default():
+    """开关没开就一行都不动（1.18.5 起关闭靠开关，不再用天数 0 表示关闭）。"""
+    row = _row(note=list(range(1, 11)), lack_episode=1)
+    eps = [("2026-10-%02d" % (9 + ep), ep) for ep in range(1, 11)]
+    eps.append(("2026-10-21", 11))
+    result = autotoggle.decide(row, eps, TODAY, keep_days=3)
+    assert result.action != autotoggle.ACTION_SET_BEST
+
+
+def test_best_preopen_zero_days_means_finale_today():
+    """天数为 0 = 季终当天才转洗版（不是关闭）。"""
+    row = _row(note=list(range(1, 11)), lack_episode=1)
+    eps = [("2026-10-%02d" % (10 + ep), ep) for ep in range(1, 11)]
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3, best_preopen_days=0,
+        best_preopen_enabled=True,
+    )
+    assert result.action == autotoggle.ACTION_SET_BEST
+    assert result.days_to_finale == 0
+
+
+def test_best_preopen_skips_existing_best_version():
+    """已经是洗版订阅的不再重复开。"""
+    row = _row(
+        note=list(range(1, 11)),
+        lack_episode=1,
+        best_version=1,
+        episode_priority={str(ep): 60 for ep in range(1, 11)},
+    )
+    eps = [("2026-10-%02d" % (9 + ep), ep) for ep in range(1, 11)]
+    eps.append(("2026-10-21", 11))
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3, best_preopen_days=1,
+        best_preopen_enabled=True,
+    )
+    assert result.action != autotoggle.ACTION_SET_BEST
+
+
+def test_best_preopen_ignores_show_already_finished():
+    """季终已经过了的老剧不开洗版，否则会把几百条存量订阅全改成洗版。"""
+    row = _row(note=[], lack_episode=12)
+    eps = [("2026-06-%02d" % ep, ep) for ep in range(1, 13)]
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3, best_preopen_days=1,
+        best_preopen_enabled=True,
+    )
+    assert result.action != autotoggle.ACTION_SET_BEST
+
+
+def test_best_preopen_respects_window():
+    """最后一集还在 3 天后 → 1 天窗口还没到，不动。"""
+    row = _row(note=list(range(1, 11)), lack_episode=1)
+    eps = [("2026-10-%02d" % (9 + ep), ep) for ep in range(1, 11)]
+    eps.append(("2026-10-23", 11))
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3, best_preopen_days=1,
+        best_preopen_enabled=True,
+    )
+    assert result.action != autotoggle.ACTION_SET_BEST
+    assert result.days_to_finale == 3
+
+
+# ------------------------------------------------------------------ 季终判定的三重兜底
+# 季终一误判，洗版窗口就提前开始计时 → 到期标记完成 → 宿主归档删订阅。
+# 三种情况必须捞回来：①最后一集被删了 air_date ②集数没追满 ③季中休更。
+
+
+def test_finale_not_reached_when_undated_episode_left():
+    """有集号在最后已播集之后、只是没有播出日（延期）→ 不算季终。"""
+    row = _row(best_version=1, note=list(range(1, 11)),
+               episode_priority={str(ep): 60 for ep in range(1, 11)})
+    eps = [("2026-09-%02d" % ep, ep) for ep in range(1, 11)]
+    result = autotoggle.decide(
+        row, eps, TODAY, best_keep_days_tv=7,
+        season={"total": 12, "extra": [11, 12]},
+    )
+    assert result.finale is False
+    # 不算季终 → 仍走播出期口径，保持搜索
+    assert result.target == autotoggle.STATE_RUN
+    assert result.reason == autotoggle.REASON_BEST_AIRING
+
+
+def test_finale_not_reached_when_episode_count_incomplete():
+    """TMDB 说这一季 40 集、播出表只到 25 → 不算季终。"""
+    row = _row(note=[1])
+    eps = [("2026-09-%02d" % (ep % 28 + 1), ep) for ep in range(1, 26)]
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3, season={"total": 40},
+    )
+    assert result.finale is False
+
+
+def test_finale_not_reached_for_mid_season_break():
+    """最后一集带 ``mid_season`` 标记 = 季中休更，不能当季终。"""
+    row = _row(note=[1])
+    eps = [("2026-10-%02d" % ep, ep) for ep in range(1, 10)]
+    result = autotoggle.decide(
+        row, eps, TODAY, keep_days=3,
+        season={"total": 9, "mid_season": True},
+    )
+    assert result.finale is False
+
+
+def test_finale_confirmed_by_tmdb_status():
+    """TMDB 标了 ``Ended`` → 就算集数没追满也算季终。"""
+    row = _row(best_version=1, note=list(range(1, 11)),
+               episode_priority={str(ep): 60 for ep in range(1, 11)})
+    eps = [("2026-06-%02d" % ep, ep) for ep in range(1, 11)]
+    result = autotoggle.decide(
+        row, eps, TODAY, best_keep_days_tv=7,
+        season={"total": 20, "status": "Ended"},
+    )
+    assert result.finale is True
+
+
+def test_finale_canceled_show_also_counts():
+    """``Canceled`` 同样处理：不会再有新集了。"""
+    row = _row(best_version=1, note=[1], episode_priority={"1": 60})
+    eps = [("2026-06-01", 1)]
+    result = autotoggle.decide(
+        row, eps, TODAY, best_keep_days_tv=7,
+        season={"total": 8, "status": "Canceled"},
+    )
+    assert result.finale is True
+    # 季终已过 7 天以上 → 标记洗版完成，不暂停
+    assert result.action == autotoggle.ACTION_MARK_COMPLETE
 
 
 def test_best_version_after_finale_enters_wash_window():
@@ -268,7 +483,9 @@ def test_plan_passes_best_mode():
         [row], index, TODAY, keep_days=3,
         best_keep_days_tv=90, best_keep_days_movie=90,
     )
-    assert default["paused"] == 1
+    # 默认 after_finale：播出期按「整季保持搜索」判，不写库
+    assert default["changes"] == []
+    assert default["items"][0]["reason"] == autotoggle.REASON_BEST_AIRING
 
     always = autotoggle.plan(
         [row],
@@ -278,19 +495,23 @@ def test_plan_passes_best_mode():
         best_keep_days_tv=90, best_keep_days_movie=90,
         best_mode=autotoggle.BEST_MODE_ALWAYS,
     )
-    assert always["paused"] == 0
+    # always：播出期也直接按洗版窗口算，同样保持搜索但原因不同
+    assert always["changes"] == []
+    assert always["items"][0]["reason"] == autotoggle.REASON_BEST_PENDING
 
 
 def test_best_version_completed_when_priority_reaches_100():
-    """``episode_priority`` 全到 100 = 洗到头 → 按「已播剧集全部入库」暂停。"""
+    """``episode_priority`` 全到 100 = 洗到头 → 仍保持 R，只换原因。"""
     row = _row(best_version=1, note=[1, 2], episode_priority={"1": 100, "2": 100})
     result = autotoggle.decide(
         row, _eps(("2026-10-18", 1), ("2026-10-19", 2)), TODAY,
         best_keep_days_tv=90, best_keep_days_movie=90,
     )
     assert result.downloaded == 2
-    assert result.target == autotoggle.STATE_PAUSED
-    assert result.reason == autotoggle.REASON_ALL_DONE
+    # 洗版洗完也不写 S：宿主只处理搜索态的订阅，停在 S 上等于永远卡住
+    assert result.target == autotoggle.STATE_RUN
+    assert result.action == autotoggle.ACTION_KEEP
+    assert result.reason == autotoggle.REASON_BEST_DONE
 
 
 def test_best_version_current_priority_seed():
@@ -370,13 +591,33 @@ def test_movie_runs_inside_window():
     assert result.reason == autotoggle.REASON_MOVIE_WINDOW
 
 
-def test_movie_overdue_pauses():
-    """发行日已过、保留窗口也过了，还没下到 → 暂停。"""
+def test_movie_overdue_completes():
+    """发行日已过、保留窗口也过了，还没下到 → 写完成历史后收工。
+
+    普通电影写 ``current_priority=100`` 宿主不认（那只对洗版订阅有效），
+    留着只会一直 R 白搜，所以直接走「完成 + 删除」。
+    """
     result = autotoggle.decide(
         _movie_row(), [], TODAY, keep_days=3, releases=[("2026-10-01", 4)]
     )
-    assert result.action == autotoggle.ACTION_PAUSE
+    assert result.action == autotoggle.ACTION_COMPLETE
     assert result.reason == autotoggle.REASON_MOVIE_OVERDUE
+    assert result.target == autotoggle.STATE_RUN
+
+
+def test_best_version_movie_overdue_marks_complete():
+    """洗版电影超窗口只标记洗版完成，不删 —— 洗版问的是「洗到顶没有」。"""
+    result = autotoggle.decide(
+        _movie_row(best_version=1),
+        [],
+        TODAY,
+        keep_days=3,
+        best_keep_days_movie=90,
+        releases=[("2026-06-01", 5)],
+    )
+    assert result.action == autotoggle.ACTION_MARK_COMPLETE
+    assert result.reason == autotoggle.REASON_MOVIE_OVERDUE
+    assert result.target == autotoggle.STATE_RUN
 
 
 def test_movie_owned_paused_is_resumed_on_release_day():
@@ -1190,7 +1431,12 @@ def _stub(monkeypatch, name, **attrs):
 
 
 def _write_host(monkeypatch, *, fail_on=None, none_on=None, commit_error=False):
-    """装一套假的 ``subscription_mutation_scope``，返回记录下来的写调用。"""
+    """装一套假的 ``subscription_mutation_scope``，返回记录下来的写调用。
+
+    记录的是 ``(sid, payload, actor)``：1.18.2 起插件不再只写状态，
+    「标记洗版完成」要往同一个接口写 ``current_priority``/``episode_priority``，
+    所以替身必须实现 ``update()`` 而不是 ``update_status()``。
+    """
     calls = []
 
     class SubscriptionActor:
@@ -1199,13 +1445,19 @@ def _write_host(monkeypatch, *, fail_on=None, none_on=None, commit_error=False):
             self.is_superuser = is_superuser
 
     class Service:
-        async def update_status(self, sid, state, actor):
-            calls.append((sid, state, actor))
+        async def get_accessible(self, sid, actor):
+            return None
+
+        async def update(self, sid, payload, actor):
+            calls.append((sid, dict(payload), actor))
             if sid == fail_on:
                 raise RuntimeError("boom")
             if sid == none_on:
                 return None
             return "mutation"
+
+        async def update_status(self, sid, state, actor):
+            return await self.update(sid, {"state": state}, actor)
 
     class Scope:
         async def __aenter__(self):
@@ -1236,7 +1488,10 @@ def test_apply_goes_through_mutation_scope(plugin, monkeypatch):
 
     assert applied == [1, 2]
     assert failed == []
-    assert [(sid, target) for sid, target, _ in calls] == [(1, "S"), (2, "R")]
+    assert [(sid, payload) for sid, payload, _ in calls] == [
+        (1, {"state": "S"}),
+        (2, {"state": "R"}),
+    ]
     assert all(actor.is_superuser for _, _, actor in calls), "插件代表系统写入"
     assert calls[0][2].name == "SubscribeCenter"
 
@@ -1863,11 +2118,27 @@ def test_library_index_reads_host_lack_episode(plugin):
     assert stats["unknown"] == 1, "电影不算；缺集数未知的算待核对"
 
 
-def test_library_index_skips_best_version(plugin):
+def test_library_index_includes_best_version(plugin):
+    """洗版订阅**必须**进索引（1.18.3 修的真机 bug）。
+
+    早期这里把 ``best_version=1`` 的订阅排除掉，理由是「洗版问的是洗到顶没有」。
+    可 ``decide`` 在播出期还要判「这一集入库了没有」；不在索引里就永远拿不到
+    ``library_present`` → 一律 ``library_unknown`` 保持不动 → 自动启停对全部
+    洗版订阅失效。真机：尚公主第 25 集下完入库，判定仍是「保持不动」。
+    """
     rows = [_lib_row(id=1, best_version=1)]
     index, stats = asyncio.run(plugin._library_present_index(rows))
-    assert index == {}
-    assert stats["known"] == 0
+    assert index == {1: set()}, "缺 12 集 → 一集都没入库，但必须出现在索引里"
+    assert stats["known"] == 1
+    assert stats["unknown"] == 0
+
+
+def test_library_index_best_version_uses_host_lack_episode(plugin):
+    """洗版订阅的入库判断同样读宿主 ``lack_episode``（它按「有没有下到任一版本」算）。"""
+    rows = [_lib_row(id=5, best_version=1, lack_episode=8)]
+    index, _ = asyncio.run(plugin._library_present_index(rows))
+    # total=12, lack=8 → 前 4 集已在库
+    assert index == {5: {1, 2, 3, 4}}
 
 
 def _capture_messages(plugin):
@@ -1946,4 +2217,184 @@ def test_notify_auto_toggle_silent_without_changes(plugin):
     sent = _capture_messages(plugin)
     plugin._notify_auto_toggle({"changed": [], "failed": []})
     assert sent == []
+
+
+# --------------------------------------------------------------------- 集数修正
+#
+# 背景：宿主 ``compute_lack_episode`` 对洗版订阅只看 ``note`` ∪
+# ``episode_priority``（订阅自己下过的集），媒体库里早就存在的老集不记账，
+# 页面就显示「明明有 25 集只写 2 集」。1.18.6 的修正流程 = 每轮自动启停
+# 末尾挑几条洗版剧集订阅实探媒体库，把「库有 ∧ 已播 ∧ 在目标范围 ∧
+# note 没有」的集号交给宿主 ``backfill_existing_episodes`` 补记。
+# 下面锁住纯函数层与接线层的行为（探库/写库两个方法在单测里替换掉）。
+
+
+def _bf_row(**overrides):
+    """默认是一条「总 60 集、账上只记了 26/27」的洗版剧集订阅（对标真机 id=116）。"""
+    row = {
+        "id": 116,
+        "name": "伟大的长征",
+        "best_version": 1,
+        "best_version_full": 0,
+        "total_episode": 60,
+        "start_episode": 1,
+        "lack_episode": 34,
+        "note": [26, 27],
+        "last_update": "2026-11-01 10:00:00",
+    }
+    row.update(overrides)
+    return _row(**row)
+
+
+def test_backfill_candidates_picks_best_tv_only():
+    """候选只收「剧集 + 洗版 + 总集数已知」，普通订阅与非剧集一律不收。"""
+    rows = [
+        _bf_row(id=1),
+        _bf_row(id=2, best_version=0),
+        _bf_row(id=3, type="电影"),
+        _bf_row(id=4, total_episode=0),
+    ]
+    picked = autotoggle.backfill_candidates(
+        rows, today_text="2026-11-06", cooldown_at={}
+    )
+    assert [item["id"] for item in picked] == [1]
+    assert picked[0]["media_id"] == "1234"
+
+
+def test_backfill_candidates_cooldown_and_ordering():
+    """7 天内探过的跳过；没探过的里 last_update 最旧优先；limit 截断。"""
+    rows = [
+        _bf_row(id=1, last_update="2026-11-05 08:00:00"),
+        _bf_row(id=2, last_update="2026-10-01 08:00:00"),
+        _bf_row(id=3, last_update="2026-11-03 08:00:00"),
+    ]
+    cooldown = {"3": "2026-11-02"}  # 距 11-06 才 4 天 → 冷却内
+    picked = autotoggle.backfill_candidates(
+        rows, today_text="2026-11-06", cooldown_at=cooldown, limit=5
+    )
+    assert [item["id"] for item in picked] == [2, 1], "旧账优先"
+
+    limited = autotoggle.backfill_candidates(
+        rows, today_text="2026-11-06", cooldown_at={}, limit=1
+    )
+    assert [item["id"] for item in limited] == [2]
+
+
+def test_backfill_episodes_four_layer_intersection():
+    """库有 ∧ 已播 ∧ 目标范围 ∧ note 没有 —— 四层交集，一层都不多写。"""
+    row = _bf_row()
+    air = [(f"2026-10-{n:02d}", n) for n in range(1, 28)]
+    air.append(("2026-12-05", 28))  # 还没播的一集
+    # 库里有 1..27 + 61（界外）；今天 2026-11-06：28 未播、61 越界
+    episodes = autotoggle.backfill_episodes(
+        row, air, today_text="2026-11-06", present=list(range(1, 28)) + [61]
+    )
+    assert episodes == list(range(1, 26)), "26/27 已在 note；28 未播不补；61 越界不补"
+
+
+def test_backfill_episodes_refuses_without_signal():
+    """探不到（None）、库里空的、播出表缺失、非洗版目标 —— 一律返回空不写账。"""
+    row = _bf_row()
+    air = [("2026-10-01", 1), ("2026-10-08", 2)]
+    assert autotoggle.backfill_episodes(row, air, today_text="2026-11-06", present=None) == []
+    assert autotoggle.backfill_episodes(row, air, today_text="2026-11-06", present=[]) == []
+    assert autotoggle.backfill_episodes(row, None, today_text="2026-11-06", present=[1]) == []
+    assert autotoggle.backfill_episodes(
+        _bf_row(total_episode=0), air, today_text="2026-11-06", present=[1]
+    ) == []
+
+
+def test_backfill_wiring_cooldown_and_counts(plugin, monkeypatch):
+    """接线：探完无论结果都记探测日；补账成功才计数；探库失败也记日防天天重探。"""
+    mod = sys.modules["app.plugins.subscribecenter"]
+    monkeypatch.setattr(
+        mod,
+        "logger",
+        types.SimpleNamespace(info=lambda *a, **k: None, debug=lambda *a, **k: None),
+        raising=False,
+    )
+
+    probe_calls = []
+    applied = {}
+
+    async def fake_rows():
+        return [SimpleNamespace(**_bf_row(id=116)), SimpleNamespace(**_bf_row(id=117, last_update="2026-11-02 00:00:00"))]
+
+    async def fake_probe(row):
+        probe_calls.append(int(row.id))
+        if int(row.id) == 117:
+            raise RuntimeError("媒体服务器没接")
+        return list(range(1, 28))
+
+    async def fake_apply(sid, episodes):
+        applied[sid] = list(episodes)
+        return True
+
+    plugin._auto_toggle_rows = fake_rows
+    plugin._backfill_probe_library = fake_probe
+    plugin._backfill_apply_note = fake_apply
+    plugin.__dict__["_season_cache"] = {
+        ("1234", 1): (0.0, [("2026-10-01", n) for n in range(1, 28)], {"total": 60})
+    }
+
+    state = {}
+    cfg = {"backfill_notes": True}
+    backfilled, failed = asyncio.run(
+        plugin._backfill_note_episodes(cfg, state, {"today": "2026-11-06"})
+    )
+    assert backfilled == 1
+    assert failed == 1, "117 探库抛异常 → 计失败"
+    assert applied == {116: list(range(1, 26))}, "26/27 已在 note，补的是 1..25"
+    assert set(state["backfill_at"]) == {"116", "117"}, "探失败的也记日，防天天重探"
+
+    #: 第二轮：都在 7 天冷却内 → 一条都不探
+    probe_calls.clear()
+    backfilled2, failed2 = asyncio.run(
+        plugin._backfill_note_episodes(cfg, state, {"today": "2026-11-09"})
+    )
+    assert (backfilled2, failed2) == (0, 0)
+    assert probe_calls == []
+
+
+def test_backfill_disabled_switch_skips_everything(plugin):
+    """配置关着 → 一个查询都不发。"""
+    called = []
+
+    async def fake_rows():
+        called.append(1)
+        return []
+
+    plugin._auto_toggle_rows = fake_rows
+    out = asyncio.run(
+        plugin._backfill_note_episodes({"backfill_notes": False}, {}, {"today": "2026-11-06"})
+    )
+    assert out == (0, 0)
+    assert not called
+
+
+def test_run_inner_surfaces_backfill_counts(plugin, monkeypatch):
+    """整轮跑完：backfilled/backfill_failed 进 last_run 与 result，但绝不进通知。"""
+    plugin._auto_toggle_state = lambda: {}
+
+    async def fake_plan(**_kwargs):
+        return _plan_stub([{"id": 1, "name": "A", "state": "R", "target": "R", "action": "skip", "reason": "pending"}])
+
+    async def fake_apply(changes):
+        return [], []
+
+    async def fake_backfill(cfg, state, planned):
+        return 3, 1
+
+    plugin.auto_toggle_plan = fake_plan
+    plugin._apply_auto_toggle = fake_apply
+    plugin._backfill_note_episodes = fake_backfill
+    sent = _capture_messages(plugin)
+    result = asyncio.run(plugin.auto_toggle_run(reason="cron"))
+
+    assert result["backfilled"] == 3
+    assert result["backfill_failed"] == 1
+    assert result["last_run"]["backfilled"] == 3
+    saved = plugin.get_data("auto_toggle")
+    assert saved["last_run"]["backfill_failed"] == 1
+    assert sent == [], "集数修正保持静默，不发通知"
 

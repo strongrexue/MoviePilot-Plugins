@@ -38,6 +38,7 @@ from .constants import (
     DECISION_SKIPPED_OUT_OF_WINDOW,
     DECISION_SKIPPED_RECORDED,
     DECISION_SKIPPED_SPECIAL,
+    DECISION_SKIPPED_UNVERIFIED,
     WRITABLE_CONFIDENCE,
 )
 from .identity import HOST_SOURCE_TMDB, extract_season_hint
@@ -334,6 +335,26 @@ class SubscriptionWriter:
                 reason=_pending_reason(item, confidence),
             )
         identity = item.resolved
+
+        # ---- 无开播日期的剧集：守门没跑成就不写（1.18.7）
+        #
+        # 剧集没有「上映日」是常态，能不能订全靠 IdentityResolver 里那道
+        # 「TMDB 还有没有未播集」裁决。那道裁决 fail-open（限流 / 跨事件循环
+        # 信号量报错 / 拿不到季列表）时会返回「可订 + 无季号」，此时日期兜底
+        # 又因 release_date 为空而整道跳过 —— 老片就这么漏进了订阅。
+        #
+        # 记为「未确认」而非「已播完」：下一轮裁决恢复后仍会重新判定，不误伤
+        # 正在连载、只是这一轮没查到未播集的剧。
+        if (
+            item.is_tv
+            and not item.release_date
+            and not getattr(item, "season_verified", True)
+        ):
+            return WriteOutcome(
+                item=item,
+                decision=DECISION_SKIPPED_UNVERIFIED,
+                reason="来源未给开播日期，且 TMDB 未播集裁决未跑成，暂不订阅（下一轮会重试）",
+            )
 
         # ---- 兜底：定档日期必须落在合理窗口内
         #

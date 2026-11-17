@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, a as getPluginApi, s as savePluginConfig, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
-import { F as FRONTEND_VERSION } from './version-Gnr8knLD.js';
+import { _ as _export_sfc, u as unwrap, p as postPluginApi, R as RENDER_TIMEOUT_MS, s as savePluginConfig, a as getPluginApi, g as getPluginConfig } from './_plugin-vue_export-helper-BGiM_AXo.js';
+import { F as FRONTEND_VERSION } from './version-BQDDEUGH.js';
 
 const {toDisplayString:_toDisplayString$3,createElementVNode:_createElementVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,createBlock:_createBlock$3,normalizeStyle:_normalizeStyle,createTextVNode:_createTextVNode$3,withCtx:_withCtx$3} = await importShared('vue');
 
@@ -329,15 +329,36 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     ? initialConfig.selected_servers
     : [];
 
+  // 全局默认配置快照（新库 / 未单独配置的库回退到这里）。与 props 解耦：
+  // 插件热重载后 props 可能变化，回落基准应以进入页面时读到的为准。
+  const globalDefault = {
+    layout: initialConfig.cover_layout || 'classic',
+    config: { ...(initialConfig.cover_config || {}) },
+    assets_mode: initialConfig.assets_mode || 'random',
+    poster_count: Number(initialConfig.poster_count || 6),
+    backdrop_count: Number(initialConfig.backdrop_count || 1),
+  };
+
   const form = reactive$2({
     server: selectedServers.length ? selectedServers[0] : '',
     library_id: '',
-    layout: initialConfig.cover_layout || 'classic',
-    mode: initialConfig.assets_mode || 'random',
-    poster_count: Number(initialConfig.poster_count || 6),
-    backdrop_count: Number(initialConfig.backdrop_count || 1),
-    config: { ...(initialConfig.cover_config || {}) },
+    layout: globalDefault.layout,
+    mode: globalDefault.assets_mode,
+    poster_count: globalDefault.poster_count,
+    backdrop_count: globalDefault.backdrop_count,
+    config: { ...globalDefault.config },
   });
+
+  // 每个媒体库一份完整配置快照：{ 媒体库ID: { layout, config, assets_mode,
+  // poster_count, backdrop_count } }。切库时按这里载入，自动封面运行时也按库取。
+  const coverConfigPerLibrary = reactive$2(
+    initialConfig.cover_config_per_library && typeof initialConfig.cover_config_per_library === 'object'
+      ? JSON.parse(JSON.stringify(initialConfig.cover_config_per_library))
+      : {},
+  );
+
+  /** 当前选中的库是否已存有专属配置（决定 UI 上的「专属 / 全局默认」标识）。 */
+  const isLibraryCustom = computed$3(() => !!coverConfigPerLibrary[form.library_id]);
 
   // 各媒体库手填的英文名（副标题覆盖值），随配置持久化到插件配置。
   const libraryEnNames = reactive$2(
@@ -404,14 +425,47 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 目标对象跟随所选媒体库：主标题=库名，副标题=英文名。
-   *  英文名优先取「该库手填值」，其次内置中英词典，最后回退库名本身。 */
-  function syncFromLibrary() {
+  /** 当前表单的完整配置快照（按库槽位用）。内容字段不进快照，切库时按目标库重算。 */
+  function currentSlotSnapshot() {
+    const config = { ...form.config };
+    for (const key of CONTENT_KEYS) delete config[key];
+    return {
+      layout: form.layout,
+      config,
+      assets_mode: form.mode,
+      poster_count: Number(form.poster_count || 0),
+      backdrop_count: Number(form.backdrop_count || 0),
+    }
+  }
+
+  /** 按当前媒体库载入配置：有专属槽位则用槽位，否则回退全局默认。 */
+  function loadSlotForLibrary() {
+    const slot = coverConfigPerLibrary[form.library_id];
+    const base = slot || globalDefault;
+    form.layout = base.layout || globalDefault.layout;
+    form.mode = base.assets_mode || globalDefault.assets_mode;
+    form.poster_count = Number(base.poster_count || 0);
+    form.backdrop_count = Number(base.backdrop_count || 0);
+    form.config = coerceValues(allGroups.value, { ...(base.config || {}) });
+    applyDefaults(allGroups.value);
+  }
+
+  /** 只按当前库刷新内容字段（主标题=库名，副标题=英文名）。
+   *  与 loadSlotForLibrary 分开：载入模板时只换风格，不能重置已套用的风格参数。 */
+  function applyLibraryContent() {
     const target = libraries.value.find(item => item.id === form.library_id);
     if (!target) return
     form.config.title = target.name || target.id;
     form.config.subtitle =
       libraryEnNames[form.library_id] || englishNameFor(target.name) || target.name || '';
+  }
+
+  /** 切换媒体库：先按库载入完整配置快照（或回落全局），再定标题 / 副标题。
+   *  英文名优先取「该库手填值」，其次内置中英词典，最后回退库名本身。 */
+  function syncFromLibrary() {
+    if (!form.library_id) return
+    loadSlotForLibrary();
+    applyLibraryContent();
   }
 
   /** 用户手填副标题时记为当前媒体库的英文名覆盖值（清空则移除覆盖）。 */
@@ -420,6 +474,70 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     const text = String(value == null ? '' : value).trim();
     if (text) libraryEnNames[form.library_id] = text;
     else delete libraryEnNames[form.library_id];
+  }
+
+  /** 当前库名（用于「专属 / 全局默认」提示文案）。 */
+  function currentLibraryName() {
+    const target = libraries.value.find(item => item.id === form.library_id);
+    return (target && target.name) || form.library_id || '当前库'
+  }
+
+  /** 存为当前库的专属配置：把整份快照写入对应槽位并持久化。 */
+  async function saveLibraryConfig() {
+    if (!form.library_id) {
+      report('请先选择媒体库', false);
+      return
+    }
+    coverConfigPerLibrary[form.library_id] = currentSlotSnapshot();
+    try {
+      await savePluginConfig(api(), pluginId(), {
+        cover_config_per_library: { ...coverConfigPerLibrary },
+        library_en_names: { ...libraryEnNames },
+      });
+      report(`已保存「${currentLibraryName()}」的专属配置`);
+    } catch (error) {
+      report(error?.message || '专属配置保存失败', false);
+    }
+  }
+
+  /** 删除当前库的专属配置：回退到全局默认。 */
+  async function deleteLibraryConfig() {
+    if (!form.library_id) {
+      report('请先选择媒体库', false);
+      return
+    }
+    delete coverConfigPerLibrary[form.library_id];
+    try {
+      await savePluginConfig(api(), pluginId(), {
+        cover_config_per_library: { ...coverConfigPerLibrary },
+      });
+      loadSlotForLibrary();
+      applyLibraryContent();
+      report(`已删除「${currentLibraryName()}」的专属配置，回退全局默认`);
+    } catch (error) {
+      report(error?.message || '专属配置删除失败', false);
+    }
+  }
+
+  /** 把当前库配置批量套用到其它库（目标库列表由 UI 多选给出）。 */
+  async function applyConfigToLibraries(targetIds) {
+    const ids = (Array.isArray(targetIds) ? targetIds : []).filter(
+      id => id && id !== form.library_id,
+    );
+    if (!ids.length) {
+      report('请先勾选其它媒体库', false);
+      return
+    }
+    const snapshot = currentSlotSnapshot();
+    for (const id of ids) coverConfigPerLibrary[id] = JSON.parse(JSON.stringify(snapshot));
+    try {
+      await savePluginConfig(api(), pluginId(), {
+        cover_config_per_library: { ...coverConfigPerLibrary },
+      });
+      report(`已套用到 ${ids.length} 个媒体库`);
+    } catch (error) {
+      report(error?.message || '批量套用失败', false);
+    }
   }
 
   async function loadLayouts() {
@@ -525,17 +643,26 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   }
 
   /** 把当前封面方案持久化到插件配置（下次进入页面与自动封面「跟随封面设计」
-   *  都读它）。只写设计字段，基础字段由设置弹窗负责；失败不影响应用结果。 */
+   *  都读它）。只写设计字段，基础字段由设置弹窗负责；失败不影响应用结果。
+   *  若当前库已有专属槽位，写入该槽位；否则写入全局默认。 */
   async function saveScheme() {
     try {
-      await savePluginConfig(api(), pluginId(), {
-        cover_layout: form.layout,
-        cover_config: { ...form.config },
-        assets_mode: form.mode,
-        poster_count: Number(form.poster_count || 0),
-        backdrop_count: Number(form.backdrop_count || 0),
+      const base = {
         library_en_names: { ...libraryEnNames },
-      });
+      };
+      if (coverConfigPerLibrary[form.library_id]) {
+        // 正在编辑某库的专属配置：整份快照写进对应槽位。
+        coverConfigPerLibrary[form.library_id] = currentSlotSnapshot();
+        base.cover_config_per_library = { ...coverConfigPerLibrary };
+      } else {
+        // 没有专属槽位：作为全局默认，老字段保持兼容。
+        base.cover_layout = form.layout;
+        base.cover_config = { ...form.config };
+        base.assets_mode = form.mode;
+        base.poster_count = Number(form.poster_count || 0);
+        base.backdrop_count = Number(form.backdrop_count || 0);
+      }
+      await savePluginConfig(api(), pluginId(), base);
     } catch {
       /* 方案保存失败时保持静默：封面本身已应用成功 */
     }
@@ -674,7 +801,9 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 载入模板：**只套用风格参数**，主/副标题属于「目标对象」，不随模板改动。 */
+  /** 载入模板：**只套用风格参数**，主/副标题属于「目标对象」，不随模板改动。
+   *  模板作为「快速套用风格」入口：套用后写入当前库槽位，供继续微调；
+   *  自动封面运行时按库读该槽位，不再直接依赖单一模板值。 */
   function loadTemplate(template) {
     const incoming = { ...(template.config || {}) };
     for (const key of CONTENT_KEYS) delete incoming[key];
@@ -685,8 +814,9 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       subtitle: form.config.subtitle,
     });
     applyDefaults(allGroups.value);
-    syncFromLibrary();
-    report(`已载入模板：${template.name || template.filename}（仅套用风格参数）`);
+    if (form.library_id) coverConfigPerLibrary[form.library_id] = currentSlotSnapshot();
+    applyLibraryContent();
+    report(`已载入模板：${template.name || template.filename}（仅套用风格参数，可继续微调后保存）`);
   }
 
   /** 模板预览图地址（原生资源端点，浏览器可直接 <img> 加载）。 */
@@ -726,6 +856,10 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     libraryItems,
     layoutItems,
     fontItems,
+    coverConfigPerLibrary,
+    isLibraryCustom,
+    currentSlotSnapshot,
+    currentLibraryName,
     loadAll,
     loadLibraries,
     loadKeyart,
@@ -736,6 +870,9 @@ function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     libraryEnNames,
     syncFromLibrary,
     onSubtitleEdited,
+    saveLibraryConfig,
+    deleteLibraryConfig,
+    applyConfigToLibraries,
     previewCover,
     applyCover,
     uploadFont,
@@ -776,20 +913,23 @@ const _hoisted_16 = {
   key: 0,
   class: "ec-fields"
 };
-const _hoisted_17 = {
+const _hoisted_17 = { class: "ec-span ec-lib-config" };
+const _hoisted_18 = { class: "ec-span ec-row-wrap" };
+const _hoisted_19 = { class: "ec-span ec-row-wrap" };
+const _hoisted_20 = {
   key: 1,
   class: "ec-fields"
 };
-const _hoisted_18 = {
+const _hoisted_21 = {
   key: 2,
   class: "ec-fields"
 };
-const _hoisted_19 = {
+const _hoisted_22 = {
   key: 3,
   class: "ec-fonts"
 };
-const _hoisted_20 = { class: "ec-row-wrap mt-2" };
-const _hoisted_21 = {
+const _hoisted_23 = { class: "ec-row-wrap mt-2" };
+const _hoisted_24 = {
   key: 0,
   class: "text-caption text-medium-emphasis mt-1"
 };
@@ -920,6 +1060,29 @@ const currentLibraryName = computed$2(() => {
   return hit ? (hit.name || hit.id) : '未选媒体库'
 });
 
+/** 按库专属配置：当前库是否有专属槽位，决定显示「专属」还是「跟随全局」。 */
+const isLibraryCustom = designer.isLibraryCustom;
+
+/** 批量套用：可多选其它媒体库，把当前库配置整份复制过去。 */
+const batchTargets = ref$1([]);
+const batchItems = computed$2(() =>
+  designer.libraries.value
+    .filter(item => item.id !== form.library_id)
+    .map(item => ({ title: item.name || item.id, value: item.id })),
+);
+function askDeleteLibraryConfig() {
+  askDelete(
+    '删除专属配置',
+    `确定删除「${currentLibraryName.value}」的专属配置吗？该库将回退到全局默认配置。`,
+    () => designer.deleteLibraryConfig(),
+  );
+}
+function applyBatch() {
+  designer.applyConfigToLibraries(batchTargets.value).then(() => {
+    batchTargets.value = [];
+  });
+}
+
 const canvasLabel = computed$2(() => {
   const width = Number(form.config.canvas_width || 0);
   const height = Number(form.config.canvas_height || 0);
@@ -1047,6 +1210,7 @@ return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent$2("VIcon");
   const _component_VTextField = _resolveComponent$2("VTextField");
   const _component_VSelect = _resolveComponent$2("VSelect");
+  const _component_VChip = _resolveComponent$2("VChip");
   const _component_VExpansionPanel = _resolveComponent$2("VExpansionPanel");
   const _component_VExpansionPanels = _resolveComponent$2("VExpansionPanels");
   const _component_VSpacer = _resolveComponent$2("VSpacer");
@@ -1055,7 +1219,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$2(), _createElementBlock$2("div", _hoisted_1$2, [
     _createElementVNode$2("div", _hoisted_2$2, [
-      _cache[15] || (_cache[15] = _createElementVNode$2("div", { class: "ec-toolbar-head" }, [
+      _cache[16] || (_cache[16] = _createElementVNode$2("div", { class: "ec-toolbar-head" }, [
         _createElementVNode$2("div", { class: "ec-h" }, "封面设计"),
         _createElementVNode$2("div", { class: "ec-sub" }, "选媒体库 → 调风格 → 生成预览 → 应用到媒体库封面")
       ], -1)),
@@ -1066,7 +1230,7 @@ return (_ctx, _cache) => {
           loading: _unref$2(designer).loading.value,
           onClick: _unref$2(designer).loadAll
         }, {
-          default: _withCtx$2(() => [...(_cache[12] || (_cache[12] = [
+          default: _withCtx$2(() => [...(_cache[13] || (_cache[13] = [
             _createTextVNode$2("刷新", -1)
           ]))]),
           _: 1
@@ -1078,7 +1242,7 @@ return (_ctx, _cache) => {
           loading: _unref$2(designer).previewing.value,
           onClick: _unref$2(designer).previewCover
         }, {
-          default: _withCtx$2(() => [...(_cache[13] || (_cache[13] = [
+          default: _withCtx$2(() => [...(_cache[14] || (_cache[14] = [
             _createTextVNode$2(" 生成预览 ", -1)
           ]))]),
           _: 1
@@ -1091,7 +1255,7 @@ return (_ctx, _cache) => {
           loading: _unref$2(designer).applying.value,
           onClick: _unref$2(designer).applyCover
         }, {
-          default: _withCtx$2(() => [...(_cache[14] || (_cache[14] = [
+          default: _withCtx$2(() => [...(_cache[15] || (_cache[15] = [
             _createTextVNode$2(" 渲染并应用 ", -1)
           ]))]),
           _: 1
@@ -1125,7 +1289,7 @@ return (_ctx, _cache) => {
               loading: _unref$2(designer).previewing.value,
               onClick: _unref$2(designer).previewCover
             }, {
-              default: _withCtx$2(() => [...(_cache[18] || (_cache[18] = [
+              default: _withCtx$2(() => [...(_cache[19] || (_cache[19] = [
                 _createTextVNode$2(" 生成 ", -1)
               ]))]),
               _: 1
@@ -1133,13 +1297,13 @@ return (_ctx, _cache) => {
           ]),
           default: _withCtx$2(() => [
             _createVNode$2(_component_VCardTitle, { class: "text-subtitle-1" }, {
-              default: _withCtx$2(() => [...(_cache[16] || (_cache[16] = [
+              default: _withCtx$2(() => [...(_cache[17] || (_cache[17] = [
                 _createTextVNode$2("预览", -1)
               ]))]),
               _: 1
             }),
             _createVNode$2(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$2(() => [...(_cache[17] || (_cache[17] = [
+              default: _withCtx$2(() => [...(_cache[18] || (_cache[18] = [
                 _createTextVNode$2("横版占满 · 生成后可一键应用为当前媒体库封面", -1)
               ]))]),
               _: 1
@@ -1194,7 +1358,7 @@ return (_ctx, _cache) => {
               variant: "text",
               "prepend-icon": "mdi-upload"
             }, {
-              default: _withCtx$2(() => [...(_cache[20] || (_cache[20] = [
+              default: _withCtx$2(() => [...(_cache[21] || (_cache[21] = [
                 _createTextVNode$2(" 上传 ", -1)
               ]))]),
               _: 1
@@ -1208,7 +1372,7 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createVNode$2(_component_VCardSubtitle, { class: "text-caption" }, {
-              default: _withCtx$2(() => [...(_cache[19] || (_cache[19] = [
+              default: _withCtx$2(() => [...(_cache[20] || (_cache[20] = [
                 _createTextVNode$2("横版占满 · 点击卡片即载入（仅套用风格参数，不改标题/副标题）", -1)
               ]))]),
               _: 1
@@ -1272,7 +1436,7 @@ return (_ctx, _cache) => {
                 disabled: !templateName.value,
                 onClick: _cache[1] || (_cache[1] = $event => (_unref$2(designer).saveTemplate(templateName.value)))
               }, {
-                default: _withCtx$2(() => [...(_cache[21] || (_cache[21] = [
+                default: _withCtx$2(() => [...(_cache[22] || (_cache[22] = [
                   _createTextVNode$2(" 保存当前 ", -1)
                 ]))]),
                 _: 1
@@ -1286,7 +1450,7 @@ return (_ctx, _cache) => {
     }),
     _createVNode$2(_component_VExpansionPanels, {
       modelValue: openSections.value,
-      "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((openSections).value = $event)),
+      "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((openSections).value = $event)),
       variant: "accordion",
       flat: "",
       multiple: "",
@@ -1354,13 +1518,81 @@ return (_ctx, _cache) => {
                       density: "compact",
                       variant: "outlined",
                       "hide-details": ""
-                    }, null, 8, ["modelValue"])
+                    }, null, 8, ["modelValue"]),
+                    _createElementVNode$2("div", _hoisted_17, [
+                      _createVNode$2(_component_VChip, {
+                        color: _unref$2(isLibraryCustom) ? 'primary' : 'default',
+                        variant: "tonal",
+                        size: "small"
+                      }, {
+                        default: _withCtx$2(() => [
+                          _createTextVNode$2(_toDisplayString$2(_unref$2(isLibraryCustom) ? `${currentLibraryName.value} · 专属配置` : `${currentLibraryName.value} · 跟随全局默认`), 1)
+                        ]),
+                        _: 1
+                      }, 8, ["color"])
+                    ]),
+                    _createElementVNode$2("div", _hoisted_18, [
+                      _createVNode$2(_component_VBtn, {
+                        color: "primary",
+                        variant: "tonal",
+                        size: "small",
+                        "prepend-icon": "mdi-content-save-outline",
+                        onClick: _unref$2(designer).saveLibraryConfig
+                      }, {
+                        default: _withCtx$2(() => [...(_cache[23] || (_cache[23] = [
+                          _createTextVNode$2(" 存为当前库专属配置 ", -1)
+                        ]))]),
+                        _: 1
+                      }, 8, ["onClick"]),
+                      (_unref$2(isLibraryCustom))
+                        ? (_openBlock$2(), _createBlock$2(_component_VBtn, {
+                            key: 0,
+                            color: "error",
+                            variant: "text",
+                            size: "small",
+                            "prepend-icon": "mdi-delete-outline",
+                            onClick: askDeleteLibraryConfig
+                          }, {
+                            default: _withCtx$2(() => [...(_cache[24] || (_cache[24] = [
+                              _createTextVNode$2(" 删除该库专属配置 ", -1)
+                            ]))]),
+                            _: 1
+                          }))
+                        : _createCommentVNode$2("", true)
+                    ]),
+                    _createElementVNode$2("div", _hoisted_19, [
+                      _createVNode$2(_component_VSelect, {
+                        modelValue: batchTargets.value,
+                        "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((batchTargets).value = $event)),
+                        items: batchItems.value,
+                        label: "批量套用到其它库",
+                        multiple: "",
+                        chips: "",
+                        "closable-chips": "",
+                        density: "compact",
+                        variant: "outlined",
+                        "hide-details": "",
+                        class: "ec-batch-select"
+                      }, null, 8, ["modelValue", "items"]),
+                      _createVNode$2(_component_VBtn, {
+                        size: "small",
+                        variant: "outlined",
+                        disabled: !batchTargets.value.length,
+                        onClick: applyBatch
+                      }, {
+                        default: _withCtx$2(() => [...(_cache[25] || (_cache[25] = [
+                          _createTextVNode$2(" 套用 ", -1)
+                        ]))]),
+                        _: 1
+                      }, 8, ["disabled"])
+                    ]),
+                    _cache[26] || (_cache[26] = _createElementVNode$2("div", { class: "text-caption text-medium-emphasis ec-span" }, " 每个媒体库可存一份完整配置（风格 / 布局 / 素材）。有专属配置的库自动更新时按自己的配置生成，否则跟随全局默认。 ", -1))
                   ]))
                 : (block.kind === 'content')
-                  ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_17, [
+                  ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_20, [
                       _createVNode$2(_component_VTextField, {
                         modelValue: _unref$2(form).config.title,
-                        "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((_unref$2(form).config.title) = $event)),
+                        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((_unref$2(form).config.title) = $event)),
                         label: "主标题内容",
                         density: "compact",
                         variant: "outlined",
@@ -1369,7 +1601,7 @@ return (_ctx, _cache) => {
                       _createVNode$2(_component_VTextField, {
                         modelValue: _unref$2(form).config.subtitle,
                         "onUpdate:modelValue": [
-                          _cache[7] || (_cache[7] = $event => ((_unref$2(form).config.subtitle) = $event)),
+                          _cache[8] || (_cache[8] = $event => ((_unref$2(form).config.subtitle) = $event)),
                           _unref$2(designer).onSubtitleEdited
                         ],
                         label: "副标题内容（英文名）",
@@ -1377,10 +1609,10 @@ return (_ctx, _cache) => {
                         variant: "outlined",
                         "hide-details": ""
                       }, null, 8, ["modelValue", "onUpdate:modelValue"]),
-                      _cache[22] || (_cache[22] = _createElementVNode$2("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题默认取媒体库英文名（手填即记住该库），载入模板不会改它们。 ", -1))
+                      _cache[27] || (_cache[27] = _createElementVNode$2("div", { class: "text-caption text-medium-emphasis ec-span" }, " 主标题跟随所选媒体库，副标题默认取媒体库英文名（手填即记住该库），载入模板不会改它们。 ", -1))
                     ]))
                   : (block.kind === 'style' || block.kind === 'engine')
-                    ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_18, [
+                    ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_21, [
                         (_openBlock$2(true), _createElementBlock$2(_Fragment$1, null, _renderList$1(block.items, (item) => {
                           return (_openBlock$2(), _createBlock$2(CoverField, {
                             key: item.key,
@@ -1394,10 +1626,10 @@ return (_ctx, _cache) => {
                         }), 128))
                       ]))
                     : (block.kind === 'fonts')
-                      ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_19, [
+                      ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_22, [
                           _createVNode$2(_component_VSelect, {
                             modelValue: fontSelection.value,
-                            "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((fontSelection).value = $event)),
+                            "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((fontSelection).value = $event)),
                             items: _unref$2(designer).fonts.value,
                             label: "已装字体（下拉勾选，可批量删除）",
                             multiple: "",
@@ -1407,7 +1639,7 @@ return (_ctx, _cache) => {
                             "hide-details": "",
                             disabled: !_unref$2(designer).fonts.value.length
                           }, null, 8, ["modelValue", "items", "disabled"]),
-                          _createElementVNode$2("div", _hoisted_20, [
+                          _createElementVNode$2("div", _hoisted_23, [
                             _createVNode$2(_component_VBtn, {
                               size: "small",
                               variant: "tonal",
@@ -1428,14 +1660,14 @@ return (_ctx, _cache) => {
                               variant: "text",
                               "prepend-icon": "mdi-upload"
                             }, {
-                              default: _withCtx$2(() => [...(_cache[23] || (_cache[23] = [
+                              default: _withCtx$2(() => [...(_cache[28] || (_cache[28] = [
                                 _createTextVNode$2(" 上传字体 ", -1)
                               ]))]),
                               _: 1
                             })
                           ]),
                           (!_unref$2(designer).fonts.value.length)
-                            ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_21, " 未上传字体（中文会回退为方块），请先上传 .ttf/.otf "))
+                            ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_24, " 未上传字体（中文会回退为方块），请先上传 .ttf/.otf "))
                             : _createCommentVNode$2("", true)
                         ]))
                       : _createCommentVNode$2("", true)
@@ -1462,7 +1694,7 @@ return (_ctx, _cache) => {
     }, null, 32),
     _createVNode$2(_component_VDialog, {
       modelValue: confirm.show,
-      "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((confirm.show) = $event)),
+      "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((confirm.show) = $event)),
       "max-width": "400"
     }, {
       default: _withCtx$2(() => [
@@ -1490,9 +1722,9 @@ return (_ctx, _cache) => {
                 _createVNode$2(_component_VSpacer),
                 _createVNode$2(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[10] || (_cache[10] = $event => (confirm.show = false))
+                  onClick: _cache[11] || (_cache[11] = $event => (confirm.show = false))
                 }, {
-                  default: _withCtx$2(() => [...(_cache[24] || (_cache[24] = [
+                  default: _withCtx$2(() => [...(_cache[29] || (_cache[29] = [
                     _createTextVNode$2("取消", -1)
                   ]))]),
                   _: 1
@@ -1502,7 +1734,7 @@ return (_ctx, _cache) => {
                   variant: "flat",
                   onClick: confirmOk
                 }, {
-                  default: _withCtx$2(() => [...(_cache[25] || (_cache[25] = [
+                  default: _withCtx$2(() => [...(_cache[30] || (_cache[30] = [
                     _createTextVNode$2("删除", -1)
                   ]))]),
                   _: 1
@@ -1521,7 +1753,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-74b7de8e"]]);
+const CoverDesignPane = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-e8a43f77"]]);
 
 /**
  * Emby 计划任务中心的前端状态与动作。

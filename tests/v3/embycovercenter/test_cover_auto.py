@@ -107,6 +107,130 @@ def test_resolve_design_missing_template(tmp_path):
         cover_auto.resolve_design(plugin, plugin.config)
 
 
+# --------------------------------------------------------------------------- 每库独立配置
+
+
+def test_library_design_returns_slot_or_none():
+    """每库快照命中返回 dict；无映射 / 无该库槽位返回 None。"""
+    config = {
+        "cover_config_per_library": {
+            "lib1": {"layout": "经典平铺", "config": {"poster_count": 9}},
+            "lib2": "not-a-dict",
+        }
+    }
+    assert cover_auto.library_design(config, "lib1") == {
+        "layout": "经典平铺",
+        "config": {"poster_count": 9},
+    }
+    assert cover_auto.library_design(config, "lib2") is None
+    assert cover_auto.library_design(config, "lib3") is None
+    assert cover_auto.library_design({}, "lib1") is None
+    assert cover_auto.library_design({"cover_config_per_library": "bad"}, "lib1") is None
+
+
+def test_run_auto_cover_uses_per_library_config(monkeypatch, tmp_path):
+    """整轮执行时每库优先用专属快照（layout/config/数量/素材模式），彼此不串。"""
+    uploaded = []
+    fetched = []
+    monkeypatch.setattr(cover_auto.emby_gateway, "resolve", lambda server: object())
+    monkeypatch.setattr(
+        cover_auto.emby_assets,
+        "list_libraries",
+        lambda ref: [{"id": "lib1", "name": "电影"}, {"id": "lib2", "name": "剧集"}],
+    )
+
+    def fake_fetch(ref, library_id, mode="random", poster_count=6, backdrop_count=1):
+        fetched.append((library_id, mode, poster_count, backdrop_count))
+        return {"posters": []}
+
+    monkeypatch.setattr(cover_auto.emby_assets, "fetch_assets", fake_fetch)
+    monkeypatch.setattr(
+        cover_auto.emby_gateway,
+        "post_raw",
+        lambda ref, path, data, content_type, query=None: uploaded.append(path),
+    )
+
+    plugin = _FakePlugin(
+        {
+            "enabled": True,
+            "cover_layout": "全局布局",
+            "cover_config": {"poster_count": 3},
+            "assets_mode": "random",
+            "cover_config_per_library": {
+                "lib1": {
+                    "layout": "专属A",
+                    "config": {"poster_count": 1, "custom_color": "#f00"},
+                    "assets_mode": "latest",
+                    "poster_count": 7,
+                    "backdrop_count": 4,
+                },
+                # lib2 无专属槽位 → 回退全局方案
+            },
+            "auto_cover_libraries": {"Emby": ["lib1", "lib2"]},
+        },
+        data_path=tmp_path,
+    )
+    engine = _FakeEngine()
+    plugin.cover_engine = lambda: engine
+
+    summary = cover_auto.run_auto_cover(plugin)
+    assert summary["ok"] == 2
+
+    drawn = {d[0]["title"]: d[0] for d in engine.drawn}
+    # lib1 → 电影：专属槽位全量生效
+    assert drawn["电影"]["engine"] == "专属A"
+    assert drawn["电影"]["custom_color"] == "#f00"
+    assert drawn["电影"]["poster_count"] == 1  # config 里的数量优先于槽位顶层
+    # lib2 → 剧集：回退全局方案
+    assert drawn["剧集"]["engine"] == "全局布局"
+    assert drawn["剧集"]["poster_count"] == 3
+    assert "custom_color" not in drawn["剧集"]
+
+    # 素材模式 / 数量按库：lib1 用专属 mode + 槽位数量兜底（config 无数量时）
+    f = {row[0]: row for row in fetched}
+    assert f["lib1"][1] == "latest"
+    assert f["lib2"][1] == "random"
+
+
+def test_library_slot_count_fallback(monkeypatch, tmp_path):
+    """槽位 config 未带数量时，回退到槽位顶层的 poster_count / backdrop_count。"""
+    fetched = []
+    monkeypatch.setattr(cover_auto.emby_gateway, "resolve", lambda server: object())
+    monkeypatch.setattr(
+        cover_auto.emby_assets, "list_libraries", lambda ref: [{"id": "lib1", "name": "电影"}]
+    )
+    monkeypatch.setattr(
+        cover_auto.emby_assets,
+        "fetch_assets",
+        lambda ref, library_id, mode="random", poster_count=6, backdrop_count=1: fetched.append(
+            (mode, poster_count, backdrop_count)
+        )
+        or {},
+    )
+    monkeypatch.setattr(cover_auto.emby_gateway, "post_raw", lambda *a, **k: None)
+
+    plugin = _FakePlugin(
+        {
+            "cover_layout": "全局布局",
+            "cover_config": {},
+            "cover_config_per_library": {
+                "lib1": {
+                    "layout": "专属A",
+                    "config": {},  # 无 poster_count → 用槽位顶层
+                    "assets_mode": "latest",
+                    "poster_count": 11,
+                    "backdrop_count": 2,
+                }
+            },
+            "auto_cover_libraries": {"Emby": ["lib1"]},
+        },
+        data_path=tmp_path,
+    )
+    plugin.cover_engine = lambda: _FakeEngine()
+    cover_auto.run_auto_cover(plugin)
+    assert fetched == [("latest", 11, 2)]
+
+
 # --------------------------------------------------------------------------- 目标交集
 
 

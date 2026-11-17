@@ -121,6 +121,29 @@ const currentLibraryName = computed(() => {
   return hit ? (hit.name || hit.id) : '未选媒体库'
 })
 
+/** 按库专属配置：当前库是否有专属槽位，决定显示「专属」还是「跟随全局」。 */
+const isLibraryCustom = designer.isLibraryCustom
+
+/** 批量套用：可多选其它媒体库，把当前库配置整份复制过去。 */
+const batchTargets = ref([])
+const batchItems = computed(() =>
+  designer.libraries.value
+    .filter(item => item.id !== form.library_id)
+    .map(item => ({ title: item.name || item.id, value: item.id })),
+)
+function askDeleteLibraryConfig() {
+  askDelete(
+    '删除专属配置',
+    `确定删除「${currentLibraryName.value}」的专属配置吗？该库将回退到全局默认配置。`,
+    () => designer.deleteLibraryConfig(),
+  )
+}
+function applyBatch() {
+  designer.applyConfigToLibraries(batchTargets.value).then(() => {
+    batchTargets.value = []
+  })
+}
+
 const canvasLabel = computed(() => {
   const width = Number(form.config.canvas_width || 0)
   const height = Number(form.config.canvas_height || 0)
@@ -408,6 +431,58 @@ onMounted(designer.loadAll)
               variant="outlined"
               hide-details
             />
+
+            <!-- 每库独立配置：专属槽位状态 + 存为专属 / 删除专属 / 批量套用 -->
+            <div class="ec-span ec-lib-config">
+              <VChip
+                :color="isLibraryCustom ? 'primary' : 'default'"
+                variant="tonal"
+                size="small"
+              >
+                {{ isLibraryCustom ? `${currentLibraryName} · 专属配置` : `${currentLibraryName} · 跟随全局默认` }}
+              </VChip>
+            </div>
+            <div class="ec-span ec-row-wrap">
+              <VBtn
+                color="primary"
+                variant="tonal"
+                size="small"
+                prepend-icon="mdi-content-save-outline"
+                @click="designer.saveLibraryConfig"
+              >
+                存为当前库专属配置
+              </VBtn>
+              <VBtn
+                v-if="isLibraryCustom"
+                color="error"
+                variant="text"
+                size="small"
+                prepend-icon="mdi-delete-outline"
+                @click="askDeleteLibraryConfig"
+              >
+                删除该库专属配置
+              </VBtn>
+            </div>
+            <div class="ec-span ec-row-wrap">
+              <VSelect
+                v-model="batchTargets"
+                :items="batchItems"
+                label="批量套用到其它库"
+                multiple
+                chips
+                closable-chips
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="ec-batch-select"
+              />
+              <VBtn size="small" variant="outlined" :disabled="!batchTargets.length" @click="applyBatch">
+                套用
+              </VBtn>
+            </div>
+            <div class="text-caption text-medium-emphasis ec-span">
+              每个媒体库可存一份完整配置（风格 / 布局 / 素材）。有专属配置的库自动更新时按自己的配置生成，否则跟随全局默认。
+            </div>
           </div>
 
           <div v-else-if="block.kind === 'content'" class="ec-fields">
@@ -603,6 +678,14 @@ onMounted(designer.loadAll)
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+.ec-lib-config {
+  display: flex;
+  align-items: center;
+}
+.ec-batch-select {
+  flex: 1 1 260px;
+  min-width: 200px;
 }
 .ec-fonts {
   display: flex;

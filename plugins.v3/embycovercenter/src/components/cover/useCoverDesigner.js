@@ -115,15 +115,36 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     ? initialConfig.selected_servers
     : []
 
+  // 全局默认配置快照（新库 / 未单独配置的库回退到这里）。与 props 解耦：
+  // 插件热重载后 props 可能变化，回落基准应以进入页面时读到的为准。
+  const globalDefault = {
+    layout: initialConfig.cover_layout || 'classic',
+    config: { ...(initialConfig.cover_config || {}) },
+    assets_mode: initialConfig.assets_mode || 'random',
+    poster_count: Number(initialConfig.poster_count || 6),
+    backdrop_count: Number(initialConfig.backdrop_count || 1),
+  }
+
   const form = reactive({
     server: selectedServers.length ? selectedServers[0] : '',
     library_id: '',
-    layout: initialConfig.cover_layout || 'classic',
-    mode: initialConfig.assets_mode || 'random',
-    poster_count: Number(initialConfig.poster_count || 6),
-    backdrop_count: Number(initialConfig.backdrop_count || 1),
-    config: { ...(initialConfig.cover_config || {}) },
+    layout: globalDefault.layout,
+    mode: globalDefault.assets_mode,
+    poster_count: globalDefault.poster_count,
+    backdrop_count: globalDefault.backdrop_count,
+    config: { ...globalDefault.config },
   })
+
+  // 每个媒体库一份完整配置快照：{ 媒体库ID: { layout, config, assets_mode,
+  // poster_count, backdrop_count } }。切库时按这里载入，自动封面运行时也按库取。
+  const coverConfigPerLibrary = reactive(
+    initialConfig.cover_config_per_library && typeof initialConfig.cover_config_per_library === 'object'
+      ? JSON.parse(JSON.stringify(initialConfig.cover_config_per_library))
+      : {},
+  )
+
+  /** 当前选中的库是否已存有专属配置（决定 UI 上的「专属 / 全局默认」标识）。 */
+  const isLibraryCustom = computed(() => !!coverConfigPerLibrary[form.library_id])
 
   // 各媒体库手填的英文名（副标题覆盖值），随配置持久化到插件配置。
   const libraryEnNames = reactive(
@@ -190,14 +211,47 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 目标对象跟随所选媒体库：主标题=库名，副标题=英文名。
-   *  英文名优先取「该库手填值」，其次内置中英词典，最后回退库名本身。 */
-  function syncFromLibrary() {
+  /** 当前表单的完整配置快照（按库槽位用）。内容字段不进快照，切库时按目标库重算。 */
+  function currentSlotSnapshot() {
+    const config = { ...form.config }
+    for (const key of CONTENT_KEYS) delete config[key]
+    return {
+      layout: form.layout,
+      config,
+      assets_mode: form.mode,
+      poster_count: Number(form.poster_count || 0),
+      backdrop_count: Number(form.backdrop_count || 0),
+    }
+  }
+
+  /** 按当前媒体库载入配置：有专属槽位则用槽位，否则回退全局默认。 */
+  function loadSlotForLibrary() {
+    const slot = coverConfigPerLibrary[form.library_id]
+    const base = slot || globalDefault
+    form.layout = base.layout || globalDefault.layout
+    form.mode = base.assets_mode || globalDefault.assets_mode
+    form.poster_count = Number(base.poster_count || 0)
+    form.backdrop_count = Number(base.backdrop_count || 0)
+    form.config = coerceValues(allGroups.value, { ...(base.config || {}) })
+    applyDefaults(allGroups.value)
+  }
+
+  /** 只按当前库刷新内容字段（主标题=库名，副标题=英文名）。
+   *  与 loadSlotForLibrary 分开：载入模板时只换风格，不能重置已套用的风格参数。 */
+  function applyLibraryContent() {
     const target = libraries.value.find(item => item.id === form.library_id)
     if (!target) return
     form.config.title = target.name || target.id
     form.config.subtitle =
       libraryEnNames[form.library_id] || englishNameFor(target.name) || target.name || ''
+  }
+
+  /** 切换媒体库：先按库载入完整配置快照（或回落全局），再定标题 / 副标题。
+   *  英文名优先取「该库手填值」，其次内置中英词典，最后回退库名本身。 */
+  function syncFromLibrary() {
+    if (!form.library_id) return
+    loadSlotForLibrary()
+    applyLibraryContent()
   }
 
   /** 用户手填副标题时记为当前媒体库的英文名覆盖值（清空则移除覆盖）。 */
@@ -206,6 +260,70 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     const text = String(value == null ? '' : value).trim()
     if (text) libraryEnNames[form.library_id] = text
     else delete libraryEnNames[form.library_id]
+  }
+
+  /** 当前库名（用于「专属 / 全局默认」提示文案）。 */
+  function currentLibraryName() {
+    const target = libraries.value.find(item => item.id === form.library_id)
+    return (target && target.name) || form.library_id || '当前库'
+  }
+
+  /** 存为当前库的专属配置：把整份快照写入对应槽位并持久化。 */
+  async function saveLibraryConfig() {
+    if (!form.library_id) {
+      report('请先选择媒体库', false)
+      return
+    }
+    coverConfigPerLibrary[form.library_id] = currentSlotSnapshot()
+    try {
+      await savePluginConfig(api(), pluginId(), {
+        cover_config_per_library: { ...coverConfigPerLibrary },
+        library_en_names: { ...libraryEnNames },
+      })
+      report(`已保存「${currentLibraryName()}」的专属配置`)
+    } catch (error) {
+      report(error?.message || '专属配置保存失败', false)
+    }
+  }
+
+  /** 删除当前库的专属配置：回退到全局默认。 */
+  async function deleteLibraryConfig() {
+    if (!form.library_id) {
+      report('请先选择媒体库', false)
+      return
+    }
+    delete coverConfigPerLibrary[form.library_id]
+    try {
+      await savePluginConfig(api(), pluginId(), {
+        cover_config_per_library: { ...coverConfigPerLibrary },
+      })
+      loadSlotForLibrary()
+      applyLibraryContent()
+      report(`已删除「${currentLibraryName()}」的专属配置，回退全局默认`)
+    } catch (error) {
+      report(error?.message || '专属配置删除失败', false)
+    }
+  }
+
+  /** 把当前库配置批量套用到其它库（目标库列表由 UI 多选给出）。 */
+  async function applyConfigToLibraries(targetIds) {
+    const ids = (Array.isArray(targetIds) ? targetIds : []).filter(
+      id => id && id !== form.library_id,
+    )
+    if (!ids.length) {
+      report('请先勾选其它媒体库', false)
+      return
+    }
+    const snapshot = currentSlotSnapshot()
+    for (const id of ids) coverConfigPerLibrary[id] = JSON.parse(JSON.stringify(snapshot))
+    try {
+      await savePluginConfig(api(), pluginId(), {
+        cover_config_per_library: { ...coverConfigPerLibrary },
+      })
+      report(`已套用到 ${ids.length} 个媒体库`)
+    } catch (error) {
+      report(error?.message || '批量套用失败', false)
+    }
   }
 
   async function loadLayouts() {
@@ -311,17 +429,26 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
   }
 
   /** 把当前封面方案持久化到插件配置（下次进入页面与自动封面「跟随封面设计」
-   *  都读它）。只写设计字段，基础字段由设置弹窗负责；失败不影响应用结果。 */
+   *  都读它）。只写设计字段，基础字段由设置弹窗负责；失败不影响应用结果。
+   *  若当前库已有专属槽位，写入该槽位；否则写入全局默认。 */
   async function saveScheme() {
     try {
-      await savePluginConfig(api(), pluginId(), {
-        cover_layout: form.layout,
-        cover_config: { ...form.config },
-        assets_mode: form.mode,
-        poster_count: Number(form.poster_count || 0),
-        backdrop_count: Number(form.backdrop_count || 0),
+      const base = {
         library_en_names: { ...libraryEnNames },
-      })
+      }
+      if (coverConfigPerLibrary[form.library_id]) {
+        // 正在编辑某库的专属配置：整份快照写进对应槽位。
+        coverConfigPerLibrary[form.library_id] = currentSlotSnapshot()
+        base.cover_config_per_library = { ...coverConfigPerLibrary }
+      } else {
+        // 没有专属槽位：作为全局默认，老字段保持兼容。
+        base.cover_layout = form.layout
+        base.cover_config = { ...form.config }
+        base.assets_mode = form.mode
+        base.poster_count = Number(form.poster_count || 0)
+        base.backdrop_count = Number(form.backdrop_count || 0)
+      }
+      await savePluginConfig(api(), pluginId(), base)
     } catch {
       /* 方案保存失败时保持静默：封面本身已应用成功 */
     }
@@ -460,7 +587,9 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     }
   }
 
-  /** 载入模板：**只套用风格参数**，主/副标题属于「目标对象」，不随模板改动。 */
+  /** 载入模板：**只套用风格参数**，主/副标题属于「目标对象」，不随模板改动。
+   *  模板作为「快速套用风格」入口：套用后写入当前库槽位，供继续微调；
+   *  自动封面运行时按库读该槽位，不再直接依赖单一模板值。 */
   function loadTemplate(template) {
     const incoming = { ...(template.config || {}) }
     for (const key of CONTENT_KEYS) delete incoming[key]
@@ -471,8 +600,9 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
       subtitle: form.config.subtitle,
     })
     applyDefaults(allGroups.value)
-    syncFromLibrary()
-    report(`已载入模板：${template.name || template.filename}（仅套用风格参数）`)
+    if (form.library_id) coverConfigPerLibrary[form.library_id] = currentSlotSnapshot()
+    applyLibraryContent()
+    report(`已载入模板：${template.name || template.filename}（仅套用风格参数，可继续微调后保存）`)
   }
 
   /** 模板预览图地址（原生资源端点，浏览器可直接 <img> 加载）。 */
@@ -512,6 +642,10 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     libraryItems,
     layoutItems,
     fontItems,
+    coverConfigPerLibrary,
+    isLibraryCustom,
+    currentSlotSnapshot,
+    currentLibraryName,
     loadAll,
     loadLibraries,
     loadKeyart,
@@ -522,6 +656,9 @@ export function useCoverDesigner({ api, pluginId, initialConfig, notify }) {
     libraryEnNames,
     syncFromLibrary,
     onSubtitleEdited,
+    saveLibraryConfig,
+    deleteLibraryConfig,
+    applyConfigToLibraries,
     previewCover,
     applyCover,
     uploadFont,

@@ -62,6 +62,22 @@ def resolve_design(plugin, config: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]
     return str(config.get("cover_layout") or "classic"), dict(config.get("cover_config") or {})
 
 
+def library_design(config: Dict[str, Any], library_id: str) -> Dict[str, Any] | None:
+    """取某个媒体库的专属配置快照；无专属配置返回 None。
+
+    快照由前端「存为当前库专属配置 / 批量套用 / 模板快速套用」写入，结构：
+    ``{layout, config, assets_mode, poster_count, backdrop_count}``。
+    自动封面每库刷新时优先用它，取不到才回退 resolve_design 的全局方案。
+    """
+    mapping = config.get("cover_config_per_library")
+    if not isinstance(mapping, dict):
+        return None
+    slot = mapping.get(str(library_id))
+    if not isinstance(slot, dict):
+        return None
+    return slot
+
+
 def selected_targets(plugin, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """解析目标媒体库：auto_cover_libraries 与 selected_servers 取交集。
 
@@ -118,21 +134,42 @@ def refresh_library(
     """
     library_id = target["library_id"]
     ref = target["ref"]
-    engine_config = dict(style)
-    engine_config["engine"] = layout
+
+    # 优先用该库的专属配置快照（每库一份完整配置）；没有则回退传入的全局方案。
+    # 这样定时整轮（run_auto_cover）与 webhook 单库（_refresh_one_quietly）
+    # 都不必各自解析，逐库刷新时统一在这里按 library_id 取。
+    slot = library_design(config, library_id)
+    if slot:
+        effective_layout = str(slot.get("layout") or layout)
+        slot_style = slot.get("config")
+        engine_config = dict(slot_style) if isinstance(slot_style, dict) else dict(style)
+        count_source: Dict[str, Any] = slot
+        mode = str(slot.get("assets_mode") or config.get("assets_mode") or "random")
+    else:
+        effective_layout = layout
+        engine_config = dict(style)
+        count_source = config
+        mode = str(config.get("assets_mode") or "random")
+
+    engine_config["engine"] = effective_layout
     engine_config["title"] = target["name"] or library_id
     engine_config["subtitle"] = _subtitle_for(config, library_id, engine_config["title"])
 
     def _count(key: str, fallback: int) -> int:
+        raw = engine_config.get(key)
+        if raw is None:
+            raw = count_source.get(key) if isinstance(count_source, dict) else None
+        if raw is None:
+            raw = fallback
         try:
-            return int(engine_config.get(key) or fallback or 0)
+            return int(raw or 0)
         except (TypeError, ValueError):
             return int(fallback or 0)
 
     assets = emby_assets.fetch_assets(
         ref,
         library_id,
-        mode=str(config.get("assets_mode") or "random"),
+        mode=mode,
         poster_count=_count("poster_count", config.get("poster_count") or 6),
         backdrop_count=_count("backdrop_count", config.get("backdrop_count") or 1),
     )

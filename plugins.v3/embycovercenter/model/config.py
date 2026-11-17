@@ -21,8 +21,13 @@ def default_config() -> Dict[str, Any]:
         # 参与封面的媒体服务器名称；空 = 全部已启用服务器
         "selected_servers": [],
         # 封面：默认布局与布局参数（cover_config 由前端按布局 schema 填充）
+        # 这两个字段是「全局默认」：新库没有专属配置时回退到这里，保持向后兼容。
         "cover_layout": DEFAULT_COVER_LAYOUT,
         "cover_config": {},
+        # 每个媒体库一份完整配置快照：{ 媒体库ID: { layout, config, assets_mode,
+        # poster_count, backdrop_count } }。自动封面按库取这里的快照；没有该库条目
+        # 才回退到上面的全局默认（或 auto_cover_template 指定的模板预设）。
+        "cover_config_per_library": {},
         "assets_mode": "random",
         "poster_count": 6,
         "backdrop_count": 1,
